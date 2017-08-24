@@ -217,11 +217,14 @@ cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Dataty
 
 
 @cython.wraparound(False)
-def layer_extents(mesh):
+def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
+                  numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_extents):
     """
     Compute the extents (start and stop layers) for an extruded mesh.
 
-    :arg mesh: The extruded mesh.
+    :arg dm: The DMPlex.
+    :arg cell_numbering: The cell numbering (plex points to Firedrake points).
+    :arg cell_extents: The cell layers.
 
     :returns: a numpy array of shape (npoints, 4) where npoints is the
         number of mesh points in the base mesh.  ``npoints[p, 0:2]``
@@ -237,10 +240,7 @@ def layer_extents(mesh):
        points and translate to Firedrake numbers if necessary.
     """
     cdef:
-        PETSc.DM dm
         PETSc.SF sf
-        PETSc.Section section
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] tmp
         PetscInt cStart, cEnd, c, cell, ci, p
@@ -249,9 +249,6 @@ def layer_extents(mesh):
         MPI.Datatype contig, typ
         MPI.MPI_Op EXTENTS_REDUCER = NULL
 
-    dm = mesh._plex
-    section = mesh._cell_numbering
-    cell_extents = mesh.cell_set.layers_array
     pStart, pEnd = dm.getChart()
 
     iinfo = numpy.iinfo(IntType)
@@ -262,7 +259,7 @@ def layer_extents(mesh):
     cStart, cEnd = dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
         CHKERR(DMPlexGetTransitiveClosure(dm.dm, c, PETSC_TRUE, &closureSize, &closure))
-        CHKERR(PetscSectionGetOffset(section.sec, c, &cell))
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         for ci in range(closureSize):
             p = closure[2*ci]
             # Allocation bounds
@@ -274,7 +271,7 @@ def layer_extents(mesh):
             layer_extents[p, 2] = max(layer_extents[p, 2], cell_extents[cell, 0])
             layer_extents[p, 3] = min(layer_extents[p, 3], cell_extents[cell, 1])
     CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, 0, PETSC_TRUE, NULL, &closure))
-    if mesh.comm.size == 1:
+    if dm.comm.size == 1:
         return layer_extents
 
     # OK, so now we have partially correct extents.  Those points on

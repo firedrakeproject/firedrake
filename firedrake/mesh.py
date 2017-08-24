@@ -776,11 +776,27 @@ class ExtrudedMeshTopology(MeshTopology):
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
         self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
         if layers.shape:
-            # Bootstrapping issue, this call needs the cell_set to be created.
-            self.cell_set.masks = extnum.cell_entity_masks(self)
+            self.variable_layers = True
+            extents = extnum.layer_extents(self._plex,
+                                           self._cell_numbering,
+                                           layers)
+            if np.any(extents[:, 3] - extents[:, 2] <= 0):
+                raise NotImplementedError("Vertically disconnected cells unsupported")
+            self.layer_extents = extents
+            """The layer extents for all mesh points.
+
+            For variable layers, the layer extent does not match those for cells.
+            A numpy array of layer extents (in PyOP2 format
+            :math:`[start, stop)`), of shape ``(num_mesh_points, 4)`` where
+            the first two extents are used for allocation and the last
+            two for iteration.
+            """
+            masks = extnum.cell_entity_masks(self)
+        else:
+            self.variable_layers = False
+            masks = None
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, masks=masks)
 
     @property
     def name(self):
@@ -900,11 +916,6 @@ class ExtrudedMeshTopology(MeshTopology):
         else:
             return self.cell_set.layers
 
-    @utils.cached_property
-    def variable_layers(self):
-        """Does the extruded mesh have variable layer numbers?"""
-        return not self.cell_set.constant_layers
-
     def entity_layers(self, height, label=None):
         """Return the number of layers on each entity of a given plex
         height.
@@ -921,22 +932,6 @@ class ExtrudedMeshTopology(MeshTopology):
             return extnum.entity_layers(self, height, label)
         else:
             return self.cell_set.layers
-
-    @utils.cached_property
-    def layer_extents(self):
-        """The layer extents for all mesh points.
-
-        For variable layers, the layer extent does not match those for cells.
-
-        :returns: numpy array of layer extents (in PyOP2 format
-            :math:`[start, stop)`), of shape ``(num_cells, 4)`` where
-            the first two extents are used for allocation and the last
-            two for iteration.
-        """
-        extents = extnum.layer_extents(self)
-        if np.any(extents[:, 3] - extents[:, 2] <= 0):
-            raise NotImplementedError("Vertically disconnected cells unsupported")
-        return extents
 
     def cell_dimension(self):
         """Returns the cell dimension."""
