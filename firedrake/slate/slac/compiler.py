@@ -90,6 +90,9 @@ class KernelBuilder(KernelBuilderBase):
             it_type = cxt_kernel.original_integral_type
             exp = cxt_kernel.tensor
 
+            if it_type not in supported_integral_types:
+                raise ValueError("Integral type '%s' not recognized" % it_type)
+
             # Explicit checking of coordinates
             coordinates = cxt_kernel.tensor.ufl_domain().coordinates
             if coords is not None:
@@ -97,85 +100,39 @@ class KernelBuilder(KernelBuilderBase):
             else:
                 coords = coordinates
 
-            if it_type == "interior_facet_horiz":
-                top_sks = sorted([k for k in cxt_kernel.tsfc_kernels
-                                  if k.kinfo.integral_type == "exterior_facet_top"],
-                                 key=lambda x: x.indices)
-                btm_sks = sorted([k for k in cxt_kernel.tsfc_kernels
-                                  if k.kinfo.integral_type == "exterior_facet_bottom"],
-                                 key=lambda x: x.indices)
-                for top_sk, btm_sk in zip(top_sks, btm_sks):
-                    assert top_sk.indices == btm_sk.indices
-                    indices = top_sk.indices
+            for split_kernel in cxt_kernel.tsfc_kernels:
+                indices = split_kernel.indices
+                kinfo = split_kernel.kinfo
 
-                    # TODO: Implement subdomains for Slate tensors
-                    if any(k.kinfo.subdomain_id != "otherwise"
-                           for k in [top_sk, btm_sk]):
-                        raise NotImplementedError("Subdomains not implemented.")
+                # TODO: Implement subdomains for Slate tensors
+                if kinfo.subdomain_id != "otherwise":
+                    raise NotImplementedError("Subdomains not implemented.")
 
-                    top_c_map = top_sk.kinfo.coefficient_map
-                    btm_c_map = btm_sk.kinfo.coefficient_map
-                    assert top_c_map == btm_c_map
-                    coefficient_map = tuple(OrderedDict().fromkeys(top_c_map))
+                args = [c for i in kinfo.coefficient_map
+                        for c in self.coefficient(local_coefficients[i])]
 
-                    args = [c for i in coefficient_map
-                            for c in self.coefficient(local_coefficients[i])]
+                oriented = oriented or kinfo.oriented
+                if oriented:
+                    args.insert(0, cell_orientations_sym)
 
-                    assert top_sk.kinfo.oriented == btm_sk.kinfo.oriented
-                    oriented = oriented or top_sk.kinfo.oriented
-                    if oriented:
-                        args.insert(0, cell_orientations_sym)
+                if kinfo.integral_type in ["interior_facet",
+                                           "exterior_facet",
+                                           "interior_facet_vert",
+                                           "exterior_facet_vert"]:
+                    args.append(ast.FlatBlock("&%s" % it_sym))
 
-                    include_dirs.extend(top_sk.kinfo.kernel._include_dirs
-                                        + btm_sk.kinfo.kernel._include_dirs)
-                    tensor = eigen_tensor(exp, self.temps[exp], indices)
-                    top_call = ast.FunCall(top_sk.kinfo.kernel.name,
-                                           tensor,
-                                           coord_sym,
-                                           *args)
-                    btm_call = ast.FunCall(btm_sk.kinfo.kernel.name,
-                                           tensor,
-                                           coord_sym,
-                                           *args)
-                    assembly_calls[it_type + "_top"].append(top_call)
-                    assembly_calls[it_type + "_bottom"].append(btm_call)
-                    kasts = [transformer.visit(ki.kernel._ast)
-                             for ki in [top_sk.kinfo, btm_sk.kinfo]]
-                    templated_subkernels.extend(kasts)
-            else:
-                for split_kernel in cxt_kernel.tsfc_kernels:
-                    indices = split_kernel.indices
-                    kinfo = split_kernel.kinfo
+                # Assembly calls within the macro kernel
+                tensor = eigen_tensor(exp, self.temps[exp], indices)
+                include_dirs.extend(kinfo.kernel._include_dirs)
+                call = ast.FunCall(kinfo.kernel.name,
+                                   tensor,
+                                   coord_sym,
+                                   *args)
+                assembly_calls[it_type].append(call)
 
-                    # TODO: Implement subdomains for Slate tensors
-                    if kinfo.subdomain_id != "otherwise":
-                        raise NotImplementedError("Subdomains not implemented.")
-
-                    args = [c for i in kinfo.coefficient_map
-                            for c in self.coefficient(local_coefficients[i])]
-
-                    oriented = oriented or kinfo.oriented
-                    if oriented:
-                        args.insert(0, cell_orientations_sym)
-
-                    if kinfo.integral_type in ["interior_facet",
-                                               "exterior_facet",
-                                               "interior_facet_vert",
-                                               "exterior_facet_vert"]:
-                        args.append(ast.FlatBlock("&%s" % it_sym))
-
-                    # Assembly calls within the macro kernel
-                    tensor = eigen_tensor(exp, self.temps[exp], indices)
-                    include_dirs.extend(kinfo.kernel._include_dirs)
-                    call = ast.FunCall(kinfo.kernel.name,
-                                       tensor,
-                                       coord_sym,
-                                       *args)
-                    assembly_calls[it_type].append(call)
-
-                    # Subkernels for local assembly (Eigen templated functions)
-                    kast = transformer.visit(kinfo.kernel._ast)
-                    templated_subkernels.append(kast)
+                # Subkernels for local assembly (Eigen templated functions)
+                kast = transformer.visit(kinfo.kernel._ast)
+                templated_subkernels.append(kast)
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
@@ -197,17 +154,12 @@ class KernelBuilder(KernelBuilderBase):
     def needs_mesh_layers(self):
         """
         """
-        mesh_layer_types = ["interior_facet_horiz",
+        mesh_layer_types = ["interior_facet_horiz_top",
+                            "interior_facet_horiz_bottom",
                             "exterior_facet_bottom",
                             "exterior_facet_top"]
         return any(cxt_k.original_integral_type in mesh_layer_types
                    for cxt_k in self.context_kernels)
-
-    @property
-    def needs_orientation(self):
-        """
-        """
-        return self.oriented
 
     def construct_ast(self, macro_kernels):
         """Constructs the final kernel AST.
@@ -400,7 +352,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coord_sym)]
 
     # Orientation information
-    if builder.needs_orientation:
+    if builder.oriented:
         args.append(ast.Decl("int **", cell_orientations_sym))
 
     # Coefficient information
