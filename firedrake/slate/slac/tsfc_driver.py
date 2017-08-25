@@ -90,24 +90,27 @@ def transform_integrals(integrals):
 
     for it in integrals:
         it_type = it.integral_type()
-        transformed_integrals.setdefault(it_type, list())
 
         if it_type == "cell" or it_type.startswith("exterior_facet"):
             # No need to reconstruct cell or exterior facet integrals
-            transformed_integrals[it_type].append(it)
+            transformed_integrals.setdefault(it_type, list()).append(it)
 
         elif it_type == "interior_facet":
             new_it = it.reconstruct(integral_type="exterior_facet")
-            transformed_integrals[it_type].append(new_it)
+            transformed_integrals.setdefault(it_type, list()).append(new_it)
 
         elif it_type == "interior_facet_vert":
             new_it = it.reconstruct(integral_type="exterior_facet_vert")
-            transformed_integrals[it_type].append(new_it)
+            transformed_integrals.setdefault(it_type, list()).append(new_it)
 
         elif it_type == "interior_facet_horiz":
+            # Separate into "top" and "bottom"
             top_it = it.reconstruct(integral_type="exterior_facet_top")
             bottom_it = it.reconstruct(integral_type="exterior_facet_bottom")
-            transformed_integrals[it_type].extend((top_it, bottom_it))
+            it_top = it_type + "_top"
+            it_btm = it_type + "_bottom"
+            transformed_integrals.setdefault(it_top, list()).append(top_it)
+            transformed_integrals.setdefault(it_btm, list()).append(bottom_it)
 
         else:
             raise ValueError("Integral type: %s not recognized!" % it_type)
