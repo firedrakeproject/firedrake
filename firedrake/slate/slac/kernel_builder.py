@@ -1,6 +1,8 @@
-from collections import OrderedDict
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 from coffee import base as ast
+
+from collections import OrderedDict
 
 from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
 from firedrake.slate.slac.utils import (traverse_dags,
@@ -11,20 +13,11 @@ from firedrake.utils import cached_property
 from ufl import MixedElement
 
 
-class KernelBuilderBase(object):
-    """A helper class for constructing Slate kernels.
+class KernelBuilderBase(object, metaclass=ABCMeta):
+    """A base helper class for constructing Slate kernels."""
 
-    This class provides access to all temporaries and subkernels associated
-    with a Slate expression. If the Slate expression contains nodes that
-    require operations on already assembled data (such as the action of a
-    slate tensor on a `ufl.Coefficient`), this class provides access to the
-    expression which needs special handling.
-
-    Instructions for assembling the full kernel AST of a Slate expression is
-    provided by the method `construct_ast`.
-    """
     def __init__(self, expression, tsfc_parameters=None):
-        """Constructor for the KernelBuilder class.
+        """Constructor for the KernelBuilderBase class.
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
@@ -59,17 +52,6 @@ class KernelBuilderBase(object):
         self.temps = temps
         self.aux_exprs = aux_exprs
         self.tsfc_parameters = tsfc_parameters
-
-    @property
-    def integral_type(self):
-        """Returns the integral type associated with a Slate kernel.
-
-        Note that Slate kernels are always of type 'cell' since these
-        are localized kernels for element-wise linear algebra. This
-        may change in the future if we want Slate to be used for
-        LDG/CDG finite element discretizations.
-        """
-        return "cell"
 
     @cached_property
     def coefficient_map(self):
@@ -112,24 +94,12 @@ class KernelBuilderBase(object):
                        for cxt_k in cxt_tuple]
         return cxt_kernels
 
-    def construct_macro_kernel(self, name, args, statements):
-        """Constructs a macro kernel function that calls any subkernels.
-        The :class:`Transformer` is used to perform the conversion from
-        standard C into the Eigen C++ template library syntax.
+    @abstractproperty
+    def integral_type(self):
+        """Returns the integral type associated with a Slate kernel. This
+        is used to determine how the Slate kernel should be iterated over
+        the mesh."""
 
-        :arg name: a string denoting the name of the macro kernel.
-        :arg args: a list of arguments for the macro_kernel.
-        :arg statements: a `coffee.base.Block` of instructions, which contains
-                         declarations of temporaries, function calls to all
-                         subkernels and any auxilliary information needed to
-                         evaulate the Slate expression.
-                         E.g. facet integral loops and action loops.
-        """
-        # all kernel body statements must be wrapped up as a coffee.base.Block
-        assert isinstance(statements, ast.Block), (
-            "Body statements must be wrapped in an ast.Block"
-        )
-
-        macro_kernel = ast.FunDecl("void", name, args,
-                                   statements, pred=["static", "inline"])
-        return macro_kernel
+    @abstractmethod
+    def construct_ast(self, *args):
+        """Constructs the final kernel AST."""

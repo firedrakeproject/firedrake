@@ -50,10 +50,13 @@ cell_facet_sym = ast.Symbol("cell_facets")
 it_sym = ast.Symbol("i0")
 mesh_layer_sym = ast.Symbol("layer")
 
-supported_integral_types = [
+# Supported integral measure types
+supported_measures = [
     "cell",
     "interior_facet",
     "exterior_facet",
+    # The "interior_facet_horiz" measure is separated into two parts:
+    # "top" and "bottom"
     "interior_facet_horiz_top",
     "interior_facet_horiz_bottom",
     "interior_facet_vert",
@@ -63,26 +66,33 @@ supported_integral_types = [
 ]
 
 
-class KernelBuilder(KernelBuilderBase):
-    """
-    """
+class LocalKernelBuilder(KernelBuilderBase):
+    """The primary helper class for constructing cell-local linear
+    algebra kernels from Slate expressions.
 
+    This class provides access to all temporaries and subkernels associated
+    with a Slate expression. If the Slate expression contains nodes that
+    require operations on already assembled data (such as the action of a
+    slate tensor on a `ufl.Coefficient`), this class provides access to the
+    expression which needs special handling.
+
+    Instructions for assembling the full kernel AST of a Slate expression is
+    provided by the method `construct_ast`.
+    """
     def __init__(self, expression, tsfc_parameters=None):
-        """
-        """
-        super(KernelBuilder, self).__init__(expression=expression,
-                                            tsfc_parameters=tsfc_parameters)
-        self._organize_assembly_calls()
+        """Constructor for the LocalKernelBuilder class.
 
-    def _organize_assembly_calls(self):
+        :arg expression: a :class:`TensorBase` object.
+        :arg tsfc_parameters: an optional `dict` of parameters to provide to
+                              TSFC when constructing subkernels associated
+                              with the expression.
         """
-        """
+        super(LocalKernelBuilder, self).__init__(expression=expression,
+                                                 tsfc_parameters=tsfc_parameters)
         transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
-        assembly_calls = OrderedDict()
-        for k in supported_integral_types:
-            assembly_calls[k] = []
+        assembly_calls = OrderedDict([(it, []) for it in supported_measures])
         coords = None
         oriented = False
         for cxt_kernel in self.context_kernels:
@@ -90,7 +100,7 @@ class KernelBuilder(KernelBuilderBase):
             it_type = cxt_kernel.original_integral_type
             exp = cxt_kernel.tensor
 
-            if it_type not in supported_integral_types:
+            if it_type not in supported_measures:
                 raise ValueError("Integral type '%s' not recognized" % it_type)
 
             # Explicit checking of coordinates
@@ -142,38 +152,52 @@ class KernelBuilder(KernelBuilderBase):
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented
 
+    @property
+    def integral_type(self):
+        """Returns the integral type associated with a Slate kernel.
+
+        Note that Slate kernels (for now) are always of type 'cell' since
+        these are localized kernels for element-wise linear algebra. This
+        may change in the future if we want Slate to be used for LDG/CDG
+        finite element discretizations.
+        """
+        return "cell"
+
     @cached_property
     def needs_cell_facets(self):
-        """
+        """Searches for any embedded forms (by inspecting the ContextKernels)
+        which require looping over cell facets. If any are found, this function
+        returns `True` and `False` otherwise.
         """
         cell_facet_types = ["interior_facet",
                             "exterior_facet",
                             "interior_facet_vert",
                             "exterior_facet_vert"]
-        return any(self.assembly_calls[it] for it in cell_facet_types)
+        return any(cxt_k.original_integral_type in cell_facet_types
+                   for cxt_k in self.context_kernels)
 
     @cached_property
     def needs_mesh_layers(self):
-        """
+        """Searches for any embedded forms (by inspecting the ContextKernels)
+        which require mesh level information (extrusion measures). If any are
+        found, this function returns `True` and `False` otherwise.
         """
         mesh_layer_types = ["interior_facet_horiz_top",
                             "interior_facet_horiz_bottom",
                             "exterior_facet_bottom",
                             "exterior_facet_top"]
-        return any(self.assembly_calls[it] for it in mesh_layer_types)
+        return any(cxt_k.original_integral_type in mesh_layer_types
+                   for cxt_k in self.context_kernels)
 
-    def construct_ast(self, macro_kernels):
+    def construct_ast(self, *args):
         """Constructs the final kernel AST.
 
-        :arg macro_kernels: A `list` of macro kernel functions, which
-                            call subkernels and perform elemental
-                            linear algebra.
+        :arg args: An iterable of macro kernel functions, which call subkernels
+                   and perform elemental linear algebra.
 
         Returns: The complete kernel AST as a COFFEE `ast.Node`
         """
-        assert isinstance(macro_kernels, list), (
-            "Please wrap all macro kernel functions in a list"
-        )
+        macro_kernels = list(args)
         kernel_ast = self.templated_subkernels
         kernel_ast.extend(macro_kernels)
 
@@ -220,11 +244,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     statements = []
 
     # Create a builder for the Slate expression
-    builder = KernelBuilder(expression=slate_expr,
-                            tsfc_parameters=tsfc_parameters)
+    builder = LocalKernelBuilder(expression=slate_expr,
+                                 tsfc_parameters=tsfc_parameters)
 
-    # We keep track of temporaries that have been declared
     declared_temps = {}
+    statements.append(ast.FlatBlock("/* Declare and initialize */\n"))
     for exp in builder.temps:
         t = builder.temps[exp]
 
@@ -234,27 +258,45 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             statements.append(ast.FlatBlock("%s.setZero();\n" % t))
             declared_temps[exp] = t
 
+    statements.append(ast.FlatBlock("/* Assemble local tensors */\n"))
+    # Cell integrals are straightforward. Just splat them in our
+    # statements
     statements.extend(builder.assembly_calls["cell"])
 
     if builder.needs_cell_facets:
+        # Measures which need cell facets to evaluate. 1 denotes
+        # interior facets and 0 denotes exterior facet.
         chker = {"interior_facet": 1,
                  "exterior_facet": 0,
                  "interior_facet_vert": 1,
                  "exterior_facet_vert": 0}
-        int_calls = []
-        ext_calls = []
-        for it_type in chker:
-            if chker[it_type] == 1:
-                int_calls.extend(builder.assembly_calls[it_type])
-            else:
-                ext_calls.extend(builder.assembly_calls[it_type])
 
+        flatten = lambda l: [x for y in l for x in y]
+        int_calls = flatten([builder.assembly_calls[it_type]
+                             for it_type in chker
+                             if chker[it_type] == 1])
+        ext_calls = flatten([builder.assembly_calls[it_type]
+                             for it_type in chker
+                             if chker[it_type] == 0])
+
+        # Compute the number of facets to loop over
         domain = slate_expr.ufl_domain()
         if domain.cell_set._extruded:
             num_facets = domain.ufl_cell()._cells[0].num_facets()
         else:
             num_facets = domain.ufl_cell().num_facets()
 
+        # The for-loop will have the general structure:
+        #
+        #    FOR (facet=0; facet<num_facets; facet++):
+        #        IF (facet is interior):
+        #            *interior calls
+        #        ELSE IF (facet is exterior):
+        #            *interior calls
+        #
+        # If only interior (exterior) facets are present,
+        # then only a single IF-statement checking for interior
+        # (exterior) facets will be present within the loop.
         if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
         if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
         if int_calls and ext_calls:
@@ -276,10 +318,18 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         # FIXME: No variable layers assumption
         num_layers = slate_expr.ufl_domain().topological.layers - 1
 
-        # In the presence of interior horizontal facets, we can use the
-        # if(top)---elif(bottom)---else(top and bottom) structure. Any
-        # extruded top or bottom calls for extruded facets are included
-        # within the appropriate mesh-level if-blocks (if present).
+        # In the presence of interior horizontal facets, we generate:
+        #
+        #    IF (layer == bottom_layer):
+        #        *bottom calls
+        #    ELSE IF (layer == top_layer):
+        #        *top calls
+        #    ELSE:
+        #        *top calls
+        #        *bottom calls
+        #
+        # Any extruded top or bottom calls for extruded facets are
+        # included within the appropriate mesh-level if-blocks.
         int_top = builder.assembly_calls["interior_facet_horiz_top"]
         int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
         ext_top = builder.assembly_calls["exterior_facet_top"]
@@ -300,7 +350,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
                                      (block_btm, elif_block)))
 
-        # No interior horizontal facets. Just standard if-blocks.
+        # No interior horizontal facets. Just standard IF-blocks, e.g:
+        #
+        #    IF (layer == bottom_layer):
+        #        *bottom calls
+        #
+        #    IF (layer == top_layer):
+        #        *top calls
         else:
             if ext_btm:
                 layer = 0
@@ -365,12 +421,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # NOTE: In the future we may want to have more than one "macro_kernel"
     macro_kernel_name = "compile_slate"
     stmt = ast.Block(statements)
-    macro_kernel = builder.construct_macro_kernel(name=macro_kernel_name,
-                                                  args=args,
-                                                  statements=stmt)
+    macro_kernel = construct_macro_kernel(name=macro_kernel_name,
+                                          args=args,
+                                          statements=stmt)
 
     # Tell the builder to construct the final ast
-    kernel_ast = builder.construct_ast([macro_kernel])
+    kernel_ast = builder.construct_ast(macro_kernel)
 
     # Now we wrap up the kernel ast as a PyOP2 kernel.
     # Include the Eigen header files
@@ -406,6 +462,27 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     slate_expr._metakernel_cache = kernels
 
     return kernels
+
+
+def construct_macro_kernel(name, args, statements):
+    """Constructs a macro kernel function that calls any subkernels.
+
+    :arg name: a string denoting the name of the macro kernel.
+    :arg args: a list of arguments for the macro_kernel.
+    :arg statements: a `coffee.base.Block` of instructions, which contains
+                     declarations of temporaries, function calls to all
+                     subkernels and any auxilliary information needed to
+                     evaulate the Slate expression.
+                     E.g. facet integral loops and action loops.
+    """
+    # all kernel body statements must be wrapped up as a coffee.base.Block
+    assert isinstance(statements, ast.Block), (
+        "Body statements must be wrapped in an ast.Block"
+    )
+
+    macro_kernel = ast.FunDecl("void", name, args,
+                               statements, pred=["static", "inline"])
+    return macro_kernel
 
 
 def auxiliary_temporaries(builder, declared_temps):
