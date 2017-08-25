@@ -104,35 +104,38 @@ class KernelBuilder(KernelBuilderBase):
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
 
-                # TODO: Implement subdomains for Slate tensors
-                if kinfo.subdomain_id != "otherwise":
-                    raise NotImplementedError("Subdomains not implemented.")
+                # TSFC No-op kernels do not contain a kernel body. If this is
+                # the case, we don't create a function call.
+                if kinfo.kernel:
+                    # TODO: Implement subdomains for Slate tensors
+                    if kinfo.subdomain_id != "otherwise":
+                        raise NotImplementedError("Subdomains not implemented.")
 
-                args = [c for i in kinfo.coefficient_map
-                        for c in self.coefficient(local_coefficients[i])]
+                    args = [c for i in kinfo.coefficient_map
+                            for c in self.coefficient(local_coefficients[i])]
 
-                oriented = oriented or kinfo.oriented
-                if oriented:
-                    args.insert(0, cell_orientations_sym)
+                    oriented = oriented or kinfo.oriented
+                    if oriented:
+                        args.insert(0, cell_orientations_sym)
 
-                if kinfo.integral_type in ["interior_facet",
-                                           "exterior_facet",
-                                           "interior_facet_vert",
-                                           "exterior_facet_vert"]:
-                    args.append(ast.FlatBlock("&%s" % it_sym))
+                    if kinfo.integral_type in ["interior_facet",
+                                               "exterior_facet",
+                                               "interior_facet_vert",
+                                               "exterior_facet_vert"]:
+                        args.append(ast.FlatBlock("&%s" % it_sym))
 
-                # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
-                include_dirs.extend(kinfo.kernel._include_dirs)
-                call = ast.FunCall(kinfo.kernel.name,
-                                   tensor,
-                                   coord_sym,
-                                   *args)
-                assembly_calls[it_type].append(call)
+                    # Assembly calls within the macro kernel
+                    tensor = eigen_tensor(exp, self.temps[exp], indices)
+                    include_dirs.extend(kinfo.kernel._include_dirs)
+                    call = ast.FunCall(kinfo.kernel.name,
+                                       tensor,
+                                       coord_sym,
+                                       *args)
+                    assembly_calls[it_type].append(call)
 
-                # Subkernels for local assembly (Eigen templated functions)
-                kast = transformer.visit(kinfo.kernel._ast)
-                templated_subkernels.append(kast)
+                    # Subkernels for local assembly (Eigen templated functions)
+                    kast = transformer.visit(kinfo.kernel._ast)
+                    templated_subkernels.append(kast)
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
@@ -147,8 +150,7 @@ class KernelBuilder(KernelBuilderBase):
                             "exterior_facet",
                             "interior_facet_vert",
                             "exterior_facet_vert"]
-        return any(cxt_k.original_integral_type in cell_facet_types
-                   for cxt_k in self.context_kernels)
+        return any(self.assembly_calls[it] for it in cell_facet_types)
 
     @cached_property
     def needs_mesh_layers(self):
@@ -158,8 +160,7 @@ class KernelBuilder(KernelBuilderBase):
                             "interior_facet_horiz_bottom",
                             "exterior_facet_bottom",
                             "exterior_facet_top"]
-        return any(cxt_k.original_integral_type in mesh_layer_types
-                   for cxt_k in self.context_kernels)
+        return any(self.assembly_calls[it] for it in mesh_layer_types)
 
     def construct_ast(self, macro_kernels):
         """Constructs the final kernel AST.
@@ -240,43 +241,32 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                  "exterior_facet": 0,
                  "interior_facet_vert": 1,
                  "exterior_facet_vert": 0}
-        interior_calls = []
-        exterior_calls = []
+        int_calls = []
+        ext_calls = []
         for it_type in chker:
             if chker[it_type] == 1:
-                interior_calls.extend(builder.assembly_calls[it_type])
+                int_calls.extend(builder.assembly_calls[it_type])
             else:
-                exterior_calls.extend(builder.assembly_calls[it_type])
+                ext_calls.extend(builder.assembly_calls[it_type])
 
         domain = slate_expr.ufl_domain()
         if domain.cell_set._extruded:
-            base_cell = domain.ufl_cell()._cells[0]
+            num_facets = domain.ufl_cell()._cells[0].num_facets()
         else:
-            base_cell = domain.ufl_cell()
+            num_facets = domain.ufl_cell().num_facets()
 
-        num_facets = base_cell.num_facets()
-
-        if interior_calls and exterior_calls:
-            else_block = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
-                                                  rank=(it_sym,)), 0),
-                                (ast.Block(exterior_calls,
-                                           open_scope=True),))
-            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
-                                            rank=(it_sym,)), 1),
-                          (ast.Block(interior_calls,
-                                     open_scope=True), else_block))
-        elif interior_calls:
-            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
-                                            rank=(it_sym,)), 1),
-                          (ast.Block(interior_calls,
-                                     open_scope=True),))
-        elif exterior_calls:
-            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
-                                            rank=(it_sym,)), 0),
-                          (ast.Block(exterior_calls,
-                                     open_scope=True),))
+        if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
+        if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
+        if int_calls and ext_calls:
+            else_if = ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),))
+            body = ast.If(if_int, (ast.Block(int_calls, open_scope=True),
+                                   else_if))
+        elif int_calls:
+            body = ast.If(if_int, (ast.Block(int_calls, open_scope=True),))
+        elif ext_calls:
+            body = ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),))
         else:
-            raise ValueError
+            raise RuntimeError("Cell facets are needed, but no facet calls are found.")
 
         statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
                                   ast.Less(it_sym, num_facets),
@@ -298,11 +288,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # NOTE: The "top" cell has a interior horizontal facet
             # which is locally on the "bottom." And vice versa.
             top_calls = int_btm + ext_top
-            bottom_calls = int_top + ext_btm
+            btm_calls = int_top + ext_btm
 
             block_else = ast.Block(int_top + int_btm, open_scope=True)
             block_top = ast.Block(top_calls, open_scope=True)
-            block_btm = ast.Block(bottom_calls, open_scope=True)
+            block_btm = ast.Block(btm_calls, open_scope=True)
 
             elif_block = ast.If(ast.Eq(mesh_layer_sym, num_layers - 1),
                                 (block_top, block_else))
@@ -326,7 +316,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Now we handle any terms that require auxiliary temporaries
     if builder.aux_exprs:
-        # The declared temps will be updated within this method
         aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
 
