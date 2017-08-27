@@ -50,8 +50,8 @@ cell_facet_sym = ast.Symbol("cell_facets")
 it_sym = ast.Symbol("i0")
 mesh_layer_sym = ast.Symbol("layer")
 
-# Supported integral measure types
-supported_measures = [
+# Supported integral types
+supported_integral_types = [
     "cell",
     "interior_facet",
     "exterior_facet",
@@ -92,7 +92,7 @@ class LocalKernelBuilder(KernelBuilderBase):
         transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
-        assembly_calls = OrderedDict([(it, []) for it in supported_measures])
+        assembly_calls = OrderedDict([(it, []) for it in supported_integral_types])
         coords = None
         oriented = False
         for cxt_kernel in self.context_kernels:
@@ -100,7 +100,7 @@ class LocalKernelBuilder(KernelBuilderBase):
             it_type = cxt_kernel.original_integral_type
             exp = cxt_kernel.tensor
 
-            if it_type not in supported_measures:
+            if it_type not in supported_integral_types:
                 raise ValueError("Integral type '%s' not recognized" % it_type)
 
             # Explicit checking of coordinates
@@ -264,6 +264,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     statements.extend(builder.assembly_calls["cell"])
 
     if builder.needs_cell_facets:
+        statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
         # Measures which need cell facets to evaluate. 1 denotes
         # interior facets and 0 denotes exterior facet.
         chker = {"interior_facet": 1,
@@ -308,13 +309,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         elif ext_calls:
             body = ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),))
         else:
-            raise RuntimeError("Cell facets are needed, but no facet calls are found.")
+            raise RuntimeError("Cell facets are requested, but no facet calls found.")
 
         statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
                                   ast.Less(it_sym, num_facets),
                                   ast.Incr(it_sym, 1), body))
 
     if builder.needs_mesh_layers:
+        statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
         # FIXME: No variable layers assumption
         num_layers = slate_expr.ufl_domain().topological.layers - 1
 
@@ -335,6 +337,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         ext_top = builder.assembly_calls["exterior_facet_top"]
         ext_btm = builder.assembly_calls["exterior_facet_bottom"]
         if int_top + int_btm:
+            statements.append(ast.FlatBlock("/* Interior and top/bottom calls */\n"))
             # NOTE: The "top" cell has a interior horizontal facet
             # which is locally on the "bottom." And vice versa.
             top_calls = int_btm + ext_top
@@ -359,21 +362,41 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         #        *top calls
         else:
             if ext_btm:
+                statements.append(ast.FlatBlock("/* Bottom calls */\n"))
                 layer = 0
                 block_btm = ast.Block(ext_btm, open_scope=True)
                 statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
                                          (block_btm,)))
 
             if ext_top:
+                statements.append(ast.FlatBlock("/* Top calls */\n"))
                 layer = num_layers - 1
                 block_top = ast.Block(ext_top, open_scope=True)
                 statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
                                          (block_top,)))
 
+        if not ext_btm + ext_top + int_btm + int_top:
+            raise RuntimeError("Mesh levels requested, but no level-dependent calls found.")
+
+    # Populate any coefficient temporaries for actions
+    if builder.actions:
+        statements.extend(action_expressions(builder, declared_temps))
+
     # Now we handle any terms that require auxiliary temporaries
     if builder.aux_exprs:
-        aux_statements = auxiliary_temporaries(builder, declared_temps)
-        statements.extend(aux_statements)
+        statements.append(ast.FlatBlock("/* Auxiliary temporaries */\n"))
+        results = []
+        for exp in builder.aux_exprs:
+            if exp not in declared_temps:
+                t = ast.Symbol("auxT%d" % len(declared_temps))
+                result = metaphrase_slate_to_cpp(exp, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                statements.append(ast.Decl(tensor_type, t))
+                statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                results.append(ast.Assign(t, result))
+                declared_temps[exp] = t
+
+        statements.extend(results)
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
@@ -485,96 +508,62 @@ def construct_macro_kernel(name, args, statements):
     return macro_kernel
 
 
-def auxiliary_temporaries(builder, declared_temps):
-    """This function generates auxiliary information regarding special
-    handling of expressions that require creating additional temporaries.
-
-    :arg builder: a :class:`KernelBuilder` object that contains all the
-                  necessary temporary and expression information.
-    :arg declared_temps: a `dict` of temporaries that have already been
-                         declared and assigned values. This will be
-                         updated in this method and referenced later
-                         in the compiler.
-    Returns: a list of auxiliary statements are returned that contain temporary
-             declarations and any code-blocks needed to evaluate the
-             expression.
+def action_expressions(builder, declared_temps):
     """
-    aux_statements = []
-    for exp in builder.aux_exprs:
-        if isinstance(exp, Action):
-            # Action computations are relatively inexpensive, so
-            # we don't waste memory space on creating temps for
-            # these expressions. However, we must create a temporary
-            # for the actee coefficient (if we haven't already).
-            actee, = exp.actee
-            if actee not in declared_temps:
-                # Declare a temporary for the coefficient
-                V = actee.function_space()
-                shape_array = [(Vi.finat_element.space_dimension(),
-                                np.prod(Vi.shape))
-                               for Vi in V.split()]
-                ctemp = ast.Symbol("auxT%d" % len(declared_temps))
-                shape = sum(n * d for (n, d) in shape_array)
-                typ = eigen_matrixbase_type(shape=(shape,))
-                aux_statements.append(ast.Decl(typ, ctemp))
-                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
+    """
 
-                # Now we populate the temporary with the coefficient
-                # information and insert in the right place.
-                offset = 0
-                for i, shp in enumerate(shape_array):
-                    node_extent, dof_extent = shp
-                    # Now we unpack the function and insert its entries into a
-                    # 1D vector temporary
-                    isym = ast.Symbol("i1")
-                    jsym = ast.Symbol("j1")
-                    tensor_index = ast.Sum(offset,
-                                           ast.Sum(ast.Prod(dof_extent,
-                                                            isym), jsym))
+    statements = [ast.FlatBlock("/* Coefficient temporaries */\n")]
+    isym = ast.Symbol("i1")
+    jsym = ast.Symbol("j1")
+    loop_statements = []
+    for exp in builder.actions:
+        actee, = exp.actee
+        if actee not in declared_temps:
+            # Declare a temporary for the coefficient
+            V = actee.function_space()
+            shape_array = [(Vi.finat_element.space_dimension(),
+                            np.prod(Vi.shape))
+                           for Vi in V.split()]
+            ctemp = ast.Symbol("auxT%d" % len(declared_temps))
+            shape = sum(n * d for (n, d) in shape_array)
+            typ = eigen_matrixbase_type(shape=(shape,))
+            statements.append(ast.Decl(typ, ctemp))
+            statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
 
-                    # Inner-loop running over dof_extent
-                    coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
-                                           rank=(isym, jsym))
-                    coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
-                    inner_loop = ast.For(ast.Decl("unsigned int", jsym,
-                                                  init=0),
-                                         ast.Less(jsym, dof_extent),
-                                         ast.Incr(jsym, 1),
-                                         ast.Assign(coeff_temp, coeff_sym))
-                    # Outer-loop running over node_extent
-                    loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                                   ast.Less(isym, node_extent),
-                                   ast.Incr(isym, 1),
-                                   inner_loop)
+            # Now we populate the temporary with the coefficient
+            # information and insert in the right place.
+            offset = 0
+            for i, shp in enumerate(shape_array):
+                node_extent, dof_extent = shp
+                # Now we unpack the function and insert its entries into a
+                # 1D vector temporary
+                tensor_index = ast.Sum(offset,
+                                       ast.Sum(ast.Prod(dof_extent,
+                                                        isym), jsym))
 
-                    aux_statements.append(loop)
-                    offset += node_extent * dof_extent
+                # Inner-loop running over dof_extent
+                coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
+                                       rank=(isym, jsym))
+                coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
+                inner_loop = ast.For(ast.Decl("unsigned int", jsym,
+                                              init=0),
+                                     ast.Less(jsym, dof_extent),
+                                     ast.Incr(jsym, 1),
+                                     ast.Assign(coeff_temp, coeff_sym))
+                # Outer-loop running over node_extent
+                loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                               ast.Less(isym, node_extent),
+                               ast.Incr(isym, 1),
+                               inner_loop)
 
-                # Update declared temporaries with the coefficient
-                declared_temps[actee] = ctemp
+                loop_statements.append(loop)
+                offset += node_extent * dof_extent
 
-        elif isinstance(exp, (Inverse, Transpose, Negative, Add, Sub, Mul)):
-            if exp not in declared_temps:
-                # Get the temporary for the particular expression
-                result = metaphrase_slate_to_cpp(exp, declared_temps)
+            # Update declared temporaries with the coefficient
+            declared_temps[actee] = ctemp
 
-                # Now we use the generated result and assign the value to the
-                # corresponding temporary.
-                temp = ast.Symbol("auxT%d" % len(declared_temps))
-                shape = exp.shape
-                aux_statements.append(ast.Decl(eigen_matrixbase_type(shape), temp))
-                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
-                aux_statements.append(ast.Assign(temp, result))
-
-                # Update declared temporaries
-                declared_temps[exp] = temp
-
-        else:
-            raise NotImplementedError(
-                "Auxiliary expr type %s not currently implemented." % type(exp)
-            )
-
-    return aux_statements
+    statements.extend(loop_statements)
+    return statements
 
 
 def parenthesize(arg, prec=None, parent=None):

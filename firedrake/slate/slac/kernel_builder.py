@@ -4,7 +4,9 @@ from coffee import base as ast
 
 from collections import OrderedDict
 
-from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
+from firedrake.slate.slate import (TensorBase, Tensor,
+                                   TensorOp, Action,
+                                   Negative, Transpose)
 from firedrake.slate.slac.utils import (traverse_dags,
                                         collect_reference_count,
                                         count_operands)
@@ -34,24 +36,31 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # Collect terminals and expressions
         temps = OrderedDict()
+        actions = []
         tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
             elif isinstance(tensor, TensorOp):
-                tensor_ops.append(tensor)
+                # Actions will always require a coefficient temporary
+                if isinstance(tensor, Action):
+                    actions.append(tensor)
+
+                # Operations which have "high" reference count will have
+                # auxiliary temporaries created. Negative and Transpose
+                # operations will not have extra temporaries.
+                if ref_counts[tensor] > 1 and tensor not in (Negative, Transpose):
+                    tensor_ops.append(tensor)
+
+        self.expression = expression
+        self.tsfc_parameters = tsfc_parameters
+        self.temps = temps
 
         # Sort tensor ops by operand count to avoid double computation
         # within particular expressions.
-        aux_exprs = [op for op in sorted(tensor_ops,
-                                         key=lambda x: count_operands(x))
-                     if isinstance(op, Action) or ref_counts[op] > 1]
-
-        self.expression = expression
-        self.temps = temps
-        self.aux_exprs = aux_exprs
-        self.tsfc_parameters = tsfc_parameters
+        self.aux_exprs = sorted(tensor_ops, key=lambda x: count_operands(x))
+        self.actions = actions
 
     @cached_property
     def coefficient_map(self):
