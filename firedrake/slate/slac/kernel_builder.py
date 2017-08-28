@@ -36,24 +36,22 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # Collect terminals and expressions
         temps = OrderedDict()
-        action_coefficients = OrderedDict()
+        action_coefficients = set()
         tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
             elif isinstance(tensor, TensorOp):
-                # Actions will always require a coefficient temporary. We
-                # group the coefficients by function space.
+                # Actions will always require a coefficient temporary.
                 if isinstance(tensor, Action):
                     actee, = tensor.actee
-                    V = actee.function_space()
-                    action_coefficients.setdefault(V, []).append(actee)
+                    action_coefficients.add(actee)
 
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose
                 # operations will not have extra temporaries.
-                if ref_counts[tensor] > 1 and tensor not in (Negative, Transpose):
+                if ref_counts[tensor] > 1 and not isinstance(tensor, (Negative, Transpose)):
                     tensor_ops.append(tensor)
 
         self.expression = expression
@@ -63,7 +61,13 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         # Sort tensor ops by operand count to avoid double computation
         # within particular expressions.
         self.aux_exprs = sorted(tensor_ops, key=lambda x: count_operands(x))
-        self.action_coefficients = action_coefficients
+
+        # We group the coefficients by function space.
+        sorted_actees = OrderedDict()
+        for actee in action_coefficients:
+            V = actee.function_space()
+            sorted_actees.setdefault(V, []).append(actee)
+        self.action_coefficients = sorted_actees
 
     @cached_property
     def coefficient_map(self):
