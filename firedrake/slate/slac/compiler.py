@@ -231,9 +231,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if slate_expr._metakernel_cache is not None:
         return slate_expr._metakernel_cache
 
-    # Initialize coefficients, shape and statements list
-    expr_coeffs = slate_expr.coefficients()
-
     # We treat scalars as 1x1 MatrixBase objects, so we give
     # the right shape to do so and everything just falls out.
     # This bit here ensures the return result has the right
@@ -243,26 +240,21 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     else:
         shape = slate_expr.shape
 
-    statements = []
-
     # Create a builder for the Slate expression
     builder = LocalKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
     declared_temps = {}
-    statements.append(ast.FlatBlock("/* Declare and initialize */\n"))
+    statements = [ast.FlatBlock("/* Declare and initialize */\n")]
     for exp in builder.temps:
+        # Declare and initialize terminal temporaries
         t = builder.temps[exp]
-
-        if exp not in declared_temps:
-            # Declare and initialize the temporary
-            statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
-            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-            declared_temps[exp] = t
+        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        declared_temps[exp] = t
 
     statements.append(ast.FlatBlock("/* Assemble local tensors */\n"))
-    # Cell integrals are straightforward. Just splat them in our
-    # statements
+    # Cell integrals are straightforward. Just splat them out.
     statements.extend(builder.assembly_calls["cell"])
 
     if builder.needs_cell_facets:
@@ -273,7 +265,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                  "exterior_facet": 0,
                  "interior_facet_vert": 1,
                  "exterior_facet_vert": 0}
-
         int_calls = list(chain(*[builder.assembly_calls[it_type]
                                  for it_type in chker
                                  if chker[it_type] == 1]))
@@ -407,7 +398,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         statements.append(ast.FlatBlock("/* Coefficient temporaries */\n"))
         i_sym = ast.Symbol("i1")
         j_sym = ast.Symbol("j1")
-        loop_statements = []
+        loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
         for V, clist in iter(builder.action_coefficients.items()):
             shapes = [(Vi.finat_element.space_dimension(), np.prod(Vi.shape))
                       for Vi in V.split()]
@@ -436,28 +427,27 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                     coeff_temp = ast.Symbol(t, rank=(index,))
                     assignments.append(ast.Assign(coeff_temp, coeff_sym))
 
-                # Inner-loop running over dof_extent
+                # Inner-loop running over dof extent
                 inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
                                      ast.Less(j_sym, dofs),
                                      ast.Incr(j_sym, 1),
                                      assignments)
 
-                # Outer-loop running over node_extent
+                # Outer-loop running over node extent
                 loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
                                ast.Less(i_sym, nodes),
                                ast.Incr(i_sym, 1),
                                inner_loop)
 
-                loop_statements.append(loop)
+                loops.append(loop)
                 offset += nodes * dofs
 
-        statements.append(ast.FlatBlock("/* Loops for coefficient temps */\n"))
-        statements.extend(loop_statements)
+        statements.extend(loops)
 
     # Now we handle any terms that require auxiliary temporaries
     if builder.aux_exprs:
         statements.append(ast.FlatBlock("/* Auxiliary temporaries */\n"))
-        results = []
+        results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
         for exp in builder.aux_exprs:
             if exp not in declared_temps:
                 t = ast.Symbol("auxT%d" % len(declared_temps))
@@ -468,14 +458,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 results.append(ast.Assign(t, result))
                 declared_temps[exp] = t
 
-        statements.append(ast.FlatBlock("/* Assign auxiliary temps */\n"))
         statements.extend(results)
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
     statements.append(ast.FlatBlock("/* Map eigen tensor into C struct */\n"))
-    result_sym = ast.Symbol("T%d" % len(builder.temps))
-    result_data_sym = ast.Symbol("A%d" % len(builder.temps))
+    result_sym = ast.Symbol("T%d" % len(declared_temps))
+    result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
     result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
@@ -499,6 +488,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         args.append(ast.Decl("int **", cell_orientations_sym))
 
     # Coefficient information
+    expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
@@ -523,11 +513,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                           args=args,
                                           statements=stmt)
 
-    # Tell the builder to construct the final ast
+    # Construct the final ast
     kernel_ast = builder.construct_ast(macro_kernel)
 
-    # Now we wrap up the kernel ast as a PyOP2 kernel.
-    # Include the Eigen header files
+    # Now we wrap up the kernel ast as a PyOP2 kernel and include the
+    # Eigen header files
     include_dirs = builder.include_dirs
     include_dirs.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
     op2kernel = op2.Kernel(kernel_ast,
@@ -537,9 +527,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                            headers=['#include <Eigen/Dense>',
                                     '#define restrict __restrict'])
 
-    assert len(slate_expr.ufl_domains()) == 1, (
-        "No support for multiple domains yet!"
-    )
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
 
     # Send back a "TSFC-like" SplitKernel object with an
     # index and KernelInfo
@@ -552,14 +541,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers)
 
+    # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
+    kernel = (SplitKernel(idx, kinfo),)
+    slate_expr._metakernel_cache = kernel
 
-    kernels = (SplitKernel(idx, kinfo),)
-
-    # Store the resulting kernel for reuse
-    slate_expr._metakernel_cache = kernels
-
-    return kernels
+    return kernel
 
 
 def construct_macro_kernel(name, args, statements):
