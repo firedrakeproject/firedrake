@@ -28,6 +28,8 @@ from firedrake.slate.slac.utils import Transformer
 from firedrake.utils import cached_property
 from firedrake import op2
 
+from itertools import chain
+
 from pyop2.utils import get_petsc_dir
 from pyop2.datatypes import as_cstr
 
@@ -272,13 +274,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                  "interior_facet_vert": 1,
                  "exterior_facet_vert": 0}
 
-        flatten = lambda l: [x for y in l for x in y]
-        int_calls = flatten([builder.assembly_calls[it_type]
-                             for it_type in chker
-                             if chker[it_type] == 1])
-        ext_calls = flatten([builder.assembly_calls[it_type]
-                             for it_type in chker
-                             if chker[it_type] == 0])
+        int_calls = list(chain(*[builder.assembly_calls[it_type]
+                                 for it_type in chker
+                                 if chker[it_type] == 1]))
+        ext_calls = list(chain(*[builder.assembly_calls[it_type]
+                                 for it_type in chker
+                                 if chker[it_type] == 0]))
 
         # Compute the number of facets to loop over
         domain = slate_expr.ufl_domain()
@@ -419,15 +420,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 # Collect all coefficients which share the same function space.
                 # The coefficient assignments will make up the for-loop body.
                 assignments = []
-                for actee in clist:
-                    if actee not in declared_temps:
-                        # Declare and initialize coefficient temporary
-                        t = ast.Symbol("wT%d" % len(declared_temps))
-                        statements.append(ast.Decl(c_type, t))
-                        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-
-                        # Update declared temporaries with the coefficient
-                        declared_temps[actee] = t
+                for actee in [c for c in clist if c not in declared_temps]:
+                    # Declare and initialize coefficient temporary
+                    t = ast.Symbol("wT%d" % len(declared_temps))
+                    statements.append(ast.Decl(c_type, t))
+                    statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
                     # Assigning coefficient values into temporary
                     coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
@@ -436,20 +433,27 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                     ast.Sum(ast.Prod(dofs, i_sym), j_sym))
                     coeff_temp = ast.Symbol(t, rank=(index,))
                     assignments.append(ast.Assign(coeff_temp, coeff_sym))
+                    declared_temps[actee] = t
 
-                # Inner-loop running over dof_extent
-                inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
-                                     ast.Less(j_sym, dofs),
-                                     ast.Incr(j_sym, 1),
-                                     assignments)
+                # We only create loops for coefficients which have not been
+                # previously declared. If all actees in the `clist` have
+                # already been defined and populated, then `assignments`
+                # should be empty.
+                if assignments:
+                    # Inner-loop running over dof_extent
+                    inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
+                                         ast.Less(j_sym, dofs),
+                                         ast.Incr(j_sym, 1),
+                                         assignments)
 
-                # Outer-loop running over node_extent
-                loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
-                               ast.Less(i_sym, nodes),
-                               ast.Incr(i_sym, 1),
-                               inner_loop)
+                    # Outer-loop running over node_extent
+                    loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
+                                   ast.Less(i_sym, nodes),
+                                   ast.Incr(i_sym, 1),
+                                   inner_loop)
 
-                loop_statements.append(loop)
+                    loop_statements.append(loop)
+
                 offset += nodes * dofs
 
         statements.extend(loop_statements)
@@ -472,6 +476,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
+    statements.append(ast.FlatBlock("/* Map eigen tensor into C struct */\n"))
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
@@ -484,6 +489,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
+    statements.append(ast.FlatBlock("/* Linear algebra expression */\n"))
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
                                                        declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
