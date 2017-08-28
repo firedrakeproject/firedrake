@@ -35,10 +35,21 @@ def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
     if function_space.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * function_space.value_size))
+        f.interpolate(Expression(("x[0]*x[1]",) * function_space.value_size))
     else:
-        f.interpolate(Expression("x[0]"))
+        f.interpolate(Expression("x[0]*x[1]"))
     return f
+
+
+@pytest.fixture
+def g(function_space):
+    """Generates a Firedrake function given a particular function space."""
+    g = Function(function_space)
+    if function_space.rank >= 1:
+        g.interpolate(Expression(("x[0]*sin(x[1])",) * function_space.value_size))
+    else:
+        g.interpolate(Expression("x[0]*sin(x[1])"))
+    return g
 
 
 @pytest.fixture
@@ -62,6 +73,13 @@ def rank_two_tensor(mass):
 def test_tensor_action(mass, f):
     V = assemble(Tensor(mass) * f)
     ref = assemble(action(mass, f))
+    assert isinstance(V, Function)
+    assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
+
+
+def test_sum_tensor_actions(mass, f, g):
+    V = assemble(Tensor(mass) * f + Tensor(0.5*mass) * g)
+    ref = assemble(action(mass, f) + action(0.5*mass, g))
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
 
