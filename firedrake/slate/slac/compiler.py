@@ -293,7 +293,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         #        IF (facet is interior):
         #            *interior calls
         #        ELSE IF (facet is exterior):
-        #            *interior calls
+        #            *exterior calls
         #
         # If only interior (exterior) facets are present,
         # then only a single IF-statement checking for interior
@@ -379,8 +379,80 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             raise RuntimeError("Mesh levels requested, but no level-dependent calls found.")
 
     # Populate any coefficient temporaries for actions
-    if builder.actions:
-        statements.extend(action_expressions(builder, declared_temps))
+    if builder.action_coefficients:
+        # Action computations require creating coefficient temporaries to
+        # compute the matrix-vector product. The temporaries are created by
+        # inspecting the function space of the coefficient to compute node
+        # and dof extents. The coefficient is then assigned values by looping
+        # over both the node extent and dof extent (double FOR-loop). A double
+        # FOR-loop is needed for each function space (if the function space is
+        # mixed, then a loop will be constructed for each component space).
+        # The general structure of each coefficient loop will be:
+        #
+        #    FOR (i1=0; i1<node_extent; i1++):
+        #        FOR (j1=0; j1<dof_extent; j1++):
+        #            wT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
+        #            wT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
+        #            .
+        #            .
+        #            .
+        #
+        # where wT0, wT1, ... are temporaries for coefficients sharing the
+        # same function space. The offset is computed based on whether
+        # the function space is mixed. The offset is always 0 for non-mixed
+        # coefficients. If the coefficient is mixed, then the offset is
+        # incremented by the total number of nodal unknowns associated with
+        # the component spaces of the mixed space.
+        statements.append(ast.FlatBlock("/* Coefficient temporaries */\n"))
+        i_sym = ast.Symbol("i1")
+        j_sym = ast.Symbol("j1")
+        loop_statements = []
+        for V, clist in iter(builder.action_coefficients.items()):
+            shapes = [(Vi.finat_element.space_dimension(), np.prod(Vi.shape))
+                      for Vi in V.split()]
+            c_type = eigen_matrixbase_type((sum(n * d for (n, d) in shapes),))
+            offset = 0
+
+            for i, shp in enumerate(shapes):
+                nodes, dofs = shp
+
+                # Collect all coefficients which share the same function space.
+                # The coefficient assignments will make up the for-loop body.
+                assignments = []
+                for actee in clist:
+                    if actee not in declared_temps:
+                        # Declare and initialize coefficient temporary
+                        t = ast.Symbol("wT%d" % len(declared_temps))
+                        statements.append(ast.Decl(c_type, t))
+                        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+
+                        # Update declared temporaries with the coefficient
+                        declared_temps[actee] = t
+
+                    # Assigning coefficient values into temporary
+                    coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
+                                           rank=(i_sym, j_sym))
+                    index = ast.Sum(offset,
+                                    ast.Sum(ast.Prod(dofs, i_sym), j_sym))
+                    coeff_temp = ast.Symbol(t, rank=(index,))
+                    assignments.append(ast.Assign(coeff_temp, coeff_sym))
+
+                # Inner-loop running over dof_extent
+                inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
+                                     ast.Less(j_sym, dofs),
+                                     ast.Incr(j_sym, 1),
+                                     assignments)
+
+                # Outer-loop running over node_extent
+                loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
+                               ast.Less(i_sym, nodes),
+                               ast.Incr(i_sym, 1),
+                               inner_loop)
+
+                loop_statements.append(loop)
+                offset += nodes * dofs
+
+        statements.extend(loop_statements)
 
     # Now we handle any terms that require auxiliary temporaries
     if builder.aux_exprs:
@@ -506,64 +578,6 @@ def construct_macro_kernel(name, args, statements):
     macro_kernel = ast.FunDecl("void", name, args,
                                statements, pred=["static", "inline"])
     return macro_kernel
-
-
-def action_expressions(builder, declared_temps):
-    """
-    """
-
-    statements = [ast.FlatBlock("/* Coefficient temporaries */\n")]
-    isym = ast.Symbol("i1")
-    jsym = ast.Symbol("j1")
-    loop_statements = []
-    for exp in builder.actions:
-        actee, = exp.actee
-        if actee not in declared_temps:
-            # Declare a temporary for the coefficient
-            V = actee.function_space()
-            shape_array = [(Vi.finat_element.space_dimension(),
-                            np.prod(Vi.shape))
-                           for Vi in V.split()]
-            ctemp = ast.Symbol("auxT%d" % len(declared_temps))
-            shape = sum(n * d for (n, d) in shape_array)
-            typ = eigen_matrixbase_type(shape=(shape,))
-            statements.append(ast.Decl(typ, ctemp))
-            statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
-
-            # Now we populate the temporary with the coefficient
-            # information and insert in the right place.
-            offset = 0
-            for i, shp in enumerate(shape_array):
-                node_extent, dof_extent = shp
-                # Now we unpack the function and insert its entries into a
-                # 1D vector temporary
-                tensor_index = ast.Sum(offset,
-                                       ast.Sum(ast.Prod(dof_extent,
-                                                        isym), jsym))
-
-                # Inner-loop running over dof_extent
-                coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
-                                       rank=(isym, jsym))
-                coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
-                inner_loop = ast.For(ast.Decl("unsigned int", jsym,
-                                              init=0),
-                                     ast.Less(jsym, dof_extent),
-                                     ast.Incr(jsym, 1),
-                                     ast.Assign(coeff_temp, coeff_sym))
-                # Outer-loop running over node_extent
-                loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                               ast.Less(isym, node_extent),
-                               ast.Incr(isym, 1),
-                               inner_loop)
-
-                loop_statements.append(loop)
-                offset += node_extent * dof_extent
-
-            # Update declared temporaries with the coefficient
-            declared_temps[actee] = ctemp
-
-    statements.extend(loop_statements)
-    return statements
 
 
 def parenthesize(arg, prec=None, parent=None):

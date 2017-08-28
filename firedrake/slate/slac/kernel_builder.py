@@ -36,16 +36,19 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # Collect terminals and expressions
         temps = OrderedDict()
-        actions = []
+        action_coefficients = OrderedDict()
         tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
             elif isinstance(tensor, TensorOp):
-                # Actions will always require a coefficient temporary
+                # Actions will always require a coefficient temporary. We
+                # group the coefficients by function space.
                 if isinstance(tensor, Action):
-                    actions.append(tensor)
+                    actee, = tensor.actee
+                    V = actee.function_space()
+                    action_coefficients.setdefault(V, []).append(actee)
 
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose
@@ -60,7 +63,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         # Sort tensor ops by operand count to avoid double computation
         # within particular expressions.
         self.aux_exprs = sorted(tensor_ops, key=lambda x: count_operands(x))
-        self.actions = actions
+        self.action_coefficients = action_coefficients
 
     @cached_property
     def coefficient_map(self):
