@@ -36,7 +36,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # Collect terminals and expressions
         temps = OrderedDict()
-        action_coefficients = set()
+        action_coefficients = []
         tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
@@ -46,7 +46,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
                 # Actions will always require a coefficient temporary.
                 if isinstance(tensor, Action):
                     actee, = tensor.actee
-                    action_coefficients.add(actee)
+                    action_coefficients.append(actee)
 
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose
@@ -64,7 +64,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # We group the coefficients by function space.
         sorted_actees = OrderedDict()
-        for actee in action_coefficients:
+        for actee in list(OrderedDict.fromkeys(action_coefficients)):
             V = actee.function_space()
             sorted_actees.setdefault(V, []).append(actee)
         self.action_coefficients = sorted_actees
