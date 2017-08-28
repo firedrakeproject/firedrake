@@ -420,11 +420,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 # Collect all coefficients which share the same function space.
                 # The coefficient assignments will make up the for-loop body.
                 assignments = []
-                for actee in [c for c in clist if c not in declared_temps]:
-                    # Declare and initialize coefficient temporary
-                    t = ast.Symbol("wT%d" % len(declared_temps))
-                    statements.append(ast.Decl(c_type, t))
-                    statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                for actee in clist:
+                    if actee not in declared_temps:
+                        # Declare and initialize coefficient temporary
+                        t = ast.Symbol("wT%d" % len(declared_temps))
+                        statements.append(ast.Decl(c_type, t))
+                        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                        declared_temps[actee] = t
 
                     # Assigning coefficient values into temporary
                     coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
@@ -433,29 +435,23 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                     ast.Sum(ast.Prod(dofs, i_sym), j_sym))
                     coeff_temp = ast.Symbol(t, rank=(index,))
                     assignments.append(ast.Assign(coeff_temp, coeff_sym))
-                    declared_temps[actee] = t
 
-                # We only create loops for coefficients which have not been
-                # previously declared. If all actees in the `clist` have
-                # already been defined and populated, then `assignments`
-                # should be empty.
-                if assignments:
-                    # Inner-loop running over dof_extent
-                    inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
-                                         ast.Less(j_sym, dofs),
-                                         ast.Incr(j_sym, 1),
-                                         assignments)
+                # Inner-loop running over dof_extent
+                inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
+                                     ast.Less(j_sym, dofs),
+                                     ast.Incr(j_sym, 1),
+                                     assignments)
 
-                    # Outer-loop running over node_extent
-                    loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
-                                   ast.Less(i_sym, nodes),
-                                   ast.Incr(i_sym, 1),
-                                   inner_loop)
+                # Outer-loop running over node_extent
+                loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
+                               ast.Less(i_sym, nodes),
+                               ast.Incr(i_sym, 1),
+                               inner_loop)
 
-                    loop_statements.append(loop)
-
+                loop_statements.append(loop)
                 offset += nodes * dofs
 
+        statements.append(ast.FlatBlock("/* Loops for coefficient temps */\n"))
         statements.extend(loop_statements)
 
     # Now we handle any terms that require auxiliary temporaries
@@ -472,6 +468,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 results.append(ast.Assign(t, result))
                 declared_temps[exp] = t
 
+        statements.append(ast.FlatBlock("/* Assign auxiliary temps */\n"))
         statements.extend(results)
 
     # Now we create the result statement by declaring its eigen type and
