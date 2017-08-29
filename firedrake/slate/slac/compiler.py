@@ -231,11 +231,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if slate_expr._metakernel_cache is not None:
         return slate_expr._metakernel_cache
 
-    # We treat scalars as 1x1 MatrixBase objects, so we give
-    # the right shape to do so and everything just falls out.
-    # This bit here ensures the return result has the right
-    # shape
     if slate_expr.rank == 0:
+        # Scalars are treated as 1x1 MatrixBase objects
         shape = (1,)
     else:
         shape = slate_expr.shape
@@ -254,13 +251,26 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         declared_temps[exp] = t
 
     statements.append(ast.FlatBlock("/* Assemble local tensors */\n"))
+
     # Cell integrals are straightforward. Just splat them out.
     statements.extend(builder.assembly_calls["cell"])
 
     if builder.needs_cell_facets:
+        # The for-loop will have the general structure:
+        #
+        #    FOR (facet=0; facet<num_facets; facet++):
+        #        IF (facet is interior):
+        #            *interior calls
+        #        ELSE IF (facet is exterior):
+        #            *exterior calls
+        #
+        # If only interior (exterior) facets are present,
+        # then only a single IF-statement checking for interior
+        # (exterior) facets will be present within the loop. The
+        # cell facets are labelled `1` for interior, and `0` for
+        # exterior.
+
         statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
-        # Measures which need cell facets to evaluate. 1 denotes
-        # interior facets and 0 denotes exterior facet.
         chker = {"interior_facet": 1,
                  "exterior_facet": 0,
                  "interior_facet_vert": 1,
@@ -279,17 +289,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         else:
             num_facets = domain.ufl_cell().num_facets()
 
-        # The for-loop will have the general structure:
-        #
-        #    FOR (facet=0; facet<num_facets; facet++):
-        #        IF (facet is interior):
-        #            *interior calls
-        #        ELSE IF (facet is exterior):
-        #            *exterior calls
-        #
-        # If only interior (exterior) facets are present,
-        # then only a single IF-statement checking for interior
-        # (exterior) facets will be present within the loop.
         if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
         if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
         if int_calls and ext_calls:
@@ -308,11 +307,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                   ast.Incr(it_sym, 1), body))
 
     if builder.needs_mesh_layers:
-        statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
-        # FIXME: No variable layers assumption
-        num_layers = slate_expr.ufl_domain().topological.layers - 1
-
-        # In the presence of interior horizontal facets, we generate:
+        # In the presence of interior horizontal facet calls, an
+        # IF-ELIF-ELSE block is generated using the mesh levels
+        # as conditions for which calls are needed:
         #
         #    IF (layer == bottom_layer):
         #        *bottom calls
@@ -323,11 +320,28 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         #        *bottom calls
         #
         # Any extruded top or bottom calls for extruded facets are
-        # included within the appropriate mesh-level if-blocks.
+        # included within the appropriate mesh-level IF-blocks. If
+        # no interior horizontal facet calls are present, then
+        # standard IF-blocks are generated for exterior top/bottom
+        # facet calls when appropriate:
+        #
+        #    IF (layer == bottom_layer):
+        #        *bottom calls
+        #
+        #    IF (layer == top_layer):
+        #        *top calls
+        #
+        # The mesh level is an integer provided as a macro kernel
+        # argument.
+
+        # FIXME: No variable layers assumption
+        statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
+        num_layers = slate_expr.ufl_domain().topological.layers - 1
         int_top = builder.assembly_calls["interior_facet_horiz_top"]
         int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
         ext_top = builder.assembly_calls["exterior_facet_top"]
         ext_btm = builder.assembly_calls["exterior_facet_bottom"]
+
         if int_top + int_btm:
             statements.append(ast.FlatBlock("/* Interior and top/bottom calls */\n"))
             # NOTE: The "top" cell has a interior horizontal facet
@@ -344,14 +358,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
                                      (block_btm, elif_block)))
-
-        # No interior horizontal facets. Just standard IF-blocks, e.g:
-        #
-        #    IF (layer == bottom_layer):
-        #        *bottom calls
-        #
-        #    IF (layer == top_layer):
-        #        *top calls
         else:
             if ext_btm:
                 statements.append(ast.FlatBlock("/* Bottom calls */\n"))
@@ -395,6 +401,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         # coefficients. If the coefficient is mixed, then the offset is
         # incremented by the total number of nodal unknowns associated with
         # the component spaces of the mixed space.
+
         statements.append(ast.FlatBlock("/* Coefficient temporaries */\n"))
         i_sym = ast.Symbol("i1")
         j_sym = ast.Symbol("j1")
