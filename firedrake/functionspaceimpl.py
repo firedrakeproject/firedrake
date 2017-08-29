@@ -501,17 +501,6 @@ class FunctionSpace(object):
                              self.offset,
                              parent)
 
-    def exterior_facet_boundary_node_map(self, method):
-        """The :class:`pyop2.Map` from exterior facets to the nodes on
-        those facets. Note that this differs from
-        :meth:`exterior_facet_node_map` in that only surface nodes
-        are referenced, not all nodes in cells touching the surface.
-
-        :arg method: The method for determining boundary nodes. See
-            :class:`~.bcs.DirichletBC`.
-        """
-        return self._shared_data.exterior_facet_boundary_node_map(self, method)
-
     def boundary_nodes(self, sub_domain, method):
         """Return the boundary nodes for this :class:`~.FunctionSpace`.
 
@@ -705,14 +694,6 @@ class MixedFunctionSpace(object):
                 bc_list[bc.function_space().index].append(bc)
         return op2.MixedMap(s.exterior_facet_node_map(bc_list[i])
                             for i, s in enumerate(self._spaces))
-
-    @utils.cached_property
-    def exterior_facet_boundary_node_map(self):
-        '''The :class:`pyop2.MixedMap` from exterior facets to the nodes on
-        those facets. Note that this differs from
-        :meth:`exterior_facet_node_map` in that only surface nodes
-        are referenced, not all nodes in cells touching the surface.'''
-        return op2.MixedMap(s.exterior_facet_boundary_node_map for s in self._spaces)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.MixedDat` defined on the
@@ -917,9 +898,4 @@ class RealFunctionSpace(FunctionSpace):
 
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def exterior_facet_boundary_node_map(self, method):
-        """":class:`RealFunctionSpace` objects have no exterior facet boundary
-        node map."""
         return None

@@ -650,6 +650,98 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def boundary_nodes(V, sub_domain, method):
+    """Extract boundary nodes from a function space..
+
+    :arg V: the function space
+    :arg sub_domain: a mesh marker selecting the part of the boundary
+        (may be "on_boundary" indicating the entire boundary).
+    :arg method: how to identify boundary dofs on the reference cell.
+    :returns: a numpy array of unique nodes on the boundary of the
+        requested subdomain.
+    """
+    cdef:
+        np.ndarray[np.int32_t, ndim=2, mode="c"] local_nodes
+        np.ndarray[PetscInt, ndim=1, mode="c"] offsets
+        np.ndarray[np.uint32_t, ndim=1, mode="c"] local_facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_node_list
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
+        int f, i, j, dof, facet, idx
+        int nfacet, nlocal, layers
+        PetscInt local_facet
+        PetscInt offset
+        bint all_facets
+        bint variable, extruded
+
+    mesh = V.mesh()
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+
+    facet_dim = mesh.facet_dimension()
+    if method == "topological":
+        boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
+    elif method == "geometric":
+        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
+
+    local_nodes = np.empty((len(boundary_dofs),
+                            len(boundary_dofs[0])),
+                           dtype=IntType)
+    for k, v in boundary_dofs.items():
+        local_nodes[k, :] = v
+
+    facets = V.mesh().exterior_facets
+    local_facets = facets.local_facet_dat.data_ro_with_halos
+    nlocal = local_nodes.shape[1]
+
+    if sub_domain == "on_boundary":
+        subset = facets.set
+        all_facets = True
+    else:
+        all_facets = False
+        subset = facets.subset(sub_domain)
+        facet_indices = subset.indices
+
+    nfacet = subset.total_size
+    offsets = V.offset
+    facet_node_list = V.exterior_facet_node_map().values_with_halo
+
+    if variable:
+        layer_extents = subset.layers_array
+        maxsize = local_nodes.shape[1] * np.sum((layer_extents[:, 1] - layer_extents[:, 0]) - 1)
+    elif extruded:
+        layers = subset.layers
+        maxsize = local_nodes.shape[1] * nfacet * (layers - 1)
+    else:
+        layers = 2
+        offset = 0
+        maxsize = local_nodes.shape[1] * nfacet
+
+    nodes = np.empty(maxsize, dtype=IntType)
+    idx = 0
+    for f in range(nfacet):
+        if all_facets:
+            facet = f
+        else:
+            facet = facet_indices[f]
+        local_facet = local_facets[facet]
+        if variable:
+            layers = layer_extents[f, 1] - layer_extents[f, 0]
+        for i in range(nlocal):
+            dof = local_nodes[local_facet, i]
+            for j in range(layers - 1):
+                if extruded:
+                    offset = j * offsets[dof]
+                nodes[idx] = facet_node_list[facet, dof] + offset
+                idx += 1
+
+    assert idx == nodes.shape[0]
+    return np.unique(nodes)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 

@@ -8,7 +8,7 @@ def test_no_offset_zero():
 
     V = FunctionSpace(m, 'CG', 2)
 
-    assert (V.exterior_facet_boundary_node_map("topological").offset != 0).all()
+    assert (V.exterior_facet_node_map().offset != 0).all()
 
 
 def test_offset_p2():
@@ -17,7 +17,7 @@ def test_offset_p2():
 
     V = FunctionSpace(m, 'CG', 2)
 
-    assert (V.exterior_facet_boundary_node_map("topological").offset == 2).all()
+    assert (V.exterior_facet_node_map().offset == 2).all()
 
 
 def test_offset_enriched():
@@ -38,10 +38,8 @@ def test_offset_enriched():
     #  o     o
     #  |     |
     #  o--x--o
-    #
-    # Where the numbering is such that the two "x" dofs are numbered last.
-    assert (V.exterior_facet_boundary_node_map("topological").offset ==
-            [2, 2, 2, 2, 2, 2, 1, 1]).all()
+    assert (V.exterior_facet_node_map().offset ==
+            [2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 2, 2, 2]).all()
 
 
 def run_offset_parallel():
@@ -50,15 +48,10 @@ def run_offset_parallel():
 
     V = FunctionSpace(m, 'CG', 2)
 
-    offset = V.exterior_facet_boundary_node_map("topological").offset
+    offset = V.exterior_facet_node_map().offset
 
     offsets = m.comm.allgather(offset)
     assert all((o == offset).all() for o in offsets)
-
-
-@pytest.mark.parallel(nprocs=6)
-def test_offset_parallel_indexerror():
-    run_offset_parallel()
 
 
 @pytest.mark.parallel(nprocs=2)

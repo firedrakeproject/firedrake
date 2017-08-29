@@ -19,10 +19,8 @@ import finat
 from decorator import decorator
 from functools import reduce, partial
 
-from coffee import base as ast
-
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
+from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
 import firedrake.extrusion_numbering as extnum
@@ -309,19 +307,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 @cached
 def get_boundary_nodes(mesh, key, V):
     _, sub_domain, method = key
-    if mesh.variable_layers:
-        indices = extnum.boundary_nodes(V, sub_domain, method)
-    else:
-        nodes = V.exterior_facet_boundary_node_map(method).values_with_halo
-        if sub_domain != "on_boundary":
-            indices = mesh.exterior_facets.subset(sub_domain).indices
-            nodes = nodes.take(indices, axis=0)
-            if not V.extruded:
-                indices = numpy.unique(nodes)
-            else:
-                offset = V.exterior_facet_boundary_node_map(method).offset
-                indices = numpy.unique(numpy.concatenate([nodes + i * offset
-                                                          for i in range(mesh.cell_set.layers - 1)]))
+    indices = dmplex.boundary_nodes(V, sub_domain, method)
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)
@@ -440,102 +426,6 @@ class FunctionSpaceData(object):
 
     def __str__(self):
         return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
-
-    def exterior_facet_boundary_node_map(self, V, method):
-        """Return the :class:`pyop2.Map` from exterior facets to nodes
-        on the boundary.
-
-        :arg V: The function space.
-        :arg method:  The method for determining boundary nodes.  See
-           :class:`~.DirichletBC` for details.
-        """
-        try:
-            return self.map_caches["boundary_node"][method]
-        except KeyError:
-            pass
-        el = V.finat_element
-
-        dim = self.mesh.facet_dimension()
-
-        if method == "topological":
-            boundary_dofs = el.entity_closure_dofs()[dim]
-        elif method == "geometric":
-            # This function is only called on extruded meshes when
-            # asking for the nodes that live on the "vertical"
-            # exterior facets.
-            boundary_dofs = el.entity_support_dofs()[dim]
-
-        nodes_per_facet = \
-            len(boundary_dofs[0])
-
-        # HACK ALERT
-        # The facet set does not have a halo associated with it, since
-        # we only construct halos for DoF sets.  Fortunately, this
-        # loop is direct and we already have all the correct
-        # information available locally.  So We fake a set of the
-        # correct size and carry out a direct loop
-        facet_set = op2.Set(self.mesh.exterior_facets.set.total_size,
-                            comm=self.mesh.comm)
-
-        fs_dat = op2.Dat(facet_set**el.space_dimension(),
-                         data=V.exterior_facet_node_map().values_with_halo.view())
-
-        facet_dat = op2.Dat(facet_set**nodes_per_facet,
-                            dtype=IntType)
-
-        # Ensure these come out in sorted order.
-        local_facet_nodes = numpy.array(
-            [boundary_dofs[e] for e in sorted(boundary_dofs.keys())])
-
-        # Helper function to turn the inner index of an array into c
-        # array literals.
-        c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
-
-        # AST for: l_nodes[facet[0]][n]
-        rank_ast = ast.Symbol("l_nodes", rank=(ast.Symbol("facet", rank=(0,)), "n"))
-
-        body = ast.Block([ast.Decl("int",
-                                   ast.Symbol("l_nodes", (len(el.cell.topology[dim]),
-                                                          nodes_per_facet)),
-                                   init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
-                                   qualifiers=["const"]),
-                          ast.For(ast.Decl("int", "n", 0),
-                                  ast.Less("n", nodes_per_facet),
-                                  ast.Incr("n", 1),
-                                  ast.Assign(ast.Symbol("facet_nodes", ("n",)),
-                                             ast.Symbol("cell_nodes", (rank_ast, ))))
-                          ])
-
-        kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
-                                        [ast.Decl("%s*" % as_cstr(fs_dat.dtype),
-                                                  "cell_nodes"),
-                                         ast.Decl("%s*" % as_cstr(facet_dat.dtype),
-                                                  "facet_nodes"),
-                                         ast.Decl("unsigned int*", "facet")],
-                                        body),
-                            "create_bc_node_map")
-
-        local_facet_dat = op2.Dat(facet_set ** self.mesh.exterior_facets._rank,
-                                  self.mesh.exterior_facets.local_facet_dat.data_ro_with_halos,
-                                  dtype=numpy.uintc)
-        if self.extruded:
-            offset = self.offset[boundary_dofs[0]]
-            if self.mesh.variable_layers:
-                raise NotImplementedError("Variable layer case not handled, should never reach here")
-        else:
-            offset = None
-        op2.par_loop(kernel, facet_set,
-                     fs_dat(op2.READ),
-                     facet_dat(op2.WRITE),
-                     local_facet_dat(op2.READ))
-
-        val = op2.Map(facet_set, self.node_set,
-                      nodes_per_facet,
-                      facet_dat.data_ro_with_halos,
-                      name="exterior_facet_boundary_node",
-                      offset=offset)
-        self.map_caches["boundary_node"][method] = val
-        return val
 
     def boundary_nodes(self, V, sub_domain, method):
         if method not in {"topological", "geometric"}:
