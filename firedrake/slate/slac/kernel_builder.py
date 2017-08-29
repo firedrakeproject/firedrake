@@ -5,8 +5,7 @@ from coffee import base as ast
 from collections import OrderedDict
 
 from firedrake.slate.slate import (TensorBase, Tensor,
-                                   TensorOp, Action,
-                                   Negative, Transpose)
+                                   TensorOp, Action, Negative)
 from firedrake.slate.slac.utils import (traverse_dags,
                                         collect_reference_count,
                                         count_operands)
@@ -51,7 +50,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose
                 # operations will not have extra temporaries.
-                if ref_counts[tensor] > 1 and not isinstance(tensor, (Negative, Transpose)):
+                if ref_counts[tensor] > 1 and not isinstance(tensor, Negative):
                     tensor_ops.append(tensor)
 
         self.expression = expression
@@ -115,7 +114,3 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         """Returns the integral type associated with a Slate kernel. This
         is used to determine how the Slate kernel should be iterated over
         the mesh."""
-
-    @abstractmethod
-    def construct_ast(self, *args):
-        """Constructs the final kernel AST."""

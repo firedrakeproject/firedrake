@@ -156,13 +156,7 @@ class LocalKernelBuilder(KernelBuilderBase):
 
     @property
     def integral_type(self):
-        """Returns the integral type associated with a Slate kernel.
-
-        Note that Slate kernels (for now) are always of type 'cell' since
-        these are localized kernels for element-wise linear algebra. This
-        may change in the future if we want Slate to be used for LDG/CDG
-        finite element discretizations.
-        """
+        """Returns the integral type associated with a Slate kernel."""
         return "cell"
 
     @cached_property
@@ -191,20 +185,6 @@ class LocalKernelBuilder(KernelBuilderBase):
         return any(cxt_k.original_integral_type in mesh_layer_types
                    for cxt_k in self.context_kernels)
 
-    def construct_ast(self, *args):
-        """Constructs the final kernel AST.
-
-        :arg args: An iterable of macro kernel functions, which call subkernels
-                   and perform elemental linear algebra.
-
-        Returns: The complete kernel AST as a COFFEE `ast.Node`
-        """
-        macro_kernels = list(args)
-        kernel_ast = self.templated_subkernels
-        kernel_ast.extend(macro_kernels)
-
-        return ast.Node(kernel_ast)
-
 
 def compile_expression(slate_expr, tsfc_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
@@ -218,13 +198,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
     if not isinstance(slate_expr, TensorBase):
-        raise ValueError(
-            "Expecting a `TensorBase` expression, not %s" % type(slate_expr)
-        )
+        raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
+
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
@@ -513,15 +494,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if builder.needs_mesh_layers:
         args.append(ast.Decl("int", mesh_layer_sym))
 
-    # NOTE: In the future we may want to have more than one "macro_kernel"
+    # Macro kernel
     macro_kernel_name = "compile_slate"
-    stmt = ast.Block(statements)
-    macro_kernel = construct_macro_kernel(name=macro_kernel_name,
-                                          args=args,
-                                          statements=stmt)
+    stmts = ast.Block(statements)
+    macro_kernel = ast.FunDecl("void", macro_kernel_name, args,
+                               stmts, pred=["static", "inline"])
 
     # Construct the final ast
-    kernel_ast = builder.construct_ast(macro_kernel)
+    kernel_ast = ast.Node(builder.templated_subkernels + [macro_kernel])
 
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
@@ -533,9 +513,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                            include_dirs=include_dirs,
                            headers=['#include <Eigen/Dense>',
                                     '#define restrict __restrict'])
-
-    if len(slate_expr.ufl_domains()) > 1:
-        raise NotImplementedError("Multiple domains not implemented.")
 
     # Send back a "TSFC-like" SplitKernel object with an
     # index and KernelInfo
@@ -554,27 +531,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     slate_expr._metakernel_cache = kernel
 
     return kernel
-
-
-def construct_macro_kernel(name, args, statements):
-    """Constructs a macro kernel function that calls any subkernels.
-
-    :arg name: a string denoting the name of the macro kernel.
-    :arg args: a list of arguments for the macro_kernel.
-    :arg statements: a `coffee.base.Block` of instructions, which contains
-                     declarations of temporaries, function calls to all
-                     subkernels and any auxilliary information needed to
-                     evaulate the Slate expression.
-                     E.g. facet integral loops and action loops.
-    """
-    # all kernel body statements must be wrapped up as a coffee.base.Block
-    assert isinstance(statements, ast.Block), (
-        "Body statements must be wrapped in an ast.Block"
-    )
-
-    macro_kernel = ast.FunDecl("void", name, args,
-                               statements, pred=["static", "inline"])
-    return macro_kernel
 
 
 def parenthesize(arg, prec=None, parent=None):
