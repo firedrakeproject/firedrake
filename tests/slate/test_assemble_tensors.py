@@ -139,6 +139,25 @@ def test_mixed_coefficient_scalar(mesh):
     assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
 
 
+def test_nested_coefficients_matrix(mesh):
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    U = FunctionSpace(mesh, "CG", 1)
+    f = Function(U).assign(2.0)
+    n = FacetNormal(mesh)
+
+    def T(arg):
+        k = Constant([0.0, 1.0])
+        return k*inner(arg, k)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    form = inner(v, f*u)*dx - div(T(v))*inner(u, n)*ds
+    A = Tensor(form)
+    M = assemble(A)
+
+    assert np.allclose(M.M.values, assemble(form).M.values, rtol=1e-14)
+
+
 @pytest.mark.xfail(raises=NotImplementedError)
 def test_mixed_argument_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
