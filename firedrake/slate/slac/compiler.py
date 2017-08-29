@@ -126,8 +126,7 @@ class LocalKernelBuilder(KernelBuilderBase):
                     args = [c for i in kinfo.coefficient_map
                             for c in self.coefficient(local_coefficients[i])]
 
-                    oriented = oriented or kinfo.oriented
-                    if oriented:
+                    if kinfo.oriented:
                         args.insert(0, cell_orientations_sym)
 
                     if kinfo.integral_type in ["interior_facet",
@@ -138,7 +137,6 @@ class LocalKernelBuilder(KernelBuilderBase):
 
                     # Assembly calls within the macro kernel
                     tensor = eigen_tensor(exp, self.temps[exp], indices)
-                    include_dirs.extend(kinfo.kernel._include_dirs)
                     call = ast.FunCall(kinfo.kernel.name,
                                        tensor,
                                        coord_sym,
@@ -148,6 +146,8 @@ class LocalKernelBuilder(KernelBuilderBase):
                     # Subkernels for local assembly (Eigen templated functions)
                     kast = transformer.visit(kinfo.kernel._ast)
                     templated_subkernels.append(kast)
+                    include_dirs.extend(kinfo.kernel._include_dirs)
+                    oriented = oriented or kinfo.oriented
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
