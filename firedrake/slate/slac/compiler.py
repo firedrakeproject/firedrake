@@ -252,16 +252,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         # exterior.
 
         statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
-        chker = {"interior_facet": 1,
-                 "exterior_facet": 0,
-                 "interior_facet_vert": 1,
-                 "exterior_facet_vert": 0}
         int_calls = list(chain(*[builder.assembly_calls[it_type]
-                                 for it_type in chker
-                                 if chker[it_type] == 1]))
+                                 for it_type in ("interior_facet",
+                                                 "interior_facet_vert")]))
         ext_calls = list(chain(*[builder.assembly_calls[it_type]
-                                 for it_type in chker
-                                 if chker[it_type] == 0]))
+                                 for it_type in ("exterior_facet",
+                                                 "exterior_facet_vert")]))
 
         # Compute the number of facets to loop over
         domain = slate_expr.ufl_domain()
