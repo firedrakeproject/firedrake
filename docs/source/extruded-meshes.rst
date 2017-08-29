@@ -193,11 +193,11 @@ constructed by Firedrake.
     m = UnitSquareMesh(5, 5)
     kernel = op2.Kernel("""
         void extrusion_kernel(double **base_coords, double **ext_coords,
-                              int **layer, double *layer_height) {
+                              double *layer_height, int layer) {
             for (int i=0; i<6; i++) {
                 ext_coords[i][0] = base_coords[i / 2][0]; // X
                 ext_coords[i][1] = base_coords[i / 2][1]; // Y
-                ext_coords[i][2] = 0.1 * (layer[0][0] + (i % 2)) + 0.5 * base_coords[i / 2][1]; // Z
+                ext_coords[i][2] = 0.1 * (layer + (i % 2)) + 0.5 * base_coords[i / 2][1]; // Z
             }
         }
     """, "extrusion_kernel")
