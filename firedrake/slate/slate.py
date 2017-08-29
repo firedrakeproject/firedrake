@@ -122,10 +122,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def is_mixed(self):
         """Returns `True` if the tensor has mixed arguments and `False` otherwise.
         """
-        if any(len(arg.function_space()) > 1 for arg in self.arguments()):
-            return True
-
-        return False
+        return any(len(arg.function_space()) > 1 for arg in self.arguments())
 
     @property
     def inv(self):
