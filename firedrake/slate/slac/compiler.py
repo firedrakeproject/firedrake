@@ -41,6 +41,12 @@ PETSC_DIR = get_petsc_dir()
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
+# These are globally constant symbols
+coord_sym = ast.Symbol("coords")
+cell_orientations_sym = ast.Symbol("cell_orientations")
+cell_facet_sym = ast.Symbol("cell_facets")
+mesh_layer_sym = ast.Symbol("layer")
+
 supported_integral_types = [
     "cell",
     "interior_facet",
@@ -95,14 +101,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Create a builder for the Slate expression
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
-
-    # Initialize coordinate, cell orientations and facet/layer
-    # symbols
-    coordsym = ast.Symbol("coords")
     coords = None
-    cell_orientations = ast.Symbol("cell_orientations")
-    cellfacetsym = ast.Symbol("cell_facets")
-    mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
     # We keep track of temporaries that have been declared
@@ -141,17 +140,17 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 kinfo = splitkernel.kinfo
 
                 # Generate an iterable of coefficients to pass to the subkernel
-                # if any are required
-                clist = [c for ci in kinfo.coefficient_map
-                         for c in builder.coefficient(exp.coefficients()[ci])]
+                # if any are required.
+                clist = [c for i in kinfo.coefficient_map
+                         for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
                 if kinfo.oriented:
-                    clist.insert(0, cell_orientations)
+                    clist.insert(0, cell_orientations_sym)
 
                 incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
                 statements.append(ast.FunCall(kinfo.kernel.name,
-                                              tensor, coordsym,
+                                              tensor, coord_sym,
                                               *clist))
 
         elif it_type in ["interior_facet", "exterior_facet",
@@ -159,44 +158,19 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # These integral types will require accessing local facet
             # information and looping over facet indices.
             builder.require_cell_facets()
-            loop_stmt, incl = facet_integral_loop(cxt_kernel, builder,
-                                                  coordsym, cellfacetsym,
-                                                  cell_orientations)
+            loop_stmt, incl = facet_integral_loop(cxt_kernel, builder)
             statements.append(loop_stmt)
 
         elif it_type == "interior_facet_horiz":
-            # The infamous interior horizontal facet
-            # will have two SplitKernels: one top,
-            # one bottom. The mesh layer will determine
-            # which kernels we call.
             builder.require_mesh_layers()
-            top_sks = [k for k in cxt_kernel.tsfc_kernels
-                       if k.kinfo.integral_type == "exterior_facet_top"]
-            bottom_sks = [k for k in cxt_kernel.tsfc_kernels
-                          if k.kinfo.integral_type == "exterior_facet_bottom"]
-            assert len(top_sks) == len(bottom_sks), (
-                "Number of top and bottom kernels should be equal"
-            )
-            # Top and bottom kernels need to be sorted by kinfo.indices
-            # if the space is mixed to ensure indices match.
-            top_sks = sorted(top_sks, key=lambda x: x.indices)
-            bottom_sks = sorted(bottom_sks, key=lambda x: x.indices)
-            stmt, incl = extruded_int_horiz_facet(exp,
-                                                  builder,
-                                                  top_sks,
-                                                  bottom_sks,
-                                                  coordsym,
-                                                  mesh_layer_sym,
-                                                  cell_orientations)
+            stmt, incl = extruded_int_horiz_facet(cxt_kernel, builder)
             statements.append(stmt)
 
         elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
             # These kernels will only be called if we are on
             # the top or bottom layers of the extruded mesh.
             builder.require_mesh_layers()
-            stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder,
-                                                   coordsym, mesh_layer_sym,
-                                                   cell_orientations)
+            stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder)
             statements.append(stmt)
 
         else:
@@ -236,11 +210,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder._finalize_kernels_and_update()
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
+    args = [result, ast.Decl("%s **" % SCALAR_TYPE, coord_sym)]
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int **", cell_orientations))
+        args.append(ast.Decl("int **", cell_orientations_sym))
 
     # Coefficient information
     for c in expr_coeffs:
@@ -253,7 +227,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Facet information
     if builder.needs_cell_facets:
         args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
-                             cellfacetsym))
+                             cell_facet_sym))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -305,26 +279,34 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return kernels
 
 
-def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
-                             coordsym, mesh_layer_sym,
-                             cell_orientations):
+def extruded_int_horiz_facet(cxt_kernel, builder):
     """Generates a code statement for evaluating interior horizontal
     facet integrals.
 
-    :arg exp: A :class:`TensorBase` expression.
+    :arg cxt_kernel: A :namedtuple:`ContextKernel` containing all relevant
+                     integral types and TSFC kernels associated with the
+                     form nested in the expression.
     :arg builder: A :class:`KernelBuilder` containing the expression context.
-    :arg top_sks: An iterable of index ordered TSFC kernels for the top
-                  kernels.
-    :arg bottom_sks: An iterable of index ordered TSFC kernels for the bottom
-                     kernels.
-    :arg coordsym: An `ast.Symbol` object representing coordinate arguments
-                   for the kernel.
-    :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
-    :arg cell_orientations: An `ast.Symbol` representing cell orientation
-                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
+
+    # The infamous interior horizontal facet
+    # will have two SplitKernels: one top,
+    # one bottom. The mesh layer will determine
+    # which kernels we call.
+    top_sks = [k for k in cxt_kernel.tsfc_kernels
+               if k.kinfo.integral_type == "exterior_facet_top"]
+    bottom_sks = [k for k in cxt_kernel.tsfc_kernels
+                  if k.kinfo.integral_type == "exterior_facet_bottom"]
+    assert len(top_sks) == len(bottom_sks), (
+        "Number of top and bottom kernels should be equal"
+    )
+    # Top and bottom kernels need to be sorted by kinfo.indices
+    # if the space is mixed to ensure indices match.
+    top_sks = sorted(top_sks, key=lambda x: x.indices)
+    bottom_sks = sorted(bottom_sks, key=lambda x: x.indices)
+    exp = cxt_kernel.tensor
     t = builder.temps[exp]
     nlayers = exp.ufl_domain().topological.layers - 1
 
@@ -341,20 +323,21 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         # if any are required
         c_set = top.kinfo.coefficient_map + btm.kinfo.coefficient_map
         coefficient_map = tuple(OrderedDict.fromkeys(c_set))
-        clist = [c for ci in coefficient_map
-                 for c in builder.coefficient(exp.coefficients()[ci])]
+
+        clist = [c for i in coefficient_map
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         if top.kinfo.oriented and btm.kinfo.oriented:
-            clist.insert(0, cell_orientations)
+            clist.insert(0, cell_orientations_sym)
 
         dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
         incl.extend(tuple(OrderedDict.fromkeys(dirs)))
 
         tensor = eigen_tensor(exp, t, index)
         top_calls.append(ast.FunCall(top.kinfo.kernel.name,
-                                     tensor, coordsym, *clist))
+                                     tensor, coord_sym, *clist))
         bottom_calls.append(ast.FunCall(btm.kinfo.kernel.name,
-                                        tensor, coordsym, *clist))
+                                        tensor, coord_sym, *clist))
 
     else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
     inter_stmt = ast.If(ast.Eq(mesh_layer_sym, nlayers - 1),
@@ -366,8 +349,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     return stmt, incl
 
 
-def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
-                              cell_orientations):
+def extruded_top_bottom_facet(cxt_kernel, builder):
     """Generates a code statement for evaluating exterior top/bottom
     facet integrals.
 
@@ -375,11 +357,6 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
                      integral types and TSFC kernels associated with the
                      form nested in the expression.
     :arg builder: A :class:`KernelBuilder` containing the expression context.
-    :arg coordsym: An `ast.Symbol` object representing coordinate arguments
-                   for the kernel.
-    :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
-    :arg cell_orientations: An `ast.Symbol` representing cell orientation
-                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
@@ -394,17 +371,17 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
         kinfo = splitkernel.kinfo
 
         # Generate an iterable of coefficients to pass to the subkernel
-        # if any are required
-        clist = [c for ci in kinfo.coefficient_map
-                 for c in builder.coefficient(exp.coefficients()[ci])]
+        # if any are required.
+        clist = [c for i in kinfo.coefficient_map
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         if kinfo.oriented:
-            clist.insert(0, cell_orientations)
+            clist.insert(0, cell_orientations_sym)
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
         body.append(ast.FunCall(kinfo.kernel.name,
-                                tensor, coordsym, *clist))
+                                tensor, coord_sym, *clist))
 
     if cxt_kernel.original_integral_type == "exterior_facet_bottom":
         layer = 0
@@ -417,8 +394,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
     return stmt, incl
 
 
-def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
-                        cell_orientations):
+def facet_integral_loop(cxt_kernel, builder):
     """Generates a code statement for evaluating exterior/interior facet
     integrals.
 
@@ -426,18 +402,13 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
                      integral types and TSFC kernels associated with the
                      form nested in the expression.
     :arg builder: A :class:`KernelBuilder` containing the expression context.
-    :arg coordsym: An `ast.Symbol` object representing coordinate arguments
-                   for the kernel.
-    :arg cellfacetsym: An `ast.Symbol` representing the cell facets.
-    :arg cell_orientations: An `ast.Symbol` representing cell orientation
-                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
     t = builder.temps[exp]
     it_type = cxt_kernel.original_integral_type
-    itsym = ast.Symbol("i0")
+    it_sym = ast.Symbol("i0")
 
     chker = {"interior_facet": 1,
              "interior_facet_vert": 1,
@@ -467,28 +438,28 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
         kinfo = splitkernel.kinfo
 
         # Generate an iterable of coefficients to pass to the subkernel
-        # if any are required
-        clist = [c for ci in kinfo.coefficient_map
-                 for c in builder.coefficient(exp.coefficients()[ci])]
+        # if any are required.
+        clist = [c for i in kinfo.coefficient_map
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
 
         if kinfo.oriented:
-            clist.insert(0, cell_orientations)
+            clist.insert(0, cell_orientations_sym)
 
-        clist.append(ast.FlatBlock("&%s" % itsym))
+        clist.append(ast.FlatBlock("&%s" % it_sym))
         funcalls.append(ast.FunCall(kinfo.kernel.name,
                                     tensor,
-                                    coordsym,
+                                    coord_sym,
                                     *clist))
 
-    loop_body = ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)),
+    loop_body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)),
                               checker), [ast.Block(funcalls, open_scope=True)])
 
-    loop_stmt = ast.For(ast.Decl("unsigned int", itsym, init=0),
-                        ast.Less(itsym, nfacet),
-                        ast.Incr(itsym, 1), loop_body)
+    loop_stmt = ast.For(ast.Decl("unsigned int", it_sym, init=0),
+                        ast.Less(it_sym, nfacet),
+                        ast.Incr(it_sym, 1), loop_body)
 
     return loop_stmt, incl
 

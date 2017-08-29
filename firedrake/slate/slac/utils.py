@@ -1,4 +1,3 @@
-
 import collections
 
 from coffee import base as ast
