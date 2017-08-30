@@ -116,38 +116,35 @@ class LocalKernelBuilder(KernelBuilderBase):
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
 
-                # TSFC No-op kernels do not contain a kernel body. If this is
-                # the case, we don't create a function call.
-                if kinfo.kernel:
-                    # TODO: Implement subdomains for Slate tensors
-                    if kinfo.subdomain_id != "otherwise":
-                        raise NotImplementedError("Subdomains not implemented.")
+                # TODO: Implement subdomains for Slate tensors
+                if kinfo.subdomain_id != "otherwise":
+                    raise NotImplementedError("Subdomains not implemented.")
 
-                    args = [c for i in kinfo.coefficient_map
-                            for c in self.coefficient(local_coefficients[i])]
+                args = [c for i in kinfo.coefficient_map
+                        for c in self.coefficient(local_coefficients[i])]
 
-                    if kinfo.oriented:
-                        args.insert(0, cell_orientations_sym)
+                if kinfo.oriented:
+                    args.insert(0, cell_orientations_sym)
 
-                    if kinfo.integral_type in ["interior_facet",
-                                               "exterior_facet",
-                                               "interior_facet_vert",
-                                               "exterior_facet_vert"]:
-                        args.append(ast.FlatBlock("&%s" % it_sym))
+                if kinfo.integral_type in ["interior_facet",
+                                           "exterior_facet",
+                                           "interior_facet_vert",
+                                           "exterior_facet_vert"]:
+                    args.append(ast.FlatBlock("&%s" % it_sym))
 
-                    # Assembly calls within the macro kernel
-                    tensor = eigen_tensor(exp, self.temps[exp], indices)
-                    call = ast.FunCall(kinfo.kernel.name,
-                                       tensor,
-                                       coord_sym,
-                                       *args)
-                    assembly_calls[it_type].append(call)
+                # Assembly calls within the macro kernel
+                tensor = eigen_tensor(exp, self.temps[exp], indices)
+                call = ast.FunCall(kinfo.kernel.name,
+                                   tensor,
+                                   coord_sym,
+                                   *args)
+                assembly_calls[it_type].append(call)
 
-                    # Subkernels for local assembly (Eigen templated functions)
-                    kast = transformer.visit(kinfo.kernel._ast)
-                    templated_subkernels.append(kast)
-                    include_dirs.extend(kinfo.kernel._include_dirs)
-                    oriented = oriented or kinfo.oriented
+                # Subkernels for local assembly (Eigen templated functions)
+                kast = transformer.visit(kinfo.kernel._ast)
+                templated_subkernels.append(kast)
+                include_dirs.extend(kinfo.kernel._include_dirs)
+                oriented = oriented or kinfo.oriented
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
@@ -397,15 +394,15 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                     t = ast.Symbol("wT%d" % len(declared_temps))
                     statements.append(ast.Decl(c_type, t))
                     statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                    declared_temps[actee] = t
 
-                # Assigning coefficient values into temporary
-                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
-                                       rank=(i_sym, j_sym))
-                index = ast.Sum(offset,
-                                ast.Sum(ast.Prod(dofs, i_sym), j_sym))
-                coeff_temp = ast.Symbol(declared_temps[actee], rank=(index,))
-                assignments.append(ast.Assign(coeff_temp, coeff_sym))
+                    # Assigning coefficient values into temporary
+                    coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
+                                           rank=(i_sym, j_sym))
+                    index = ast.Sum(offset,
+                                    ast.Sum(ast.Prod(dofs, i_sym), j_sym))
+                    coeff_temp = ast.Symbol(t, rank=(index,))
+                    assignments.append(ast.Assign(coeff_temp, coeff_sym))
+                    declared_temps[actee] = t
 
             # Inner-loop running over dof extent
             inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
