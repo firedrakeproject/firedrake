@@ -11,6 +11,8 @@ from firedrake.slate.slac.utils import (topological_sort,
                                         collect_reference_count)
 from firedrake.utils import cached_property
 
+from functools import reduce
+
 from ufl import MixedElement
 
 
@@ -35,7 +37,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
         # Collect terminals and expressions
         temps = OrderedDict()
-        action_coefficients = []
+        action_coeffs = OrderedDict()
         tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
@@ -45,7 +47,17 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
                 # Actions will always require a coefficient temporary.
                 if isinstance(tensor, Action):
                     actee, = tensor.actee
-                    action_coefficients.append(actee)
+                    shapes = [(V.finat_element.space_dimension(), V.value_size)
+                              for V in actee.function_space().split()]
+                    shp = sum(n * d for (n, d) in shapes)
+                    offset = 0
+                    for i, shape in enumerate(shapes):
+                        # Return a tuple containing the function space index,
+                        # the offset index, the shape of the coefficient temp,
+                        # and the actee.
+                        actee_info = (i, offset, shp, actee)
+                        action_coeffs.setdefault(shape, []).append(actee_info)
+                        offset += reduce(lambda x, y: x*y, shape)
 
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose
@@ -57,13 +69,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
         self.aux_exprs = topological_sort(tensor_ops)
-
-        # We group the coefficients by function space.
-        sorted_actees = OrderedDict()
-        for actee in list(OrderedDict.fromkeys(action_coefficients)):
-            V = actee.function_space()
-            sorted_actees.setdefault(V, []).append(actee)
-        self.action_coefficients = sorted_actees
+        self.action_coefficients = action_coeffs
 
     @cached_property
     def coefficient_map(self):

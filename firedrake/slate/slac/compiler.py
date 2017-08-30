@@ -383,48 +383,43 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         i_sym = ast.Symbol("i1")
         j_sym = ast.Symbol("j1")
         loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-        for V, clist in iter(builder.action_coefficients.items()):
-            shapes = [(Vi.finat_element.space_dimension(), np.prod(Vi.shape))
-                      for Vi in V.split()]
-            c_type = eigen_matrixbase_type((sum(n * d for (n, d) in shapes),))
-            offset = 0
 
-            for i, shp in enumerate(shapes):
-                nodes, dofs = shp
+        # clist is a list of tuples (i, shp, c) where i is the function space
+        # index, shp is the shape of the coefficient temp, and c is the
+        # coefficient
+        for (nodes, dofs), clist in builder.action_coefficients.items():
+            # Collect all coefficients which share the same node/dof extent
+            assignments = []
+            for (fs, offset, shp_info, actee) in clist:
+                if actee not in declared_temps:
+                    # Declare and initialize coefficient temporary
+                    c_type = eigen_matrixbase_type(shape=(shp_info,))
+                    t = ast.Symbol("wT%d" % len(declared_temps))
+                    statements.append(ast.Decl(c_type, t))
+                    statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                    declared_temps[actee] = t
 
-                # Collect all coefficients which share the same function space.
-                # The coefficient assignments will make up the for-loop body.
-                assignments = []
-                for actee in clist:
-                    if actee not in declared_temps:
-                        # Declare and initialize coefficient temporary
-                        t = ast.Symbol("wT%d" % len(declared_temps))
-                        statements.append(ast.Decl(c_type, t))
-                        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                        declared_temps[actee] = t
+                # Assigning coefficient values into temporary
+                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
+                                       rank=(i_sym, j_sym))
+                index = ast.Sum(offset,
+                                ast.Sum(ast.Prod(dofs, i_sym), j_sym))
+                coeff_temp = ast.Symbol(declared_temps[actee], rank=(index,))
+                assignments.append(ast.Assign(coeff_temp, coeff_sym))
 
-                    # Assigning coefficient values into temporary
-                    coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
-                                           rank=(i_sym, j_sym))
-                    index = ast.Sum(offset,
-                                    ast.Sum(ast.Prod(dofs, i_sym), j_sym))
-                    coeff_temp = ast.Symbol(t, rank=(index,))
-                    assignments.append(ast.Assign(coeff_temp, coeff_sym))
+            # Inner-loop running over dof extent
+            inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
+                                 ast.Less(j_sym, dofs),
+                                 ast.Incr(j_sym, 1),
+                                 assignments)
 
-                # Inner-loop running over dof extent
-                inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
-                                     ast.Less(j_sym, dofs),
-                                     ast.Incr(j_sym, 1),
-                                     assignments)
+            # Outer-loop running over node extent
+            loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
+                           ast.Less(i_sym, nodes),
+                           ast.Incr(i_sym, 1),
+                           inner_loop)
 
-                # Outer-loop running over node extent
-                loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
-                               ast.Less(i_sym, nodes),
-                               ast.Incr(i_sym, 1),
-                               inner_loop)
-
-                loops.append(loop)
-                offset += nodes * dofs
+            loops.append(loop)
 
         statements.extend(loops)
 
