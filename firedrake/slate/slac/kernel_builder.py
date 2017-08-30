@@ -39,6 +39,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         temps = OrderedDict()
         action_coeffs = OrderedDict()
         tensor_ops = []
+        seen_coeff = set()
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
@@ -47,17 +48,21 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
                 # Actions will always require a coefficient temporary.
                 if isinstance(tensor, Action):
                     actee, = tensor.actee
-                    shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in actee.function_space().split()]
-                    shp = sum(n * d for (n, d) in shapes)
-                    offset = 0
-                    for i, shape in enumerate(shapes):
-                        # Return a tuple containing the function space index,
-                        # the offset index, the shape of the coefficient temp,
-                        # and the actee.
-                        actee_info = (i, offset, shp, actee)
-                        action_coeffs.setdefault(shape, []).append(actee_info)
-                        offset += reduce(lambda x, y: x*y, shape)
+                    if actee not in seen_coeff:
+                        shapes = [(V.finat_element.space_dimension(),
+                                   V.value_size)
+                                  for V in actee.function_space().split()]
+                        shp = sum(n * d for (n, d) in shapes)
+                        offset = 0
+                        for i, shape in enumerate(shapes):
+                            # Return a tuple containing the function space
+                            # index, the offset index, the shape of the
+                            # coefficient temp, and the actee.
+                            cinfo = (i, offset, shp, actee)
+                            action_coeffs.setdefault(shape, []).append(cinfo)
+                            offset += reduce(lambda x, y: x*y, shape)
+
+                        seen_coeff.add(actee)
 
                 # Operations which have "high" reference count will have
                 # auxiliary temporaries created. Negative and Transpose

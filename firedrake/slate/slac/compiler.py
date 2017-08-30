@@ -394,15 +394,15 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                     t = ast.Symbol("wT%d" % len(declared_temps))
                     statements.append(ast.Decl(c_type, t))
                     statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-
-                    # Assigning coefficient values into temporary
-                    coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
-                                           rank=(i_sym, j_sym))
-                    index = ast.Sum(offset,
-                                    ast.Sum(ast.Prod(dofs, i_sym), j_sym))
-                    coeff_temp = ast.Symbol(t, rank=(index,))
-                    assignments.append(ast.Assign(coeff_temp, coeff_sym))
                     declared_temps[actee] = t
+
+                # Assigning coefficient values into temporary
+                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
+                                       rank=(i_sym, j_sym))
+                index = ast.Sum(offset,
+                                ast.Sum(ast.Prod(dofs, i_sym), j_sym))
+                coeff_temp = ast.Symbol(t, rank=(index,))
+                assignments.append(ast.Assign(coeff_temp, coeff_sym))
 
             # Inner-loop running over dof extent
             inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
