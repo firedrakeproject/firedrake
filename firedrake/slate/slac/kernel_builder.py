@@ -32,7 +32,6 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        # Collect reference counts
         ref_counts = collect_reference_count([expression])
 
         # Collect terminals and expressions

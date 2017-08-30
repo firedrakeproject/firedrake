@@ -370,7 +370,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         #            .
         #
         # where wT0, wT1, ... are temporaries for coefficients sharing the
-        # same function space. The offset is computed based on whether
+        # same node and dof extents. The offset is computed based on whether
         # the function space is mixed. The offset is always 0 for non-mixed
         # coefficients. If the coefficient is mixed, then the offset is
         # incremented by the total number of nodal unknowns associated with
@@ -381,9 +381,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         j_sym = ast.Symbol("j1")
         loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
 
-        # clist is a list of tuples (i, shp, c) where i is the function space
-        # index, shp is the shape of the coefficient temp, and c is the
-        # coefficient
+        # clist is a list of tuples (i, offset, shp, c) where i is the function
+        # space index, offset is an index denoting the starting position in the
+        # vector temporary for assigning data from the ith component function
+        # space, shp is the shape of the coefficient temp, and c is the
+        # coefficient itself.
         for (nodes, dofs), clist in builder.action_coefficients.items():
             # Collect all coefficients which share the same node/dof extent
             assignments = []
