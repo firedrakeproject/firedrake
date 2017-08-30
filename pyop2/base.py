@@ -38,6 +38,7 @@ subclass these as required to implement backend-specific features.
 import abc
 
 from contextlib import contextmanager
+from collections import namedtuple
 import itertools
 import numpy as np
 import ctypes
@@ -46,7 +47,7 @@ import operator
 import types
 from hashlib import md5
 
-from pyop2.datatypes import IntType, as_cstr
+from pyop2.datatypes import IntType, as_cstr, _EntityMask, _MapMask
 from pyop2.configuration import configuration
 from pyop2.caching import Cached, ObjectCached
 from pyop2.exceptions import *
@@ -582,9 +583,11 @@ class Set(object):
     _OWNED_SIZE = 1
     _GHOST_SIZE = 2
 
+    masks = None
+
     @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None, comm=None):
+    def __init__(self, size, name=None, halo=None, comm=None):
         self.comm = dup_comm(comm)
         if isinstance(size, numbers.Integral):
             size = [size] * 3
@@ -783,7 +786,11 @@ class ExtrudedSet(Set):
     :param parent: The parent :class:`Set` to build this :class:`ExtrudedSet` on top of
     :type parent: a :class:`Set`.
     :param layers: The number of layers in this :class:`ExtrudedSet`.
-    :type layers: an integer.
+    :type layers: an integer, indicating the number of layers for every entity,
+        or an array of shape (parent.total_size, 2) giving the start
+        and one past the stop layer for every entity.  An entry
+        ``a, b = layers[e, ...]`` means that the layers for entity
+        ``e`` run over :math:`[a, b)`.
 
     The number of layers indicates the number of time the base set is
     extruded in the direction of the :class:`ExtrudedSet`.  As a
@@ -791,10 +798,27 @@ class ExtrudedSet(Set):
     """
 
     @validate_type(('parent', Set, TypeError))
-    def __init__(self, parent, layers):
+    def __init__(self, parent, layers, masks=None):
         self._parent = parent
-        if layers < 2:
-            raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
+        try:
+            layers = verify_reshape(layers, IntType, (parent.total_size, 2))
+            self.constant_layers = False
+            if layers.min() < 0:
+                raise SizeTypeError("Bottom of layers must be >= 0")
+            if any(layers[:, 1] - layers[:, 0] < 1):
+                raise SizeTypeError("Number of layers must be >= 0")
+        except DataValueError:
+            # Legacy, integer
+            layers = np.asarray(layers, dtype=IntType)
+            if layers.shape:
+                raise SizeTypeError("Specifying layers per entity, but provided %s, needed (%d, 2)",
+                                    layers.shape, parent.total_size)
+            if layers < 2:
+                raise SizeTypeError("Need at least two layers, not %d", layers)
+            layers = np.asarray([[0, layers]], dtype=IntType)
+            self.constant_layers = True
+
+        self.masks = masks
         self._layers = layers
         self._extruded = True
 
@@ -812,13 +836,37 @@ class ExtrudedSet(Set):
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
 
+    class EntityMask(namedtuple("_EntityMask_", ["section", "bottom", "top"])):
+        """Mask bits on each set entity indicating which topological
+        entities in the closure of said set entity are exposed on the
+        bottom or top of the extruded set.  The section encodes the
+        number of entities in each entity column, and their offset
+        from the start of the set."""
+        _argtype = ctypes.POINTER(_EntityMask)
+
+        @cached_property
+        def handle(self):
+            struct = _EntityMask()
+            struct.section = self.section.handle
+            struct.bottom = self.bottom.ctypes.data
+            struct.top = self.top.ctypes.data
+            return ctypes.pointer(struct)
+
     @cached_property
     def parent(self):
         return self._parent
 
     @cached_property
     def layers(self):
-        """The number of layers in this extruded set."""
+        """The layers of this extruded set."""
+        if self.constant_layers:
+            # Backwards compat
+            return self.layers_array[0, 1]
+        else:
+            raise ValueError("No single layer, use layers_array attribute")
+
+    @cached_property
+    def layers_array(self):
         return self._layers
 
 
@@ -897,6 +945,36 @@ class Subset(ExtrudedSet):
         return self._indices
 
     @cached_property
+    def layers_array(self):
+        if self._superset.constant_layers:
+            return self._superset.layers_array
+        else:
+            return self._superset.layers_array[self.indices, ...]
+
+    @cached_property
+    def masks(self):
+        if self._superset.masks is None:
+            return None
+        psection, pbottom, ptop = self._superset.masks
+        # Avoid importing PETSc directly!
+        section = type(psection)().create(comm=MPI.COMM_SELF)
+        section.setChart(0, self.total_size)
+        shape = (np.sum(self.layers_array[:, 1] - self.layers_array[:, 0] - 1), ) + pbottom.shape[1:]
+        bottom = np.zeros(shape, dtype=pbottom.dtype)
+        top = np.zeros_like(bottom)
+        idx = 0
+        for i, pidx in enumerate(self.indices):
+            offset = psection.getOffset(pidx)
+            nval = self.layers_array[i, 1] - self.layers_array[i, 0] - 1
+            for j in range(nval):
+                bottom[idx] = pbottom[offset + j]
+                top[idx] = ptop[offset + j]
+                idx += 1
+            section.setDof(i, nval)
+        section.setUp()
+        return ExtrudedSet.EntityMask(section, bottom, top)
+
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Subset`"""
         return ctypes.c_voidp
@@ -917,7 +995,7 @@ class MixedSet(Set, ObjectCached):
         if self._initialized:
             return
         self._sets = sets
-        assert all(s is None or isinstance(s, GlobalSet) or s.layers == self._sets[0].layers for s in sets), \
+        assert all(s is None or isinstance(s, GlobalSet) or ((s.layers == self._sets[0].layers).all() if s.layers is not None else True) for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
         self.comm = reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
@@ -1452,6 +1530,7 @@ class IterationSpace(object):
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
         return self._extents, self._block_shape, self.iterset._extruded, \
+            (self.iterset._extruded and self.iterset.constant_layers), \
             isinstance(self._iterset, Subset)
 
 
@@ -2742,11 +2821,10 @@ class Map(object):
 
     For extruded problems (where ``iterset`` is an
     :class:`ExtrudedSet`) with boundary conditions applied at the top
-    and bottom of the domain, one needs to provide a list of which of
-    the `arity` values in each map entry correspond to values on the
-    bottom boundary and which correspond to the top.  This is done by
-    supplying two lists of indices in `bt_masks`, the first provides
-    indices for the bottom, the second for the top.
+    and bottom of the domain, ``bt_masks`` should be a :class:`dict`
+    mapping boundary condition types to a 2-tuple of masks that should
+    be applied to switch off respectively the "bottom" and "top" nodes
+    of a cell.
 
     """
 
@@ -2754,7 +2832,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                    ('arity', numbers.Integral, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, boundary_masks=None):
         self._iterset = iterset
         self._toset = toset
         self.comm = toset.comm
@@ -2775,16 +2853,18 @@ class Map(object):
         self._cache = {}
         # Which indices in the extruded map should be masked out for
         # the application of strong boundary conditions
-        self._bottom_mask = {}
-        self._top_mask = {}
-
-        if offset is not None and bt_masks is not None:
-            for name, mask in bt_masks.items():
-                self._bottom_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._bottom_mask[name][mask[0]] = -1
-                self._top_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._top_mask[name][mask[1]] = -1
+        self.boundary_masks = boundary_masks
         Map._globalcount += 1
+
+    class MapMask(namedtuple("_MapMask_", ["section", "indices", "facet_points"])):
+        _argtype = ctypes.POINTER(_MapMask)
+
+        @cached_property
+        def handle(self):
+            struct = _MapMask()
+            struct.section = self.section.handle
+            struct.indices = self.indices.ctypes.data
+            return ctypes.pointer(struct)
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
@@ -2827,7 +2907,7 @@ class Map(object):
         """Return any implicit (extruded "top" or "bottom") bcs to
         apply to this :class:`Map`. Normally empty except in the case of
         some :class:`DecoratedMap`\s."""
-        return frozenset([])
+        return ()
 
     @cached_property
     def vector_index(self):
@@ -2889,15 +2969,31 @@ class Map(object):
         """The vertical offset."""
         return self._offset
 
+    def _constant_layer_masks(self, which):
+        if self.offset is None:
+            return {}
+        idx = {"bottom": -2, "top": -1}[which]
+        masks = {}
+        for method, (section, indices, facet_indices) in self.boundary_masks.items():
+            facet = facet_indices[idx]
+            off = section.getOffset(facet)
+            dof = section.getDof(facet)
+            section.getDof(facet)
+            indices = indices[off:off+dof]
+            mask = np.zeros(len(self.offset), dtype=IntType)
+            mask[indices] = -1
+            masks[method] = mask
+        return masks
+
     @cached_property
     def top_mask(self):
         """The top layer mask to be applied on a mesh cell."""
-        return self._top_mask
+        return self._constant_layer_masks("top")
 
     @cached_property
     def bottom_mask(self):
         """The bottom layer mask to be applied on a mesh cell."""
-        return self._bottom_mask
+        return self._constant_layer_masks("bottom")
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \
@@ -2981,7 +3077,7 @@ class DecoratedMap(Map, ObjectCached):
         if implicit_bcs is None:
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
-        self.implicit_bcs = frozenset(implicit_bcs)
+        self.implicit_bcs = tuple(sorted(implicit_bcs))
         self.vector_index = vector_index
         self._initialized = True
 
@@ -3997,10 +4093,11 @@ class ParLoop(LazyComputation):
         size = iterset.size
         if self.is_indirect and iterset._extruded:
             region = self.iteration_region
+            layers = np.mean(iterset.layers_array[:, 1] - iterset.layers_array[:, 0])
             if region is ON_INTERIOR_FACETS:
-                size *= iterset.layers - 2
+                size *= layers - 2
             elif region not in [ON_TOP, ON_BOTTOM]:
-                size *= iterset.layers - 1
+                size *= layers - 1
         return size * self._kernel.num_flops
 
     def log_flops(self):
@@ -4122,13 +4219,6 @@ class ParLoop(LazyComputation):
     @cached_property
     def global_reduction_args(self):
         return [arg for arg in self.args if arg._is_global_reduction]
-
-    @cached_property
-    def layer_arg(self):
-        """The layer arg that needs to be added to the argument list."""
-        if self._is_layered:
-            return [self._it_space.layers]
-        return []
 
     @cached_property
     def it_space(self):

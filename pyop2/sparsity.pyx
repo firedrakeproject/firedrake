@@ -172,8 +172,10 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
         PetscScalar *values
         int set_entry
         int set_size
-        int layer_start, layer_end
-        int layer
+        int region_selector
+        bint constant_layers
+        PetscInt layer_start, layer_end, layer_bottom
+        PetscInt[:, ::1] layers
         PetscInt i
         PetscScalar zero = 0.0
         PetscInt nrow, ncol
@@ -217,7 +219,8 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
                                                 values, PETSC_INSERT_VALUES))
         else:
             # The extruded case needs a little more work.
-            layers = pair[0].iterset.layers
+            layers = pair[0].iterset.layers_array
+            constant_layers = pair[0].iterset.constant_layers
             # We only need the *4 if we have an ON_INTERIOR_FACETS
             # iteration region, but it doesn't hurt to make them all
             # bigger, since we can special case less code below.
@@ -233,20 +236,15 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
             if pair[0].iteration_region != pair[1].iteration_region:
                 raise NotImplementedError("fill_with_zeros: iteration regions of row and col maps don't match")
             for r in pair[0].iteration_region:
-                # Default is "ALL"
-                layer_start = 0
-                layer_end = layers - 1
+                region_selector = -1
                 tmp_rarity = rarity
                 tmp_carity = carity
                 if r.where == "ON_BOTTOM":
-                    # Finish after first layer
-                    layer_end = 1
+                    region_selector = 1
                 elif r.where == "ON_TOP":
-                    # Start on penultimate layer
-                    layer_start = layers - 2
+                    region_selector = 2
                 elif r.where == "ON_INTERIOR_FACETS":
-                    # Finish on penultimate layer
-                    layer_end = layers - 2
+                    region_selector = 3
                     # Double up rvals and cvals (the map is over two
                     # cells, not one)
                     tmp_rarity *= 2
@@ -258,6 +256,23 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
                 for i in range(carity):
                     coffset[i] = pair[1].offset[i]
                 for set_entry in range(set_size):
+                    if constant_layers:
+                        layer_start = layers[0, 0]
+                        layer_end = layers[0, 1] - 1
+                    else:
+                        layer_start = layers[set_entry, 0]
+                        layer_end = layers[set_entry, 1] - 1
+                    layer_bottom = layer_start
+                    if region_selector == 1:
+                        # Bottom, finish after first layer
+                        layer_end = layer_start + 1
+                    elif region_selector == 2:
+                        # Top, start on penultimate layer
+                        layer_start = layer_end - 1
+                    elif region_selector == 3:
+                        # interior, finish on penultimate layer
+                        layer_end = layer_end - 1
+
                     # In the case of tmp_rarity == rarity this is just:
                     #
                     # rvals[i] = rmap[set_entry, i] + layer_start * roffset[i]
@@ -265,11 +280,11 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
                     # But this means less special casing.
                     for i in range(tmp_rarity):
                         rvals[i] = rmap[set_entry, i % rarity] + \
-                                   (layer_start + i / rarity) * roffset[i % rarity]
+                                   (layer_start - layer_bottom + i / rarity) * roffset[i % rarity]
                     # Ditto
                     for i in range(tmp_carity):
                         cvals[i] = cmap[set_entry, i % carity] + \
-                                   (layer_start + i / carity) * coffset[i % carity]
+                                   (layer_start - layer_bottom + i / carity) * coffset[i % carity]
                     for layer in range(layer_start, layer_end):
                         CHKERR(MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
                                                         tmp_carity, cvals,

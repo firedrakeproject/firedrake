@@ -101,7 +101,7 @@ class FusionArg(sequential.Arg):
         else:
             return super(FusionArg, self).c_vec_init(is_top, is_facet)
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,)):
         if self.gather == 'postponed':
             if self._is_indirect:
                 c_args = "%s, %s" % (self.c_arg_name(i),
@@ -111,7 +111,7 @@ class FusionArg(sequential.Arg):
         elif self.gather == 'onlymap':
             c_args = "%s, %s" % (self.c_arg_name(i), self.c_vec_name())
         else:
-            c_args = super(FusionArg, self).c_kernel_arg(count, i, j, shape, layers)
+            c_args = super(FusionArg, self).c_kernel_arg(count, i, j, shape)
         if self.c_index:
             c_args += ", %s" % self.c_def_index()
         return c_args
