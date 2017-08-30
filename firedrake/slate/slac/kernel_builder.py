@@ -6,9 +6,9 @@ from collections import OrderedDict
 
 from firedrake.slate.slate import (TensorBase, Tensor,
                                    TensorOp, Action, Negative)
-from firedrake.slate.slac.utils import (traverse_dags,
-                                        collect_reference_count,
-                                        count_operands)
+from firedrake.slate.slac.utils import (topological_sort,
+                                        traverse_dags,
+                                        collect_reference_count)
 from firedrake.utils import cached_property
 
 from ufl import MixedElement
@@ -56,10 +56,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-
-        # Sort tensor ops by operand count to avoid double computation
-        # within particular expressions.
-        self.aux_exprs = sorted(tensor_ops, key=lambda x: count_operands(x))
+        self.aux_exprs = topological_sort(tensor_ops)
 
         # We group the coefficients by function space.
         sorted_actees = OrderedDict()
