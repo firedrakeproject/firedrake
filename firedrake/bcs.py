@@ -7,6 +7,7 @@ import pyop2 as op2
 from pyop2.profiling import timed_function
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
+from pyop2.datatypes import IntType
 
 import firedrake.expression as expression
 import firedrake.function as function
@@ -167,9 +168,9 @@ class DirichletBC(object):
         V = self.function_space()
         mesh = V.mesh()
         if self.sub_domain == "bottom":
-            return V.bottom_nodes(method=self.method)
+            indices = V.bottom_nodes(method=self.method)
         elif self.sub_domain == "top":
-            return V.top_nodes(method=self.method)
+            indices = V.top_nodes(method=self.method)
         else:
             values = V.exterior_facet_boundary_node_map(
                 self.method).values_with_halo
@@ -178,10 +179,19 @@ class DirichletBC(object):
                                      axis=0)
             if V.extruded:
                 offset = V.exterior_facet_boundary_node_map(self.method).offset
-                return np.unique(np.concatenate([values + i * offset
-                                                 for i in range(mesh.layers - 1)]))
+                indices = np.unique(np.concatenate([values + i * offset
+                                                    for i in range(mesh.layers - 1)]))
             else:
-                return np.unique(values)
+                indices = np.unique(values)
+        # We need a halo exchange to determine all bc nodes.
+        # Should be improved by doing this on the DM topology once.
+        d = op2.Dat(V.dof_dset.set, dtype=np.int32)
+        d.data_with_halos[indices] = 1
+        d.global_to_local_begin(op2.READ)
+        d.global_to_local_end(op2.READ)
+        indices, = np.where(d.data_ro_with_halos == 1)
+        # cast, because numpy where returns an int64
+        return indices.astype(IntType)
 
     @utils.cached_property
     def node_set(self):
