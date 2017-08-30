@@ -1,6 +1,9 @@
-import numpy as np
+import collections
+import itertools
+import numpy
 
 from pyop2 import op2
+from pyop2.datatypes import IntType
 
 
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
@@ -28,12 +31,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     The kernel signature (if provided) is::
 
         void kernel(double **base_coords, double **ext_coords,
-                    int **layer, double *layer_height)
+                    double *layer_height, int layer)
 
     The kernel iterates over the cells of the mesh and receives as
     arguments the coordinates of the base cell (to read), the
-    coordinates on the extruded cell (to write to), the layer number
-    of each cell and the fixed layer height.
+    coordinates on the extruded cell (to write to), the fixed layer
+    height, and the current cell layer.
     """
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements()[0].sub_elements()
     if kernel is None and not (vert_space.degree() == 1 and
@@ -46,15 +49,15 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void uniform_extrusion_kernel(double **base_coords,
                     double **ext_coords,
-                    int **layer,
-                    double *layer_height) {
+                    double *layer_height,
+                    int layer) {
             for ( int d = 0; d < %(base_map_arity)d; d++ ) {
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
                     ext_coords[2*d][c] = base_coords[d][c];
                     ext_coords[2*d+1][c] = base_coords[d][c];
                 }
-                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer[0][0]);
-                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer[0][0] + 1);
+                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer);
+                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer + 1);
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
                 'base_coord_dim': base_coords.function_space().value_size},
@@ -63,8 +66,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void radial_extrusion_kernel(double **base_coords,
                    double **ext_coords,
-                   int **layer,
-                   double *layer_height) {
+                   double *layer_height,
+                   int layer) {
             for ( int d = 0; d < %(base_map_arity)d; d++ ) {
                 double norm = 0.0;
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
@@ -72,8 +75,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 }
                 norm = sqrt(norm);
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer[0][0])/norm);
-                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer[0][0]+1))/norm);
+                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer)/norm);
+                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer+1))/norm);
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
@@ -87,8 +90,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void radial_hedgehog_extrusion_kernel(double **base_coords,
                                               double **ext_coords,
-                                              int **layer,
-                                              double *layer_height) {
+                                              double *layer_height,
+                                              int layer) {
             double v0[%(base_coord_dim)d];
             double v1[%(base_coord_dim)d];
             double n[%(base_coord_dim)d];
@@ -139,8 +142,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             norm *= (dot < 0 ? -1 : 1);
             for (d = 0; d < %(base_map_arity)d; ++d) {
                 for (c = 0; c < %(base_coord_dim)d; ++c ) {
-                    ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer[0][0] / norm;
-                    ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer[0][0] + 1)/ norm;
+                    ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer / norm;
+                    ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer + 1)/ norm;
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
@@ -149,17 +152,81 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    # Dat to hold layer number
-    import firedrake.functionspace as fs
-    layer_fs = fs.FunctionSpace(extruded_topology, 'DG', 0)
-    layers = extruded_topology.layers
-    layer = op2.Dat(layer_fs.dof_dset,
-                    np.repeat(np.arange(layers-1, dtype=np.int32),
-                              extruded_topology.cell_set.total_size).reshape(layers-1, extruded_topology.cell_set.total_size).T.ravel(), dtype=np.int32)
     height = op2.Global(1, layer_height, dtype=float)
     op2.par_loop(kernel,
                  ext_coords.cell_set,
                  base_coords.dat(op2.READ, base_coords.cell_node_map()),
                  ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                 layer(op2.READ, layer_fs.cell_node_map()),
-                 height(op2.READ))
+                 height(op2.READ),
+                 pass_layer_arg=True)
+
+
+def flat_entity_dofs(entity_dofs):
+    flat_entity_dofs = {}
+    for b, v in entity_dofs:
+        # v in [0, 1].  Only look at the ones, then grab the data from zeros.
+        if v == 0:
+            continue
+        flat_entity_dofs[b] = {}
+        for i in entity_dofs[(b, v)]:
+            # This line is fairly magic.
+            # It works because an interval has two points.
+            # We pick up the DoFs from the bottom point,
+            # then the DoFs from the interior of the interval,
+            # then finally the DoFs from the top point.
+            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i] +
+                                      entity_dofs[(b, 1)][i] +
+                                      entity_dofs[(b, 0)][2*i+1])
+    return flat_entity_dofs
+
+
+def entity_indices(cell):
+    """Return a dict mapping topological entities on a cell to their integer index.
+
+    This provides an iteration ordering for entities on extruded meshes.
+
+    :arg cell: a FIAT cell.
+    """
+    subents, = cell.sub_entities[cell.get_dimension()].values()
+    return {e: i for i, e in enumerate(sorted(subents))}
+
+
+def entity_reordering(cell):
+    """Return an array reordering extruded cell entities.
+
+    If we iterate over the base cell, it is natural to then go over
+    all the entities induced by the product with an interval.  This
+    iteration order is not the same as the natural iteration order, so
+    we need a reordering.
+
+    :arg cell: a FIAT tensor product cell.
+    """
+    def points(t):
+        for k in sorted(t.keys()):
+            yield itertools.repeat(k, len(t[k]))
+
+    counter = collections.Counter()
+
+    topos = (c.get_topology() for c in cell.cells)
+
+    indices = entity_indices(cell)
+    ordering = numpy.zeros(len(indices), dtype=IntType)
+    for i, ent in enumerate(itertools.product(*(itertools.chain(*points(t)) for t in topos))):
+        ordering[i] = indices[ent, counter[ent]]
+        counter[ent] += 1
+    return ordering
+
+
+def entity_closures(cell):
+    """Map entities in a cell to points in the topological closure of
+    the entity.
+
+    :arg cell: a FIAT cell.
+    """
+    indices = entity_indices(cell)
+    closure = {}
+    for e, ents in cell.sub_entities.items():
+        for ent, vals in ents.items():
+            idx = indices[(e, ent)]
+            closure[idx] = list(map(indices.get, vals))
+    return closure

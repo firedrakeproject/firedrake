@@ -416,17 +416,77 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 
     return cell_closure
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures,
-                   entity_dofs):
+def create_section(mesh, nodes_per_entity):
+    """Create the section describing a global numbering.
+
+    :arg mesh: The mesh.
+    :arg nodes_per_entity: Number of nodes on each
+        type of topological entity of the mesh.  Or, if the mesh is
+        extruded, the number of nodes on, and on top of, each
+        topological entity in the base mesh.
+
+    :returns: A PETSc Section providing the number of dofs, and offset
+        of each dof, on each mesh point.
+    """
+    # We don't use DMPlexCreateSection because we only ever put one
+    # field in each section.
+    cdef:
+        PETSc.DM dm
+        PETSc.Section section
+        PETSc.IS renumbering
+        PetscInt i, p, layers, pStart, pEnd
+        PetscInt dimension, ndof
+        np.ndarray[PetscInt, ndim=2, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        bint variable, extruded
+
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+    nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
+    if variable:
+        layer_extents = mesh.layer_extents
+    elif extruded:
+        nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
+
+    dm = mesh._plex
+    renumbering = mesh._plex_renumbering
+    section = PETSc.Section().create(comm=mesh.comm)
+    pStart, pEnd = dm.getChart()
+    section.setChart(pStart, pEnd)
+    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+    dimension = dm.getDimension()
+
+    nodes = nodes_per_entity.reshape(dimension + 1, -1)
+
+    for i in range(dimension + 1):
+        pStart, pEnd = dm.getDepthStratum(i)
+        if not variable:
+            ndof = nodes[i, 0]
+        for p in range(pStart, pEnd):
+            if variable:
+                layers = layer_extents[p, 1] - layer_extents[p, 0]
+                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
+    section.setUp()
+    return section
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cell_nodes(mesh,
+                   PETSc.Section global_numbering,
+                   entity_dofs,
+                   np.ndarray[PetscInt, ndim=1, mode="c"] offset):
     """
     Builds the DoF mapping.
 
+    :arg mesh: The mesh
     :arg global_numbering: Section describing the global DoF numbering
-    :arg cell_closures: 2D array of ordered cell closures
     :arg entity_dofs: FInAT element entity dofs for the cell
+    :arg offset: offsets for each entity dof walking up a column.
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
@@ -437,12 +497,22 @@ def get_cell_nodes(PETSc.Section global_numbering,
     cdef:
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        PetscInt ncells, nclosure, dofs_per_cell
-        PetscInt c, i, j, k
+        PetscInt nclosure, dofs_per_cell
+        PetscInt c, i, j, k, cStart, cEnd, cell
         PetscInt entity, ndofs, off
+        PETSc.Section cell_numbering
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
+        bint variable
 
-    ncells = cell_closures.shape[0]
+    variable = mesh.variable_layers
+    cell_closures = mesh.cell_closure
+    if variable:
+        layer_extents = mesh.layer_extents
+        if offset is None:
+            raise ValueError("Offset cannot be None with variable layer extents")
+
     nclosure = cell_closures.shape[1]
 
     # Extract ordering from FInAT element entity DoFs
@@ -469,58 +539,206 @@ def get_cell_nodes(PETSc.Section global_numbering,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=IntType)
-    for c in range(ncells):
+    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
+    cell_numbering = mesh._cell_numbering
+    for c in range(cStart, cEnd):
         k = 0
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         for i in range(nclosure):
-            entity = cell_closures[c, i]
+            entity = cell_closures[cell, i]
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                # The cell we're looking at the entity through is
+                # higher than the lowest cell the column touches, so
+                # we need to offset by the difference from the bottom.
+                if variable:
+                    off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
                 for j in range(ceil_ndofs[i]):
-                    cell_nodes[c, flat_index[k]] = off + j
+                    cell_nodes[cell, flat_index[k]] = off + j
                     k += 1
 
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
     return cell_nodes
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells,
-                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes):
-    """
-    Derives the DoF mapping for a given facet list.
+def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, label,
+                    np.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    """Build to DoF mapping from facets.
 
-    :arg facet_cells: 2D array of parent cells for each facet
-    :arg cell_nodes: 2D array of cell DoFs
+    :arg mesh: The mesh.
+    :arg cell_nodes: numpy array mapping from cells to function space nodes.
+    :arg label: which set of facets to ask for (interior_facets or exterior_facets).
+    :arg offset: optional offset (extruded only).
+    :returns: numpy array mapping from facets to nodes in the closure
+        of the support of that facet.
     """
     cdef:
-        int f, i, cell, nfacets, ncells, ndofs
+        PETSc.DM dm
+        PETSc.Section cell_numbering
+        DMLabel clabel = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        PetscInt f, p, i, j, pStart, pEnd, fStart, fEnd, point
+        PetscInt supportSize, facet, cell, ndof, dof
+        const PetscInt *renumbering
+        const PetscInt *support
+        PetscBool flg
+        bint variable, add_offset
 
-    nfacets = facet_cells.shape[0]
-    ncells = facet_cells.shape[1]
-    ndofs = cell_nodes.shape[1]
-    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=IntType)
+    if label not in {"interior_facets", "exterior_facets"}:
+        raise ValueError("Unsupported facet label '%s'", label)
 
-    for f in range(nfacets):
-        # First parent cell
-        cell = facet_cells[f, 0]
-        for i in range(ndofs):
-            facet_nodes[f, i] = cell_nodes[cell, i]
+    dm = mesh._plex
+    variable = mesh.variable_layers
 
-        # Second parent cell for internal facets
-        if ncells > 1:
-            cell = facet_cells[f, 1]
-            if cell >= 0:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
-            else:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = -1
+    if variable and offset is None:
+        raise ValueError("Offset cannot be None with variable layer extents")
 
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    ndof = cell_nodes.shape[1]
+
+    nfacet = dm.getStratumSize(label, 1)
+    shape = {"interior_facets": (nfacet, ndof*2),
+             "exterior_facets": (nfacet, ndof)}[label]
+
+    facet_nodes = np.full(shape, -1, dtype=IntType)
+
+    label = label.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
+    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+
+    pStart, pEnd = dm.getChart()
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    cell_numbering = mesh._cell_numbering
+
+    facet = 0
+
+    if variable:
+        layer_extents = mesh.layer_extents
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            CHKERR(DMLabelHasPoint(clabel, point, &flg))
+            if not flg:
+                # Not a facet we want.
+                continue
+
+            CHKERR(DMPlexGetSupportSize(dm.dm, point, &supportSize))
+            CHKERR(DMPlexGetSupport(dm.dm, point, &support))
+            for i in range(supportSize):
+                CHKERR(PetscSectionGetOffset(cell_numbering.sec, support[i], &cell))
+                for j in range(ndof):
+                    dof = cell_nodes[cell, j]
+                    if variable:
+                        # This facet iterates from higher than the
+                        # cell numbering of the cell, so we need
+                        # to add on the difference.
+                        dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
+                    facet_nodes[facet, ndof*i + j] = dof
+            facet += 1
+
+    CHKERR(DMLabelDestroyIndex(clabel))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     return facet_nodes
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def boundary_nodes(V, sub_domain, method):
+    """Extract boundary nodes from a function space..
+
+    :arg V: the function space
+    :arg sub_domain: a mesh marker selecting the part of the boundary
+        (may be "on_boundary" indicating the entire boundary).
+    :arg method: how to identify boundary dofs on the reference cell.
+    :returns: a numpy array of unique nodes on the boundary of the
+        requested subdomain.
+    """
+    cdef:
+        np.ndarray[np.int32_t, ndim=2, mode="c"] local_nodes
+        np.ndarray[PetscInt, ndim=1, mode="c"] offsets
+        np.ndarray[np.uint32_t, ndim=1, mode="c"] local_facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_node_list
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
+        int f, i, j, dof, facet, idx
+        int nfacet, nlocal, layers
+        PetscInt local_facet
+        PetscInt offset
+        bint all_facets
+        bint variable, extruded
+
+    mesh = V.mesh()
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+
+    facet_dim = mesh.facet_dimension()
+    if method == "topological":
+        boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
+    elif method == "geometric":
+        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
+
+    local_nodes = np.empty((len(boundary_dofs),
+                            len(boundary_dofs[0])),
+                           dtype=IntType)
+    for k, v in boundary_dofs.items():
+        local_nodes[k, :] = v
+
+    facets = V.mesh().exterior_facets
+    local_facets = facets.local_facet_dat.data_ro_with_halos
+    nlocal = local_nodes.shape[1]
+
+    if sub_domain == "on_boundary":
+        subset = facets.set
+        all_facets = True
+    else:
+        all_facets = False
+        subset = facets.subset(sub_domain)
+        facet_indices = subset.indices
+
+    nfacet = subset.total_size
+    offsets = V.offset
+    facet_node_list = V.exterior_facet_node_map().values_with_halo
+
+    if variable:
+        layer_extents = subset.layers_array
+        maxsize = local_nodes.shape[1] * np.sum((layer_extents[:, 1] - layer_extents[:, 0]) - 1)
+    elif extruded:
+        layers = subset.layers
+        maxsize = local_nodes.shape[1] * nfacet * (layers - 1)
+    else:
+        layers = 2
+        offset = 0
+        maxsize = local_nodes.shape[1] * nfacet
+
+    nodes = np.empty(maxsize, dtype=IntType)
+    idx = 0
+    for f in range(nfacet):
+        if all_facets:
+            facet = f
+        else:
+            facet = facet_indices[f]
+        local_facet = local_facets[facet]
+        if variable:
+            layers = layer_extents[f, 1] - layer_extents[f, 0]
+        for i in range(nlocal):
+            dof = local_nodes[local_facet, i]
+            for j in range(layers - 1):
+                if extruded:
+                    offset = j * offsets[dof]
+                nodes[idx] = facet_node_list[facet, dof] + offset
+                idx += 1
+
+    assert idx == nodes.shape[0]
+    return np.unique(nodes)
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

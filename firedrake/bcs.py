@@ -1,5 +1,4 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
 
@@ -7,7 +6,6 @@ import pyop2 as op2
 from pyop2.profiling import timed_function
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
-from pyop2.datatypes import IntType
 
 import firedrake.expression as expression
 import firedrake.function as function
@@ -164,34 +162,7 @@ class DirichletBC(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
-
-        V = self.function_space()
-        mesh = V.mesh()
-        if self.sub_domain == "bottom":
-            indices = V.bottom_nodes(method=self.method)
-        elif self.sub_domain == "top":
-            indices = V.top_nodes(method=self.method)
-        else:
-            values = V.exterior_facet_boundary_node_map(
-                self.method).values_with_halo
-            if self.sub_domain != "on_boundary":
-                values = values.take(mesh.exterior_facets.subset(self.sub_domain).indices,
-                                     axis=0)
-            if V.extruded:
-                offset = V.exterior_facet_boundary_node_map(self.method).offset
-                indices = np.unique(np.concatenate([values + i * offset
-                                                    for i in range(mesh.layers - 1)]))
-            else:
-                indices = np.unique(values)
-        # We need a halo exchange to determine all bc nodes.
-        # Should be improved by doing this on the DM topology once.
-        d = op2.Dat(V.dof_dset.set, dtype=np.int32)
-        d.data_with_halos[indices] = 1
-        d.global_to_local_begin(op2.READ)
-        d.global_to_local_end(op2.READ)
-        indices, = np.where(d.data_ro_with_halos == 1)
-        # cast, because numpy where returns an int64
-        return indices.astype(IntType)
+        return self._function_space.boundary_nodes(self.sub_domain, self.method)
 
     @utils.cached_property
     def node_set(self):

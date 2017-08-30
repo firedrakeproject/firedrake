@@ -17,19 +17,18 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 import numpy
 import finat
 from decorator import decorator
-from functools import reduce
-
-
-from finat.finiteelementbase import entity_support_dofs
-
-from coffee import base as ast
+from functools import reduce, partial
 
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
+from pyop2.datatypes import IntType
+from pyop2.utils import as_tuple
 
-from firedrake import dmplex as dm_mod
+import firedrake.extrusion_numbering as extnum
+from firedrake import dmplex
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
+from firedrake import extrusion_utils as eutils
+from firedrake.petsc import PETSc
 
 
 __all__ = ("get_shared_data", )
@@ -68,7 +67,7 @@ def get_global_numbering(mesh, nodes_per_entity):
         topological entity.
     :returns: A new PETSc Section.
     """
-    return mesh._plex.createSection([1], nodes_per_entity, perm=mesh._plex_renumbering)
+    return mesh.create_section(nodes_per_entity)
 
 
 @cached
@@ -81,12 +80,14 @@ def get_node_set(mesh, nodes_per_entity):
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
     global_numbering = get_global_numbering(mesh, nodes_per_entity)
-    node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
+    node_classes = mesh.node_classes(nodes_per_entity)
     halo = halo_mod.Halo(mesh._plex, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
-    extruded = bool(mesh.layers)
+    extruded = mesh.cell_set._extruded
     if extruded:
-        node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)
+        # FIXME! This is a LIE! But these sets should not be extruded
+        # anyway, only the code gen in PyOP2 is busted.
+        node_set = op2.ExtrudedSet(node_set, layers=2)
 
     assert global_numbering.getStorageSize() == node_set.total_size
     if not extruded and node_set.total_size >= (1 << (IntType.itemsize * 8 - 4)):
@@ -94,20 +95,21 @@ def get_node_set(mesh, nodes_per_entity):
     return node_set
 
 
-def get_cell_node_list(mesh, entity_dofs, global_numbering):
+def get_cell_node_list(mesh, entity_dofs, global_numbering, offsets):
     """Get the cell->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
     :arg entity_dofs: The FInAT entity_dofs dict.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A numpy array mapping mesh cells to function space
         nodes.
     """
-    return mesh.make_cell_node_list(global_numbering, entity_dofs)
+    return mesh.make_cell_node_list(global_numbering, entity_dofs, offsets)
 
 
-def get_facet_node_list(mesh, kind, cell_node_list):
+def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """Get the facet->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
@@ -115,19 +117,19 @@ def get_facet_node_list(mesh, kind, cell_node_list):
         ``"exterior_facets"``).
     :arg cell_node_list: The map from mesh cells to function space
         nodes, see :func:`get_cell_node_list`.
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A numpy array mapping mesh facets to function space
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._plex.getStratumSize(kind, 1) > 0:
-        facet = getattr(mesh, kind)
-        return dm_mod.get_facet_nodes(facet.facet_cell, cell_node_list)
+        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
 
 @cached
-def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
+def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
@@ -135,16 +137,23 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
     :arg entity_dofs: FInAT entity dofs.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A dict mapping mesh entity sets to numpy arrays of
         function space nodes.
     """
     # set->node lists are specific to the sorted entity_dofs.
-    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering)
-    interior_facet_node_list = get_facet_node_list(mesh, "interior_facets", cell_node_list)
-    exterior_facet_node_list = get_facet_node_list(mesh, "exterior_facets", cell_node_list)
-    return {mesh.cell_set: cell_node_list,
-            mesh.interior_facets.set: interior_facet_node_list,
-            mesh.exterior_facets.set: exterior_facet_node_list}
+    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets)
+    interior_facet_node_list = partial(get_facet_node_list, mesh, "interior_facets", cell_node_list, offsets)
+    exterior_facet_node_list = partial(get_facet_node_list, mesh, "exterior_facets", cell_node_list, offsets)
+
+    class magic(dict):
+        def __missing__(self, key):
+            return self.setdefault(key,
+                                   {mesh.cell_set: lambda: cell_node_list,
+                                    mesh.interior_facets.set: interior_facet_node_list,
+                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+
+    return magic()
 
 
 @cached
@@ -175,32 +184,77 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
 
 
 @cached
-def get_bt_masks(mesh, key, finat_element):
-    """Get masks for top and bottom dofs.
+def get_boundary_masks(mesh, key, finat_element):
+    """Get masks for facet dofs.
 
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
     :arg finat_element: The FInAT element.
     :returns: A dict mapping ``"topological"`` and ``"geometric"``
-        keys to bottom and top dofs (extruded) or ``None``.
+        keys to boundary nodes or ``None``.  If not None, the entry in
+        the mask dict 3-tuple of a Section, an array of indices, and
+        an array indicating which points in the Section correspond to
+        the facets of the cell.  If section.getDof(p) is non-zero,
+        then there are ndof basis functions topologically associated
+        with points in the closure of
+        point p (for "topological", ndof basis functions with non-zero
+        support on points in the closure of p for "geometric").  The
+        basis function indices are in the index array, starting at
+        section.getOffset(p).
     """
-    if not bool(mesh.layers):
+    if not mesh.cell_set._extruded:
         return None
-    bt_masks = {}
-    # Compute the top and bottom masks to identify boundary dofs
-    #
-    # Sorting the keys of the closure entity dofs, the whole cell
-    # comes last [-1], before that the horizontal facet [-2], before
-    # that vertical facets [-3]. We need the horizontal facets here.
-    closure_dofs = finat_element.entity_closure_dofs()
-    horiz_facet_dim = sorted(closure_dofs.keys())[-2]
-    b_mask = closure_dofs[horiz_facet_dim][0]
-    t_mask = closure_dofs[horiz_facet_dim][1]
-    bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
-    # Geometric facet dofs
-    facet_dofs = entity_support_dofs(finat_element, horiz_facet_dim)
-    bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
-    return bt_masks
+    masks = {}
+    _, kind = key
+    assert kind in {"cell", "interior_facet"}
+    dim = finat_element.cell.get_spatial_dimension()
+    ecd = finat_element.entity_closure_dofs()
+    try:
+        esd = finat_element.entity_support_dofs()
+    except NotImplementedError:
+        # 4-D cells
+        esd = None
+    # Number of entities on cell excepting the cell itself.
+    chart = sum(map(len, ecd.values())) - 1
+    closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    support_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    # Double up for interior facets.
+    if kind == "cell":
+        ncell = 1
+    else:
+        ncell = 2
+    closure_section.setChart(0, ncell*chart)
+    support_section.setChart(0, ncell*chart)
+    closure_indices = []
+    support_indices = []
+    facet_points = []
+    p = 0
+
+    offset = finat_element.space_dimension()
+    for cell in range(ncell):
+        for ent in sorted(ecd.keys()):
+            # Never need closure of cell
+            if sum(ent) == dim:
+                continue
+            for key in sorted(ecd[ent].keys()):
+                closure_section.setDof(p, len(ecd[ent][key]))
+                vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
+                closure_indices.extend(vals + cell*offset)
+                if esd is not None:
+                    support_section.setDof(p, ncell*len(esd[ent][key]))
+                    vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
+                    support_indices.extend(vals + cell*offset)
+                if sum(ent) == dim - 1:
+                    facet_points.append(p)
+                p += 1
+    closure_section.setUp()
+    support_section.setUp()
+    closure_indices = numpy.asarray(closure_indices, dtype=IntType)
+    support_indices = numpy.asarray(support_indices, dtype=IntType)
+    facet_points = numpy.asarray(facet_points, dtype=IntType)
+    masks["topological"] = op2.Map.MapMask(closure_section, closure_indices, facet_points)
+    masks["geometric"] = op2.Map.MapMask(support_section, support_indices, facet_points)
+    return masks
 
 
 @cached
@@ -215,6 +269,54 @@ def get_work_function_cache(mesh, ufl_element):
     therefore comparing equal) share a work function cache.
     """
     return {}
+
+
+@cached
+def get_top_bottom_boundary_nodes(mesh, key, V):
+    """Get top or bottom boundary nodes of an extruded function space.
+
+    :arg mesh: The mesh to cache on.
+    :arg key: The key a 3-tuple of ``(entity_dofs_key, sub_domain, method)``.
+        Where sub_domain indicates top or bottom and method is whether
+        we should identify dofs on facets topologically or geometrically.
+    :arg V: The FunctionSpace to select from.
+    :arg entity_dofs: The flattened entity dofs.
+    :returnsL: A numpy array of the (unique) boundary nodes.
+    """
+    _, sub_domain, method = key
+    cell_node_list = V.cell_node_list
+    offset = V.offset
+    if mesh.variable_layers:
+        return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
+                                                V.cell_boundary_masks[method],
+                                                offset,
+                                                sub_domain)
+    else:
+        idx = {"bottom": -2, "top": -1}[sub_domain]
+        section, indices, facet_points = V.cell_boundary_masks[method]
+        facet = facet_points[idx]
+        dof = section.getDof(facet)
+        off = section.getOffset(facet)
+        mask = indices[off:off+dof]
+        nodes = cell_node_list[..., mask]
+        if sub_domain == "top":
+            nodes = nodes + offset[mask]*(mesh.cell_set.layers - 2)
+        return numpy.unique(nodes)
+
+
+@cached
+def get_boundary_nodes(mesh, key, V):
+    _, sub_domain, method = key
+    indices = dmplex.boundary_nodes(V, sub_domain, method)
+    # We need a halo exchange to determine all bc nodes.
+    # Should be improved by doing this on the DM topology once.
+    d = op2.Dat(V.dof_dset.set, dtype=IntType)
+    d.data_with_halos[indices] = 1
+    d.global_to_local_begin(op2.READ)
+    d.global_to_local_end(op2.READ)
+    indices, = numpy.where(d.data_ro_with_halos == 1)
+    # cast, because numpy where returns an int64
+    return indices.astype(IntType)
 
 
 def get_max_work_functions(V):
@@ -279,7 +381,8 @@ class FunctionSpaceData(object):
        attached to topological entities.
     """
     __slots__ = ("map_caches", "entity_node_lists",
-                 "node_set", "bt_masks", "offset",
+                 "node_set", "cell_boundary_masks",
+                 "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
     def __init__(self, mesh, finat_element):
@@ -300,11 +403,12 @@ class FunctionSpaceData(object):
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
         self.map_caches = get_map_caches(mesh, edofs_key)
-        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering)
-        self.node_set = node_set
         self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
-        self.bt_masks = get_bt_masks(mesh, edofs_key, finat_element)
-        self.extruded = bool(mesh.layers)
+        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
+        self.node_set = node_set
+        self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
+        self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
+        self.extruded = mesh.cell_set._extruded
         self.mesh = mesh
         self.global_numbering = global_numbering
 
@@ -323,99 +427,23 @@ class FunctionSpaceData(object):
     def __str__(self):
         return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
 
-    def exterior_facet_boundary_node_map(self, V, method):
-        """Return the :class:`pyop2.Map` from exterior facets to nodes
-        on the boundary.
-
-        :arg V: The function space.
-        :arg method:  The method for determining boundary nodes.  See
-           :class:`~.DirichletBC` for details.
-        """
-        try:
-            return self.map_caches["boundary_node"][method]
-        except KeyError:
-            pass
-        el = V.finat_element
-
-        dim = self.mesh.facet_dimension()
-
-        if method == "topological":
-            boundary_dofs = el.entity_closure_dofs()[dim]
-        elif method == "geometric":
-            # This function is only called on extruded meshes when
-            # asking for the nodes that live on the "vertical"
-            # exterior facets.
-            boundary_dofs = entity_support_dofs(el, dim)
-
-        nodes_per_facet = \
-            len(boundary_dofs[0])
-
-        # HACK ALERT
-        # The facet set does not have a halo associated with it, since
-        # we only construct halos for DoF sets.  Fortunately, this
-        # loop is direct and we already have all the correct
-        # information available locally.  So We fake a set of the
-        # correct size and carry out a direct loop
-        facet_set = op2.Set(self.mesh.exterior_facets.set.total_size,
-                            comm=self.mesh.comm)
-
-        fs_dat = op2.Dat(facet_set**el.space_dimension(),
-                         data=V.exterior_facet_node_map().values_with_halo.view())
-
-        facet_dat = op2.Dat(facet_set**nodes_per_facet,
-                            dtype=IntType)
-
-        # Ensure these come out in sorted order.
-        local_facet_nodes = numpy.array(
-            [boundary_dofs[e] for e in sorted(boundary_dofs.keys())])
-
-        # Helper function to turn the inner index of an array into c
-        # array literals.
-        c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
-
-        # AST for: l_nodes[facet[0]][n]
-        rank_ast = ast.Symbol("l_nodes", rank=(ast.Symbol("facet", rank=(0,)), "n"))
-
-        body = ast.Block([ast.Decl("int",
-                                   ast.Symbol("l_nodes", (len(el.cell.topology[dim]),
-                                                          nodes_per_facet)),
-                                   init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
-                                   qualifiers=["const"]),
-                          ast.For(ast.Decl("int", "n", 0),
-                                  ast.Less("n", nodes_per_facet),
-                                  ast.Incr("n", 1),
-                                  ast.Assign(ast.Symbol("facet_nodes", ("n",)),
-                                             ast.Symbol("cell_nodes", (rank_ast, ))))
-                          ])
-
-        kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
-                                        [ast.Decl("%s*" % as_cstr(fs_dat.dtype),
-                                                  "cell_nodes"),
-                                         ast.Decl("%s*" % as_cstr(facet_dat.dtype),
-                                                  "facet_nodes"),
-                                         ast.Decl("unsigned int*", "facet")],
-                                        body),
-                            "create_bc_node_map")
-
-        local_facet_dat = op2.Dat(facet_set ** self.mesh.exterior_facets._rank,
-                                  self.mesh.exterior_facets.local_facet_dat.data_ro_with_halos,
-                                  dtype=numpy.uintc)
-        op2.par_loop(kernel, facet_set,
-                     fs_dat(op2.READ),
-                     facet_dat(op2.WRITE),
-                     local_facet_dat(op2.READ))
-
-        if self.extruded:
-            offset = self.offset[boundary_dofs[0]]
+    def boundary_nodes(self, V, sub_domain, method):
+        if method not in {"topological", "geometric"}:
+            raise ValueError("Don't know how to extract nodes with method '%s'", method)
+        if sub_domain in ["bottom", "top"]:
+            if not V.extruded:
+                raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
+                                 sub_domain)
+            entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
+            key = (entity_dofs_key(entity_dofs), sub_domain, method)
+            return get_top_bottom_boundary_nodes(V.mesh(), key, V)
         else:
-            offset = None
-        val = op2.Map(facet_set, self.node_set,
-                      nodes_per_facet,
-                      facet_dat.data_ro_with_halos,
-                      name="exterior_facet_boundary_node",
-                      offset=offset)
-        self.map_caches["boundary_node"][method] = val
-        return val
+            if sub_domain == "on_boundary":
+                sdkey = sub_domain
+            else:
+                sdkey = as_tuple(sub_domain)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
+            return get_boundary_nodes(V.mesh(), key, V)
 
     def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
                 kind=None):
@@ -433,7 +461,6 @@ class FunctionSpaceData(object):
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
-        cache = self.map_caches[entity_set]
 
         if bcs is not None:
             # Separate explicit bcs (we just place negative entries in
@@ -530,28 +557,18 @@ class FunctionSpaceData(object):
             else:
                 new_entity_node_list = entity_node_list
 
-            if kind == "interior_facet" and self.bt_masks is not None:
-                bt_masks = {}
-                off = map_arity // 2
-                for method, (bottom, top) in self.bt_masks.items():
-                    b = []
-                    t = []
-                    for i in bottom:
-                        b.append(i)
-                        b.append(i+off)
-                    for i in top:
-                        t.append(i)
-                        t.append(i+off)
-                    bt_masks[method] = (b, t)
+            if kind == "interior_facet":
+                boundary_masks = self.interior_facet_boundary_masks
             else:
-                bt_masks = self.bt_masks
+                boundary_masks = self.cell_boundary_masks
+
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           new_entity_node_list,
                           ("%s_"+name) % (V.name),
                           offset=offset,
                           parent=parent,
-                          bt_masks=bt_masks)
+                          boundary_masks=boundary_masks)
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)

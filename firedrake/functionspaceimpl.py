@@ -297,7 +297,8 @@ class FunctionSpace(object):
         self.finat_element = finat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
-        self.bt_masks = sdata.bt_masks
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -500,40 +501,17 @@ class FunctionSpace(object):
                              self.offset,
                              parent)
 
-    def exterior_facet_boundary_node_map(self, method):
-        """The :class:`pyop2.Map` from exterior facets to the nodes on
-        those facets. Note that this differs from
-        :meth:`exterior_facet_node_map` in that only surface nodes
-        are referenced, not all nodes in cells touching the surface.
+    def boundary_nodes(self, sub_domain, method):
+        """Return the boundary nodes for this :class:`~.FunctionSpace`.
 
-        :arg method: The method for determining boundary nodes. See
-            :class:`~.bcs.DirichletBC`.
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :arg method: the method for determining boundary nodes.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
         """
-        return self._shared_data.exterior_facet_boundary_node_map(self, method)
-
-    def bottom_nodes(self, method='topological'):
-        """Return a list of the bottom boundary nodes of the extruded mesh.
-        The bottom mask is applied to every bottom layer cell to get the
-        dof ids."""
-        if self.bt_masks is None:
-            raise ValueError("Doesn't make sense on non extruded space.")
-        try:
-            mask = self.bt_masks[method][0]
-        except KeyError:
-            raise ValueError("Unknown boundary condition method %s" % method)
-        return numpy.unique(self.cell_node_list[:, mask])
-
-    def top_nodes(self, method='topological'):
-        """Return a list of the top boundary nodes of the extruded mesh.
-        The top mask is applied to every top layer cell to get the dof ids."""
-        if self.bt_masks is None:
-            raise ValueError("Doesn't make sense on non extruded space.")
-        try:
-            mask = self.bt_masks[method][1]
-        except KeyError:
-            raise ValueError("Unknown boundary condition method %s" % method)
-        voffs = self.offset.take(mask)*(self.mesh().layers-2)
-        return numpy.unique(self.cell_node_list[:, mask] + voffs)
+        return self._shared_data.boundary_nodes(self, sub_domain, method)
 
 
 class MixedFunctionSpace(object):
@@ -716,14 +694,6 @@ class MixedFunctionSpace(object):
                 bc_list[bc.function_space().index].append(bc)
         return op2.MixedMap(s.exterior_facet_node_map(bc_list[i])
                             for i, s in enumerate(self._spaces))
-
-    @utils.cached_property
-    def exterior_facet_boundary_node_map(self):
-        '''The :class:`pyop2.MixedMap` from exterior facets to the nodes on
-        those facets. Note that this differs from
-        :meth:`exterior_facet_node_map` in that only surface nodes
-        are referenced, not all nodes in cells touching the surface.'''
-        return op2.MixedMap(s.exterior_facet_boundary_node_map for s in self._spaces)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.MixedDat` defined on the
@@ -928,9 +898,4 @@ class RealFunctionSpace(FunctionSpace):
 
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def exterior_facet_boundary_node_map(self, method):
-        """":class:`RealFunctionSpace` objects have no exterior facet boundary
-        node map."""
         return None
