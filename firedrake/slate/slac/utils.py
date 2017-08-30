@@ -3,6 +3,8 @@ import collections
 from coffee import base as ast
 from coffee.visitor import Visitor
 
+from collections import OrderedDict
+
 from ufl.algorithms.multifunction import MultiFunction
 
 
@@ -143,28 +145,38 @@ def topological_sort(exprs):
     resolved. A node is resolved once all the nodes in its dependencies
     have been moved into the sorted list.
 
+    A list of expressions, say [D, C, B, A], is provided and a dependency
+    graph is generated based on the operands of each expression. If
+    the dependency graph looks like
+
+    G = { D: [B, A],
+          C: [B],
+          B: [],
+          A: [] }
+
+    i.e., D depends on A and B, C depends on B, and A and B don't depend
+    on any expression, then [A, B, C, D] is returned.
+
     :arg exprs: An iterable of Slate nodes.
     """
+    # Generate the graph as a dictionary whose keys are the Slate nodes.
     # Don't include the expr itself in its dependencies
-    dependency_graph = {expr: list(set(traverse_dags([expr])) - {expr})
-                        for expr in exprs}
+    dependency_info = [(expr, set(traverse_dags([expr])) - {expr})
+                       for expr in exprs]
+    dependency_graph = OrderedDict(dependency_info)
 
-    sorted_exprs = []
+    schedule = []
     while dependency_graph:
-        acyclic = False
-        for tensor, dependencies in list(dependency_graph.items()):
-            for exp in dependencies:
-                if exp in dependency_graph:
-                    break
-            else:
-                acyclic = True
-                del dependency_graph[tensor]
-                sorted_exprs.append(tensor)
+        for expr in list(dependency_graph.keys()):
+            if not dependency_graph[expr].intersection(dependency_graph):
+                schedule.append(expr)
+                break
+        else:
+            raise RuntimeError("A cyclic dependency is found.")
 
-        if not acyclic:
-            raise RuntimeError("A cyclic dependency found.")
+        del dependency_graph[expr]
 
-    return sorted_exprs
+    return schedule
 
 
 # Thanks, Miklos!
