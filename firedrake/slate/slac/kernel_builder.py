@@ -120,4 +120,5 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
     def integral_type(self):
         """Returns the integral type associated with a Slate kernel. This
         is used to determine how the Slate kernel should be iterated over
-        the mesh."""
+        the mesh.
+        """
