@@ -11,6 +11,7 @@ import itertools
 import numpy
 from singledispatch import singledispatch
 
+import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
@@ -38,7 +39,8 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            simplify_abs, preprocess_expression)
+                            one_times, simplify_abs,
+                            preprocess_expression)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -50,7 +52,6 @@ class ContextBase(ProxyKernelInterface):
                 'entity_ids',
                 'precision',
                 'argument_multiindices',
-                'cellvolume',
                 'facetarea',
                 'index_cache')
 
@@ -308,9 +309,31 @@ def translate_spatialcoordinate(terminal, mt, ctx):
     return ctx.translator(expr)
 
 
+class CellVolumeKernelInterface(ProxyKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee, restriction):
+        ProxyKernelInterface.__init__(self, wrapee)
+        self.restriction = restriction
+
+    def coefficient(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
+
+
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
-    return ctx.cellvolume(mt.restriction)
+    integrand, degree = one_times(ufl.dx(domain=terminal.ufl_domain()))
+    interface = CellVolumeKernelInterface(ctx, mt.restriction)
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=interface, quadrature_degree=degree)
+    expr, = compile_ufl(integrand, point_sum=True, **config)
+    return expr
 
 
 @translate.register(FacetArea)

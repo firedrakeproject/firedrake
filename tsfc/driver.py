@@ -32,7 +32,6 @@ from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters
 
-from tsfc.kernel_interface import ProxyKernelInterface
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
 
@@ -132,7 +131,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       index_cache=index_cache)
 
     kernel_cfg["facetarea"] = facetarea_generator(mesh, kernel_cfg, integral_type)
-    kernel_cfg["cellvolume"] = cellvolume_generator(mesh, kernel_cfg)
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -246,35 +244,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     return builder.construct_kernel(kernel_name, body)
 
 
-class CellVolumeKernelInterface(ProxyKernelInterface):
-    # Since CellVolume is evaluated as a cell integral, we must ensure
-    # that the right restriction is applied when it is used in an
-    # interior facet integral.  This proxy diverts coefficient
-    # translation to use a specified restriction.
-
-    def __init__(self, wrapee, restriction):
-        ProxyKernelInterface.__init__(self, wrapee)
-        self.restriction = restriction
-
-    def coefficient(self, ufl_coefficient, r):
-        assert r is None
-        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
-
-
-def cellvolume_generator(domain, kernel_config):
-    def cellvolume(restriction):
-        from ufl import dx
-        integrand, degree = ufl_utils.one_times(dx(domain=domain))
-        interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
-
-        config = {k: v for k, v in kernel_config.items()
-                  if k in ["ufl_cell", "precision", "index_cache"]}
-        config.update(interface=interface, quadrature_degree=degree)
-        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
-        return expr
-    return cellvolume
-
-
 def facetarea_generator(domain, kernel_config, integral_type):
     def facetarea():
         from ufl import Measure
@@ -338,7 +307,6 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
                   point_set=point_set)
-    config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), config)
     ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
     # Deal with non-scalar expressions
