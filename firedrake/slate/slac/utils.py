@@ -1,5 +1,3 @@
-import collections
-
 from coffee import base as ast
 from coffee.visitor import Visitor
 
@@ -166,56 +164,33 @@ def topological_sort(exprs):
 
     :arg exprs: A list of Slate expressions.
     """
-    # Generate aux expr graph
-    graph = OrderedDict()
-    for expr in exprs:
-        graph[expr] = [n for n in traverse_dags([expr])
-                       if n in exprs and n != expr]
+    graph = OrderedDict((expr, set(expand_dag(expr)) - {expr})
+                        for expr in exprs)
 
     schedule = []
     visited = set()
     for n in graph:
-        if n not in visited:
-            depth_first_search(graph, n, visited, schedule)
+        depth_first_search(graph, n, visited, schedule)
 
     return schedule
 
 
-# Thanks, Miklos!
-def traverse_dags(expr_dags):
-    """Traverses a DAG and returns the unique operands associated
-    with the DAG.
+def expand_dag(expr):
+    """Expands out a Slate expressions in terms of
+    all its nodes that make up the DAG.
 
-    :arg expr_dags: an iterable of Slate nodes that make up the
-                    DAG of a given Slate expression.
+    :arg expr: A Slate expressions.
     """
-    seen = set()
-    container = []
-
-    for tensor in expr_dags:
-        if tensor not in seen:
-            seen.add(tensor)
-            container.append(tensor)
-
+    seen = {expr}
+    container = [expr]
+    expanded_dag = []
     while container:
         tensor = container.pop()
-        yield tensor
+        expanded_dag.append(tensor)
+
         for operand in tensor.operands:
             if operand not in seen:
                 seen.add(operand)
                 container.append(operand)
 
-
-# This function is based on the GEM DAG reference count
-# algorithm in TSFC and adapted for Slate tensors.
-def collect_reference_count(expr_dags):
-    """Returns a mapping from operand to reference count.
-
-    :arg expr_dags: an iterable of Slate nodes that make up the
-                    DAG of a given Slate expression.
-    """
-    result = collections.Counter(expr_dags)
-    for tensor in traverse_dags(expr_dags):
-        result.update(tensor.operands)
-
-    return result
+    return expanded_dag

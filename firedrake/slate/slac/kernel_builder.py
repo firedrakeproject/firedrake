@@ -2,18 +2,16 @@ from abc import ABCMeta, abstractproperty
 
 from coffee import base as ast
 
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 
-from firedrake.slate.slate import (TensorBase, Tensor,
-                                   TensorOp, Action, Negative)
-from firedrake.slate.slac.utils import (topological_sort,
-                                        traverse_dags,
-                                        collect_reference_count)
+from firedrake.slate.slac.utils import topological_sort, expand_dag
 from firedrake.utils import cached_property
 
 from functools import reduce
 
 from ufl import MixedElement
+
+import firedrake.slate.slate as slate
 
 
 class KernelBuilderBase(object, metaclass=ABCMeta):
@@ -27,52 +25,53 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
                               TSFC when constructing subkernels associated
                               with the expression.
         """
-        assert isinstance(expression, TensorBase)
+        assert isinstance(expression, slate.TensorBase)
 
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        ref_counts = collect_reference_count([expression])
-
-        # Collect terminals and expressions
+        # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
         action_coeffs = OrderedDict()
-        tensor_ops = []
         seen_coeff = set()
-        for tensor in traverse_dags([expression]):
-            if isinstance(tensor, Tensor):
+        expression_dag = expand_dag(expression)
+        counter = Counter([expression])
+
+        for tensor in expression_dag:
+            counter.update(tensor.operands)
+
+            # Terminal tensors will always require a temporary.
+            if isinstance(tensor, slate.Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
-            elif isinstance(tensor, TensorOp):
-                # Actions will always require a coefficient temporary.
-                if isinstance(tensor, Action):
-                    actee, = tensor.actee
-                    if actee not in seen_coeff:
-                        shapes = [(V.finat_element.space_dimension(),
-                                   V.value_size)
-                                  for V in actee.function_space().split()]
-                        shp = sum(n * d for (n, d) in shapes)
-                        offset = 0
-                        for i, shape in enumerate(shapes):
-                            # Return a tuple containing the function space
-                            # index, the offset index, the shape of the
-                            # coefficient temp, and the actee.
-                            cinfo = (i, offset, shp, actee)
-                            action_coeffs.setdefault(shape, []).append(cinfo)
-                            offset += reduce(lambda x, y: x*y, shape)
+            # Actions will always require a coefficient temporary.
+            if isinstance(tensor, slate.Action):
+                actee, = tensor.actee
 
-                        seen_coeff.add(actee)
+                if actee not in seen_coeff:
+                    shapes = [(V.finat_element.space_dimension(), V.value_size)
+                              for V in actee.function_space().split()]
+                    c_shape = (sum(n * d for (n, d) in shapes),)
 
-                # Operations which have "high" reference count will have
-                # auxiliary temporaries created. Negative and Transpose
-                # operations will not have extra temporaries.
-                if ref_counts[tensor] > 1 and not isinstance(tensor, Negative):
-                    tensor_ops.append(tensor)
+                    offset = 0
+                    for fs_i, fs_shape in enumerate(shapes):
+                        # Return a tuple containing the function space
+                        # index, the offset index, the shape of the
+                        # coefficient temp, and the actee.
+
+                        # TODO: Use a namedtuple?
+                        cinfo = (fs_i, offset, c_shape, actee)
+                        action_coeffs.setdefault(fs_shape, []).append(cinfo)
+                        offset += reduce(lambda x, y: x*y, fs_shape)
+
+                    seen_coeff.add(actee)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-        self.aux_exprs = topological_sort(tensor_ops)
+        self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
+                          if counter[tensor] > 1
+                          and not isinstance(tensor, slate.Negative)]
         self.action_coefficients = action_coeffs
 
     @cached_property
