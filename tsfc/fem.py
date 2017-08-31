@@ -99,6 +99,11 @@ class ContextBase(ProxyKernelInterface):
     def index_cache(self):
         return {}
 
+    @cached_property
+    def translator(self):
+        # NOTE: reference cycle!
+        return Translator(self)
+
 
 class PointSetContext(ContextBase):
     """Context for compile-time known evaluation points."""
@@ -153,12 +158,17 @@ class GemPointContext(ContextBase):
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
-    """Contains all the context necessary to translate UFL into GEM."""
+    """Multifunction for translating UFL -> GEM.  Incorporates ufl2gem.Mixin, and
+    dispatches on terminal type when reaching modified terminals."""
 
     def __init__(self, context):
+        # MultiFunction.__init__ does not call further __init__
+        # methods, but ufl2gem.Mixin must be initialised.
+        # (ModifiedTerminalMixin requires no initialisation.)
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
 
+        # Need context during translation!
         self.context = context
 
     def modified_terminal(self, o):
@@ -414,8 +424,7 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
         expressions = [expression]
 
     # Translate UFL to GEM, lowering finite element specific nodes
-    translator = Translator(context)
-    result = map_expr_dags(translator, expressions)
+    result = map_expr_dags(context.translator, expressions)
     if point_sum:
         result = [gem.index_sum(expr, context.point_indices) for expr in result]
     return result
