@@ -381,25 +381,26 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         j_sym = ast.Symbol("j1")
         loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
 
-        # clist is a list of tuples (i, offset, shp, c) where i is the function
-        # space index, offset is an index denoting the starting position in the
-        # vector temporary for assigning data from the ith component function
-        # space, shp is the shape of the coefficient temp, and c is the
-        # coefficient itself.
-        for (nodes, dofs), clist in builder.action_coefficients.items():
+        # `cinfo_list` is a list of tuples (i, offset, c_shape, c) where i
+        # is the function space index, offset is an index denoting the starting
+        # position in the vector temporary, c_shape is the shape of the
+        # coefficient temp, and c is the coefficient itself.
+        for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
             # Collect all coefficients which share the same node/dof extent
             assignments = []
-            for (fs, offset, shp_info, actee) in clist:
+            for cinfo in cinfo_list:
+                # TODO: Use a namedtuple?
+                fs_i, offset, c_shape, actee = cinfo
                 if actee not in declared_temps:
                     # Declare and initialize coefficient temporary
-                    c_type = eigen_matrixbase_type(shape=(shp_info,))
+                    c_type = eigen_matrixbase_type(shape=c_shape)
                     t = ast.Symbol("wT%d" % len(declared_temps))
                     statements.append(ast.Decl(c_type, t))
                     statements.append(ast.FlatBlock("%s.setZero();\n" % t))
                     declared_temps[actee] = t
 
                 # Assigning coefficient values into temporary
-                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs],
+                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs_i],
                                        rank=(i_sym, j_sym))
                 index = ast.Sum(offset,
                                 ast.Sum(ast.Prod(dofs, i_sym), j_sym))
