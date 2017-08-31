@@ -48,6 +48,7 @@ class ContextBase(ProxyKernelInterface):
 
     keywords = ('ufl_cell',
                 'fiat_cell',
+                'integral_type',
                 'integration_dim',
                 'entity_ids',
                 'precision',
@@ -338,7 +339,16 @@ def translate_cellvolume(terminal, mt, ctx):
 
 @translate.register(FacetArea)
 def translate_facetarea(terminal, mt, ctx):
-    return ctx.facetarea()
+    assert ctx.integral_type != 'cell'
+    domain = terminal.ufl_domain()
+    integrand, degree = one_times(ufl.Measure(ctx.integral_type, domain=domain))
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "integration_dim",
+                           "entity_ids", "precision", "index_cache"]}
+    config.update(interface=ctx, quadrature_degree=degree)
+    expr, = compile_ufl(integrand, point_sum=True, **config)
+    return expr
 
 
 def fiat_to_ufl(fiat_dict, order):

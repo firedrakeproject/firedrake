@@ -124,13 +124,12 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
+                      integral_type=integral_type,
                       precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
                       index_cache=index_cache)
-
-    kernel_cfg["facetarea"] = facetarea_generator(mesh, kernel_cfg, integral_type)
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -242,19 +241,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, split_argument_indices)
 
     return builder.construct_kernel(kernel_name, body)
-
-
-def facetarea_generator(domain, kernel_config, integral_type):
-    def facetarea():
-        from ufl import Measure
-        assert integral_type != 'cell'
-        integrand, degree = ufl_utils.one_times(Measure(integral_type, domain=domain))
-
-        config = kernel_config.copy()
-        config.update(quadrature_degree=degree)
-        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
-        return expr
-    return facetarea
 
 
 def compile_expression_at_points(expression, points, coordinates, parameters=None):
