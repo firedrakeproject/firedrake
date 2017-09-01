@@ -37,6 +37,12 @@ from tsfc.fiatinterface import as_fiat_cell
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
 
+def hermite_element(cell, degree):
+    assert degree == 3
+    from finat.hermite import CubicHermite
+    return CubicHermite(cell)
+
+
 supported_elements = {
     # These all map directly to FInAT elements
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
@@ -50,6 +56,7 @@ supported_elements = {
     "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
     "HDiv Trace": finat.HDivTrace,
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
+    "Hermite": hermite_element,
     "Lagrange": finat.Lagrange,
     "Nedelec 1st kind H(curl)": finat.Nedelec,
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,

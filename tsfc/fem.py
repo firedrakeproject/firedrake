@@ -18,9 +18,11 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
                          CellOrigin, CellVolume, Coefficient,
                          FacetArea, FacetCoordinate,
-                         GeometricQuantity, QuadratureWeight,
-                         ReferenceCellVolume, ReferenceFacetVolume,
-                         ReferenceNormal, SpatialCoordinate)
+                         GeometricQuantity, Jacobian,
+                         NegativeRestricted, QuadratureWeight,
+                         PositiveRestricted, ReferenceCellVolume,
+                         ReferenceFacetVolume, ReferenceNormal,
+                         SpatialCoordinate)
 
 from FIAT.reference_element import make_affine_mapping
 
@@ -28,7 +30,7 @@ import gem
 from gem.node import traversal
 from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
+from gem.utils import DynamicallyScoped, cached_property
 
 from finat.point_set import PointSingleton
 from finat.quadrature import make_quadrature
@@ -42,6 +44,9 @@ from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             one_times, simplify_abs,
                             preprocess_expression)
+
+
+MT = DynamicallyScoped()
 
 
 class ContextBase(ProxyKernelInterface):
@@ -143,9 +148,29 @@ class PointSetContext(ContextBase):
         return self.quadrature_rule.weight_expression
 
     def basis_evaluation(self, finat_element, local_derivatives, entity_id):
+        from finat.hermite import PhysicalGeometry
+
+        class CoordinateMapping(PhysicalGeometry):
+            def jacobian_at(cm, point):
+                expr = Jacobian(MT.value.terminal.ufl_domain())
+                if MT.value.restriction == '+':
+                    expr = PositiveRestricted(expr)
+                elif MT.value.restriction == '-':
+                    expr = NegativeRestricted(expr)
+                expr = preprocess_expression(expr)
+
+                point_set = PointSingleton(point)
+
+                config = {name: getattr(self, name)
+                          for name in ["ufl_cell", "precision", "index_cache"]}
+                config.update(interface=self, point_set=point_set)
+                context = PointSetContext(**config)
+                return context.translator(expr)
+
         return finat_element.basis_evaluation(local_derivatives,
                                               self.point_set,
-                                              (self.integration_dim, entity_id))
+                                              (self.integration_dim, entity_id),
+                                              coordinate_mapping=CoordinateMapping())
 
 
 class GemPointContext(ContextBase):
@@ -395,7 +420,8 @@ def translate_argument(terminal, mt, ctx):
     element = ctx.create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        with MT.let(mt):
+            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         # Filter out irrelevant derivatives
         filtered_dict = {alpha: table
                          for alpha, table in iteritems(finat_dict)
@@ -413,6 +439,7 @@ def translate_argument(terminal, mt, ctx):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
+    # import ipdb; ipdb.set_trace()
     vec = ctx.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
@@ -424,7 +451,8 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        with MT.let(mt):
+            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         for alpha, table in iteritems(finat_dict):
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
