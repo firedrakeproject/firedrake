@@ -380,17 +380,15 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         i_sym = ast.Symbol("i1")
         j_sym = ast.Symbol("j1")
         loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-
-        # `cinfo_list` is a list of tuples (i, offset, c_shape, c) where i
-        # is the function space index, offset is an index denoting the starting
-        # position in the vector temporary, c_shape is the shape of the
-        # coefficient temp, and c is the coefficient itself.
         for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
             # Collect all coefficients which share the same node/dof extent
             assignments = []
             for cinfo in cinfo_list:
-                # TODO: Use a namedtuple?
-                fs_i, offset, c_shape, actee = cinfo
+                fs_i = cinfo.space_index
+                offset = cinfo.offset_index
+                c_shape = cinfo.shape
+                actee = cinfo.coefficient
+
                 if actee not in declared_temps:
                     # Declare and initialize coefficient temporary
                     c_type = eigen_matrixbase_type(shape=c_shape)

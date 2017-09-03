@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractproperty
 
 from coffee import base as ast
 
-from collections import OrderedDict, Counter
+from collections import OrderedDict, Counter, namedtuple
 
 from firedrake.slate.slac.utils import topological_sort, expand_dag
 from firedrake.utils import cached_property
@@ -12,6 +12,24 @@ from functools import reduce
 from ufl import MixedElement
 
 import firedrake.slate.slate as slate
+
+
+CoefficientInfo = namedtuple("CoefficientInfo",
+                             ["space_index",
+                              "offset_index",
+                              "shape",
+                              "coefficient"])
+CoefficientInfo.__doc__ = """\
+Context information for creating coefficient temporaries.
+
+:param space_index: An integer denoting the function space index.
+:param offset_index: An integer denoting the starting position in
+                     the vector temporary for assignment.
+:param shape: A singleton with an integer describing the shape of
+              the coefficient temporary.
+:param coefficient: The :class:`ufl.Coefficient` containing the
+                    relevant data to be placed into the temporary.
+"""
 
 
 class KernelBuilderBase(object, metaclass=ABCMeta):
@@ -55,12 +73,10 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
 
                     offset = 0
                     for fs_i, fs_shape in enumerate(shapes):
-                        # Return a tuple containing the function space
-                        # index, the offset index, the shape of the
-                        # coefficient temp, and the actee.
-
-                        # TODO: Use a namedtuple?
-                        cinfo = (fs_i, offset, c_shape, actee)
+                        cinfo = CoefficientInfo(space_index=fs_i,
+                                                offset_index=offset,
+                                                shape=c_shape,
+                                                coefficient=actee)
                         action_coeffs.setdefault(fs_shape, []).append(cinfo)
                         offset += reduce(lambda x, y: x*y, fs_shape)
 
