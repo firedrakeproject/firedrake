@@ -86,9 +86,13 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
+
+        # Terminal tensors do not need additional temps created for them
+        # and neither do Negative nodes.
         self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
                           if counter[tensor] > 1
-                          and not isinstance(tensor, slate.Negative)]
+                          and not isinstance(tensor, (slate.Tensor,
+                                                      slate.Negative))]
         self.action_coefficients = action_coeffs
 
     @cached_property
