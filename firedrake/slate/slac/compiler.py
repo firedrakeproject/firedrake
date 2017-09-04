@@ -265,16 +265,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
         if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
         if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
-        if int_calls and ext_calls:
-            else_if = ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),))
-            body = ast.If(if_int, (ast.Block(int_calls, open_scope=True),
-                                   else_if))
-        elif int_calls:
-            body = ast.If(if_int, (ast.Block(int_calls, open_scope=True),))
-        elif ext_calls:
-            body = ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),))
-        else:
-            raise RuntimeError("Cell facets are requested, but no facet calls found.")
+        body = []
+        if ext_calls:
+            body.append(ast.If(if_ext, (ast.Block(ext_calls,
+                                                  open_scope=True),)))
+        if int_calls:
+            body.append(ast.If(if_int, (ast.Block(int_calls,
+                                                  open_scope=True),)))
 
         statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
                                   ast.Less(it_sym, num_facets),
@@ -316,39 +313,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         ext_top = builder.assembly_calls["exterior_facet_top"]
         ext_btm = builder.assembly_calls["exterior_facet_bottom"]
 
-        if int_top + int_btm:
-            statements.append(ast.FlatBlock("/* Interior and top/bottom calls */\n"))
-            # NOTE: The "top" cell has a interior horizontal facet
-            # which is locally on the "bottom." And vice versa.
-            top_calls = int_btm + ext_top
-            btm_calls = int_top + ext_btm
-
-            block_else = ast.Block(int_top + int_btm, open_scope=True)
-            block_top = ast.Block(top_calls, open_scope=True)
-            block_btm = ast.Block(btm_calls, open_scope=True)
-
-            elif_block = ast.If(ast.Eq(mesh_layer_sym, num_layers - 1),
-                                (block_top, block_else))
-
-            statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
-                                     (block_btm, elif_block)))
-        else:
-            if ext_btm:
-                statements.append(ast.FlatBlock("/* Bottom calls */\n"))
-                layer = 0
-                block_btm = ast.Block(ext_btm, open_scope=True)
-                statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
-                                         (block_btm,)))
-
-            if ext_top:
-                statements.append(ast.FlatBlock("/* Top calls */\n"))
-                layer = num_layers - 1
-                block_top = ast.Block(ext_top, open_scope=True)
-                statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
-                                         (block_top,)))
-
-        if not ext_btm + ext_top + int_btm + int_top:
-            raise RuntimeError("Mesh levels requested, but no level-dependent calls found.")
+        bottom = ast.Block(int_top + ext_btm, open_scope=True)
+        top = ast.Block(int_btm + ext_top, open_scope=True)
+        rest = ast.Block(int_btm + int_top, open_scope=True)
+        statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
+                                 (bottom,
+                                  ast.If(ast.Eq(mesh_layer_sym,
+                                                num_layers - 1),
+                                         (top, rest)))))
 
     # Populate any coefficient temporaries for actions
     if builder.action_coefficients:
