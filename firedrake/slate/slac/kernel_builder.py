@@ -4,7 +4,7 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 
-from firedrake.slate.slac.utils import topological_sort, expand_dag
+from firedrake.slate.slac.utils import topological_sort, traverse_dags
 from firedrake.utils import cached_property
 
 from functools import reduce
@@ -52,7 +52,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
         temps = OrderedDict()
         action_coeffs = OrderedDict()
         seen_coeff = set()
-        expression_dag = expand_dag(expression)
+        expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
 
         for tensor in expression_dag:
@@ -66,6 +66,7 @@ class KernelBuilderBase(object, metaclass=ABCMeta):
             if isinstance(tensor, slate.Action):
                 actee, = tensor.actee
 
+                # Ensure coefficient temporaries aren't duplicated
                 if actee not in seen_coeff:
                     shapes = [(V.finat_element.space_dimension(), V.value_size)
                               for V in actee.function_space().split()]

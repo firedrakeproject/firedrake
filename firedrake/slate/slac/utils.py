@@ -164,7 +164,7 @@ def topological_sort(exprs):
 
     :arg exprs: A list of Slate expressions.
     """
-    graph = OrderedDict((expr, set(expand_dag(expr)) - {expr})
+    graph = OrderedDict((expr, set(traverse_dags([expr])) - {expr})
                         for expr in exprs)
 
     schedule = []
@@ -175,22 +175,22 @@ def topological_sort(exprs):
     return schedule
 
 
-def expand_dag(expr):
-    """Expands out a Slate expressions in terms of
-    all its nodes that make up the DAG.
+def traverse_dags(exprs):
+    """Traverses a set of DAGs and returns each node.
 
-    :arg expr: A Slate expressions.
+    :arg exprs: An iterable of Slate expressions.
     """
-    seen = {expr}
-    container = [expr]
-    expanded_dag = []
+    seen = set()
+    container = []
+    for tensor in exprs:
+        if tensor not in seen:
+            seen.add(tensor)
+            container.append(tensor)
     while container:
         tensor = container.pop()
-        expanded_dag.append(tensor)
+        yield tensor
 
         for operand in tensor.operands:
             if operand not in seen:
                 seen.add(operand)
                 container.append(operand)
-
-    return expanded_dag
