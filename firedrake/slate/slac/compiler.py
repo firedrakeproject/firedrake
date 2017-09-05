@@ -209,205 +209,62 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if slate_expr._metakernel_cache is not None:
         return slate_expr._metakernel_cache
 
+    # Create a builder for the Slate expression
+    builder = LocalKernelBuilder(expression=slate_expr,
+                                 tsfc_parameters=tsfc_parameters)
+
+    # Keep track of declared temporaries
+    declared_temps = {}
+    statements = []
+
+    # Declare terminal tensor temporaries
+    terminal_declarations = terminal_temporaries(builder, declared_temps)
+    statements.extend(terminal_declarations)
+
+    # Generate assembly calls for tensor assembly
+    subkernel_calls = tensor_assembly_calls(builder)
+    statements.extend(subkernel_calls)
+
+    # Create coefficient temporaries if necessary
+    if builder.action_coefficients:
+        coefficient_temps = coefficient_temporaries(builder, declared_temps)
+        statements.extend(coefficient_temps)
+
+    # Create auxiliary temporaries if necessary
+    if builder.aux_exprs:
+        aux_temps = auxiliary_temporaries(builder, declared_temps)
+        statements.extend(aux_temps)
+
+    # Generate the kernel information with complete AST
+    kinfo = generate_kernel_ast(builder, statements, declared_temps)
+
+    # Cache the resulting kernel
+    idx = tuple([0]*slate_expr.rank)
+    kernel = (SplitKernel(idx, kinfo),)
+    slate_expr._metakernel_cache = kernel
+
+    return kernel
+
+
+def generate_kernel_ast(builder, statements, declared_temps):
+    """Glues together the complete AST for the Slate expression
+    contained in the :class:`LocalKernelBuilder`.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information.
+    :arg statements: A list of COFFEE objects containing all
+                     assembly calls and temporary declarations.
+    :arg declared_temps: A `dict` containing all previously
+                         declared temporaries.
+
+    Return: A `KernelInfo` object describing the complete AST.
+    """
+    slate_expr = builder.expression
     if slate_expr.rank == 0:
         # Scalars are treated as 1x1 MatrixBase objects
         shape = (1,)
     else:
         shape = slate_expr.shape
-
-    # Create a builder for the Slate expression
-    builder = LocalKernelBuilder(expression=slate_expr,
-                                 tsfc_parameters=tsfc_parameters)
-
-    declared_temps = {}
-    statements = [ast.FlatBlock("/* Declare and initialize */\n")]
-    for exp in builder.temps:
-        # Declare and initialize terminal temporaries
-        t = builder.temps[exp]
-        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
-        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-        declared_temps[exp] = t
-
-    statements.append(ast.FlatBlock("/* Assemble local tensors */\n"))
-
-    # Cell integrals are straightforward. Just splat them out.
-    statements.extend(builder.assembly_calls["cell"])
-
-    if builder.needs_cell_facets:
-        # The for-loop will have the general structure:
-        #
-        #    FOR (facet=0; facet<num_facets; facet++):
-        #        IF (facet is interior):
-        #            *interior calls
-        #        ELSE IF (facet is exterior):
-        #            *exterior calls
-        #
-        # If only interior (exterior) facets are present,
-        # then only a single IF-statement checking for interior
-        # (exterior) facets will be present within the loop. The
-        # cell facets are labelled `1` for interior, and `0` for
-        # exterior.
-
-        statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
-        int_calls = list(chain(*[builder.assembly_calls[it_type]
-                                 for it_type in ("interior_facet",
-                                                 "interior_facet_vert")]))
-        ext_calls = list(chain(*[builder.assembly_calls[it_type]
-                                 for it_type in ("exterior_facet",
-                                                 "exterior_facet_vert")]))
-
-        # Compute the number of facets to loop over
-        domain = slate_expr.ufl_domain()
-        if domain.cell_set._extruded:
-            num_facets = domain.ufl_cell()._cells[0].num_facets()
-        else:
-            num_facets = domain.ufl_cell().num_facets()
-
-        if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
-        if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
-        body = []
-        if ext_calls:
-            body.append(ast.If(if_ext, (ast.Block(ext_calls,
-                                                  open_scope=True),)))
-        if int_calls:
-            body.append(ast.If(if_int, (ast.Block(int_calls,
-                                                  open_scope=True),)))
-
-        statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
-                                  ast.Less(it_sym, num_facets),
-                                  ast.Incr(it_sym, 1), body))
-
-    if builder.needs_mesh_layers:
-        # In the presence of interior horizontal facet calls, an
-        # IF-ELIF-ELSE block is generated using the mesh levels
-        # as conditions for which calls are needed:
-        #
-        #    IF (layer == bottom_layer):
-        #        *bottom calls
-        #    ELSE IF (layer == top_layer):
-        #        *top calls
-        #    ELSE:
-        #        *top calls
-        #        *bottom calls
-        #
-        # Any extruded top or bottom calls for extruded facets are
-        # included within the appropriate mesh-level IF-blocks. If
-        # no interior horizontal facet calls are present, then
-        # standard IF-blocks are generated for exterior top/bottom
-        # facet calls when appropriate:
-        #
-        #    IF (layer == bottom_layer):
-        #        *bottom calls
-        #
-        #    IF (layer == top_layer):
-        #        *top calls
-        #
-        # The mesh level is an integer provided as a macro kernel
-        # argument.
-
-        # FIXME: No variable layers assumption
-        statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
-        num_layers = slate_expr.ufl_domain().topological.layers - 1
-        int_top = builder.assembly_calls["interior_facet_horiz_top"]
-        int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
-        ext_top = builder.assembly_calls["exterior_facet_top"]
-        ext_btm = builder.assembly_calls["exterior_facet_bottom"]
-
-        bottom = ast.Block(int_top + ext_btm, open_scope=True)
-        top = ast.Block(int_btm + ext_top, open_scope=True)
-        rest = ast.Block(int_btm + int_top, open_scope=True)
-        statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
-                                 (bottom,
-                                  ast.If(ast.Eq(mesh_layer_sym,
-                                                num_layers - 1),
-                                         (top, rest)))))
-
-    # Populate any coefficient temporaries for actions
-    if builder.action_coefficients:
-        # Action computations require creating coefficient temporaries to
-        # compute the matrix-vector product. The temporaries are created by
-        # inspecting the function space of the coefficient to compute node
-        # and dof extents. The coefficient is then assigned values by looping
-        # over both the node extent and dof extent (double FOR-loop). A double
-        # FOR-loop is needed for each function space (if the function space is
-        # mixed, then a loop will be constructed for each component space).
-        # The general structure of each coefficient loop will be:
-        #
-        #    FOR (i1=0; i1<node_extent; i1++):
-        #        FOR (j1=0; j1<dof_extent; j1++):
-        #            wT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
-        #            wT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
-        #            .
-        #            .
-        #            .
-        #
-        # where wT0, wT1, ... are temporaries for coefficients sharing the
-        # same node and dof extents. The offset is computed based on whether
-        # the function space is mixed. The offset is always 0 for non-mixed
-        # coefficients. If the coefficient is mixed, then the offset is
-        # incremented by the total number of nodal unknowns associated with
-        # the component spaces of the mixed space.
-
-        statements.append(ast.FlatBlock("/* Coefficient temporaries */\n"))
-        i_sym = ast.Symbol("i1")
-        j_sym = ast.Symbol("j1")
-        loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-        for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
-            # Collect all coefficients which share the same node/dof extent
-            assignments = []
-            for cinfo in cinfo_list:
-                fs_i = cinfo.space_index
-                offset = cinfo.offset_index
-                c_shape = cinfo.shape
-                actee = cinfo.coefficient
-
-                if actee not in declared_temps:
-                    # Declare and initialize coefficient temporary
-                    c_type = eigen_matrixbase_type(shape=c_shape)
-                    t = ast.Symbol("wT%d" % len(declared_temps))
-                    statements.append(ast.Decl(c_type, t))
-                    statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                    declared_temps[actee] = t
-
-                # Assigning coefficient values into temporary
-                coeff_sym = ast.Symbol(builder.coefficient(actee)[fs_i],
-                                       rank=(i_sym, j_sym))
-                index = ast.Sum(offset,
-                                ast.Sum(ast.Prod(dofs, i_sym), j_sym))
-                coeff_temp = ast.Symbol(t, rank=(index,))
-                assignments.append(ast.Assign(coeff_temp, coeff_sym))
-
-            # Inner-loop running over dof extent
-            inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
-                                 ast.Less(j_sym, dofs),
-                                 ast.Incr(j_sym, 1),
-                                 assignments)
-
-            # Outer-loop running over node extent
-            loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
-                           ast.Less(i_sym, nodes),
-                           ast.Incr(i_sym, 1),
-                           inner_loop)
-
-            loops.append(loop)
-
-        statements.extend(loops)
-
-    # Now we handle any terms that require auxiliary temporaries
-    if builder.aux_exprs:
-        statements.append(ast.FlatBlock("/* Auxiliary temporaries */\n"))
-        results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
-        for exp in builder.aux_exprs:
-            if exp not in declared_temps:
-                t = ast.Symbol("auxT%d" % len(declared_temps))
-                result = metaphrase_slate_to_cpp(exp, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=exp.shape)
-                statements.append(ast.Decl(tensor_type, t))
-                statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                results.append(ast.Assign(t, result))
-                declared_temps[exp] = t
-
-        statements.extend(results)
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
@@ -486,12 +343,246 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers)
 
-    # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
-    kernel = (SplitKernel(idx, kinfo),)
-    slate_expr._metakernel_cache = kernel
+    return kinfo
 
-    return kernel
+
+def auxiliary_temporaries(builder, declared_temps):
+    """Generates statements for assigning auxiliary temporaries
+    for nodes in an expression with "high" reference count.
+    Expressions which require additional temporaries are provided
+    by the :class:`LocalKernelBuilder`.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information.
+    :arg declared_temps: A `dict` containing all previously
+                         declared temporaries. This dictionary
+                         is updated as auxiliary expressions
+                         are assigned temporaries.
+    """
+    statements = [ast.FlatBlock("/* Auxiliary temporaries */\n")]
+    results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
+    for exp in builder.aux_exprs:
+        if exp not in declared_temps:
+            t = ast.Symbol("auxT%d" % len(declared_temps))
+            result = metaphrase_slate_to_cpp(exp, declared_temps)
+            tensor_type = eigen_matrixbase_type(shape=exp.shape)
+            statements.append(ast.Decl(tensor_type, t))
+            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+            results.append(ast.Assign(t, result))
+            declared_temps[exp] = t
+
+    statements.extend(results)
+
+    return statements
+
+
+def coefficient_temporaries(builder, declared_temps):
+    """Generates coefficient temporary statements for assigning
+    coefficients to vector temporaries.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information.
+    :arg declared_temps: A `dict` keeping track of all declared
+                         temporaries. This dictionary is updated
+                         as coefficients are assigned temporaries.
+
+    Action computations require creating coefficient temporaries to
+    compute the matrix-vector product. The temporaries are created by
+    inspecting the function space of the coefficient to compute node
+    and dof extents. The coefficient is then assigned values by looping
+    over both the node extent and dof extent (double FOR-loop). A double
+    FOR-loop is needed for each function space (if the function space is
+    mixed, then a loop will be constructed for each component space).
+    The general structure of each coefficient loop will be:
+
+         FOR (i1=0; i1<node_extent; i1++):
+             FOR (j1=0; j1<dof_extent; j1++):
+                 wT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
+                 wT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
+                 .
+                 .
+                 .
+
+    where wT0, wT1, ... are temporaries for coefficients sharing the
+    same node and dof extents. The offset is computed based on whether
+    the function space is mixed. The offset is always 0 for non-mixed
+    coefficients. If the coefficient is mixed, then the offset is
+    incremented by the total number of nodal unknowns associated with
+    the component spaces of the mixed space.
+    """
+    statements = [ast.FlatBlock("/* Coefficient temporaries */\n")]
+    i_sym = ast.Symbol("i1")
+    j_sym = ast.Symbol("j1")
+    loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
+    for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
+        # Collect all coefficients which share the same node/dof extent
+        assignments = []
+        for cinfo in cinfo_list:
+            fs_i = cinfo.space_index
+            offset = cinfo.offset_index
+            c_shape = cinfo.shape
+            actee = cinfo.coefficient
+
+            if actee not in declared_temps:
+                # Declare and initialize coefficient temporary
+                c_type = eigen_matrixbase_type(shape=c_shape)
+                t = ast.Symbol("wT%d" % len(declared_temps))
+                statements.append(ast.Decl(c_type, t))
+                statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                declared_temps[actee] = t
+
+            # Assigning coefficient values into temporary
+            coeff_sym = ast.Symbol(builder.coefficient(actee)[fs_i],
+                                   rank=(i_sym, j_sym))
+            index = ast.Sum(offset,
+                            ast.Sum(ast.Prod(dofs, i_sym), j_sym))
+            coeff_temp = ast.Symbol(t, rank=(index,))
+            assignments.append(ast.Assign(coeff_temp, coeff_sym))
+
+        # Inner-loop running over dof extent
+        inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
+                             ast.Less(j_sym, dofs),
+                             ast.Incr(j_sym, 1),
+                             assignments)
+
+        # Outer-loop running over node extent
+        loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
+                       ast.Less(i_sym, nodes),
+                       ast.Incr(i_sym, 1),
+                       inner_loop)
+
+        loops.append(loop)
+
+    statements.extend(loops)
+
+    return statements
+
+
+def tensor_assembly_calls(builder):
+    """Generates a block of statements for assembling the local
+    finite element tensors.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information and
+                  assembly calls.
+    """
+    statements = [ast.FlatBlock("/* Assemble local tensors */\n")]
+
+    # Cell integrals are straightforward. Just splat them out.
+    statements.extend(builder.assembly_calls["cell"])
+
+    if builder.needs_cell_facets:
+        # The for-loop will have the general structure:
+        #
+        #    FOR (facet=0; facet<num_facets; facet++):
+        #        IF (facet is interior):
+        #            *interior calls
+        #        ELSE IF (facet is exterior):
+        #            *exterior calls
+        #
+        # If only interior (exterior) facets are present,
+        # then only a single IF-statement checking for interior
+        # (exterior) facets will be present within the loop. The
+        # cell facets are labelled `1` for interior, and `0` for
+        # exterior.
+
+        statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
+        int_calls = list(chain(*[builder.assembly_calls[it_type]
+                                 for it_type in ("interior_facet",
+                                                 "interior_facet_vert")]))
+        ext_calls = list(chain(*[builder.assembly_calls[it_type]
+                                 for it_type in ("exterior_facet",
+                                                 "exterior_facet_vert")]))
+
+        # Compute the number of facets to loop over
+        domain = builder.expression.ufl_domain()
+        if domain.cell_set._extruded:
+            num_facets = domain.ufl_cell()._cells[0].num_facets()
+        else:
+            num_facets = domain.ufl_cell().num_facets()
+
+        if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
+        if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
+        body = []
+        if ext_calls:
+            body.append(ast.If(if_ext, (ast.Block(ext_calls,
+                                                  open_scope=True),)))
+        if int_calls:
+            body.append(ast.If(if_int, (ast.Block(int_calls,
+                                                  open_scope=True),)))
+
+        statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
+                                  ast.Less(it_sym, num_facets),
+                                  ast.Incr(it_sym, 1), body))
+
+    if builder.needs_mesh_layers:
+        # In the presence of interior horizontal facet calls, an
+        # IF-ELIF-ELSE block is generated using the mesh levels
+        # as conditions for which calls are needed:
+        #
+        #    IF (layer == bottom_layer):
+        #        *bottom calls
+        #    ELSE IF (layer == top_layer):
+        #        *top calls
+        #    ELSE:
+        #        *top calls
+        #        *bottom calls
+        #
+        # Any extruded top or bottom calls for extruded facets are
+        # included within the appropriate mesh-level IF-blocks. If
+        # no interior horizontal facet calls are present, then
+        # standard IF-blocks are generated for exterior top/bottom
+        # facet calls when appropriate:
+        #
+        #    IF (layer == bottom_layer):
+        #        *bottom calls
+        #
+        #    IF (layer == top_layer):
+        #        *top calls
+        #
+        # The mesh level is an integer provided as a macro kernel
+        # argument.
+
+        # FIXME: No variable layers assumption
+        statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
+        num_layers = builder.expression.ufl_domain().topological.layers - 1
+        int_top = builder.assembly_calls["interior_facet_horiz_top"]
+        int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
+        ext_top = builder.assembly_calls["exterior_facet_top"]
+        ext_btm = builder.assembly_calls["exterior_facet_bottom"]
+
+        bottom = ast.Block(int_top + ext_btm, open_scope=True)
+        top = ast.Block(int_btm + ext_top, open_scope=True)
+        rest = ast.Block(int_btm + int_top, open_scope=True)
+        statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
+                                 (bottom,
+                                  ast.If(ast.Eq(mesh_layer_sym,
+                                                num_layers - 1),
+                                         (top, rest)))))
+
+    return statements
+
+
+def terminal_temporaries(builder, declared_temps):
+    """Generates statements for assigning auxiliary temporaries
+    for nodes in an expression with "high" reference count.
+    Expressions which require additional temporaries are provided
+    by the :class:`LocalKernelBuilder`.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information.
+    :arg declared_temps: A `dict` keeping track of all declared
+                         temporaries. This dictionary is updated
+                         as terminal tensors are assigned temporaries.
+    """
+    statements = [ast.FlatBlock("/* Declare and initialize */\n")]
+    for exp in builder.temps:
+        t = builder.temps[exp]
+        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        declared_temps[exp] = t
+
+    return statements
 
 
 def parenthesize(arg, prec=None, parent=None):
