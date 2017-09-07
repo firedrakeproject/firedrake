@@ -790,12 +790,6 @@ class TestDatAPI:
         d = op2.Dat(dset, dtype=np.int32)
         assert d.data.dtype == np.int32
 
-    @pytest.mark.parametrize("mode", [op2.MAX, op2.MIN])
-    def test_dat_arg_illegal_mode(self, dat, mode):
-        """Dat __call__ should not allow access modes not allowed for a Dat."""
-        with pytest.raises(exceptions.ModeValueError):
-            dat(mode)
-
     def test_dat_subscript(self, dat):
         """Extracting component 0 of a Dat should yield self."""
         assert dat[0] is dat

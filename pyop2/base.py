@@ -47,7 +47,7 @@ import operator
 import types
 from hashlib import md5
 
-from pyop2.datatypes import IntType, as_cstr, _EntityMask, _MapMask
+from pyop2.datatypes import IntType, as_cstr, _EntityMask, _MapMask, dtype_limits
 from pyop2.configuration import configuration
 from pyop2.caching import Cached, ObjectCached
 from pyop2.exceptions import *
@@ -473,7 +473,7 @@ class Arg(object):
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        if self.access in [READ, RW, INC]:
+        if self.access in [READ, RW, INC, MIN, MAX]:
             self._in_flight = True
             self.data.global_to_local_begin(self.access)
 
@@ -483,7 +483,7 @@ class Arg(object):
         Doing halo exchanges only makes sense for :class:`Dat` objects.
         """
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
-        if self.access in [READ, RW, INC] and self._in_flight:
+        if self.access in [READ, RW, INC, MIN, MAX] and self._in_flight:
             self._in_flight = False
             self.data.global_to_local_end(self.access)
 
@@ -1647,7 +1647,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
     """
 
     _globalcount = 0
-    _modes = [READ, WRITE, RW, INC]
+    _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
     @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError),
                    ('name', str, NameTypeError))
@@ -2121,6 +2121,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
             halo.global_to_local_begin(self, WRITE)
         elif access_mode is INC:
             self._data[self.dataset.size:] = 0
+        elif access_mode in [MIN, MAX]:
+            min_, max_ = dtype_limits(self.dtype)
+            self._data[self.dataset.size:] = {MAX: min_, MIN: max_}[access_mode]
 
     @collective
     def global_to_local_end(self, access_mode):
@@ -2134,7 +2137,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         if access_mode in [READ, RW] and not self.halo_valid:
             halo.global_to_local_end(self, WRITE)
             self.halo_valid = True
-        elif access_mode is INC:
+        elif access_mode in [MIN, MAX, INC]:
             self.halo_valid = False
 
     @collective
