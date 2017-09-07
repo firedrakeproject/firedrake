@@ -47,10 +47,10 @@ def compile_element(expression, coordinates, parameters=None):
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
     assert coordinates.ufl_domain() == domain
-    expression = tsfc.ufl_utils.replace_coordinates(expression, coordinates)
 
     # Initialise kernel builder
     builder = firedrake_interface.KernelBuilderBase()
+    builder.domain_coordinate[domain] = coordinates
     x_arg = builder._coefficient(coordinates, "x")
     f_arg = builder._coefficient(coefficient, "f")
 
