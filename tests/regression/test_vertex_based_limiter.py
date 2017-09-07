@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 import numpy as np
+import subprocess
+import sys
 
 
 @pytest.fixture(params=["periodic-interval",
@@ -110,6 +112,48 @@ def test_step_function_loop(mesh, iterations=100):
 
     assert np.max(u.dat.data_ro) <= 1.0, "Failed by exceeding max values"
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
+
+
+@pytest.mark.xfail(reason="Incorrect treatment of ghost regions for min/max access")
+def test_parallel_limiting(tmpdir):
+    import pickle
+    mesh = RectangleMesh(10, 4, 5000., 1000.)
+    V = FunctionSpace(mesh, 'DG', 1)
+    f = Function(V)
+    x, *_ = SpatialCoordinate(mesh)
+    f.project(sin(2*pi*x/3000.))
+    limiter = VertexBasedLimiter(V)
+    limiter.apply(f)
+
+    expect = np.asarray([norm(f),
+                         norm(limiter.centroids),
+                         norm(limiter.min_field),
+                         norm(limiter.max_field)])
+
+    tmpfile = tmpdir.join("a")
+    code = """
+import pickle
+from firedrake import *
+mesh = RectangleMesh(10, 4, 5000., 1000.)
+V = FunctionSpace(mesh, 'DG', 1)
+f = Function(V)
+x, *_ = SpatialCoordinate(mesh)
+f.project(sin(2*pi*x/3000.))
+limiter = VertexBasedLimiter(V)
+limiter.apply(f)
+
+fnorm = norm(f)
+centroid_norm = norm(limiter.centroids)
+min_norm = norm(limiter.min_field)
+max_norm = norm(limiter.max_field)
+if mesh.comm.rank == 0:
+    with open("{file}", "wb") as f:
+        pickle.dump([fnorm, centroid_norm, min_norm, max_norm], f)
+""".format(file=tmpfile)
+    subprocess.check_call(["mpiexec", "-n", "3", sys.executable, "-c", code])
+    with tmpfile.open("rb") as f:
+        actual = np.asarray(pickle.load(f))
+    assert np.allclose(expect, actual)
 
 
 if __name__ == '__main__':
