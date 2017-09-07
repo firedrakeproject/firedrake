@@ -181,12 +181,15 @@ class KernelBuilder(KernelBuilderBase):
             arguments, multiindices, interior_facet=self.interior_facet)
         return expressions
 
-    def set_coordinates(self, coefficient):
+    def set_coordinates(self, domain):
         """Prepare the coordinate field.
 
-        :arg coefficient: :class:`ufl.Coefficient`
+        :arg domain: :class:`ufl.Domain`
         """
-        self.coordinates_arg = self._coefficient(coefficient, "coords")
+        # Create a fake coordinate coefficient for a domain.
+        f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
+        self.domain_coordinate[domain] = f
+        self.coordinates_arg = self._coefficient(f, "coords")
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.

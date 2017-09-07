@@ -14,7 +14,7 @@ from numpy import asarray
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.classes import Form, CellVolume
+from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
 
@@ -109,8 +109,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                                   for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
 
-    coordinates = ufl_utils.coordinate_coefficient(mesh)
-    builder.set_coordinates(coordinates)
+    builder.set_coordinates(mesh)
 
     builder.set_coefficients(integral_data, form_data)
 
@@ -132,8 +131,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       argument_multiindices=argument_multiindices,
                       index_cache=index_cache)
 
-    kernel_cfg["facetarea"] = facetarea_generator(mesh, coordinates, kernel_cfg, integral_type)
-    kernel_cfg["cellvolume"] = cellvolume_generator(mesh, coordinates, kernel_cfg)
+    kernel_cfg["facetarea"] = facetarea_generator(mesh, kernel_cfg, integral_type)
+    kernel_cfg["cellvolume"] = cellvolume_generator(mesh, kernel_cfg)
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -145,8 +144,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         mode = pick_mode(params["mode"])
         mode_irs.setdefault(mode, collections.OrderedDict())
 
-        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        integrand = ufl.replace(integrand, form_data.function_replace_map)
+        integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
 
         # Check if the integral has a quad degree attached, otherwise use
@@ -157,7 +155,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             quadrature_degree = params["quadrature_degree"]
         except KeyError:
             quadrature_degree = params["estimated_polynomial_degree"]
-            functions = list(arguments) + [coordinates] + list(integral_data.integral_coefficients)
+            functions = list(arguments) + [builder.coordinate(mesh)] + list(integral_data.integral_coefficients)
             function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
             if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
                    for degree in function_degrees):
@@ -263,11 +261,10 @@ class CellVolumeKernelInterface(ProxyKernelInterface):
         return self._wrapee.coefficient(ufl_coefficient, self.restriction)
 
 
-def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
+def cellvolume_generator(domain, kernel_config):
     def cellvolume(restriction):
         from ufl import dx
         integrand, degree = ufl_utils.one_times(dx(domain=domain))
-        integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
         interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
 
         config = {k: v for k, v in kernel_config.items()
@@ -278,12 +275,11 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
     return cellvolume
 
 
-def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_type):
+def facetarea_generator(domain, kernel_config, integral_type):
     def facetarea():
         from ufl import Measure
         assert integral_type != 'cell'
         integrand, degree = ufl_utils.one_times(Measure(integral_type, domain=domain))
-        integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
 
         config = kernel_config.copy()
         config.update(quadrature_degree=degree)
@@ -318,19 +314,19 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression)
 
+    # Initialise kernel builder
+    builder = firedrake_interface.ExpressionKernelBuilder()
+
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
     if domain:
         assert coordinates.ufl_domain() == domain
-        expression = ufl_utils.replace_coordinates(expression, coordinates)
+        builder.domain_coordinate[domain] = coordinates
 
     # Collect required coefficients
     coefficients = extract_coefficients(expression)
-    if coordinates not in coefficients and has_type(expression, CellVolume):
+    if has_type(expression, GeometricQuantity):
         coefficients = [coordinates] + coefficients
-
-    # Initialise kernel builder
-    builder = firedrake_interface.ExpressionKernelBuilder()
     builder.set_coefficients(coefficients)
 
     # Split mixed coefficients
@@ -342,7 +338,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
                   point_set=point_set)
-    config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
+    config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), config)
     ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
     # Deal with non-scalar expressions
