@@ -114,7 +114,6 @@ def test_step_function_loop(mesh, iterations=100):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
-@pytest.mark.xfail(reason="Incorrect treatment of ghost regions for min/max access")
 def test_parallel_limiting(tmpdir):
     import pickle
     mesh = RectangleMesh(10, 4, 5000., 1000.)
