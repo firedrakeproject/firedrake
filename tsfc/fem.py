@@ -16,11 +16,11 @@ from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
-                         CellVolume, Coefficient, FacetArea,
-                         FacetCoordinate, GeometricQuantity,
-                         QuadratureWeight, ReferenceCellVolume,
-                         ReferenceFacetVolume, ReferenceNormal,
-                         SpatialCoordinate)
+                         CellOrigin, CellVolume, Coefficient,
+                         FacetArea, FacetCoordinate,
+                         GeometricQuantity, QuadratureWeight,
+                         ReferenceCellVolume, ReferenceFacetVolume,
+                         ReferenceNormal, SpatialCoordinate)
 
 from FIAT.reference_element import make_affine_mapping
 
@@ -30,6 +30,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
+from finat.point_set import PointSingleton
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
@@ -349,6 +350,20 @@ def translate_facetarea(terminal, mt, ctx):
     config.update(interface=ctx, quadrature_degree=degree)
     expr, = compile_ufl(integrand, point_sum=True, **config)
     return expr
+
+
+@translate.register(CellOrigin)
+def translate_cellorigin(terminal, mt, ctx):
+    domain = terminal.ufl_domain()
+    coords = SpatialCoordinate(domain)
+    expression = construct_modified_terminal(mt, coords)
+    point_set = PointSingleton((0.0,) * domain.topological_dimension())
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=ctx, point_set=point_set)
+    context = PointSetContext(**config)
+    return context.translator(expression)
 
 
 def fiat_to_ufl(fiat_dict, order):
