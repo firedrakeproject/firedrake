@@ -94,15 +94,21 @@ class Halo(op2.Halo):
         dmplex.halo_end(self.sf, dat, mtype, False)
 
     def local_to_global_begin(self, dat, insert_mode):
-        assert insert_mode is op2.INC, "Only INC LtoG supported"
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
         mtype = _get_mtype(dat)
-        dmplex.halo_begin(self.sf, dat, mtype, True)
+        op = {op2.INC: MPI.SUM,
+              op2.MIN: MPI.MIN,
+              op2.MAX: MPI.MAX}[insert_mode]
+        dmplex.halo_begin(self.sf, dat, mtype, True, op=op)
 
     def local_to_global_end(self, dat, insert_mode):
-        assert insert_mode is op2.INC, "Only INC LtoG supported"
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
         mtype = _get_mtype(dat)
-        dmplex.halo_end(self.sf, dat, mtype, True)
+        op = {op2.INC: MPI.SUM,
+              op2.MIN: MPI.MIN,
+              op2.MAX: MPI.MAX}[insert_mode]
+        dmplex.halo_end(self.sf, dat, mtype, True, op=op)
