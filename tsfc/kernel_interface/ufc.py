@@ -62,11 +62,10 @@ class KernelBuilder(KernelBuilderBase):
         self.apply_glue(prepare)
         return expressions
 
-    def set_coordinates(self, coefficient, mode=None):
+    def set_coordinates(self, coefficient):
         """Prepare the coordinate field.
 
         :arg coefficient: :class:`ufl.Coefficient`
-        :arg mode: (ignored)
         """
         self.coordinates_args, expression = prepare_coordinates(
             coefficient, "coordinate_dofs", interior_facet=self.interior_facet)
