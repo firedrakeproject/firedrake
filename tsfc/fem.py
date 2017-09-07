@@ -18,7 +18,8 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellVolume, Coefficient, FacetArea,
                          FacetCoordinate, GeometricQuantity,
                          QuadratureWeight, ReferenceCellVolume,
-                         ReferenceFacetVolume, ReferenceNormal)
+                         ReferenceFacetVolume, ReferenceNormal,
+                         SpatialCoordinate)
 
 from FIAT.reference_element import make_affine_mapping
 
@@ -33,9 +34,11 @@ from finat.quadrature import make_quadrature
 from tsfc import ufl2gem
 from tsfc.finatinterface import as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
-from tsfc.modified_terminals import analyse_modified_terminal
+from tsfc.modified_terminals import (analyse_modified_terminal,
+                                     construct_modified_terminal)
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
-from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
+from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
+                            simplify_abs, preprocess_expression)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -291,6 +294,18 @@ def translate_cell_coordinate(terminal, mt, ctx):
 def translate_facet_coordinate(terminal, mt, ctx):
     assert ctx.integration_dim != ctx.fiat_cell.get_dimension()
     return ctx.point_expr
+
+
+@translate.register(SpatialCoordinate)
+def translate_spatialcoordinate(terminal, mt, ctx):
+    # Replace terminal with a Coefficient
+    terminal = ctx.coordinate(terminal.ufl_domain())
+    # Get back to reference space
+    terminal = preprocess_expression(terminal)
+    # Rebuild modified terminal
+    expr = construct_modified_terminal(mt, terminal)
+    # Translate replaced UFL snippet
+    return ctx.translator(expr)
 
 
 @translate.register(CellVolume)
