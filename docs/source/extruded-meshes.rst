@@ -64,7 +64,8 @@ can use a built-in extrusion type and modify the coordinate field afterwards.
 The following information may be passed in to the constructor:
 
 - a ``Mesh`` object, which will be used as the base mesh.
-- the desired number of cell layers in the extruded mesh.
+- the desired number of cell layers in the extruded mesh.  One may
+  also specify layers per column, see below for more information.
 - the ``extrusion_type``, which can be one of the built-in "uniform",
   "radial" or "radial_hedgehog" -- these are described below -- or "custom".
   If this argument is omitted, the "uniform" extrusion type will be used.
@@ -192,15 +193,73 @@ constructed by Firedrake.
     m = UnitSquareMesh(5, 5)
     kernel = op2.Kernel("""
         void extrusion_kernel(double **base_coords, double **ext_coords,
-                              int **layer, double *layer_height) {
+                              double *layer_height, int layer) {
             for (int i=0; i<6; i++) {
                 ext_coords[i][0] = base_coords[i / 2][0]; // X
                 ext_coords[i][1] = base_coords[i / 2][1]; // Y
-                ext_coords[i][2] = 0.1 * (layer[0][0] + (i % 2)) + 0.5 * base_coords[i / 2][1]; // Z
+                ext_coords[i][2] = 0.1 * (layer + (i % 2)) + 0.5 * base_coords[i / 2][1]; // Z
             }
         }
     """, "extrusion_kernel")
     mesh = ExtrudedMesh(m, 5, extrusion_type='custom', kernel=kernel, gdim=3)
+
+
+Variable numbers of mesh cell layers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The simplest method of creating an extruded mesh is to provide a
+constant number of cell layers for every cell in the base mesh.  For
+some applications, this may not provide sufficient flexibility.
+Firedrake therefore also allows creation of extruded meshes with a
+different number of cells in each cell column.  To do this, we provide
+an array with two values for each cell in the mesh.  The first entry
+is the number cells offset from the "bottom" (zero) level, the second
+is the number of cells in the column.
+
+For example, we might create this extruded mesh:
+
+.. code-block:: python
+
+   mesh = UnitIntervalMesh(3)
+   extmesh = ExtrudedMesh(mesh, layers=[[0, 2], [1, 1], [2, 1]],
+                          layer_height=0.25)
+
+which results in the following mesh topology.::
+
+                       x--------x
+                       |        |
+                       |        |
+                       |        |
+                       |        |
+     x--------x--------x--------x
+     |        |        |
+     |        |        |
+     |        |        |
+     |        |        |
+     x--------x--------x
+     |        |
+     |        |
+     |        |
+     |        |
+     x--------x
+
+To simplify the implementation, we never iterate over the interior
+facets that only have cells on one side.  When you construct the mesh,
+you should arrange that these facets have zero area, by squashing the
+coordinates together.  In addition, we require that the resulting
+extruded mesh does not contain topologically disconnected columns:
+offset cells must, at least, share a vertex with some other cell.
+
+.. note::
+
+   When running in parallel, the base mesh will be distributed before
+   the extruded mesh is created.  So you should arrange that the
+   layers array that you provide is specified accordingly (matching
+   the parallel distribution).
+
+For more details on the implementation, see
+:mod:`firedrake.extrusion_numbering`.
+
 
 Function Spaces on Extruded Meshes
 ----------------------------------

@@ -188,6 +188,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
+    for m in f.ufl_domains():
+        # Ensure mesh is "initialised" (could have got here without
+        # building a functionspace (e.g. if integrating a constant)).
+        m.init()
+        if m.topology != f.ufl_domains()[0].topology:
+            raise NotImplementedError("All integration domains must share a mesh topology.")
+
     if isinstance(f, slate.TensorBase):
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
@@ -348,13 +355,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     coefficients = f.coefficients()
     domains = f.ufl_domains()
-
-    for m in domains:
-        # Ensure mesh is "initialised" (could have got here without
-        # building a functionspace (e.g. if integrating a constant)).
-        m.init()
-        if m.topology != domains[0].topology:
-            raise NotImplementedError("All integration domains must share a mesh topology.")
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
