@@ -2172,7 +2172,7 @@ def prune_sf(PETSc.SF sf):
     return pruned_sf
 
 
-def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
     """Begin a halo exchange.
 
     :arg sf: the PETSc SF to use for exchanges
@@ -2185,7 +2185,6 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     reverse exchanges with ``PetscSFReduceBegin``.
     """
     cdef:
-        MPI.Op op = MPI.SUM
         np.ndarray buf = dat._data
 
     # We've pruned the SF so it only references remote roots.
@@ -2207,7 +2206,7 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                  <void *>buf.data))
 
 
-def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
     """End a halo exchange.
 
     :arg sf: the PETSc SF to use for exchanges
@@ -2220,7 +2219,6 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     reverse exchanges with ``PetscSFReduceEnd``.
     """
     cdef:
-        MPI.Op op = MPI.SUM
         np.ndarray buf = dat._data
 
     if reverse:
