@@ -50,3 +50,21 @@ class _EntityMask(ctypes.Structure):
     _fields_ = [("section", ctypes.c_voidp),
                 ("bottom", ctypes.c_voidp),
                 ("top", ctypes.c_voidp)]
+
+
+def dtype_limits(dtype):
+    """Attempt to determine the min and max values of a datatype.
+
+    :arg dtype: A numpy datatype.
+    :returns: a 2-tuple of min, max
+    :raises ValueError: If numeric limits could not be determined.
+    """
+    try:
+        info = numpy.finfo(dtype)
+    except ValueError:
+        # maybe an int?
+        try:
+            info = numpy.iinfo(dtype)
+        except ValueError as e:
+            raise ValueError("Unable to determine numeric limits from %s" % dtype) from e
+    return info.min, info.max
