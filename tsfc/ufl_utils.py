@@ -19,8 +19,8 @@ from ufl.geometry import QuadratureWeight
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
-                         ReferenceValue, ScalarValue, Sqrt, Zero,
-                         CellVolume, FacetArea)
+                         ScalarValue, Sqrt, Zero, CellVolume,
+                         FacetArea)
 
 from gem.node import MemoizerArg
 
@@ -93,37 +93,6 @@ def preprocess_expression(expression):
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
     return expression
-
-
-class SpatialCoordinateReplacer(MultiFunction):
-    """Replace SpatialCoordinate nodes with the ReferenceValue of a
-    Coefficient.  Assumes that the coordinate element only needs
-    affine mapping.
-
-    :arg coordinates: the coefficient to replace spatial coordinates with
-    """
-    def __init__(self, coordinates):
-        self.coordinates = coordinates
-        MultiFunction.__init__(self)
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def terminal(self, t):
-        return t
-
-    def spatial_coordinate(self, o):
-        assert o.ufl_domain().ufl_coordinate_element().mapping() == "identity"
-        return ReferenceValue(self.coordinates)
-
-
-def replace_coordinates(integrand, coordinate_coefficient):
-    """Replace SpatialCoordinate nodes with Coefficients."""
-    return map_expr_dag(SpatialCoordinateReplacer(coordinate_coefficient), integrand)
-
-
-def coordinate_coefficient(domain):
-    """Create a fake coordinate coefficient for a domain."""
-    return ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
 
 
 class ModifiedTerminalMixin(object):

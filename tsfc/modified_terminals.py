@@ -24,8 +24,8 @@ from __future__ import absolute_import, print_function, division
 
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
-                         Restricted, FacetAvg, CellAvg,
-                         ConstantValue)
+                         Restricted, FacetAvg, CellAvg, ConstantValue,
+                         Jacobian, SpatialCoordinate)
 
 
 class ModifiedTerminal(object):
@@ -157,12 +157,14 @@ def analyse_modified_terminal(expr):
     if reference_value is None:
         reference_value = False
 
-    mt = ModifiedTerminal(expr, t, local_derivatives, averaged, restriction, reference_value)
+    # Consistency check
+    if isinstance(t, (SpatialCoordinate, Jacobian)):
+        pass
+    else:
+        if local_derivatives and not reference_value:
+            raise ValueError("Local derivatives of non-local value?")
 
-    if local_derivatives and not reference_value:
-        raise ValueError("Local derivatives of non-local value?")
-
-    return mt
+    return ModifiedTerminal(expr, t, local_derivatives, averaged, restriction, reference_value)
 
 
 def construct_modified_terminal(mt, terminal):

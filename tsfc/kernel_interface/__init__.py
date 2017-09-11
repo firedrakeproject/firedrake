@@ -11,6 +11,11 @@ class KernelInterface(with_metaclass(ABCMeta)):
     to kernel arguments."""
 
     @abstractmethod
+    def coordinate(self, ufl_domain):
+        """A function that maps :class:`ufl.Domain`s to coordinate
+        :class:`ufl.Coefficient`s."""
+
+    @abstractmethod
     def coefficient(self, ufl_coefficient, restriction):
         """A function that maps :class:`ufl.Coefficient`s to GEM
         expressions."""

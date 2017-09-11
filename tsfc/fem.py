@@ -11,14 +11,16 @@ import itertools
 import numpy
 from singledispatch import singledispatch
 
+import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
-                         CellVolume, Coefficient, FacetArea,
-                         FacetCoordinate, GeometricQuantity,
-                         QuadratureWeight, ReferenceCellVolume,
-                         ReferenceFacetVolume, ReferenceNormal)
+                         CellOrigin, CellVolume, Coefficient,
+                         FacetArea, FacetCoordinate,
+                         GeometricQuantity, QuadratureWeight,
+                         ReferenceCellVolume, ReferenceFacetVolume,
+                         ReferenceNormal, SpatialCoordinate)
 
 from FIAT.reference_element import make_affine_mapping
 
@@ -28,14 +30,18 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
+from finat.point_set import PointSingleton
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
 from tsfc.finatinterface import as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
-from tsfc.modified_terminals import analyse_modified_terminal
+from tsfc.modified_terminals import (analyse_modified_terminal,
+                                     construct_modified_terminal)
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
-from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
+from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
+                            one_times, simplify_abs,
+                            preprocess_expression)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -43,11 +49,11 @@ class ContextBase(ProxyKernelInterface):
 
     keywords = ('ufl_cell',
                 'fiat_cell',
+                'integral_type',
                 'integration_dim',
                 'entity_ids',
                 'precision',
                 'argument_multiindices',
-                'cellvolume',
                 'facetarea',
                 'index_cache')
 
@@ -98,6 +104,11 @@ class ContextBase(ProxyKernelInterface):
     @cached_property
     def index_cache(self):
         return {}
+
+    @cached_property
+    def translator(self):
+        # NOTE: reference cycle!
+        return Translator(self)
 
 
 class PointSetContext(ContextBase):
@@ -153,12 +164,17 @@ class GemPointContext(ContextBase):
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
-    """Contains all the context necessary to translate UFL into GEM."""
+    """Multifunction for translating UFL -> GEM.  Incorporates ufl2gem.Mixin, and
+    dispatches on terminal type when reaching modified terminals."""
 
     def __init__(self, context):
+        # MultiFunction.__init__ does not call further __init__
+        # methods, but ufl2gem.Mixin must be initialised.
+        # (ModifiedTerminalMixin requires no initialisation.)
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
 
+        # Need context during translation!
         self.context = context
 
     def modified_terminal(self, o):
@@ -283,14 +299,71 @@ def translate_facet_coordinate(terminal, mt, ctx):
     return ctx.point_expr
 
 
+@translate.register(SpatialCoordinate)
+def translate_spatialcoordinate(terminal, mt, ctx):
+    # Replace terminal with a Coefficient
+    terminal = ctx.coordinate(terminal.ufl_domain())
+    # Get back to reference space
+    terminal = preprocess_expression(terminal)
+    # Rebuild modified terminal
+    expr = construct_modified_terminal(mt, terminal)
+    # Translate replaced UFL snippet
+    return ctx.translator(expr)
+
+
+class CellVolumeKernelInterface(ProxyKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee, restriction):
+        ProxyKernelInterface.__init__(self, wrapee)
+        self.restriction = restriction
+
+    def coefficient(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
+
+
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
-    return ctx.cellvolume(mt.restriction)
+    integrand, degree = one_times(ufl.dx(domain=terminal.ufl_domain()))
+    interface = CellVolumeKernelInterface(ctx, mt.restriction)
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=interface, quadrature_degree=degree)
+    expr, = compile_ufl(integrand, point_sum=True, **config)
+    return expr
 
 
 @translate.register(FacetArea)
 def translate_facetarea(terminal, mt, ctx):
-    return ctx.facetarea()
+    assert ctx.integral_type != 'cell'
+    domain = terminal.ufl_domain()
+    integrand, degree = one_times(ufl.Measure(ctx.integral_type, domain=domain))
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "integration_dim",
+                           "entity_ids", "precision", "index_cache"]}
+    config.update(interface=ctx, quadrature_degree=degree)
+    expr, = compile_ufl(integrand, point_sum=True, **config)
+    return expr
+
+
+@translate.register(CellOrigin)
+def translate_cellorigin(terminal, mt, ctx):
+    domain = terminal.ufl_domain()
+    coords = SpatialCoordinate(domain)
+    expression = construct_modified_terminal(mt, coords)
+    point_set = PointSingleton((0.0,) * domain.topological_dimension())
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=ctx, point_set=point_set)
+    context = PointSetContext(**config)
+    return context.translator(expression)
 
 
 def fiat_to_ufl(fiat_dict, order):
@@ -414,8 +487,7 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
         expressions = [expression]
 
     # Translate UFL to GEM, lowering finite element specific nodes
-    translator = Translator(context)
-    result = map_expr_dags(translator, expressions)
+    result = map_expr_dags(context.translator, expressions)
     if point_sum:
         result = [gem.index_sum(expr, context.point_indices) for expr in result]
     return result
