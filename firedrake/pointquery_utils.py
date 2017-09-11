@@ -95,12 +95,12 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         expr = ufl.dot(K, x - x0)
 
         # Translation to GEM
-        C = ufl_utils.coordinate_coefficient(domain)
+        C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
         expr = ufl_utils.preprocess_expression(expr)
-        expr = ufl_utils.replace_coordinates(expr, C)
         expr = ufl_utils.simplify_abs(expr)
 
         builder = firedrake_interface.KernelBuilderBase()
+        builder.domain_coordinate[domain] = C
         builder._coefficient(C, "C")
         builder._coefficient(x0, "x0")
 
