@@ -965,17 +965,19 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         ML = Function(VF)
         assemble(ufl.inner(v, One)*dx, tensor=ML)
         Xnew = Function(VF).interpolate(m.coordinates)
-        bc = DirichletBC(VF, oldX, "on_boundary")
+        Xold = Xnew.copy(deepcopy=True)
+        bc = DirichletBC(VF, Xold, "on_boundary")
         
         x, y, z = ufl.SpatialCoordinate(m)
         for it in range(smoothing_iterations):
             assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
             Xnew /= ML
             r = ufl.sqrt(Xnew[0]**2 + Xnew[1]**2 + Xnew[2]**2)
-            m.coordinates.interpolate(Xnew/r)
-            bc.apply(m.coordinates)
+            Xnew.interpolate(Xnew/r)
+            bc.apply(Xnew)
+            m.coordinates.interpolate(Xnew)
             
-    if degree > 1:
+    if False:
         # use it to build a higher-order mesh
         m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
     
