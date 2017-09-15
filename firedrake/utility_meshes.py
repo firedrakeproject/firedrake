@@ -968,8 +968,8 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         xd = rd0*x/r0
         yd = rd0*y/r0
         rh = ufl.sqrt(xd**2 + yd**2)
-        xh = x*ufl.asin(rh)/ufl.asin(rd0)
-        yh = y*ufl.asin(rh)/ufl.asin(rd0)
+        xh = xd*ufl.asin(rh)/ufl.asin(rd0)
+        yh = yd*ufl.asin(rh)/ufl.asin(rd0)
         zh = ufl.sqrt(Constant(1) - xh**2 - yh**2)
         mcap = ufl.as_vector([xh, yh, zh])
         m.coordinates.interpolate(ufl.conditional(ufl.lt(z, z0),
