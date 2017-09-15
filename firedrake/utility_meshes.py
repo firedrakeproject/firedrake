@@ -985,7 +985,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
             s = (abs(z) - z_min)/(1 - z_min)
             taper = ufl.conditional(abs(z)<z_min,
-                                    0, ufl.sin(ufl.pi*s))
+                                    0, s**4)
             m.coordinates.interpolate(taper*XnewH + (1-taper)*m.coordinates)
 
     m.coordinates.interpolate(m.coordinates*radius)
