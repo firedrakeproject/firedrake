@@ -7,7 +7,7 @@ from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ, interpolate, TestFunction, \
-    assemble
+    assemble, DirichletBC
 from firedrake import mesh
 from firedrake import dmplex
 from firedrake import function
@@ -881,7 +881,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
-    :kwarg smoothing_iterations: number of iterations of smoothing (default=0)
+    :kwarg smoothing_iterations: number of iterations to smooth
     kwarg z_min: taper off smoothing so it does not change node values
     with z/R<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -927,9 +927,6 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
     # build the initial mesh
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
-    if degree > 1:
-        # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -958,28 +955,32 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                                                               y*scale,
                                                               znew]))
 
-    # smooth the mesh using lumped mass projection
-    # this trick only works for P1 so we interpolate to P1
-    # interpolate to higher order mesh and push back to sphere
-    VF = VectorFunctionSpace(m, "CG", 1)
-    v = TestFunction(VF)
-    ML = Function(VF)
-    One = Function(VF).assign(1.0)
-    assemble(ufl.inner(v, One)*dx, tensor=ML)
-    Xnew = Function(VF).interpolate(m.coordinates)
-
-    x, y, z = ufl.SpatialCoordinate(m)
-    z_min = Constant(z_min)
-    taper = ufl.conditional(ufl.lt(abs(z), z_min),
-                            0, (abs(z)-z_min)/(1-z_min))
-
-    for i in range(smoothing_iterations):
-        assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
-        Xnew /= ML
-        m.coordinates.interpolate(taper*Xnew + (1-taper)*m.coordinates)
-        r = ufl.sqrt(x**2 + y**2 + z**2)
-        m.coordinates.interpolate(m.coordinates/r)
-
+    if smoothing_iterations>0:
+        oldX = m.coordinates.copy(deepcopy=True)
+    
+        # 
+        VF = VectorFunctionSpace(m, "CG", degree)
+        v = TestFunction(VF)
+        One = Function(VF).assign(1.0)
+        ML = Function(VF)
+        assemble(ufl.inner(v, One)*dx, tensor=ML)
+        Xnew = Function(VF).interpolate(m.coordinates)
+        bc = DirichletBC(VF, oldX, "on_boundary")
+        
+        x, y, z = ufl.SpatialCoordinate(m)
+        for it in range(smoothing_iterations):
+            assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
+            Xnew /= ML
+            r = ufl.sqrt(Xnew[0]**2 + Xnew[1]**2 + Xnew[2]**2)
+            m.coordinates.interpolate(Xnew/r)
+            bc.apply(m.coordinates)
+            
+    if degree > 1:
+        # use it to build a higher-order mesh
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+    
+    m.coordinates.interpolate(m.coordinates*radius)
+    
     m._radius = radius
     return m
 
@@ -997,9 +998,9 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
-    :kwarg smoothing_iterations: number of iterations of smoothing (default=0)
+    :kwarg smoothing_iterations: number of iterations to smooth
     kwarg z_min: taper off smoothing so it does not change node values
-    with z/R<z_min
+    with z<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
