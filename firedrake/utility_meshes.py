@@ -958,12 +958,18 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         mlat = ufl.as_vector([x*scale, y*scale, znew])
         # find the location of the cap
         Nlayers = 2**refinement_level
-        z0 = Constant(floor(capheight*Nlayers)/Nlayers))
-        zh0 = ufl.cos(z0)
-        r0 = ufl.sqrt(Constant(1) - zh0**2)
-        rh = ufl.sqrt(x**2 + y**2)*r0
-        xh = r0*x*ufl.asin(rh)/ufl.asin(r0)
-        yh = r0*y*ufl.asin(rh)/ufl.asin(r0)
+        # threshold on the cone above which we map to a disk
+        z0 = Constant(floor(capheight*Nlayers)/Nlayers)
+        # threshold on the sphere
+        zh0 = ufl.sin(ufl.pi*z0/2)
+        # horizontal radius of sphere at threshold
+        rd0 = ufl.sqrt(Constant(1) - zh0**2)
+        r0 = Constant(1) - z0
+        xd = rd0*x/r0
+        yd = rd0*y/r0
+        rh = ufl.sqrt(xd**2 + yd**2)
+        xh = x*ufl.asin(rh)/ufl.asin(rd0)
+        yh = y*ufl.asin(rh)/ufl.asin(rd0)
         zh = ufl.sqrt(Constant(1) - xh**2 - yh**2)
         mcap = ufl.as_vector([xh, yh, zh])
         m.coordinates.interpolate(ufl.conditional(ufl.lt(z, z0),
