@@ -6,7 +6,8 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate
+    par_loop, dx, WRITE, READ, interpolate, TestFunction, \
+    assemble, DirichletBC
 from firedrake import mesh
 from firedrake import dmplex
 from firedrake import function
@@ -872,8 +873,11 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
-                         hemisphere="both", reorder=None,
-                         distribute=None, comm=COMM_WORLD):
+                         hemisphere="both",
+                         smoothing_iterations=0,
+                         z_min=0.9,
+                         reorder=None,
+                         comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
 
@@ -883,6 +887,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg smoothing_iterations: number of iterations to smooth
+    kwarg z_min: taper off smoothing so it does not change node values
+    with z/R<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -925,10 +932,17 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         plex = plex.refine()
 
     # build the initial mesh
+<<<<<<< HEAD
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+
+    # use it to build a higher-order mesh
+    m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+=======
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
     if degree > 1:
         # use it to build a higher-order mesh
         m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+>>>>>>> master
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -956,13 +970,53 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
                                                               y*scale,
                                                               znew]))
+
+    if smoothing_iterations > 0:
+        # set up vectors for mass-lumped smoothing
+        VF = VectorFunctionSpace(m, "CG", 1)
+        v = TestFunction(VF)
+        One = Function(VF).assign(1.0)
+        ML = Function(VF)
+        Xnew = Function(VF).interpolate(m.coordinates)
+        Xbc = Function(VF).interpolate(m.coordinates)
+        bc = DirichletBC(VF, Xbc, "on_boundary")
+
+        # set up space for reconstructing higher-order mesh
+        VFH = VectorFunctionSpace(m, "CG", degree)
+        XnewH = Function(VFH)
+
+        x, y, z = ufl.SpatialCoordinate(m)
+        # apply the smoothing iterations
+        for it in range(smoothing_iterations):
+            assemble(ufl.inner(v, One)*dx, tensor=ML)
+            assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
+            Xnew /= ML
+            bc.apply(Xnew)
+            XnewH.interpolate(Xnew)
+            r = ufl.sqrt(XnewH[0]**2 + XnewH[1]**2 + XnewH[2]**2)
+            XnewH.interpolate(XnewH/r)
+
+            s = (abs(z) - z_min)/(1 - z_min)
+            taper = ufl.conditional(abs(z) < z_min,
+                                    0, s**4)
+            m.coordinates.interpolate(taper*XnewH + (1-taper)*m.coordinates)
+
+    m.coordinates.interpolate(m.coordinates*radius)
     m._radius = radius
     return m
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
+<<<<<<< HEAD
+                             hemisphere="both",
+                             smoothing_iterations=0,
+                             z_min=0.9,
+                             reorder=None,
+                             comm=COMM_WORLD):
+=======
                              hemisphere="both", reorder=None,
                              distribute=None, comm=COMM_WORLD):
+>>>>>>> master
     """Generate an octahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -970,12 +1024,17 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg smoothing_iterations: number of iterations to smooth
+    kwarg z_min: taper off smoothing so it does not change node values
+    with z<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
+                                smoothing_iterations=smoothing_iterations,
+                                z_min=z_min,
                                 reorder=reorder,
                                 distribute=distribute, comm=comm)
 

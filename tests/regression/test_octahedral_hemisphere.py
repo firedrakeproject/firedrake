@@ -4,8 +4,7 @@ from firedrake import *
 import numpy
 
 
-@pytest.fixture(params=[1, 2,
-                        pytest.mark.xfail(reason="Grid imprinting near pole?")(3)])
+@pytest.fixture(params=[1, 2, 3])
 def degree(request):
     return request.param
 
@@ -25,7 +24,9 @@ def hemisphere(request):
 def run_test(degree, refinements, hemisphere):
     mesh = UnitOctahedralSphereMesh(refinements,
                                     degree=degree,
-                                    hemisphere=hemisphere)
+                                    hemisphere=hemisphere,
+                                    smoothing_iterations=50,
+                                    z_min=0.9)
     V = FunctionSpace(mesh, "CG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -43,10 +44,16 @@ def run_test(degree, refinements, hemisphere):
           solver_parameters={"ksp_type": "preonly",
                              "pc_type": "lu"})
 
+    uerr = Function(V).interpolate(u - exact)
+    f = File('octa'+str(refinements)+'.pvd')
+    f.write(uerr)
+    uerr.assign(u)
+    f.write(uerr)
+
     return errornorm(u, interpolate(exact, V))
 
 
 def test_octahedral_hemisphere(degree, hemisphere, convergence):
-    errs = numpy.asarray([run_test(degree, r, hemisphere) for r in range(3, 6)])
+    errs = numpy.asarray([run_test(degree, r, hemisphere) for r in range(3, 7)])
     l2conv = numpy.log2(errs[:-1] / errs[1:])
     assert (l2conv > convergence).all()
