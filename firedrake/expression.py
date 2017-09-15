@@ -1,4 +1,5 @@
 import numpy as np
+from operator import itemgetter
 import collections
 import ufl
 
@@ -154,7 +155,7 @@ class Expression(ufl.Coefficient):
         # want every Expression to have all the properties of all
         # Expressions.
         cls = type(self.__class__.__name__, (self.__class__, ), {})
-        for slot, val in kwargs.items():
+        for slot, val in sorted(kwargs.items(), key=itemgetter(0)):
             # Save the argument for later reconstruction
             self._kwargs[slot] = val
             # Scalar arguments have to be treated specially

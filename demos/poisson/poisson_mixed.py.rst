@@ -157,14 +157,14 @@ matplotlib.pyplot should be installed and imported::
   try:
     plot(u)
   except Exception as e:
-    warning("Cannot plot figure. Error msg '%s'" % e.message)
+    warning("Cannot plot figure. Error msg '%s'" % e)
 
 Don't forget to show the image::
 
   try:
     plt.show()
   except Exception as e:
-    warning("Cannot show figure. Error msg '%s'" % e.message)
+    warning("Cannot show figure. Error msg '%s'" % e)
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
 <http://fenicsproject.org/olddocs/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__

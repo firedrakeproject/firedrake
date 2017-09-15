@@ -113,26 +113,38 @@ def get_topology(coordinates):
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
 
-    # Repeat up the column
-    if mesh.layers is None:
-        cell_layers = 1
-    else:
-        cell_layers = mesh.layers - 1
-
-    connectivity = numpy.repeat(values, cell_layers, axis=0)
-
     if is_cg(V):
         scale = 1
     else:
         scale = cell.num_vertices()
 
-    offsets = numpy.arange(cell_layers, dtype=IntType) * scale
+    # Repeat up the column
+    num_cells = mesh.cell_set.size
+    if not mesh.cell_set._extruded:
+        cell_layers = 1
+        offsets = 0
+    else:
+        if mesh.variable_layers:
+            layers = mesh.cell_set.layers_array[:num_cells, ...]
+            cell_layers = layers[:, 1] - layers[:, 0] - 1
+
+            def vrange(cell_layers):
+                return numpy.repeat(cell_layers - cell_layers.cumsum(),
+                                    cell_layers) + numpy.arange(cell_layers.sum())
+
+            offsets = vrange(cell_layers) * scale
+            offsets = offsets.reshape(-1, 1)
+            num_cells = cell_layers.sum()
+        else:
+            cell_layers = mesh.cell_set.layers - 1
+            offsets = numpy.arange(cell_layers, dtype=IntType) * scale
+            offsets = numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
+            num_cells *= cell_layers
+
+    connectivity = numpy.repeat(values, cell_layers, axis=0)
 
     # Add offsets going up the column
-    num_cells = mesh.cell_set.size
-    connectivity += numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
-
-    num_cells *= cell_layers
+    connectivity += offsets
 
     connectivity = connectivity.flatten()
 
@@ -372,10 +384,6 @@ class File(object):
         cell = mesh.topology.ufl_cell()
         if cell not in cells:
             raise ValueError("Unhandled cell type %r" % cell)
-
-        num_cells = mesh.cell_set.size
-        if mesh.layers is not None:
-            num_cells *= mesh.layers - 1
 
         if self._fnames is not None:
             if tuple(f.name() for f in functions) != self._fnames:

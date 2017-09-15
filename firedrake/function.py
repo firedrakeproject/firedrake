@@ -443,7 +443,7 @@ class Function(ufl.Coefficient):
         # Store data into ``C struct''
         c_function = _CFunction()
         c_function.n_cols = mesh.num_cells()
-        if hasattr(mesh, '_layers'):
+        if mesh.layers is not None:
             c_function.n_layers = mesh.layers - 1
         else:
             c_function.n_layers = 1
@@ -489,6 +489,8 @@ class Function(ufl.Coefficient):
         """
         # Need to ensure data is up-to-date for reading
         self.dat._force_evaluation(read=True, write=False)
+        self.dat.global_to_local_begin(op2.READ)
+        self.dat.global_to_local_end(op2.READ)
         from mpi4py import MPI
 
         if args:
@@ -502,9 +504,12 @@ class Function(ufl.Coefficient):
         if not arg.shape:
             arg = arg.reshape(-1)
 
+        mesh = self.function_space().mesh()
+        if mesh.variable_layers:
+            raise NotImplementedError("Point evaluation not implemented for variable layers")
         # Immersed not supported
-        tdim = self.function_space().mesh().ufl_cell().topological_dimension()
-        gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        tdim = mesh.ufl_cell().topological_dimension()
+        gdim = mesh.ufl_cell().geometric_dimension()
         if tdim < gdim:
             raise NotImplementedError("Point is almost certainly not on the manifold.")
 
