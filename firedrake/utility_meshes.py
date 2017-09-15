@@ -928,6 +928,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     # build the initial mesh
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 
+    # use it to build a higher-order mesh
+    m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+    
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
     # This will DTWT on meshes with more than 26 refinement levels.
@@ -956,33 +959,36 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                                                               znew]))
 
     if smoothing_iterations>0:
-        oldX = m.coordinates.copy(deepcopy=True)
-    
-        # 
-        VF = VectorFunctionSpace(m, "CG", degree)
+        # set up vectors for mass-lumped smoothing
+        VF = VectorFunctionSpace(m, "CG", 1)
         v = TestFunction(VF)
         One = Function(VF).assign(1.0)
         ML = Function(VF)
-        assemble(ufl.inner(v, One)*dx, tensor=ML)
         Xnew = Function(VF).interpolate(m.coordinates)
-        Xold = Xnew.copy(deepcopy=True)
-        bc = DirichletBC(VF, Xold, "on_boundary")
+        Xbc = Function(VF).interpolate(m.coordinates)
+        bc = DirichletBC(VF, Xbc, "on_boundary")
+
+        # set up space for reconstructing higher-order mesh
+        VFH = VectorFunctionSpace(m, "CG", degree)
+        XnewH = Function(VFH)
         
         x, y, z = ufl.SpatialCoordinate(m)
+        # apply the smoothing iterations
         for it in range(smoothing_iterations):
+            assemble(ufl.inner(v, One)*dx, tensor=ML)
             assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
             Xnew /= ML
-            r = ufl.sqrt(Xnew[0]**2 + Xnew[1]**2 + Xnew[2]**2)
-            Xnew.interpolate(Xnew/r)
             bc.apply(Xnew)
-            m.coordinates.interpolate(Xnew)
-            
-    if False:
-        # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
-    
+            XnewH.interpolate(Xnew)
+            r = ufl.sqrt(XnewH[0]**2 + XnewH[1]**2 + XnewH[2]**2)
+            XnewH.interpolate(XnewH/r)
+
+            s = (abs(z) - z_min)/(1 - z_min)
+            taper = ufl.conditional(abs(z)<z_min,
+                                    0, ufl.sin(ufl.pi*s))
+            m.coordinates.interpolate(taper*XnewH + (1-taper)*m.coordinates)
+
     m.coordinates.interpolate(m.coordinates*radius)
-    
     m._radius = radius
     return m
 
