@@ -930,7 +930,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
     # use it to build a higher-order mesh
     m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
-    
+
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
     # This will DTWT on meshes with more than 26 refinement levels.
@@ -958,7 +958,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                                                               y*scale,
                                                               znew]))
 
-    if smoothing_iterations>0:
+    if smoothing_iterations > 0:
         # set up vectors for mass-lumped smoothing
         VF = VectorFunctionSpace(m, "CG", 1)
         v = TestFunction(VF)
@@ -971,7 +971,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         # set up space for reconstructing higher-order mesh
         VFH = VectorFunctionSpace(m, "CG", degree)
         XnewH = Function(VFH)
-        
+
         x, y, z = ufl.SpatialCoordinate(m)
         # apply the smoothing iterations
         for it in range(smoothing_iterations):
@@ -984,7 +984,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
             XnewH.interpolate(XnewH/r)
 
             s = (abs(z) - z_min)/(1 - z_min)
-            taper = ufl.conditional(abs(z)<z_min,
+            taper = ufl.conditional(abs(z) < z_min,
                                     0, s**4)
             m.coordinates.interpolate(taper*XnewH + (1-taper)*m.coordinates)
 
