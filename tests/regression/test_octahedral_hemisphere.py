@@ -25,7 +25,9 @@ def hemisphere(request):
 def run_test(degree, refinements, hemisphere):
     mesh = UnitOctahedralSphereMesh(refinements,
                                     degree=degree,
-                                    hemisphere=hemisphere)
+                                    hemisphere=hemisphere,
+                                    smoothing_iterations=40,
+                                    z_min=0.9)
     V = FunctionSpace(mesh, "CG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)

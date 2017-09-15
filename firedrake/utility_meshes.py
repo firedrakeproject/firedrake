@@ -6,7 +6,8 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate
+    par_loop, dx, WRITE, READ, interpolate, TestFunction, \
+    assemble
 from firedrake import mesh
 from firedrake import dmplex
 from firedrake import function
@@ -867,8 +868,8 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
-                         mapping="blended",
-                         threshold=0.8,
+                         smoothing_iterations=0,
+                         z_min=0.9,
                          reorder=None,
                          comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
@@ -880,8 +881,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
-    :kwarg mapping: One of "blended" (default), "outwards", or "latitude"
-    :kwarg threshold: When blended use latitude mapping when z/R<threshold (default=0.8)
+    :kwarg smoothing_iterations: number of iterations of smoothing (default=0)
+    kwarg z_min: taper off smoothing so it does not change node values
+    with z/R<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -929,56 +931,64 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         # use it to build a higher-order mesh
         m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
 
-    if mapping == "outwards" or mapping == "blended":
-        X = m.coordinates.copy(deepcopy=True)
-        x, y, z = ufl.SpatialCoordinate(m)
+    # remap to a cone
+    x, y, z = ufl.SpatialCoordinate(m)
+    # This will DTWT on meshes with more than 26 refinement levels.
+    # (log_2 1e8 ~= 26.5)
+    tol = Constant(1.0e-8)
+    rnew = ufl.Max(1 - abs(z), 0)
+    # Avoid division by zero (when rnew is zero, x & y are also zero)
+    x0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, x/rnew)
+    y0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, y/rnew)
+    theta = ufl.conditional(ufl.ge(y0, 0),
+                            ufl.pi/2*(1-x0),
+                            ufl.pi/2.0*(x0-1))
+    m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                             ufl.sin(theta)*rnew, z]))
+
+    # push out to a sphere
+    phi = ufl.pi*z/2
+    # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
+    scale = ufl.conditional(ufl.lt(rnew, tol),
+                            0, ufl.cos(phi)/rnew)
+    znew = ufl.sin(phi)
+    m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                              y*scale,
+                                                              znew]))
+
+    # smooth the mesh using lumped mass projection
+    # this trick only works for P1 so we interpolate to P1
+    # interpolate to higher order mesh and push back to sphere
+    VF = VectorFunctionSpace(m, "CG", 1)
+    v = TestFunction(VF)
+    ML = Function(VF)
+    One = Function(VF).assign(1.0)
+    assemble(ufl.inner(v, One)*dx, tensor=ML)
+    Xnew = Function(VF).interpolate(m.coordinates)
+
+    x, y, z = ufl.SpatialCoordinate(m)
+    z_min = Constant(z_min)
+    taper = ufl.conditional(ufl.lt(abs(z), z_min),
+                            0, (abs(z)-z_min)/(1-z_min))
+
+    for i in range(smoothing_iterations):
+        assemble(ufl.inner(v, m.coordinates)*dx, tensor=Xnew)
+        Xnew /= ML
+        m.coordinates.interpolate(taper*Xnew + (1-taper)*m.coordinates)
         r = ufl.sqrt(x**2 + y**2 + z**2)
-        X.interpolate(X/r)
-    if mapping == "outwards":
-        m.coordinates.assign(X)
+        m.coordinates.interpolate(m.coordinates/r)
 
-    if mapping == "latitude" or mapping == "blended":
-        # remap to a cone
-        x, y, z = ufl.SpatialCoordinate(m)
-        # This will DTWT on meshes with more than 26 refinement levels.
-        # (log_2 1e8 ~= 26.5)
-        tol = Constant(1.0e-8)
-        rnew = ufl.Max(1 - abs(z), 0)
-        # Avoid division by zero (when rnew is zero, x & y are also zero)
-        x0 = ufl.conditional(ufl.lt(rnew, tol),
-                             0, x/rnew)
-        y0 = ufl.conditional(ufl.lt(rnew, tol),
-                             0, y/rnew)
-        theta = ufl.conditional(ufl.ge(y0, 0),
-                                ufl.pi/2*(1-x0),
-                                ufl.pi/2.0*(x0-1))
-        m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
-                                                 ufl.sin(theta)*rnew, z]))
-
-        # push out to a sphere
-        phi = ufl.pi*z/2
-        # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
-        scale = ufl.conditional(ufl.lt(rnew, tol),
-                                0, ufl.cos(phi)/rnew)
-        znew = ufl.sin(phi)
-        m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
-                                                                  y*scale,
-                                                                  znew]))
-            
-    if mapping == "blended":
-        Y = m.coordinates.copy(deepcopy=True)
-        a = Constant(threshold)
-        m.coordinates.interpolate(ufl.conditional(abs(z)>a,
-                                                  (1-abs(z))/(1-a)*Y +
-                                                  (abs(z)-a)/(1-a)*X,
-                                                  Y))
-        
     m._radius = radius
     return m
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
-                             hemisphere="both", reorder=None,
+                             hemisphere="both",
+                             smoothing_iterations=0,
+                             z_min=0.9,
+                             reorder=None,
                              comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -987,12 +997,17 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg smoothing_iterations: number of iterations of smoothing (default=0)
+    kwarg z_min: taper off smoothing so it does not change node values
+    with z/R<z_min
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
+                                smoothing_iterations=smoothing_iterations,
+                                z_min=z_min,
                                 reorder=reorder,
                                 comm=comm)
 
