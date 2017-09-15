@@ -11,7 +11,7 @@ from firedrake import mesh
 from firedrake import dmplex
 from firedrake import function
 from firedrake import functionspace
-
+from math import floor
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
@@ -872,7 +872,10 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
-                         hemisphere="both", reorder=None,
+                         hemisphere="both", 
+                         cap=True,
+                         capheight=0.9,
+                         reorder=None,
                          distribute=None, comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
@@ -947,21 +950,43 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
                                              ufl.sin(theta)*rnew, z]))
 
-    # push out to a sphere
-    phi = ufl.pi*z/2
-    # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
-    scale = ufl.conditional(ufl.lt(rnew, tol),
-                            0, ufl.cos(phi)/rnew)
-    znew = ufl.sin(phi)
-    m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
-                                                              y*scale,
-                                                              znew]))
+    if cap:
+        # Build the transformation away from the cap
+        phi = ufl.pi*z/2
+        scale = ufl.cos(phi)/rnew
+        znew = ufl.sin(phi)
+        mlat = ufl.as_vector([x*scale, y*scale, znew])
+        # find the location of the cap
+        Nlayers = 2**refinement_level
+        z0 = Constant(floor(capheight*Nlayers)/Nlayers))
+        zh0 = ufl.cos(z0)
+        r0 = ufl.sqrt(Constant(1) - zh0**2)
+        rh = ufl.sqrt(x**2 + y**2)*r0
+        xh = r0*x*ufl.asin(rh)/ufl.asin(r0)
+        yh = r0*y*ufl.asin(rh)/ufl.asin(r0)
+        zh = ufl.sqrt(Constant(1) - xh**2 - yh**2)
+        mcap = ufl.as_vector([xh, yh, zh])
+        m.coordinates.interpolate(ufl.conditional(ufl.lt(z, z0),
+                                                  mlat,
+                                                  mcap))
+    else:
+        # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
+        scale = ufl.conditional(ufl.lt(rnew, tol),
+                                0, ufl.cos(phi)/rnew)
+        znew = ufl.sin(phi)
+        m.coordinates.interpolate(ufl.as_vector([x*scale,
+                                                 y*scale,
+                                                 znew]))
+    m.coordinates.interpolate(Constant(radius)*m.coordinates)
     m._radius = radius
     return m
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
-                             hemisphere="both", reorder=None,
+                             hemisphere="both",
+                             cap=True,
+                             capheight=0.9,
+                             reorder=None,
                              distribute=None, comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -976,6 +1001,7 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
+                                cap=cap, capheight=capheight,
                                 reorder=reorder,
                                 distribute=distribute, comm=comm)
 
