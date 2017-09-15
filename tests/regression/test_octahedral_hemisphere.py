@@ -25,6 +25,8 @@ def hemisphere(request):
 def run_test(degree, refinements, hemisphere):
     mesh = UnitOctahedralSphereMesh(refinements,
                                     degree=degree,
+                                    cap=True,
+                                    capheight=0.5,
                                     hemisphere=hemisphere)
     V = FunctionSpace(mesh, "CG", degree)
     u = TrialFunction(V)
@@ -37,16 +39,20 @@ def run_test(degree, refinements, hemisphere):
     exact = -(x*y*z)/12.0
 
     bc = DirichletBC(V, exact, "on_boundary")
-
+    file = File('octa_'+str(refinements)+'.pvd')
     u = Function(V)
     solve(a == L, u, bcs=bc,
           solver_parameters={"ksp_type": "preonly",
                              "pc_type": "lu"})
-
-    return errornorm(u, interpolate(exact, V))
+    e = errornorm(u, interpolate(exact, V))
+    file.write(u)
+    u.interpolate(u - exact)
+    file.write(u)
+    return e
 
 
 def test_octahedral_hemisphere(degree, hemisphere, convergence):
-    errs = numpy.asarray([run_test(degree, r, hemisphere) for r in range(3, 6)])
+    errs = numpy.asarray([run_test(degree, r, hemisphere) for r in range(3, 8)])
     l2conv = numpy.log2(errs[:-1] / errs[1:])
+    print(l2conv,errs)
     assert (l2conv > convergence).all()

@@ -935,6 +935,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
+    ConeX = m.coordinates.copy(deepcopy=True)
     # This will DTWT on meshes with more than 26 refinement levels.
     # (log_2 1e8 ~= 26.5)
     tol = Constant(1.0e-8)
@@ -947,42 +948,41 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     theta = ufl.conditional(ufl.ge(y0, 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
-    m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
-                                             ufl.sin(theta)*rnew, z]))
+    ConeX.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                     ufl.sin(theta)*rnew, z]))
+    # push out to the sphere
 
-    if cap:
-        # Build the transformation away from the cap
-        phi = ufl.pi*z/2
-        scale = ufl.cos(phi)/rnew
-        znew = ufl.sin(phi)
-        mlat = ufl.as_vector([x*scale, y*scale, znew])
-        # find the location of the cap
-        Nlayers = 2**refinement_level
-        # threshold on the cone above which we map to a disk
-        z0 = Constant(floor(capheight*Nlayers)/Nlayers)
-        # threshold on the sphere
-        zh0 = ufl.sin(ufl.pi*z0/2)
-        # horizontal radius of sphere at threshold
-        rd0 = ufl.sqrt(Constant(1) - zh0**2)
-        r0 = Constant(1) - z0
-        xd = rd0*x/r0
-        yd = rd0*y/r0
-        rh = ufl.sqrt(xd**2 + yd**2)
-        xh = xd*ufl.asin(rh)/ufl.asin(rd0)
-        yh = yd*ufl.asin(rh)/ufl.asin(rd0)
-        zh = ufl.sqrt(Constant(1) - xh**2 - yh**2)
-        mcap = ufl.as_vector([xh, yh, zh])
-        m.coordinates.interpolate(ufl.conditional(ufl.lt(z, z0),
-                                                  mlat,
-                                                  mcap))
-    else:
-        # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
-        scale = ufl.conditional(ufl.lt(rnew, tol),
-                                0, ufl.cos(phi)/rnew)
-        znew = ufl.sin(phi)
-        m.coordinates.interpolate(ufl.as_vector([x*scale,
-                                                 y*scale,
-                                                 znew]))
+    phi = ufl.pi*ConeX[2]/2
+    scale = ufl.conditional(ufl.lt(rnew, tol),
+                            0, ufl.cos(phi)/rnew)
+    znew = ufl.sin(phi)
+    SphereX = ConeX.copy(deepcopy=True)
+    SphereX.interpolate(ufl.as_vector([ConeX[0]*scale, ConeX[1]*scale, znew]))
+    
+    # remap to a Cone using elliptical mapping
+    # rotate 90 degrees and scale
+    xs = x + y
+    ys = -x + y
+    # apply the elliptical grid mapping (see arxiv:1509.06344)
+    xd = xs*ufl.sqrt(1 - ys**2/2)
+    yd = ys*ufl.sqrt(1 - xs**2/2)
+    # rotate -90 degrees and scale back
+    x0 = (xd - yd)/ufl.sqrt(2)
+    y0 = (xd + yd)/ufl.sqrt(2)
+    ConeE = ConeX.copy(deepcopy=True)
+    ConeE.interpolate(ufl.as_vector([x0, y0, z]))
+
+    SphereE = ConeE.copy(deepcopy=True)
+    zS = ufl.sqrt(1 - ConeE[0]**2 - ConeE[1]**2)
+    SphereE.interpolate(ufl.as_vector([ConeE[0], ConeE[1], zS]))
+
+    z0 = capheight
+    s = (abs(z) - z0)/(1 - z0)
+    taper = ufl.conditional(ufl.lt(abs(z), z0),
+                            0,
+                            s**2*(2-s))
+    
+    m.coordinates.interpolate(taper*SphereE + (1-taper)*SphereX)
     m.coordinates.interpolate(Constant(radius)*m.coordinates)
     m._radius = radius
     return m
