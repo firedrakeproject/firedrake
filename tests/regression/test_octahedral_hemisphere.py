@@ -41,12 +41,6 @@ def run_test(degree, refinements, hemisphere):
     solve(a == L, u, bcs=bc,
           solver_parameters={"ksp_type": "preonly",
                              "pc_type": "lu"})
-
-    f = File('octa_'+str(refinements)+'.pvd')
-    uerr = Function(V).interpolate(exact)
-    f.write(uerr)
-    uerr -= u
-    f.write(uerr)
     return errornorm(u, interpolate(exact, V))
 
 
