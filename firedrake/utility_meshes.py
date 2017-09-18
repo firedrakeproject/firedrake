@@ -887,9 +887,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
     :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
-    non-vertex nodes are on lines of latitude to a mesh where these nodes
-    are just pushed out radially from the equivalent P1 mesh. (defaults to
-    z0=0.8).
+        non-vertex nodes are on lines of latitude to a mesh where these nodes
+        are just pushed out radially from the equivalent P1 mesh. (defaults to
+        z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -962,14 +962,15 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     znew = ufl.sin(phi)
     # Make a copy of the coordinates so that we can blend two different
     # mappings near the pole
-    Xlatitudinal = m.coordinates.copy(deepcopy=True)
-    Xlatitudinal.interpolate(Constant(radius)*ufl.as_vector([x*scale,
-                                                             y*scale,
-                                                             znew]))
+    Vc = m.coordinates.function_space()
+    Xlatitudinal = interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                               y*scale,
+                                                               znew]),
+                               Vc)
     Vlow = VectorFunctionSpace(m, "CG", 1)
-    Xlow = Function(Vlow).interpolate(Xlatitudinal)
+    Xlow = interpolate(Xlatitudinal, Vlow)
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
-    Xradial = m.coordinates.copy(deepcopy=True).interpolate(Xlow/r)
+    Xradial = Constant(radius)*Xlow/r
 
     s = (abs(z) - z0)/(1-z0)
     exp = ufl.exp
@@ -994,9 +995,9 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
     :kwarg z0: for abs(z)>z0, blend from a mesh where the higher-order
-    non-vertex nodes are on lines of latitude to a mesh where these nodes
-    are just pushed out radially from the equivalent P1 mesh. (defaults to
-    z0=0.8).
+        non-vertex nodes are on lines of latitude to a mesh where these nodes
+        are just pushed out radially from the equivalent P1 mesh. (defaults to
+        z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
