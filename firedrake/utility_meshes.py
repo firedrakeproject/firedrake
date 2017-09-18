@@ -984,13 +984,8 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
-<<<<<<< HEAD
                              hemisphere="both", z0=0.8, reorder=None,
-                             comm=COMM_WORLD):
-=======
-                             hemisphere="both", reorder=None,
                              distribute=None, comm=COMM_WORLD):
->>>>>>> master
     """Generate an octahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
