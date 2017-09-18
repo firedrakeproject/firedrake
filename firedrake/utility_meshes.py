@@ -986,7 +986,7 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
-    :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
+    :kwarg z0: for abs(z)>z0, blend from a mesh where the higher-order
     non-vertex nodes are on lines of latitude to a mesh where these nodes
     are just pushed out radially from the equivalent P1 mesh. (defaults to
     z0=0.8).
