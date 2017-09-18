@@ -866,7 +866,9 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
-                         hemisphere="both", reorder=None,
+                         hemisphere="both",
+                         z0=0.8,
+                         reorder=None,
                          comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
@@ -877,6 +879,10 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
+    non-vertex nodes are on lines of latitude to a mesh where these nodes
+    are just pushed out radially from the equivalent P1 mesh. (defaults to
+    z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -958,8 +964,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
     Xradial = m.coordinates.copy(deepcopy=True).interpolate(Xlow/r)
 
-    zramp = 0.8
-    s = (abs(z) - zramp)/(1-zramp)
+    s = (abs(z) - z0)/(1-z0)
     exp = ufl.exp
     taper = ufl.conditional(ufl.gt(s, 1.0-tol),
                             1.0,
@@ -972,7 +977,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
-                             hemisphere="both", reorder=None,
+                             hemisphere="both", z0=0.8, reorder=None,
                              comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -981,12 +986,17 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
+    non-vertex nodes are on lines of latitude to a mesh where these nodes
+    are just pushed out radially from the equivalent P1 mesh. (defaults to
+    z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
+                                z0=z0,
                                 reorder=reorder,
                                 comm=comm)
 
