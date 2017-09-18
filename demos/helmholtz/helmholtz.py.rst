@@ -108,7 +108,7 @@ matplotlib.pyplot should be installed and imported::
   try:
     plot(u)
   except Exception as e:
-    warning("Cannot plot figure. Error msg: '%s'" % e.message)
+    warning("Cannot plot figure. Error msg: '%s'" % e)
 
 For a contour plot, it could be plotted by adding an additional key word
 argument::
@@ -116,14 +116,14 @@ argument::
   try:
     plot(u, contour=True)
   except Exception as e:
-    warning("Cannot plot figure. Error msg: '%s'" % e.message)
+    warning("Cannot plot figure. Error msg: '%s'" % e)
 
 Don't forget to show the image::
 
   try:
     plt.show()
   except Exception as e:
-    warning("Cannot show figure. Error msg: '%s'" % e.message)
+    warning("Cannot show figure. Error msg: '%s'" % e)
 
 Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution::

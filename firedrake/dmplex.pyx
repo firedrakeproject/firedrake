@@ -416,17 +416,77 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 
     return cell_closure
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures,
-                   entity_dofs):
+def create_section(mesh, nodes_per_entity):
+    """Create the section describing a global numbering.
+
+    :arg mesh: The mesh.
+    :arg nodes_per_entity: Number of nodes on each
+        type of topological entity of the mesh.  Or, if the mesh is
+        extruded, the number of nodes on, and on top of, each
+        topological entity in the base mesh.
+
+    :returns: A PETSc Section providing the number of dofs, and offset
+        of each dof, on each mesh point.
+    """
+    # We don't use DMPlexCreateSection because we only ever put one
+    # field in each section.
+    cdef:
+        PETSc.DM dm
+        PETSc.Section section
+        PETSc.IS renumbering
+        PetscInt i, p, layers, pStart, pEnd
+        PetscInt dimension, ndof
+        np.ndarray[PetscInt, ndim=2, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        bint variable, extruded
+
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+    nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
+    if variable:
+        layer_extents = mesh.layer_extents
+    elif extruded:
+        nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
+
+    dm = mesh._plex
+    renumbering = mesh._plex_renumbering
+    section = PETSc.Section().create(comm=mesh.comm)
+    pStart, pEnd = dm.getChart()
+    section.setChart(pStart, pEnd)
+    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+    dimension = dm.getDimension()
+
+    nodes = nodes_per_entity.reshape(dimension + 1, -1)
+
+    for i in range(dimension + 1):
+        pStart, pEnd = dm.getDepthStratum(i)
+        if not variable:
+            ndof = nodes[i, 0]
+        for p in range(pStart, pEnd):
+            if variable:
+                layers = layer_extents[p, 1] - layer_extents[p, 0]
+                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
+    section.setUp()
+    return section
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cell_nodes(mesh,
+                   PETSc.Section global_numbering,
+                   entity_dofs,
+                   np.ndarray[PetscInt, ndim=1, mode="c"] offset):
     """
     Builds the DoF mapping.
 
+    :arg mesh: The mesh
     :arg global_numbering: Section describing the global DoF numbering
-    :arg cell_closures: 2D array of ordered cell closures
     :arg entity_dofs: FInAT element entity dofs for the cell
+    :arg offset: offsets for each entity dof walking up a column.
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
@@ -437,12 +497,22 @@ def get_cell_nodes(PETSc.Section global_numbering,
     cdef:
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        PetscInt ncells, nclosure, dofs_per_cell
-        PetscInt c, i, j, k
+        PetscInt nclosure, dofs_per_cell
+        PetscInt c, i, j, k, cStart, cEnd, cell
         PetscInt entity, ndofs, off
+        PETSc.Section cell_numbering
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
+        bint variable
 
-    ncells = cell_closures.shape[0]
+    variable = mesh.variable_layers
+    cell_closures = mesh.cell_closure
+    if variable:
+        layer_extents = mesh.layer_extents
+        if offset is None:
+            raise ValueError("Offset cannot be None with variable layer extents")
+
     nclosure = cell_closures.shape[1]
 
     # Extract ordering from FInAT element entity DoFs
@@ -469,58 +539,206 @@ def get_cell_nodes(PETSc.Section global_numbering,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=IntType)
-    for c in range(ncells):
+    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
+    cell_numbering = mesh._cell_numbering
+    for c in range(cStart, cEnd):
         k = 0
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         for i in range(nclosure):
-            entity = cell_closures[c, i]
+            entity = cell_closures[cell, i]
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                # The cell we're looking at the entity through is
+                # higher than the lowest cell the column touches, so
+                # we need to offset by the difference from the bottom.
+                if variable:
+                    off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
                 for j in range(ceil_ndofs[i]):
-                    cell_nodes[c, flat_index[k]] = off + j
+                    cell_nodes[cell, flat_index[k]] = off + j
                     k += 1
 
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
     return cell_nodes
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells,
-                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes):
-    """
-    Derives the DoF mapping for a given facet list.
+def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, label,
+                    np.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    """Build to DoF mapping from facets.
 
-    :arg facet_cells: 2D array of parent cells for each facet
-    :arg cell_nodes: 2D array of cell DoFs
+    :arg mesh: The mesh.
+    :arg cell_nodes: numpy array mapping from cells to function space nodes.
+    :arg label: which set of facets to ask for (interior_facets or exterior_facets).
+    :arg offset: optional offset (extruded only).
+    :returns: numpy array mapping from facets to nodes in the closure
+        of the support of that facet.
     """
     cdef:
-        int f, i, cell, nfacets, ncells, ndofs
+        PETSc.DM dm
+        PETSc.Section cell_numbering
+        DMLabel clabel = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        PetscInt f, p, i, j, pStart, pEnd, fStart, fEnd, point
+        PetscInt supportSize, facet, cell, ndof, dof
+        const PetscInt *renumbering
+        const PetscInt *support
+        PetscBool flg
+        bint variable, add_offset
 
-    nfacets = facet_cells.shape[0]
-    ncells = facet_cells.shape[1]
-    ndofs = cell_nodes.shape[1]
-    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=IntType)
+    if label not in {"interior_facets", "exterior_facets"}:
+        raise ValueError("Unsupported facet label '%s'", label)
 
-    for f in range(nfacets):
-        # First parent cell
-        cell = facet_cells[f, 0]
-        for i in range(ndofs):
-            facet_nodes[f, i] = cell_nodes[cell, i]
+    dm = mesh._plex
+    variable = mesh.variable_layers
 
-        # Second parent cell for internal facets
-        if ncells > 1:
-            cell = facet_cells[f, 1]
-            if cell >= 0:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
-            else:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = -1
+    if variable and offset is None:
+        raise ValueError("Offset cannot be None with variable layer extents")
 
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    ndof = cell_nodes.shape[1]
+
+    nfacet = dm.getStratumSize(label, 1)
+    shape = {"interior_facets": (nfacet, ndof*2),
+             "exterior_facets": (nfacet, ndof)}[label]
+
+    facet_nodes = np.full(shape, -1, dtype=IntType)
+
+    label = label.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
+    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+
+    pStart, pEnd = dm.getChart()
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    cell_numbering = mesh._cell_numbering
+
+    facet = 0
+
+    if variable:
+        layer_extents = mesh.layer_extents
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            CHKERR(DMLabelHasPoint(clabel, point, &flg))
+            if not flg:
+                # Not a facet we want.
+                continue
+
+            CHKERR(DMPlexGetSupportSize(dm.dm, point, &supportSize))
+            CHKERR(DMPlexGetSupport(dm.dm, point, &support))
+            for i in range(supportSize):
+                CHKERR(PetscSectionGetOffset(cell_numbering.sec, support[i], &cell))
+                for j in range(ndof):
+                    dof = cell_nodes[cell, j]
+                    if variable:
+                        # This facet iterates from higher than the
+                        # cell numbering of the cell, so we need
+                        # to add on the difference.
+                        dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
+                    facet_nodes[facet, ndof*i + j] = dof
+            facet += 1
+
+    CHKERR(DMLabelDestroyIndex(clabel))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     return facet_nodes
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def boundary_nodes(V, sub_domain, method):
+    """Extract boundary nodes from a function space..
+
+    :arg V: the function space
+    :arg sub_domain: a mesh marker selecting the part of the boundary
+        (may be "on_boundary" indicating the entire boundary).
+    :arg method: how to identify boundary dofs on the reference cell.
+    :returns: a numpy array of unique nodes on the boundary of the
+        requested subdomain.
+    """
+    cdef:
+        np.ndarray[np.int32_t, ndim=2, mode="c"] local_nodes
+        np.ndarray[PetscInt, ndim=1, mode="c"] offsets
+        np.ndarray[np.uint32_t, ndim=1, mode="c"] local_facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_node_list
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
+        int f, i, j, dof, facet, idx
+        int nfacet, nlocal, layers
+        PetscInt local_facet
+        PetscInt offset
+        bint all_facets
+        bint variable, extruded
+
+    mesh = V.mesh()
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+
+    facet_dim = mesh.facet_dimension()
+    if method == "topological":
+        boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
+    elif method == "geometric":
+        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
+
+    local_nodes = np.empty((len(boundary_dofs),
+                            len(boundary_dofs[0])),
+                           dtype=IntType)
+    for k, v in boundary_dofs.items():
+        local_nodes[k, :] = v
+
+    facets = V.mesh().exterior_facets
+    local_facets = facets.local_facet_dat.data_ro_with_halos
+    nlocal = local_nodes.shape[1]
+
+    if sub_domain == "on_boundary":
+        subset = facets.set
+        all_facets = True
+    else:
+        all_facets = False
+        subset = facets.subset(sub_domain)
+        facet_indices = subset.indices
+
+    nfacet = subset.total_size
+    offsets = V.offset
+    facet_node_list = V.exterior_facet_node_map().values_with_halo
+
+    if variable:
+        layer_extents = subset.layers_array
+        maxsize = local_nodes.shape[1] * np.sum((layer_extents[:, 1] - layer_extents[:, 0]) - 1)
+    elif extruded:
+        layers = subset.layers
+        maxsize = local_nodes.shape[1] * nfacet * (layers - 1)
+    else:
+        layers = 2
+        offset = 0
+        maxsize = local_nodes.shape[1] * nfacet
+
+    nodes = np.empty(maxsize, dtype=IntType)
+    idx = 0
+    for f in range(nfacet):
+        if all_facets:
+            facet = f
+        else:
+            facet = facet_indices[f]
+        local_facet = local_facets[facet]
+        if variable:
+            layers = layer_extents[f, 1] - layer_extents[f, 0]
+        for i in range(nlocal):
+            dof = local_nodes[local_facet, i]
+            for j in range(layers - 1):
+                if extruded:
+                    offset = j * offsets[dof]
+                nodes[idx] = facet_node_list[facet, dof] + offset
+                idx += 1
+
+    assert idx == nodes.shape[0]
+    return np.unique(nodes)
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -636,182 +854,83 @@ def mark_entity_classes(PETSc.DM plex):
     """Mark all points in a given Plex according to the PyOP2 entity
     classes:
 
-    core      : owned and not in send halo
-    non_core  : owned and in send halo
-    exec_halo : in halo, but touch owned entity
-    non_exec_halo : in halo and only touch halo entities
+    core   : owned and not in send halo
+    owned  : owned and in send halo
+    ghost  : in halo
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd, fStart, fEnd
-        PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
-        PetscInt depth, non_core, exec_halo, nroots, nleaves
-        PetscInt v_per_cell
-        PetscInt *cells = NULL
-        PetscInt *facets = NULL
-        PetscInt *vertices = NULL
+        PetscInt pStart, pEnd, cStart, cEnd
+        PetscInt c, ci, p
+        PetscInt nleaves
         PetscInt *closure = NULL
+        PetscInt nclosure
         PetscInt *ilocal = NULL
         PetscBool non_exec
         PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
-        PETSc.IS cell_is = None
-        PETSc.IS facet_is = None
-        PetscBool has_point, is_exec, is_non_core
-        DMLabel lbl_core, lbl_non_core
-        DMLabel lbl_exec, lbl_non_exec
+        PetscBool is_ghost, is_owned
+        DMLabel lbl_core, lbl_owned, lbl_ghost
 
-    dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
-    fStart, fEnd = plex.getHeightStratum(1)
-    vStart, vEnd = plex.getDepthStratum(0)
-    v_per_cell = plex.getConeSize(cStart)
-    CHKERR(PetscMalloc1(v_per_cell, &vertices))
 
-    plex.createLabel("op2_core")
-    plex.createLabel("op2_non_core")
-    plex.createLabel("op2_exec_halo")
-    plex.createLabel("op2_non_exec_halo")
+    plex.createLabel("pyop2_core")
+    plex.createLabel("pyop2_owned")
+    plex.createLabel("pyop2_ghost")
 
-    CHKERR(DMGetLabel(plex.dm, "op2_core", &lbl_core))
-    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
-    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
-    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &lbl_core))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
 
     if plex.comm.size > 1:
-        # Mark exec_halo from point overlap SF
+        # Mark ghosts from point overlap SF
         point_sf = plex.getPointSF()
-        CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
-                               &ilocal, &iremote))
+        CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
         for p in range(nleaves):
-            CHKERR(DMLabelSetValue(lbl_exec, ilocal[p], 1))
+            CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
     else:
         # If sequential mark all points as core
         for p in range(pStart, pEnd):
             CHKERR(DMLabelSetValue(lbl_core, p, 1))
-        CHKERR(PetscFree(vertices))
         return
 
-    # Mark all cells adjacent to halo cells as non_core,
-    # where adjacent(c) := star(closure(c))
-    ncells = plex.getStratumSize("op2_exec_halo", 1)
-    cell_is = plex.getStratumIS("op2_exec_halo", 1)
-    CHKERR(ISGetIndices(cell_is.iset, &cells))
-    CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
-
-    for c in range(ncells):
-        if not (cStart <= cells[c] < cEnd):
-            continue
-
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
+    CHKERR(DMLabelCreateIndex(lbl_ghost, pStart, pEnd))
+    # If any entity in closure(cell) is in the halo, then all those
+    # entities in closure(cell) that are not in the halo are owned,
+    # but not core.
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, c,
                                           PETSC_TRUE,
                                           &nclosure,
                                           &closure))
-        # Copy vertices out of the work array (closure)
-        vi = 0
-        for ci in range(nclosure):
-            if vStart <= closure[2*ci] < vEnd:
-                vertices[vi] = closure[2*ci]
-                vi += 1
-        v_per_cell = vi
-
-        # Mark all cells in the star of each vertex
-        for vi in range(v_per_cell):
-            vertex = vertices[vi]
-            CHKERR(DMPlexGetTransitiveClosure(plex.dm, vertices[vi],
-                                              PETSC_FALSE,
-                                              &nclosure,
-                                              &closure))
-            for ci in range(nclosure):
-                if cStart <= closure[2*ci] < cEnd:
-                    p = closure[2*ci]
-                    CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
-                    if not has_point:
-                        CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
-
-    # Mark the closures of non_core cells as non_core
-    ncells = plex.getStratumSize("op2_non_core", 1)
-    cell_is = plex.getStratumIS("op2_non_core", 1)
-    CHKERR(ISGetIndices(cell_is.iset, &cells))
-    for c in range(ncells):
-        if not (cStart <= cells[c] < cEnd):
-            continue
-
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+        is_owned = PETSC_FALSE
         for ci in range(nclosure):
             p = closure[2*ci]
-            CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
-            if not has_point:
-                CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
-
-    # Mark all remaining points as core
-    pStart, pEnd = plex.getChart()
-    CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
-    for p in range(pStart, pEnd):
-        CHKERR(DMLabelHasPoint(lbl_non_core, p, &is_non_core))
-        CHKERR(DMLabelHasPoint(lbl_exec, p, &is_exec))
-        if not is_exec and not is_non_core:
-            CHKERR(DMLabelSetValue(lbl_core, p, 1))
-    CHKERR(DMLabelDestroyIndex(lbl_non_core))
-
-    # Halo facets that only touch halo vertices and halo cells need to
-    # be marked as non-exec.
-    nfacets = plex.getStratumSize("op2_exec_halo", 1)
-    facet_is = plex.getStratumIS("op2_exec_halo", 1)
-    CHKERR(ISGetIndices(facet_is.iset, &facets))
-    for f in range(nfacets):
-        if not (fStart <= facets[f] < fEnd):
-            continue
-
-        non_exec = PETSC_TRUE
-        # Check for halo vertices
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
-        for ci in range(nclosure):
-            if vStart <= closure[2*ci] < vEnd:
-                CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
-                if not has_point:
-                    # Touches a non-halo vertex, needs to be executed
-                    # over.
-                    non_exec = PETSC_FALSE
-        if non_exec:
-            # If we still think we're non-exec, check for halo cells
-            CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
-                                              PETSC_FALSE,
-                                              &nclosure,
-                                              &closure))
+            CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
+            if is_ghost:
+                is_owned = PETSC_TRUE
+                break
+        if is_owned:
             for ci in range(nclosure):
-                if cStart <= closure[2*ci] < cEnd:
-                    CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
-                    if not has_point:
-                        # Touches a non-halo cell, needs to be
-                        # executed over.
-                        non_exec = PETSC_FALSE
-        if non_exec:
-            CHKERR(DMLabelSetValue(lbl_non_exec, facets[f], 1))
-
-    CHKERR(DMLabelDestroyIndex(lbl_exec))
-    CHKERR(DMLabelCreateIndex(lbl_non_exec, fStart, fEnd))
-    # Remove exec marks from facets in non-exec label
-    for f in range(nfacets):
-        if not (fStart <= facets[f] < fEnd):
-            continue
-        CHKERR(DMLabelHasPoint(lbl_non_exec, facets[f], &has_point))
-        if has_point:
-            # Remove facet from exec-halo label
-            CHKERR(DMLabelClearValue(lbl_exec, facets[f], 1))
-
+                p = closure[2*ci]
+                CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
+                if not is_ghost:
+                    CHKERR(DMLabelSetValue(lbl_owned, p, 1))
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
                                               NULL, &closure))
-    CHKERR(PetscFree(vertices))
+    # Mark all remaining points as core
+    CHKERR(DMLabelCreateIndex(lbl_owned, pStart, pEnd))
+    for p in range(pStart, pEnd):
+        CHKERR(DMLabelHasPoint(lbl_owned, p, &is_owned))
+        CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
+        if not is_ghost and not is_owned:
+            CHKERR(DMLabelSetValue(lbl_core, p, 1))
+    CHKERR(DMLabelDestroyIndex(lbl_owned))
+    CHKERR(DMLabelDestroyIndex(lbl_ghost))
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -828,7 +947,7 @@ def get_entity_classes(PETSc.DM plex):
         PETSc.IS class_is
 
     depth = plex.getDimension() + 1
-    entity_class_sizes = np.zeros((depth, 4), dtype=IntType)
+    entity_class_sizes = np.zeros((depth, 3), dtype=IntType)
     eStart = np.zeros(depth, dtype=IntType)
     eEnd = np.zeros(depth, dtype=IntType)
     for d in range(depth):
@@ -836,10 +955,9 @@ def get_entity_classes(PETSc.DM plex):
         eStart[d] = start
         eEnd[d] = end
 
-    for i, op2class in enumerate(["op2_core",
-                                  "op2_non_core",
-                                  "op2_exec_halo",
-                                  "op2_non_exec_halo"]):
+    for i, op2class in enumerate([b"pyop2_core",
+                                  b"pyop2_owned",
+                                  b"pyop2_ghost"]):
         class_is = plex.getStratumIS(op2class, 1)
         class_size = plex.getStratumSize(op2class, 1)
         if class_size > 0:
@@ -851,9 +969,9 @@ def get_entity_classes(PETSc.DM plex):
                         break
             CHKERR(ISRestoreIndices(class_is.iset, &indices))
 
-    # OP2 entity class indices are additive
+    # PyOP2 entity class indices are additive
     for d in range(depth):
-        for i in range(1, 4):
+        for i in range(1, 3):
             entity_class_sizes[d, i] += entity_class_sizes[d, i-1]
     return entity_class_sizes
 
@@ -879,8 +997,21 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
     if not plex.hasLabel(CELL_SETS_LABEL):
         return np.empty(0, dtype=IntType)
     vals = plex.getLabelIdIS(CELL_SETS_LABEL).indices
-    if subdomain_id not in vals:
+    comm = plex.comm.tompi4py()
+
+    def merge_ids(x, y, datatype):
+        return x.union(y)
+
+    op = MPI.Op.Create(merge_ids, commute=True)
+
+    all_ids = np.asarray(sorted(comm.allreduce(set(vals), op=op)),
+                         dtype=IntType)
+    op.Free()
+    if subdomain_id not in all_ids:
         raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
+
+    if subdomain_id not in vals:
+        return np.empty(0, dtype=IntType)
 
     indices = plex.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
     cells = np.empty(indices.shape[0], dtype=IntType)
@@ -946,7 +1077,7 @@ def get_facet_markers(PETSc.DM dm, np.ndarray[PetscInt, ndim=1, mode="c"] facets
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
                         np.ndarray[PetscInt, ndim=1, mode="c"] ordering):
-    """Builds a list of all facets ordered according to OP2 entity
+    """Builds a list of all facets ordered according to PyOP2 entity
     classes and computes the respective class offsets.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -969,13 +1100,12 @@ def get_facets_by_class(PETSc.DM plex, label,
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=IntType)
-    facet_classes = [0, 0, 0, 0]
+    facet_classes = [0, 0, 0]
     fi = 0
 
-    for i, op2class in enumerate([b"op2_core",
-                                  b"op2_non_core",
-                                  b"op2_exec_halo",
-                                  b"op2_non_exec_halo"]):
+    for i, op2class in enumerate([b"pyop2_core",
+                                  b"pyop2_owned",
+                                  b"pyop2_ghost"]):
         CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
@@ -1047,7 +1177,7 @@ def plex_renumbering(PETSc.DM plex,
     Build a global node renumbering as a permutation of Plex points.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg entity_classes: Array of OP2 entity class offsets for
+    :arg entity_classes: Array of entity class offsets for
          each dimension.
     :arg reordering: A reordering from reordered to original plex
          points used to provide the traversal order of the cells
@@ -1057,8 +1187,8 @@ def plex_renumbering(PETSc.DM plex,
          original order.
 
     The node permutation is derived from a depth-first traversal of
-    the Plex graph over each OP2 entity class in turn. The returned IS
-    is the Plex -> OP2 permutation.
+    the Plex graph over each entity class in turn. The returned IS
+    is the Plex -> PyOP2 permutation.
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
@@ -1071,7 +1201,7 @@ def plex_renumbering(PETSc.DM plex,
         PETSc.IS perm_is = None
         PetscBT seen = NULL
         PetscBool has_point
-        DMLabel labels[4]
+        DMLabel labels[3]
         bint reorder = reordering is not None
 
     dim = plex.getDimension()
@@ -1079,26 +1209,20 @@ def plex_renumbering(PETSc.DM plex,
     cStart, cEnd = plex.getHeightStratum(0)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
-    ncells = np.zeros(4, dtype=IntType)
+    ncells = np.zeros(3, dtype=IntType)
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
-    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
-    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
-    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
-    for l in range(4):
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &labels[2]))
+    for l in range(3):
         CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
     entity_classes = entity_classes.astype(IntType)
-    lidx = np.zeros(4, dtype=IntType)
+    lidx = np.zeros(3, dtype=IntType)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
-    lidx[3] = sum(entity_classes[:, 2])
 
     for c in range(pStart, pEnd):
-        # Have we hit all the cells yet, if so break out early
-        if ncells[0] + ncells[1] + ncells[2] > cEnd - cStart:
-            break
-
         if reorder:
             cell = reordering[c]
         else:
@@ -1108,13 +1232,6 @@ def plex_renumbering(PETSc.DM plex,
         # coherency from the reordering provided by the Plex
         if cStart <= cell < cEnd:
 
-            # Identify current cell label
-            for l in range(3):
-                CHKERR(DMLabelHasPoint(labels[l], cell, &has_point))
-                if has_point:
-                    break
-            ncells[l] += 1
-
             # Get  cell closure
             CHKERR(DMPlexGetTransitiveClosure(plex.dm, cell,
                                               PETSC_TRUE,
@@ -1123,36 +1240,19 @@ def plex_renumbering(PETSc.DM plex,
             for ci in range(nclosure):
                 p = closure[2*ci]
                 if not PetscBTLookup(seen, p):
-                    # Add closure points in the current label at
-                    # the label-specific offsets in the permutation
-                    CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
-                    if has_point:
-                        PetscBTSet(seen, p)
-                        perm[lidx[l]] = p
-                        lidx[l] += 1
-
-    for c in range(4):
-        CHKERR(DMLabelDestroyIndex(labels[c]))
+                    for l in range(3):
+                        CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
+                        if has_point:
+                            PetscBTSet(seen, p)
+                            perm[lidx[l]] = p
+                            lidx[l] += 1
+                            break
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
                                               NULL, &closure))
-
-    # We currently mark non-exec facets without marking non-exec
-    # cells, so they will not get picked up by the cell closure loops
-    # and we need to add them explicitly.
-    op2class = "op2_non_exec_halo"
-    nfacets = plex.getStratumSize(op2class, 1)
-    if nfacets > 0:
-        facet_is = plex.getStratumIS(op2class, 1)
-        CHKERR(ISGetIndices(facet_is.iset, &facets))
-        for f in range(nfacets):
-            p = facets[f]
-            if not PetscBTLookup(seen, p):
-                PetscBTSet(seen, p)
-                perm[lidx[3]] = p
-                lidx[3] += 1
-        CHKERR(ISRestoreIndices(facet_is.iset, &facets))
+    for c in range(3):
+        CHKERR(DMLabelDestroyIndex(labels[c]))
 
     CHKERR(PetscBTDestroy(&seen))
     perm_is = PETSc.IS().create(comm=plex.comm)
@@ -2072,7 +2172,7 @@ def prune_sf(PETSc.SF sf):
     return pruned_sf
 
 
-def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
     """Begin a halo exchange.
 
     :arg sf: the PETSc SF to use for exchanges
@@ -2085,7 +2185,6 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     reverse exchanges with ``PetscSFReduceBegin``.
     """
     cdef:
-        MPI.Op op = MPI.SUM
         np.ndarray buf = dat._data
 
     # We've pruned the SF so it only references remote roots.
@@ -2107,7 +2206,7 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                  <void *>buf.data))
 
 
-def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
     """End a halo exchange.
 
     :arg sf: the PETSc SF to use for exchanges
@@ -2120,7 +2219,6 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     reverse exchanges with ``PetscSFReduceEnd``.
     """
     cdef:
-        MPI.Op op = MPI.SUM
         np.ndarray buf = dat._data
 
     if reverse:
@@ -2132,3 +2230,120 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
                                <const void *>buf.data,
                                <void *>buf.data))
+
+
+cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
+                                          PetscInt p,
+                                          PetscInt *adjSize,
+                                          PetscInt adj[],
+                                          void *ctx) nogil:
+    """Custom adjacency callback for halo growth.
+
+    :arg dm: The DMPlex object.
+    :arg p: The mesh point to compute the adjacency of.
+    :arg adjSize: Output parameter, the size of the computed adjacency.
+    :arg adj: Output parameter, the adjacent mesh points.
+    :arg ctx: User context.
+
+    The halo we need for owner-computes is everything in the stencil
+    of the owned mesh points.  For cells, we already have everything,
+    for facets, if we own the facet, we need the mesh points in
+    closure(support(facet)).  This function returns non-zero adjacency
+    only for facets, which then means that everything else falls
+    through right.
+    """
+    cdef:
+        const PetscInt *support = NULL;
+        PetscInt numAdj = 0
+        PetscInt maxAdjSize = adjSize[0]
+        PetscInt supportSize
+        PetscInt s
+        PetscInt fStart, fEnd
+        PetscInt point, closureSize, ci, q
+        PetscInt *closure = NULL
+        DMLabel label = <DMLabel>ctx;
+        PetscBool flg = PETSC_TRUE
+
+    CHKERR(DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd))
+    if not (fStart <= p < fEnd):
+        # Not a facet, no adjacent points
+        adjSize[0] = 0
+        return 0
+    if label != NULL:
+        # If a label is provided to filter out points, use it.
+        # Requires that the label has already had an index created.
+        # The label should mark those points that are not owned.
+        # If the point is owned, then we would like to grow the halo.
+        # So we need the remote process to donate those points.
+        # Hence, if we own the point, we return an empty adjacency (we
+        # don't want to donate those points to the remote process),
+        # and vice versa.
+        CHKERR(DMLabelHasPoint(label, p, &flg))
+        if not flg:
+            # This point is owned, no adjacency.
+            adjSize[0] = 0
+            return 0
+    # OK, it's a remote point, let's gather the adjacency
+    CHKERR(DMPlexGetSupportSize(dm, p, &supportSize))
+    CHKERR(DMPlexGetSupport(dm, p, &support))
+    for s in range(supportSize):
+        point = support[s]
+        CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+        for ci in range(closureSize):
+            # This is just ensuring that the adjacency is unique.
+            for q in range(numAdj):
+                if closure[2*ci] == adj[q]:
+                    break
+            else:
+                adj[numAdj] = closure[2*ci]
+                numAdj += 1
+            # Too many adjacent points for the provided output array.
+            if numAdj > maxAdjSize:
+                SETERR(77)
+    CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+    adjSize[0] = numAdj
+    return 0
+
+
+def set_adjacency_callback(PETSc.DM dm not None):
+    """Set the callback for DMPlexGetAdjacency.
+
+    :arg dm: The DMPlex object.
+
+    This is used during DMPlexDistributeOverlap to determine where to
+    grow the halos."""
+    cdef:
+        PetscInt fStart, fEnd, p
+        DMLabel label = NULL
+        PETSc.SF sf
+        PetscInt nleaves
+        const PetscInt *ilocal
+    if False:
+        # In theory we can grow halos asymmetrically, but in practice
+        # the implementation of parallel quad orientation relies on
+        # the halo being symmetric.
+
+        # Mark remote points from point overlap SF
+        sf = dm.getPointSF()
+        CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
+        dm.createLabel("ghost_region")
+        CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+        fStart, fEnd = dm.getChart()
+        for p in range(nleaves):
+            CHKERR(DMLabelSetValue(label, ilocal[p], 1))
+        CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
+    CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
+
+
+def clear_adjacency_callback(PETSc.DM dm not None):
+    """Clear the callback for DMPlexGetAdjacency.
+
+    :arg dm: The DMPlex object"""
+    cdef:
+        DMLabel label = NULL
+    if False:
+        CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+        CHKERR(DMLabelDestroyIndex(label))
+        dm.removeLabel("ghost_region")
+        CHKERR(DMLabelDestroy(&label))
+    CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))

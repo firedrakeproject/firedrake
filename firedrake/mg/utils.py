@@ -38,7 +38,7 @@ def coarse_to_fine_node_map(coarse, fine):
     except KeyError:
         from .impl import create_cell_node_map
         map_vals, offset = create_cell_node_map(coarse, fine, c2f, vperm)
-        return cache.setdefault(key, op2.Map(op2.LocalSet(mesh.cell_set),
+        return cache.setdefault(key, op2.Map(mesh.cell_set,
                                              fine.node_set,
                                              map_vals.shape[1],
                                              map_vals, offset=offset))
@@ -104,7 +104,7 @@ def get_restriction_weights(coarse, fine):
             weights = firedrake.Function(fine)
         c2f_map = coarse_to_fine_node_map(coarse, fine)
         kernel = get_count_kernel(c2f_map.arity)
-        op2.par_loop(kernel, op2.LocalSet(mesh.cell_set),
+        op2.par_loop(kernel, c2f_map.iterset,
                      weights.dat(op2.INC, c2f_map[op2.i[0]]))
         weights.assign(1/weights)
         return cache.setdefault(key, weights)

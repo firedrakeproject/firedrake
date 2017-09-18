@@ -220,14 +220,14 @@ image::
   try:
     plot(all_us)
   except Exception as e:
-    warning("Cannot plot figure. Error msg: '%s'" % e.message)
+    warning("Cannot plot figure. Error msg: '%s'" % e)
 
 And finally show the figure::
 
   try:
     plt.show()
   except Exception as e:
-    warning("Cannot show figure. Error msg: '%s'" % e.message)
+    warning("Cannot show figure. Error msg: '%s'" % e)
 
 Alternatively, if running in Jupyter Notebook, an interactive interface will be
 displayed by adding the key word argument `interactive=True`

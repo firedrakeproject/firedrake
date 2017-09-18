@@ -6,7 +6,7 @@ import collections
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
+from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 
 import coffee.base as ast
@@ -14,7 +14,7 @@ import coffee.base as ast
 from firedrake import constant
 
 
-__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
+__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
 
 
 class _DirectLoop(object):

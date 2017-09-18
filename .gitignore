@@ -9,6 +9,7 @@
 *.so
 *.vtu
 /firedrake/dmplex.c
+/firedrake/extrusion_numbering.c
 /firedrake/spatialindex.c
 /firedrake/hdf5interface.c
 /docs/build/

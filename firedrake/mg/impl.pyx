@@ -487,7 +487,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
 
     nfdof = indices.shape[0]
     nfcell = 2**tdim
-    new_cell_map = -np.ones((ncoarse, nfdof), dtype=PETSc.IntType)
+    new_cell_map = np.full((coarse.mesh().cell_set.total_size, nfdof), -1, dtype=PETSc.IntType)
 
     cell_map = np.empty(nfcell*ndof, dtype=PETSc.IntType)
     for ccell in range(ncoarse):
