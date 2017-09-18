@@ -958,13 +958,14 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
     Xradial = m.coordinates.copy(deepcopy=True).interpolate(Xlow/r)
 
-    dz = 1./2**refinement_level
-    ntaper = 1
-    # when z=1-dz, s=1, when z=1-(ntaper+1)*dz, s=0
-    s = (abs(z)-1+(ntaper+1)*dz)/(ntaper*dz)
-    taper = ufl.conditional(ufl.gt(s, 1),
-                            1,
-                            ufl.conditional(ufl.gt(s, 0), s, 0))
+    zramp = 0.8
+    s = (abs(z) - zramp)/(1-zramp)
+    exp = ufl.exp
+    taper = ufl.conditional(ufl.gt(s, 1.0-tol),
+                            1.0,
+                            ufl.conditional(ufl.gt(s, tol),
+                            exp(-1.0/s)/(exp(-1.0/s) + exp(-1.0/(1.0-s))),
+                            0.))
     m.coordinates.interpolate(taper*Xradial + (1-taper)*Xlatitudinal)
     m._radius = radius
     return m
