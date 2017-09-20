@@ -215,6 +215,9 @@ numpy.import_array()
 
 include "dmplexinc.pxi"
 
+cdef extern from "mpi-compat.h":
+    pass
+
 
 cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Datatype *datatype) nogil:
     cdef:
