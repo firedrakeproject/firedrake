@@ -872,8 +872,11 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
-                         hemisphere="both", reorder=None,
-                         distribute=None, comm=COMM_WORLD):
+                         hemisphere="both",
+                         z0=0.8,
+                         reorder=None,
+                         distribute=None,
+                         comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
 
@@ -883,6 +886,10 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
+        non-vertex nodes are on lines of latitude to a mesh where these nodes
+        are just pushed out radially from the equivalent P1 mesh. (defaults to
+        z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -953,15 +960,32 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     scale = ufl.conditional(ufl.lt(rnew, tol),
                             0, ufl.cos(phi)/rnew)
     znew = ufl.sin(phi)
-    m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
-                                                              y*scale,
-                                                              znew]))
+    # Make a copy of the coordinates so that we can blend two different
+    # mappings near the pole
+    Vc = m.coordinates.function_space()
+    Xlatitudinal = interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                               y*scale,
+                                                               znew]),
+                               Vc)
+    Vlow = VectorFunctionSpace(m, "CG", 1)
+    Xlow = interpolate(Xlatitudinal, Vlow)
+    r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
+    Xradial = Constant(radius)*Xlow/r
+
+    s = (abs(z) - z0)/(1-z0)
+    exp = ufl.exp
+    taper = ufl.conditional(ufl.gt(s, 1.0-tol),
+                            1.0,
+                            ufl.conditional(ufl.gt(s, tol),
+                            exp(-1.0/s)/(exp(-1.0/s) + exp(-1.0/(1.0-s))),
+                            0.))
+    m.coordinates.interpolate(taper*Xradial + (1-taper)*Xlatitudinal)
     m._radius = radius
     return m
 
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
-                             hemisphere="both", reorder=None,
+                             hemisphere="both", z0=0.8, reorder=None,
                              distribute=None, comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -970,12 +994,17 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
     :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg z0: for abs(z)>z0, blend from a mesh where the higher-order
+        non-vertex nodes are on lines of latitude to a mesh where these nodes
+        are just pushed out radially from the equivalent P1 mesh. (defaults to
+        z0=0.8).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
+                                z0=z0,
                                 reorder=reorder,
                                 distribute=distribute, comm=comm)
 
