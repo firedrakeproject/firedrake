@@ -738,7 +738,7 @@ def build_and_install_slepc():
         if os.path.exists("slepc"):
             slepc_changed = git_update("slepc")
         else:
-            git_clone("git+https://bitbucket.org/slepc/slepc.git")
+            git_clone("git+https://github.com/firedrakeproject/slepc.git@firedrake")
             slepc_changed = True
         if slepc_changed:
             install("slepc/")
@@ -749,7 +749,7 @@ def build_and_install_slepc():
     if os.path.exists("slepc4py"):
         slepc4py_changed = git_update("slepc4py")
     else:
-        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+        git_clone("git+https://github.com/firedrakeproject/slepc4py.git@firedrake")
         slepc4py_changed = True
     if slepc4py_changed:
         install("slepc4py/")
