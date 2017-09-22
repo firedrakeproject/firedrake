@@ -735,10 +735,23 @@ def build_and_install_slepc():
         log.info("Using installed SLEPc from %s/%s", slepc_dir, slepc_arch)
     else:
         log.info("Installing SLEPc.")
+        url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
         if os.path.exists("slepc"):
-            slepc_changed = git_update("slepc")
+            slepc_changed = False
+            with directory("slepc"):
+                plain_url = split_requirements_url(url)[1]
+                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                proto = "https" if current_remote.startswith("https") else "ssh"
+                new_remote = git_url(plain_url, proto)
+                if new_remote != current_remote:
+                    log.info("Updating git remote for SLEPc from %s to %s", current_remote, new_remote)
+                    check_call(["git", "remote", "set-url", "origin", new_remote])
+                    check_call(["git", "fetch", "-p", "origin"])
+                    check_call(["git", "checkout", "firedrake"])
+                    slepc_changed = True
+            slepc_changed |= git_update("slepc")
         else:
-            git_clone("git+https://bitbucket.org/slepc/slepc.git")
+            git_clone(url)
             slepc_changed = True
         if slepc_changed:
             install("slepc/")
@@ -746,10 +759,23 @@ def build_and_install_slepc():
             log.info("No need to rebuild SLEPc")
 
     log.info("Installing slepc4py.")
+    url = "git+https://github.com/firedrakeproject/slepc4py.git@firedrake"
     if os.path.exists("slepc4py"):
-        slepc4py_changed = git_update("slepc4py")
+        slepc4py_changed = False
+        with directory("slepc4py"):
+                plain_url = split_requirements_url(url)[1]
+                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                proto = "https" if current_remote.startswith("https") else "ssh"
+                new_remote = git_url(plain_url, proto)
+                if new_remote != current_remote:
+                    log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
+                    check_call(["git", "remote", "set-url", "origin", new_remote])
+                    check_call(["git", "fetch", "-p", "origin"])
+                    check_call(["git", "checkout", "firedrake"])
+                    slepc4py_changed = True
+        slepc4py_changed |= git_update("slepc4py")
     else:
-        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+        git_clone(url)
         slepc4py_changed = True
     if slepc4py_changed:
         install("slepc4py/")
