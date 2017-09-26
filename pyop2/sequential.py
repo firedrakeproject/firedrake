@@ -899,7 +899,7 @@ class ParLoop(petsc_base.ParLoop):
     def _compute(self, part, fun, *arglist):
         with timed_region("ParLoop%s" % self.iterset.name):
             fun(part.offset, part.offset + part.size, *arglist)
-            self.log_flops()
+            self.log_flops(self.num_flops * part.size)
 
 
 def wrapper_snippets(itspace, args,

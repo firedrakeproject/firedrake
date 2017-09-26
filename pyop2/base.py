@@ -4093,17 +4093,17 @@ class ParLoop(LazyComputation):
     @cached_property
     def num_flops(self):
         iterset = self.iterset
-        size = iterset.size
+        size = 1
         if self.is_indirect and iterset._extruded:
             region = self.iteration_region
             layers = np.mean(iterset.layers_array[:, 1] - iterset.layers_array[:, 0])
             if region is ON_INTERIOR_FACETS:
-                size *= layers - 2
+                size = layers - 2
             elif region not in [ON_TOP, ON_BOTTOM]:
-                size *= layers - 1
+                size = layers - 1
         return size * self._kernel.num_flops
 
-    def log_flops(self):
+    def log_flops(self, flops):
         pass
 
     @property

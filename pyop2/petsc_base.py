@@ -954,8 +954,8 @@ class Mat(base.Mat):
 
 class ParLoop(base.ParLoop):
 
-    def log_flops(self):
-        PETSc.Log.logFlops(self.num_flops)
+    def log_flops(self, flops):
+        PETSc.Log.logFlops(flops)
 
 
 def _DatMat(sparsity, dat=None):
