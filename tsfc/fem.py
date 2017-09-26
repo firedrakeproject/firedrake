@@ -14,11 +14,10 @@ from singledispatch import singledispatch
 import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
-                         CellFacetJacobian, CellOrientation,
-                         CellOrigin, CellVolume, Coefficient,
-                         FacetArea, FacetCoordinate,
-                         GeometricQuantity, QuadratureWeight,
+from ufl.classes import (Argument, CellCoordinate, CellFacetJacobian,
+                         CellOrientation, CellOrigin, CellVolume, Coefficient,
+                         FacetArea, FacetCoordinate, GeometricQuantity,
+                         QuadratureWeight, ReferenceCellEdgeVectors,
                          ReferenceCellVolume, ReferenceFacetVolume,
                          ReferenceNormal, SpatialCoordinate)
 
@@ -260,12 +259,12 @@ def translate_reference_normal(terminal, mt, ctx):
     return ctx.entity_selector(callback, mt.restriction)
 
 
-@translate.register(CellEdgeVectors)
-def translate_cell_edge_vectors(terminal, mt, ctx):
+@translate.register(ReferenceCellEdgeVectors)
+def translate_reference_cell_edge_vectors(terminal, mt, ctx):
     from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
-        raise NotImplementedError("CellEdgeVectors not implemented on TensorProductElements yet")
+        raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
 
     nedges = len(fiat_cell.get_topology()[1])
     vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
