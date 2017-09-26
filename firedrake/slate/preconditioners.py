@@ -271,14 +271,14 @@ class HybridizationPC(PCBase):
         # HDiv conforming solution
         opts = PETSc.Options()
         projection_prefix = prefix + 'hdiv_projection_'
-        self._method = opts.getString(projection_prefix + 'method', 'l2')
+        self._method = opts.getString(projection_prefix + 'method', 'L2')
         if self._method == 'average':
             self.averager = Projector(self.broken_solution.split()[self.vidx],
                                       self.unbroken_solution.split()[self.vidx],
                                       method=self._method)
         else:
-            assert self._method == 'l2', (
-                "Only projection methods 'l2' and 'average' are supported."
+            assert self._method == 'L2', (
+                "Only projection methods 'L2' and 'average' are supported."
             )
 
     def _reconstruction_calls(self, split_mixed_op, split_trace_op):

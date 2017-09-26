@@ -18,7 +18,7 @@ __all__ = ['project', 'Projector']
 def project(v, V, bcs=None, mesh=None,
             solver_parameters=None,
             form_compiler_parameters=None,
-            method="l2",
+            method="L2",
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
@@ -31,7 +31,7 @@ def project(v, V, bcs=None, mesh=None,
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler
     :arg method: a string denoting which type of projection to perform.
-                 By default, "l2" is used, which is the standard Galerkin
+                 By default, "L2" is used, which is the standard Galerkin
                  projection. The other option would be to use the method
                  "average," which performs the projection using weighted
                  averages. This should only be used if you're projecting
@@ -114,7 +114,7 @@ class Projector(object):
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler.
     :arg method: a string denoting which type of projection to perform.
-                 By default, "l2" is used, which is the standard Galerkin
+                 By default, "L2" is used, which is the standard Galerkin
                  projection. The other option would be to use the method
                  "average," which performs the projection using weighted
                  averages. This should only be used if you're projecting
@@ -124,7 +124,7 @@ class Projector(object):
 
     def __init__(self, v, v_out, bcs=None, solver_parameters=None,
                  form_compiler_parameters=None, constant_jacobian=True,
-                 method="l2"):
+                 method="L2"):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -138,7 +138,7 @@ class Projector(object):
         self.method = method
         self.V = v_out.function_space()
 
-        if self.method == "l2":
+        if self.method == "L2":
             if not self._same_fspace or self.bcs:
 
                 p = ufl_expr.TestFunction(self.V)
@@ -192,7 +192,7 @@ class Projector(object):
         """
         Apply the projection.
         """
-        if self.method == "l2":
+        if self.method == "L2":
             if self._same_fspace and not self.bcs:
                 self.v_out.assign(self.v)
             else:
