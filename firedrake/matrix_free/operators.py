@@ -472,6 +472,7 @@ class LoopyImplicitMatrixContext(object):
 
         knl = lp.make_reduction_inames_unique(knl)
 
+        
         # Now, for each bit of the test space/resulting tensor,
         # We need to initialize space to store it,
         # and gather into it.
@@ -480,94 +481,156 @@ class LoopyImplicitMatrixContext(object):
         # and reverse the halo exchange before copying into the
         # output PETSc vector.
 
+        gather_inames = [("iel", "0", "nelements")]
+        gather_insns = []
+        gather_args = []
+        
         for i, ts in enumerate(test_space.split()):
-            fspace_nr = fspace_to_number[ts]
-
-            ltg_cur = ts.cell_node_map().values_with_halo
-
-            ibf = "ibf_gather_%d" % i
-            ltgi = "ltg_%d" % fspace_nr
-            ai = "A%d" % i
-            aiglobal = "A%d_global" % i
-            initi = "i_init_%d" % i
             tssize = "A%d_size" % i
+            aiglobal = "A%d_global" % i
+            init_i = "i_init_%d" % i
+            init_id = "init_%d" % i
 
-            if ts.value_size == 1:
-                gather_knl = lp.make_kernel(
-                    "{{ [iel, {ibf}, {initi}]:"
-                    "    0 <= {initi} < {tssize} "
-                    "and 0 <= iel < nelements "
-                    "and 0 <= {ibf} < {nbf}}}"
-                    .format(
-                        ibf=ibf, initi=initi, tssize=tssize,
-                        nbf=ts.cell_node_map().values.shape[1]
-                    ),
-                    """
-                {aiglobal}[{initi}] = 0.0 {{id={initi}, atomic}}
-                {aiglobal}[{ltgi}[iel, {ibf}]] = (
-                {aiglobal}[{ltgi}[iel, {ibf}]]
-                    + {ai}[iel, {ibf}]) {{dep={initi}, atomic}}
-                """
-                    .format(
-                        ai=ai, aiglobal=aiglobal,
-                        ibf=ibf,
-                        ltgi=ltgi, initi=initi,
-                        nbf=ts.cell_node_map().values.shape[1]
-                    ),
-                    [
-                        lp.GlobalArg(aiglobal, np.float64,
-                                     shape=(tssize,), for_atomic=True),
-                        lp.GlobalArg(ltgi, np.int32, shape=lp.auto),
-                        lp.GlobalArg(ai, np.float64, shape=lp.auto),
-                        "..."])
+           
+            gather_inames.append(
+                (init_i, "0", tssize))
+
+            if ts.value_size > 1:
+                init_dim = "dim_init_%d" % i
+                
+                gather_inames.append(
+                    (init_dim, "0", str(ts.value_size))
+                )
+                gather_insns.append(
+                    """{aiglobal}[{init_i}, {init_dim}] = 0.0 {{id={init_id}, atomic}}""".format(
+                    aiglobal=aiglobal,
+                    init_i=init_i,
+                    init_dim=init_dim,
+                    init_id=init_id))
             else:
-                idim = "idim%d" % i
-                gather_knl = lp.make_kernel(
-                    "{{ [iel, {idim}, {ibf}, {initi}]:"
-                    "   0 <= iel < nelements "
-                    "and 0 <= {initi} < {tssize} "
-                    "and 0 <= {idim} < {dim} "
-                    "and 0 <= {ibf} < {nbf}}}"
-                    .format(
-                        ibf=ibf,
-                        idim=idim, tssize=tssize,
-                        dim=ts.value_size, initi=initi,
-                        nbf=ts.cell_node_map().values.shape[1]
-                    ),
-                    """
-                {aiglobal}[{initi}] = 0.0 {{id={initi}, atomic}}
-                {aiglobal}[{dim}*{ltgi}[iel, {ibf}]+{idim}] = (
-                {aiglobal}[{dim}*{ltgi}[iel, {ibf}]+{idim}]
-                + {ai}[iel, {ibf}, {idim}])  {{dep={initi}, atomic}}
-                    """
-                    .format(
-                        ai=ai, aiglobal=aiglobal,
-                        dim=ts.value_size, initi=initi,
-                        idim=idim,
-                        ibf=ibf,
-                        ltgi=ltgi,
-                        tssize=tssize,
-                        nbf=ts.cell_node_map().values.shape[1]
-                    ),
-                    [
-                        lp.ValueArg(tssize, np.int32),
-                        lp.GlobalArg(aiglobal, np.float64,
-                                     shape=(tssize,), for_atomic=True),
-                        lp.GlobalArg(ltgi, np.int32, shape=lp.auto),
-                        lp.GlobalArg(ai, np.float64, shape=lp.auto),
-                        "..."])
+                gather_insns.append(
+                    """{aiglobal}[{init_i}] = 0.0 {{id={init_id}, atomic}}""".format(
+                        aiglobal=aiglobal,
+                        init_i=init_i,
+                        init_id=init_id))
 
-            gather_knl = lp.add_dtypes(gather_knl, {
-                "nelements": np.int32,
-                ai: np.float64,
-                ltgi: np.int32
-            })
-            knl = lp.fuse_kernels(
-                (knl, gather_knl),
-                data_flow=[(ai, 0, 1)])
+        # gather instructions themselves.  This is a bit trickier
+        # since I have one instruction per bit of each vector space
+        # so I need to label the results of the element kernel and
+        # the global outputs differently...
 
+        el_tensor_count = 0
+        ts_count = 0
+
+        for ts in test_space.split():
+            fspace_nr = fspace_to_number[ts]
+            ltg_cur = ts.cell_node_map().values_with_halo
+            ats_global = "A%d_global" % ts_count
+            ltgts = "ltg_%d" % fspace_nr
+            
+            if ts.value_size == 1:
+                ibf = "ibf_gather_%d" % el_tensor_count
+                nbf = ltg_cur.shape[1]
+                init_id = "init_%d" % ts_count
+                aeltc = "A%d" % el_tensor_count
+                gather_inames.append(
+                    (ibf, "0", str(nbf))
+                )
+                gather_insns.append(
+                    """{atsgl}[{ltg}[iel,{ibf}]] = (
+                       {atsgl}[{ltg}[iel,{ibf}]]
+                         + {aeltc}[iel, {ibf}] ) {{dep={init}, atomic}}"""
+                    .format(
+                        atsgl=ats_global,
+                        ibf=ibf, init=init_id,
+                        ltg=ltgts,
+                        aeltc=aeltc))
+                el_tensor_count += 1
+            else:
+                for d in range(ts.value_size):
+                    ibf = "ibf_gather_%d" % el_tensor_count
+                    nbf = ltg_cur.shape[1]
+                    init_id = "init_%d" % ts_count
+                    aeltc = "A%d" % el_tensor_count
+                    gather_inames.append(
+                        (ibf, "0", str(nbf))
+                    )
+                    gather_insns.append(
+                        """{atsgl}[{ltg}[iel,{ibf}], {dim}] = (
+                        {atsgl}[{ltg}[iel,{ibf}], {dim}]
+                         + {aeltc}[iel, {ibf}] ) {{dep={init}, atomic}}"""
+                    .format(
+                        atsgl=ats_global, dim=d,
+                        ibf=ibf, init=init_id,
+                        ltg=ltgts,
+                        aeltc=aeltc))
+                    el_tensor_count += 1
+
+            ts_count += 1
+
+        # now create a gather full gather kernel out of this.
+        g_dom = str.join(', ', [g[0] for g in gather_inames])
+
+        g_bounds = ["{b} <= {a} < {c}".format(a=a, b=b, c=c)
+                    for (a, b, c) in gather_inames]
+
+        g_bd = str.join(" and ", g_bounds)
+
+        g_insns = str.join("\n", gather_insns)
+
+        # collect kernel arguments
+        g_args = [lp.ValueArg("nelements", np.int32)]
+
+        eltc = 0
+        for i, ts in enumerate(test_space.split()):
+            tssize = "A%d_size" % i
+            aiglobal = "A%d_global" % i
+            ltg = "ltg_%d" % fspace_to_number[ts]
+            if ts.value_size == 1:
+                shp = (tssize,)
+            else:
+                shp = (tssize, ts.value_size)
+
+            g_args.append(lp.GlobalArg(
+                ltg, np.int32, shape=lp.auto))
+            g_args.append(
+                lp.GlobalArg(
+                    aiglobal, np.float64, shape=shp, for_atomic=True))
+
+            g_args.append(lp.ValueArg(tssize, np.int32))
+
+            # the element kernels
+            for d in range(ts.value_size):
+                ai = "A_%d" % eltc
+                g_args.append(
+                    lp.GlobalArg(
+                        ai, np.float64, shape=lp.auto))
+                eltc += 1
+
+        g_args.append("...")
+
+        gather_knl = lp.make_kernel(
+            "{{ [{gdom}]: {gbd}}}".format(gdom=g_dom, gbd=g_bd),
+            g_insns,
+            g_args)
+
+        # fuse in gather kernel now
+        ais = []
+        eltc = 0
+        for i, ts in enumerate(test_space.split()):
+            for d in range(ts.value_size):
+                ais.append("A_%d" % eltc)
+                eltc += 1
+
+        data_flow = [(ai, 0, 1) for ai in ais]
+
+        knl = lp.fuse_kernels(
+            (knl, gather_knl),
+            data_flow=data_flow)
+
+        for ai in ais:
             knl = lp.assignment_to_subst(knl, ai)
-
+            
         knl = lp.infer_unknown_types(knl)
         knl = lp.make_reduction_inames_unique(knl)
         self.knl = knl
