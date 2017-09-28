@@ -532,7 +532,7 @@ class LoopyImplicitMatrixContext(object):
                 ibf = "ibf_gather_%d" % el_tensor_count
                 nbf = ltg_cur.shape[1]
                 init_id = "init_%d" % ts_count
-                aeltc = "A%d" % el_tensor_count
+                aeltc = "A_%d" % el_tensor_count
                 gather_inames.append(
                     (ibf, "0", str(nbf))
                 )
@@ -551,7 +551,7 @@ class LoopyImplicitMatrixContext(object):
                     ibf = "ibf_gather_%d" % el_tensor_count
                     nbf = ltg_cur.shape[1]
                     init_id = "init_%d" % ts_count
-                    aeltc = "A%d" % el_tensor_count
+                    aeltc = "A_%d" % el_tensor_count
                     gather_inames.append(
                         (ibf, "0", str(nbf))
                     )
@@ -586,6 +586,7 @@ class LoopyImplicitMatrixContext(object):
             tssize = "A%d_size" % i
             aiglobal = "A%d_global" % i
             ltg = "ltg_%d" % fspace_to_number[ts]
+            nbf = ts.cell_node_map().values_with_halo.shape[1]
             if ts.value_size == 1:
                 shp = (tssize,)
             else:
@@ -604,7 +605,7 @@ class LoopyImplicitMatrixContext(object):
                 ai = "A_%d" % eltc
                 g_args.append(
                     lp.GlobalArg(
-                        ai, np.float64, shape=lp.auto))
+                        ai, np.float64, shape=('nelements', nbf)))
                 eltc += 1
 
         g_args.append("...")
