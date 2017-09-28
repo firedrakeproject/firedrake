@@ -161,6 +161,11 @@ class Projector(object):
                 self.solver = vs.LinearVariationalSolver(problem,
                                                          solver_parameters=solver_parameters)
         elif self.method == "average":
+            # Check the number of local dofs
+            if self.v_out.function_space().finat_element.space_dimension() != \
+               self.v.function_space().finat_element.space_dimension():
+                raise ValueError("Number of local dofs for each field must be equal.")
+
             # NOTE: Any bcs on the function self.v should just work.
             # Loop over node extent and dof extent
             self._shapes = (self.V.finat_element.space_dimension(), np.prod(self.V.shape))
