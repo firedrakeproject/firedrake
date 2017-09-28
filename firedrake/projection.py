@@ -85,10 +85,6 @@ def project(v, V, bcs=None, mesh=None,
     elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can only project from expressions and functions, not %r" % type(v))
 
-    if v.ufl_shape != ret.ufl_shape:
-        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
-                           (v.ufl_shape, ret.ufl_shape))
-
     projector = Projector(v, ret, bcs=bcs, solver_parameters=solver_parameters,
                           form_compiler_parameters=form_compiler_parameters,
                           method=method)
@@ -130,6 +126,11 @@ class Projector(object):
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
             raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
 
+        # Check shape values
+        if v.ufl_shape != v_out.ufl_shape:
+            raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
+                               (v.ufl_shape, v_out.ufl_shape))
+
         self._same_fspace = (isinstance(v, function.Function) and v.function_space() ==
                              v_out.function_space())
         self.v = v
@@ -164,7 +165,7 @@ class Projector(object):
             # Check the number of local dofs
             if self.v_out.function_space().finat_element.space_dimension() != \
                self.v.function_space().finat_element.space_dimension():
-                raise ValueError("Number of local dofs for each field must be equal.")
+                raise RuntimeError("Number of local dofs for each field must be equal.")
 
             # NOTE: Any bcs on the function self.v should just work.
             # Loop over node extent and dof extent
