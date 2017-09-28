@@ -433,6 +433,38 @@ def test_averaging_bcs(tensor):
     assert errornorm(v, vcg) < 1.0e-13
 
 
+def test_average_mismatched_shape():
+    m = UnitSquareMesh(2, 2)
+
+    U = VectorFunctionSpace(m, 'DG', 1)
+    V = FunctionSpace(m, 'CG', 1)
+
+    u = Function(U)
+    v = Function(V)
+
+    with pytest.raises(RuntimeError):
+        project(u, V, method='average')
+
+    with pytest.raises(RuntimeError):
+        project(v, U, method='average')
+
+
+def test_average_mismatched_dofs():
+    m = UnitSquareMesh(2, 2)
+
+    U = VectorFunctionSpace(m, 'DG', 0)
+    V = VectorFunctionSpace(m, 'CG', 1)
+
+    u = Function(U)
+    v = Function(V)
+
+    with pytest.raises(RuntimeError):
+        project(u, V, method='average')
+
+    with pytest.raises(RuntimeError):
+        project(v, U, method='average')
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
