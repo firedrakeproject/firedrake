@@ -594,6 +594,10 @@ class LoopyImplicitMatrixContext(object):
 
             g_args.append(lp.GlobalArg(
                 ltg, np.int32, shape=lp.auto))
+            if ts.value_size == 1:
+                shp = (tssize,)
+            else:
+                shp = (tssize, ts.value_size)
             g_args.append(
                 lp.GlobalArg(
                     aiglobal, np.float64, shape=shp, for_atomic=True))
@@ -649,7 +653,9 @@ class LoopyImplicitMatrixContext(object):
 
         for i, yi in enumerate(self._y.split()):
             tssize = "A%d_size" % i
-            kernel_args[tssize] = np.prod(yi.dat._data.shape)
+            if len(yi.dat._data.shape) > 2:
+                1/0
+            kernel_args[tssize] = yi.dat._data.shape[0]
 
         self.kernel_args = kernel_args
 
@@ -681,13 +687,18 @@ class LoopyImplicitMatrixContext(object):
         for bc in self.col_bcs:
             bc.zero(self._x)
 
+        # from firedrake.parloops import READ, INC
+        # self._x.dat.global_to_local_begin(READ)
+        # self._x.dat.global_to_local_end(READ)            
+
         # This loopy kernel does the scatter plus element integration.
         evt, As = self.knl(self.queue, **self.kernel_args)
 
         for Ai, y in zip(As, self._y.split()):
             y.dat._data[:] = np.reshape(Ai, y.dat._data.shape)
 
-        self._y.dat.halo_exchange_begin(reverse=True)
+        # self._y.dat.local_to_global_begin(INC)
+        # self._y.dat.local_to_global_end(INC)
 
         # This sets the essential boundary condition values on the
         # result.
