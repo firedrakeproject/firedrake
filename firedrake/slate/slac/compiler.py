@@ -16,16 +16,9 @@ this templated function library.
 """
 from coffee import base as ast
 
-from collections import OrderedDict
-
 from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
-from firedrake.slate.slate import (TensorBase, Transpose, Inverse,
-                                   Negative, Add, Sub, Mul,
-                                   Action)
-from firedrake.slate.slac.kernel_builder import KernelBuilderBase
-from firedrake.slate.slac.utils import Transformer
-from firedrake.utils import cached_property
+from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
 
 from itertools import chain
@@ -35,6 +28,7 @@ from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
 
+import firedrake.slate.slate as slate
 import numpy as np
 
 
@@ -44,143 +38,6 @@ __all__ = ['compile_expression']
 PETSC_DIR = get_petsc_dir()
 
 cell_to_facets_dtype = np.dtype(np.int8)
-
-# These are globally constant symbols
-coord_sym = ast.Symbol("coords")
-cell_orientations_sym = ast.Symbol("cell_orientations")
-cell_facet_sym = ast.Symbol("cell_facets")
-it_sym = ast.Symbol("i0")
-mesh_layer_sym = ast.Symbol("layer")
-
-# Supported integral types
-supported_integral_types = [
-    "cell",
-    "interior_facet",
-    "exterior_facet",
-    # The "interior_facet_horiz" measure is separated into two parts:
-    # "top" and "bottom"
-    "interior_facet_horiz_top",
-    "interior_facet_horiz_bottom",
-    "interior_facet_vert",
-    "exterior_facet_top",
-    "exterior_facet_bottom",
-    "exterior_facet_vert"
-]
-
-
-class LocalKernelBuilder(KernelBuilderBase):
-    """The primary helper class for constructing cell-local linear
-    algebra kernels from Slate expressions.
-
-    This class provides access to all temporaries and subkernels associated
-    with a Slate expression. If the Slate expression contains nodes that
-    require operations on already assembled data (such as the action of a
-    slate tensor on a `ufl.Coefficient`), this class provides access to the
-    expression which needs special handling.
-
-    Instructions for assembling the full kernel AST of a Slate expression is
-    provided by the method `construct_ast`.
-    """
-    def __init__(self, expression, tsfc_parameters=None):
-        """Constructor for the LocalKernelBuilder class.
-
-        :arg expression: a :class:`TensorBase` object.
-        :arg tsfc_parameters: an optional `dict` of parameters to provide to
-                              TSFC when constructing subkernels associated
-                              with the expression.
-        """
-        super(LocalKernelBuilder, self).__init__(expression=expression,
-                                                 tsfc_parameters=tsfc_parameters)
-        transformer = Transformer()
-        include_dirs = []
-        templated_subkernels = []
-        assembly_calls = OrderedDict([(it, []) for it in supported_integral_types])
-        coords = None
-        oriented = False
-        for cxt_kernel in self.context_kernels:
-            local_coefficients = cxt_kernel.coefficients
-            it_type = cxt_kernel.original_integral_type
-            exp = cxt_kernel.tensor
-
-            if it_type not in supported_integral_types:
-                raise ValueError("Integral type '%s' not recognized" % it_type)
-
-            # Explicit checking of coordinates
-            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
-            if coords is not None:
-                assert coordinates == coords, "Mismatching coordinates!"
-            else:
-                coords = coordinates
-
-            for split_kernel in cxt_kernel.tsfc_kernels:
-                indices = split_kernel.indices
-                kinfo = split_kernel.kinfo
-
-                # TODO: Implement subdomains for Slate tensors
-                if kinfo.subdomain_id != "otherwise":
-                    raise NotImplementedError("Subdomains not implemented.")
-
-                args = [c for i in kinfo.coefficient_map
-                        for c in self.coefficient(local_coefficients[i])]
-
-                if kinfo.oriented:
-                    args.insert(0, cell_orientations_sym)
-
-                if kinfo.integral_type in ["interior_facet",
-                                           "exterior_facet",
-                                           "interior_facet_vert",
-                                           "exterior_facet_vert"]:
-                    args.append(ast.FlatBlock("&%s" % it_sym))
-
-                # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
-                call = ast.FunCall(kinfo.kernel.name,
-                                   tensor,
-                                   coord_sym,
-                                   *args)
-                assembly_calls[it_type].append(call)
-
-                # Subkernels for local assembly (Eigen templated functions)
-                kast = transformer.visit(kinfo.kernel._ast)
-                templated_subkernels.append(kast)
-                include_dirs.extend(kinfo.kernel._include_dirs)
-                oriented = oriented or kinfo.oriented
-
-        self.assembly_calls = assembly_calls
-        self.templated_subkernels = templated_subkernels
-        self.include_dirs = list(set(include_dirs))
-        self.oriented = oriented
-
-    @property
-    def integral_type(self):
-        """Returns the integral type associated with a Slate kernel."""
-        return "cell"
-
-    @cached_property
-    def needs_cell_facets(self):
-        """Searches for any embedded forms (by inspecting the ContextKernels)
-        which require looping over cell facets. If any are found, this function
-        returns `True` and `False` otherwise.
-        """
-        cell_facet_types = ["interior_facet",
-                            "exterior_facet",
-                            "interior_facet_vert",
-                            "exterior_facet_vert"]
-        return any(cxt_k.original_integral_type in cell_facet_types
-                   for cxt_k in self.context_kernels)
-
-    @cached_property
-    def needs_mesh_layers(self):
-        """Searches for any embedded forms (by inspecting the ContextKernels)
-        which require mesh level information (extrusion measures). If any are
-        found, this function returns `True` and `False` otherwise.
-        """
-        mesh_layer_types = ["interior_facet_horiz_top",
-                            "interior_facet_horiz_bottom",
-                            "exterior_facet_bottom",
-                            "exterior_facet_top"]
-        return any(cxt_k.original_integral_type in mesh_layer_types
-                   for cxt_k in self.context_kernels)
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
@@ -194,7 +51,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
-    if not isinstance(slate_expr, TensorBase):
+    if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
     # TODO: Get PyOP2 to write into mixed dats
@@ -287,11 +144,11 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % SCALAR_TYPE, coord_sym)]
+    args = [result, ast.Decl("%s **" % SCALAR_TYPE, builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int **", cell_orientations_sym))
+        args.append(ast.Decl("int **", builder.cell_orientations_sym))
 
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
@@ -305,12 +162,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Facet information
     if builder.needs_cell_facets:
         args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
-                             cell_facet_sym))
+                             builder.cell_facet_sym))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
     if builder.needs_mesh_layers:
-        args.append(ast.Decl("int", mesh_layer_sym))
+        args.append(ast.Decl("int", builder.mesh_layer_sym))
 
     # Macro kernel
     macro_kernel_name = "compile_slate"
@@ -501,8 +358,10 @@ def tensor_assembly_calls(builder):
         else:
             num_facets = domain.ufl_cell().num_facets()
 
-        if_ext = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 0)
-        if_int = ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)), 1)
+        if_ext = ast.Eq(ast.Symbol(builder.cell_facet_sym,
+                                   rank=(builder.it_sym,)), 0)
+        if_int = ast.Eq(ast.Symbol(builder.cell_facet_sym,
+                                   rank=(builder.it_sym,)), 1)
         body = []
         if ext_calls:
             body.append(ast.If(if_ext, (ast.Block(ext_calls,
@@ -511,9 +370,10 @@ def tensor_assembly_calls(builder):
             body.append(ast.If(if_int, (ast.Block(int_calls,
                                                   open_scope=True),)))
 
-        statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
-                                  ast.Less(it_sym, num_facets),
-                                  ast.Incr(it_sym, 1), body))
+        statements.append(ast.For(ast.Decl("unsigned int",
+                                           builder.it_sym, init=0),
+                                  ast.Less(builder.it_sym, num_facets),
+                                  ast.Incr(builder.it_sym, 1), body))
 
     if builder.needs_mesh_layers:
         # In the presence of interior horizontal facet calls, an
@@ -554,9 +414,9 @@ def tensor_assembly_calls(builder):
         bottom = ast.Block(int_top + ext_btm, open_scope=True)
         top = ast.Block(int_btm + ext_top, open_scope=True)
         rest = ast.Block(int_btm + int_top, open_scope=True)
-        statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
+        statements.append(ast.If(ast.Eq(builder.mesh_layer_sym, 0),
                                  (bottom,
-                                  ast.If(ast.Eq(mesh_layer_sym,
+                                  ast.If(ast.Eq(builder.mesh_layer_sym,
                                                 num_layers - 1),
                                          (top, rest)))))
 
@@ -614,23 +474,23 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
     if expr in temps:
         return temps[expr].gencode()
 
-    elif isinstance(expr, Transpose):
+    elif isinstance(expr, slate.Transpose):
         tensor, = expr.operands
         return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
 
-    elif isinstance(expr, Inverse):
+    elif isinstance(expr, slate.Inverse):
         tensor, = expr.operands
         return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
 
-    elif isinstance(expr, Negative):
+    elif isinstance(expr, slate.Negative):
         tensor, = expr.operands
         result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (Add, Sub, Mul)):
-        op = {Add: '+',
-              Sub: '-',
-              Mul: '*'}[type(expr)]
+    elif isinstance(expr, (slate.Add, slate.Sub, slate.Mul)):
+        op = {slate.Add: '+',
+              slate.Sub: '-',
+              slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
         result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
                                op,
@@ -638,7 +498,7 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
 
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, Action):
+    elif isinstance(expr, slate.Action):
         tensor, = expr.operands
         c, = expr.actee
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
@@ -679,39 +539,3 @@ def eigen_matrixbase_type(shape):
         order = ""
 
     return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
-
-
-def eigen_tensor(expr, temporary, index):
-    """Returns an appropriate assignment statement for populating a particular
-    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
-    :meth:`block` of the eigen tensor is provided. Otherwise, no block
-    information is needed and the tensor is returned as is.
-
-    :arg expr: a `slate.Tensor` node.
-    :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column
-                information. This is provided by the SplitKernel
-                associated with the expr.
-    """
-    if expr.is_mixed:
-        try:
-            row, col = index
-        except ValueError:
-            row = index[0]
-            col = 0
-        rshape = expr.shapes[0][row]
-        rstart = sum(expr.shapes[0][:row])
-        try:
-            cshape = expr.shapes[1][col]
-            cstart = sum(expr.shapes[1][:col])
-        except KeyError:
-            cshape = 1
-            cstart = 0
-
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                             rshape, cshape,
-                                                             rstart, cstart))
-    else:
-        tensor = temporary
-
-    return tensor
