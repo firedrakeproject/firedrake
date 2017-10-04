@@ -136,6 +136,42 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
+def eigen_tensor(expr, temporary, index):
+    """Returns an appropriate assignment statement for populating a particular
+    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
+    :meth:`block` of the eigen tensor is provided. Otherwise, no block
+    information is needed and the tensor is returned as is.
+
+    :arg expr: a `slate.Tensor` node.
+    :arg temporary: the associated temporary of the expr argument.
+    :arg index: a tuple of integers used to determine row and column
+                information. This is provided by the SplitKernel
+                associated with the expr.
+    """
+    if expr.is_mixed:
+        try:
+            row, col = index
+        except ValueError:
+            row = index[0]
+            col = 0
+        rshape = expr.shapes[0][row]
+        rstart = sum(expr.shapes[0][:row])
+        try:
+            cshape = expr.shapes[1][col]
+            cstart = sum(expr.shapes[1][:col])
+        except KeyError:
+            cshape = 1
+            cstart = 0
+
+        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                             rshape, cshape,
+                                                             rstart, cstart))
+    else:
+        tensor = temporary
+
+    return tensor
+
+
 def depth_first_search(graph, node, visited, schedule):
     """A recursive depth-first search (DFS) algorithm for
     traversing a DAG consisting of Slate expressions.
