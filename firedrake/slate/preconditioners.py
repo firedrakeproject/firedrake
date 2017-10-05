@@ -1,8 +1,6 @@
 """This module provides custom python preconditioners utilizing
 the Slate language.
 """
-
-
 import ufl
 
 from firedrake.matrix_free.preconditioners import PCBase

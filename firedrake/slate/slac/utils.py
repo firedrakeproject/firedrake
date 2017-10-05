@@ -1,8 +1,7 @@
-
-import collections
-
 from coffee import base as ast
 from coffee.visitor import Visitor
+
+from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
 
@@ -137,41 +136,97 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-# Thanks, Miklos!
-def traverse_dags(expr_dags):
-    """Traverses a DAG and returns the unique operands associated
-    with the DAG.
+def eigen_tensor(expr, temporary, index):
+    """Returns an appropriate assignment statement for populating a particular
+    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
+    :meth:`block` of the eigen tensor is provided. Otherwise, no block
+    information is needed and the tensor is returned as is.
 
-    :arg expr_dags: an iterable of Slate nodes that make up the
-                    DAG of a given Slate expression.
+    :arg expr: a `slate.Tensor` node.
+    :arg temporary: the associated temporary of the expr argument.
+    :arg index: a tuple of integers used to determine row and column
+                information. This is provided by the SplitKernel
+                associated with the expr.
+    """
+    if expr.is_mixed:
+        try:
+            row, col = index
+        except ValueError:
+            row = index[0]
+            col = 0
+        rshape = expr.shapes[0][row]
+        rstart = sum(expr.shapes[0][:row])
+        try:
+            cshape = expr.shapes[1][col]
+            cstart = sum(expr.shapes[1][:col])
+        except KeyError:
+            cshape = 1
+            cstart = 0
+
+        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                             rshape, cshape,
+                                                             rstart, cstart))
+    else:
+        tensor = temporary
+
+    return tensor
+
+
+def depth_first_search(graph, node, visited, schedule):
+    """A recursive depth-first search (DFS) algorithm for
+    traversing a DAG consisting of Slate expressions.
+
+    :arg graph: A DAG whose nodes (vertices) are Slate expressions
+                with edges connected to dependent expressions.
+    :arg node: A starting vertex.
+    :arg visited: A set keeping track of visited nodes.
+    :arg schedule: A list of reverse-postordered nodes. This list is
+                   used to produce a topologically sorted list of
+                   Slate nodes.
+    """
+    if node not in visited:
+        visited.add(node)
+
+        for n in graph[node]:
+            depth_first_search(graph, n, visited, schedule)
+
+        schedule.append(node)
+
+
+def topological_sort(exprs):
+    """Topologically sorts a list of Slate expressions. The
+    expression graph is constructed by relating each Slate
+    node with a list of dependent Slate nodes.
+
+    :arg exprs: A list of Slate expressions.
+    """
+    graph = OrderedDict((expr, set(traverse_dags([expr])) - {expr})
+                        for expr in exprs)
+
+    schedule = []
+    visited = set()
+    for n in graph:
+        depth_first_search(graph, n, visited, schedule)
+
+    return schedule
+
+
+def traverse_dags(exprs):
+    """Traverses a set of DAGs and returns each node.
+
+    :arg exprs: An iterable of Slate expressions.
     """
     seen = set()
     container = []
-
-    for tensor in expr_dags:
+    for tensor in exprs:
         if tensor not in seen:
             seen.add(tensor)
             container.append(tensor)
-
     while container:
         tensor = container.pop()
         yield tensor
+
         for operand in tensor.operands:
             if operand not in seen:
                 seen.add(operand)
                 container.append(operand)
-
-
-# This function is based on the GEM DAG reference count
-# algorithm in TSFC and adapted for Slate tensors.
-def collect_reference_count(expr_dags):
-    """Returns a mapping from operand to reference count.
-
-    :arg expr_dags: an iterable of Slate nodes that make up the
-                    DAG of a given Slate expression.
-    """
-    result = collections.Counter(expr_dags)
-    for tensor in traverse_dags(expr_dags):
-        result.update(tensor.operands)
-
-    return result
