@@ -25,7 +25,8 @@ from __future__ import absolute_import, print_function, division
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
                          Restricted, FacetAvg, CellAvg, ConstantValue,
-                         Jacobian, SpatialCoordinate)
+                         Jacobian, SpatialCoordinate, Zero)
+from ufl.checks import is_cellwise_constant
 
 
 class ModifiedTerminal(object):
@@ -175,8 +176,16 @@ def construct_modified_terminal(mt, terminal):
     if mt.reference_value:
         expr = ReferenceValue(expr)
 
+    dim = expr.ufl_domain().topological_dimension()
     for n in range(mt.local_derivatives):
-        expr = ReferenceGrad(expr)
+        # Return zero if expression is trivially constant. This has to
+        # happen here because ReferenceGrad has no access to the
+        # topological dimension of a literal zero.
+        if is_cellwise_constant(expr):
+            expr = Zero(expr.ufl_shape + (dim,), expr.ufl_free_indices,
+                        expr.ufl_index_dimensions)
+        else:
+            expr = ReferenceGrad(expr)
 
     if mt.averaged == "cell":
         expr = CellAvg(expr)
