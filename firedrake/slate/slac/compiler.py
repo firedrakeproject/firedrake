@@ -16,7 +16,6 @@ this templated function library.
 """
 from coffee import base as ast
 
-from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
@@ -143,19 +142,16 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % SCALAR_TYPE, builder.coord_sym)]
+    args = [result, ast.Decl("%s *" % SCALAR_TYPE, builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int **", builder.cell_orientations_sym))
+        args.append(ast.Decl("int *", builder.cell_orientations_sym))
 
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        if isinstance(c, Constant):
-            ctype = "%s *" % SCALAR_TYPE
-        else:
-            ctype = "%s **" % SCALAR_TYPE
+        ctype = "%s *" % SCALAR_TYPE
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information
@@ -290,7 +286,7 @@ def coefficient_temporaries(builder, declared_temps):
 
             # Assigning coefficient values into temporary
             coeff_sym = ast.Symbol(builder.coefficient(function)[fs_i],
-                                   rank=(i_sym, j_sym))
+                                   rank=(ast.Sum(ast.Prod(i_sym, dofs), j_sym),))
             index = ast.Sum(offset,
                             ast.Sum(ast.Prod(dofs, i_sym), j_sym))
             coeff_temp = ast.Symbol(t, rank=(index,))

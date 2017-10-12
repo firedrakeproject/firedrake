@@ -487,14 +487,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             coords = m.coordinates
             args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords))]
+                    coords.dat(op2.READ, get_map(coords)[op2.i[0]])]
             if needs_orientations:
                 o = m.cell_orientations()
-                args.append(o.dat(op2.READ, get_map(o)))
+                args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
             for n in coeff_map:
                 c = coefficients[n]
                 for c_ in c.split():
-                    args.append(c_.dat(op2.READ, get_map(c_)))
+                    m_ = get_map(c_)
+                    args.append(c_.dat(op2.READ, m_ and m_[op2.i[0]]))
             if needs_cell_facets:
                 assert integral_type == "cell"
                 extra_args.append(m.cell_to_facets(op2.READ))

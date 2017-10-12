@@ -20,7 +20,7 @@ from coffee.base import ArrayInit
 
 
 def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map())
+    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
     arg.position = 0
     return (arg,)
 
@@ -162,7 +162,7 @@ struct ReferenceCoords {
     double X[%(geometric_dimension)d];
 };
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double **C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
