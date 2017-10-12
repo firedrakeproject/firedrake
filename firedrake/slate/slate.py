@@ -29,7 +29,8 @@ from ufl.domain import join_domains
 from ufl.form import Form
 
 
-__all__ = ['Tensor', 'Inverse', 'Transpose', 'Negative',
+__all__ = ['AssembledVector', 'Tensor',
+           'Inverse', 'Transpose', 'Negative',
            'Add', 'Sub', 'Mul', 'Action']
 
 
@@ -74,7 +75,7 @@ class TensorBase(object, metaclass=ABCMeta):
         This is particularly useful to know if the tensor comes from a
         mixed form.
         """
-        shapes = {}
+        shapes = OrderedDict()
         for i, arg in enumerate(self.arguments()):
             shapes[i] = tuple(fs.finat_element.space_dimension() * fs.value_size
                               for fs in arg.function_space())
@@ -221,6 +222,73 @@ class TensorBase(object, metaclass=ABCMeta):
         return self._hash_id
 
 
+class AssembledVector(TensorBase):
+    """
+    """
+
+    operands = ()
+
+    def __init__(self, function):
+        """
+        """
+        if not isinstance(function, Function):
+            raise TypeError("Object must be a firedrake function.")
+
+        super(AssembledVector, self).__init__()
+
+        self._function = function
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return ()
+
+    @cached_property
+    def shapes(self):
+        """Computes the internal shape information of its components.
+        This is particularly useful to know if the tensor comes from a
+        mixed form.
+        """
+        shapes = OrderedDict()
+        for i, fs in enumerate(self._function.function_space()):
+            shapes[i] = (fs.finat_element.space_dimension() * fs.value_size,)
+        return shapes
+
+    @cached_property
+    def rank(self):
+        """Returns the rank information of the tensor object."""
+        return 1
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return (self._function,)
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return self._function.function_space().mesh()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        # FIXME: ???
+        return None
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        return "V_%d" % self.id
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        return "Vector(%r)" % self._function
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self._function)
+
+
 class Tensor(TensorBase):
     """This class is a symbolic representation of a finite element tensor
     derived from a bilinear or linear form. This class implements all
@@ -249,7 +317,9 @@ class Tensor(TensorBase):
     def __init__(self, form):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
-            raise ValueError("Only UFL forms are acceptable inputs.")
+            if isinstance(form, Function):
+                raise TypeError("Use AssembledVector instead of Tensor.")
+            raise TypeError("Only UFL forms are acceptable inputs.")
 
         r = len(form.arguments())
         if r not in (0, 1, 2):
