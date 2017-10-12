@@ -15,7 +15,10 @@ import gem.impero_utils as impero_utils
 
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.parameters as tsfc_parameters
 import tsfc.ufl_utils as ufl_utils
+
+from firedrake_configuration import get_config
 
 from coffee.base import ArrayInit
 
@@ -60,6 +63,11 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _.update(parameters)
         parameters = _
 
+    if get_config()['options']['complex']:
+        parameters['scalar_type'] = 'double complex'
+        complx = True
+    tsfc_parameters.set_scalar_type(parameters['scalar_type'])
+
     def dX_norm_square(topological_dimension):
         return " + ".join("dX[{0}]*dX[{0}]".format(i)
                           for i in range(topological_dimension))
@@ -96,7 +104,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
 
         # Translation to GEM
         C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-        expr = ufl_utils.preprocess_expression(expr)
+        expr = ufl_utils.preprocess_expression(expr, complex_mode=complx)
         expr = ufl_utils.simplify_abs(expr)
 
         builder = firedrake_interface.KernelBuilderBase()
@@ -132,7 +140,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         assignments = [(gem.Indexed(return_variable, (i,)), e)
                        for i, e in enumerate(ir)]
         impero_c = impero_utils.compile_gem(assignments, ())
-        body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+        body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], parameters['scalar_type'])
         body.open_scope = False
 
         return body

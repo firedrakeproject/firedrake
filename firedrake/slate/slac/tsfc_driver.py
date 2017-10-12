@@ -6,6 +6,8 @@ from firedrake.slate.slate import Tensor
 from firedrake.slate.slac.utils import RemoveRestrictions
 from firedrake.tsfc_interface import compile_form as tsfc_compile
 
+from firedrake_configuration import get_config
+
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
 
@@ -47,6 +49,12 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     assert isinstance(tensor, Tensor), (
         "Only terminal tensors have forms associated with them!"
     )
+    
+    if get_config()['options']['complex']:
+        if tsfc_parameters is None:
+            tsfc_parameters = {}
+        tsfc_parameters['scalar_type'] = 'double complex'
+
     # Sets a default name for the subkernel prefix.
     # NOTE: the builder will choose a prefix independent of
     # the tensor name for code idempotency reasons, but is not

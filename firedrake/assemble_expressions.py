@@ -17,6 +17,8 @@ from firedrake import constant
 from firedrake import function
 from firedrake import utils
 
+from firedrake_configuration import get_config
+
 
 def ufl_type(*args, **kwargs):
     """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
@@ -231,7 +233,10 @@ class Power(ufl.algebra.Power):
 
     @property
     def ast(self):
-        return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+        if get_config()['options']['complex']:
+            return ast.FunCall("cpow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+        else:
+            return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -244,7 +249,10 @@ class Ln(ufl.mathfunctions.Ln):
 
     @property
     def ast(self):
-        return ast.FunCall("log", _ast(self.ufl_operands[0]))
+        if get_config()['options']['complex']:
+            return ast.FunCall("clog", _ast(self.ufl_operands[0]))
+        else:
+            return ast.FunCall("log", _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
@@ -595,12 +603,17 @@ _to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(
 _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
+if get_config()['options']['complex']:
+    _absfunc = lambda e: ast.FunCall("cabs", _ast(e.ufl_operands[0]))
+else:
+    _absfunc = lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))
+
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
     ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
     ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
     ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
-    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    ufl.algebra.Abs: (_absfunc),
     Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),

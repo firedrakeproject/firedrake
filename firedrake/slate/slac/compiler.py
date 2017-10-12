@@ -26,7 +26,9 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir
 from pyop2.datatypes import as_cstr
 
-from tsfc.parameters import SCALAR_TYPE
+from tsfc.parameters import set_scalar_type, scalar_type
+
+from firedrake_configuration import get_config
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -53,6 +55,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     """
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
+
+    if get_config()['options']['complex']:
+        if tsfc_parameters is None:
+            tsfc_parameters = {}
+        tsfc_parameters['scalar_type'] = 'double complex'
+    set_scalar_type(tsfc_parameters['scalar_type'])
 
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
@@ -129,10 +137,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(scalar_type(), ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             SCALAR_TYPE,
+                                                             scalar_type(),
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -144,7 +152,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % SCALAR_TYPE, builder.coord_sym)]
+    args = [result, ast.Decl("%s **" % scalar_type(), builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
@@ -154,9 +162,9 @@ def generate_kernel_ast(builder, statements, declared_temps):
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
         if isinstance(c, Constant):
-            ctype = "%s *" % SCALAR_TYPE
+            ctype = "%s *" % scalar_type()
         else:
-            ctype = "%s **" % SCALAR_TYPE
+            ctype = "%s **" % scalar_type()
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information
@@ -538,4 +546,49 @@ def eigen_matrixbase_type(shape):
     else:
         order = ""
 
-    return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
+    if get_config()['options']['complex']:
+        return "Eigen::Matrix<std::complex<double>, %d, %d%s>" % (rows, cols, order)
+    else:
+        return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
+
+
+def eigen_tensor(expr, temporary, index):
+    """Returns an appropriate assignment statement for populating a particular
+    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
+    :meth:`block` of the eigen tensor is provided. Otherwise, no block
+    information is needed and the tensor is returned as is.
+
+    :arg expr: a `slate.Tensor` node.
+    :arg temporary: the associated temporary of the expr argument.
+    :arg index: a tuple of integers used to determine row and column
+                information. This is provided by the SplitKernel
+                associated with the expr.
+    """
+    if expr.rank == 0:
+        tensor = temporary
+    else:
+        try:
+            row, col = index
+        except ValueError:
+            row = index[0]
+            col = 0
+        rshape = expr.shapes[0][row]
+        rstart = sum(expr.shapes[0][:row])
+        try:
+            cshape = expr.shapes[1][col]
+            cstart = sum(expr.shapes[1][:col])
+        except KeyError:
+            cshape = 1
+            cstart = 0
+
+        # Create sub-block if tensor is mixed
+        if (rshape, cshape) != expr.shape:
+            tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                                 rshape,
+                                                                 cshape,
+                                                                 rstart,
+                                                                 cstart))
+        else:
+            tensor = temporary
+
+    return tensor

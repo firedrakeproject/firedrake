@@ -14,10 +14,10 @@ def run_box_1d_0form():
     # assembly.  We keep this line to have that case tested.
     assert np.allclose(0.5, assemble(f*dx))
 
-    sd = SubDomainData(x[0] < 0.5)
+    sd = SubDomainData(real(x[0]) < 0.5)
     assert np.allclose(0.125, assemble(f*dx(subdomain_data=sd)))
 
-    sd = SubDomainData(x[0] > 0.5)
+    sd = SubDomainData(real(x[0]) > 0.5)
     assert np.allclose(0.375, assemble(f*dx(subdomain_data=sd)))
 
 
@@ -28,10 +28,10 @@ def run_box_1d_1form():
 
     whole = assemble(v*dx).dat.data
 
-    sd = SubDomainData(x[0] < 0.5)
+    sd = SubDomainData(real(x[0]) < 0.5)
     half_1 = assemble(v*dx(subdomain_data=sd)).dat.data_ro
 
-    sd = SubDomainData(x[0] > 0.5)
+    sd = SubDomainData(real(x[0]) > 0.5)
     half_2 = assemble(v*dx(subdomain_data=sd)).dat.data_ro
 
     assert np.allclose(whole, half_1 + half_2)
@@ -48,12 +48,12 @@ def run_box_1d_2form():
     whole.force_evaluation()
     whole = whole.petscmat
 
-    sd = SubDomainData(x[0] < 0.5)
+    sd = SubDomainData(real(x[0]) < 0.5)
     half_1 = assemble(u*v*dx(subdomain_data=sd))
     half_1.force_evaluation()
     half_1 = half_1.petscmat
 
-    sd = SubDomainData(x[0] > 0.5)
+    sd = SubDomainData(real(x[0]) > 0.5)
     half_2 = assemble(u*v*dx(subdomain_data=sd))
     half_2.force_evaluation()
     half_2 = half_2.petscmat

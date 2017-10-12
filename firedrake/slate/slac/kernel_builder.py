@@ -10,6 +10,7 @@ from functools import reduce
 
 from ufl import MixedElement
 
+from firedrake_configuration import get_config
 import firedrake.slate.slate as slate
 
 
@@ -118,6 +119,11 @@ class LocalKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
+
+        config = get_config()
+        if config['options']['complex']:
+            self.tsfc_parameters['scalar_type'] = 'double complex'
+
         self.temps = temps
 
         # Terminal tensors do not need additional temps created for them

@@ -120,7 +120,7 @@ def evaluate(v, x):
     except TypeError:
         x = (x,) * len(v)
     try:
-        return all(np.all(v_ == x_) for v_, x_ in zip(v, x))
+        return all(np.all(v_.real - x_ < 1e-16) for v_, x_ in zip(v, x))
     except:
         return v == x
 

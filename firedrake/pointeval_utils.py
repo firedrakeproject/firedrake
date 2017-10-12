@@ -11,8 +11,10 @@ import gem
 
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
-from tsfc.parameters import default_parameters
+from tsfc.coffee import generate as generate_coffee
+from tsfc.parameters import default_parameters, set_scalar_type, scalar_type
+
+from firedrake_configuration import get_config
 
 
 def compile_element(expression, coordinates, parameters=None):
@@ -29,6 +31,12 @@ def compile_element(expression, coordinates, parameters=None):
         _ = default_parameters()
         _.update(parameters)
         parameters = _
+
+    config = get_config()
+    if config['options']['complex']:
+        parameters['scalar_type'] = 'double complex'
+    set_scalar_type(parameters['scalar_type'])
+
 
     # No arguments, please!
     if extract_arguments(expression):
@@ -61,7 +69,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('X', rank=(dim,)))
+    point_arg = ast.Decl(scalar_type(), ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
@@ -83,11 +91,11 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=expression.ufl_shape))
+        result_arg = ast.Decl(scalar_type(), ast.Symbol('R', rank=expression.ufl_shape))
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=(1,)))
+        result_arg = ast.Decl(scalar_type(), ast.Symbol('R', rank=(1,)))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]

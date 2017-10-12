@@ -832,10 +832,16 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     global numbering permutation for the coordinate function space.
 
     Shape is a tuple of (plex.numVertices(), geometric_dim)."""
-    cdef:
-        PetscInt v, vStart, vEnd, offset
-        PetscInt i, dim = shape[1]
-        np.ndarray[PetscReal, ndim=2, mode="c"] plex_coords, coords
+    IF COMPLEX:
+        cdef:
+            PetscInt v, vStart, vEnd, offset
+            PetscInt i, dim = shape[1]
+            np.ndarray[np.complex128_t, ndim=2, mode="c"] plex_coords, coords
+    ELSE:
+        cdef:
+            PetscInt v, vStart, vEnd, offset
+            PetscInt i, dim = shape[1]
+            np.ndarray[PetscScalar, ndim=2, mode="c"] plex_coords, coords
 
     plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
     coords = np.empty_like(plex_coords)

@@ -12,6 +12,7 @@ from tsfc import compile_expression_at_points as compile_ufl_kernel
 
 import firedrake
 from firedrake import utils
+from firedrake_configuration import get_config
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -160,12 +161,16 @@ def _interpolator(V, dat, expr, subset):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
+    parameters = {}
+    if get_config()['options']['complex']:
+        parameters['scalar_type'] = 'double complex'
+
     if not isinstance(expr, (firedrake.Expression, SubExpression)):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
-        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
+        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords, parameters=parameters)
         kernel = op2.Kernel(ast, ast.name)
         indexed = True
     elif hasattr(expr, "eval"):
@@ -274,9 +279,11 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     xndof = coords_element.space_dimension()
     nfdof = to_element.space_dimension() * numpy.prod(fs.value_size, dtype=int)
 
-    init_X = ast.Decl(typ="double", sym=ast.Symbol(X, rank=(ndof, xndof)),
+    num_type = 'double complex' if get_config()['options']['complex'] else 'double'
+
+    init_X = ast.Decl(typ=num_type, sym=ast.Symbol(X, rank=(ndof, xndof)),
                       qualifiers=["const"], init=X_str)
-    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.value_size,)))
+    init_x = ast.Decl(typ=num_type, sym=ast.Symbol(x, rank=(coords_space.value_size,)))
     init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
                        init="3.141592653589793")
     init = ast.Block([init_X, init_x, init_pi])
@@ -297,14 +304,14 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     user_init = []
     for _, arg in expression._user_args:
         if arg.shape == (1, ):
-            user_args.append(ast.Decl("double *", "%s_" % arg.name))
-            user_init.append(ast.FlatBlock("const double %s = *%s_;" %
-                                           (arg.name, arg.name)))
+            user_args.append(ast.Decl("%s *" % num_type, "%s_" % arg.name))
+            user_init.append(ast.FlatBlock("const %s %s = *%s_;" %
+                                           (num_type, arg.name, arg.name)))
         else:
-            user_args.append(ast.Decl("double *", arg.name))
+            user_args.append(ast.Decl("%s *" % num_type, arg.name))
     kernel_code = ast.FunDecl("void", "expression_kernel",
-                              [ast.Decl("double", ast.Symbol(A, (nfdof,))),
-                               ast.Decl("double**", x_)] + user_args,
+                              [ast.Decl(num_type, ast.Symbol(A, (nfdof,))),
+                               ast.Decl("%s**" % num_type, x_)] + user_args,
                               ast.Block(user_init + [init, loop],
                                         open_scope=False))
     coefficients = [coords]
