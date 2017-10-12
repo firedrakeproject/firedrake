@@ -423,7 +423,7 @@ class HybridizationPC(PCBase):
         viewer.popASCIITab()
 
 
-def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
+def create_trace_nullspace(P, forward, V, V_d, TraceSpace, comm):
     """Gets the nullspace vectors corresponding to the Schur complement
     system for the multipliers.
 

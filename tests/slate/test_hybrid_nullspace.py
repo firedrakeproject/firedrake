@@ -1,6 +1,6 @@
 
 from firedrake import *
-from firedrake.slate.preconditioners import create_schur_nullspace
+from firedrake.slate.preconditioners.hybridization_mixed import create_trace_nullspace
 import numpy as np
 
 import pytest
@@ -53,7 +53,7 @@ def test_hybrid_nullspace(W):
     nullsp._build_monolithic_basis()
     A.petscmat.setNullSpace(nullsp._nullspace)
 
-    Snullsp = create_schur_nullspace(A.petscmat, -K * Atilde,
+    Snullsp = create_trace_nullspace(A.petscmat, -K * Atilde,
                                      W, Wd, T, COMM_WORLD)
     v = Snullsp.getVecs()[0].array_r
 
