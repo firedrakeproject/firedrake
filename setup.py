@@ -10,12 +10,11 @@ from firedrake_configuration import get_config
 try:
     from Cython.Distutils.extension import Extension
     config = get_config()
-    if config['options']['complex']:
-        complx = True
+    complex_mode = config['options'].get('complex', False)
 except ImportError:
     # No Cython Extension means no complex mode!
     from distutils.extension import Extension
-    complx = False
+    complex_mode = False
 
 
 def get_petsc_dir():
@@ -96,7 +95,7 @@ setup(name='firedrake',
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % sys.prefix],
-                             cython_compile_time_env={'COMPLEX': complx}),
+                             cython_compile_time_env={'COMPLEX': complex_mode}),
                    Extension('firedrake.extrusion_numbering',
                              sources=extnum_sources,
                              include_dirs=include_dirs,
