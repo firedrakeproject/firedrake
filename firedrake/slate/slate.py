@@ -66,6 +66,11 @@ class TensorBase(object, metaclass=ABCMeta):
         TensorBase.id += 1
 
     @abstractmethod
+    def arg_function_spaces(self):
+        """
+        """
+
+    @abstractmethod
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
 
@@ -76,9 +81,9 @@ class TensorBase(object, metaclass=ABCMeta):
         mixed form.
         """
         shapes = OrderedDict()
-        for i, arg in enumerate(self.arguments()):
-            shapes[i] = tuple(fs.finat_element.space_dimension() * fs.value_size
-                              for fs in arg.function_space())
+        for i, fs in enumerate(self.arg_function_spaces()):
+            shapes[i] = tuple(V.finat_element.space_dimension() * V.value_size
+                              for V in fs)
         return shapes
 
     @cached_property
@@ -123,7 +128,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def is_mixed(self):
         """Returns `True` if the tensor has mixed arguments and `False` otherwise.
         """
-        return any(len(arg.function_space()) > 1 for arg in self.arguments())
+        return any(len(fs) > 1 for fs in self.arg_function_spaces())
 
     @property
     def inv(self):
@@ -238,20 +243,14 @@ class AssembledVector(TensorBase):
 
         self._function = function
 
+    def arg_function_spaces(self):
+        """
+        """
+        return (self._function.function_space(),)
+
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         return ()
-
-    @cached_property
-    def shapes(self):
-        """Computes the internal shape information of its components.
-        This is particularly useful to know if the tensor comes from a
-        mixed form.
-        """
-        shapes = OrderedDict()
-        for i, fs in enumerate(self._function.function_space()):
-            shapes[i] = (fs.finat_element.space_dimension() * fs.value_size,)
-        return shapes
 
     @cached_property
     def rank(self):
@@ -277,11 +276,11 @@ class AssembledVector(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
-        return "V_%d" % self.id
+        return "AV_%d" % self.id
 
     def __repr__(self):
         """Slate representation of the tensor object."""
-        return "Vector(%r)" % self._function
+        return "AssembledVector(%r)" % self._function
 
     @cached_property
     def _key(self):
@@ -334,6 +333,11 @@ class Tensor(TensorBase):
         super(Tensor, self).__init__()
 
         self.form = form
+
+    def arg_function_spaces(self):
+        """
+        """
+        return tuple(arg.function_space() for arg in self.arguments())
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
@@ -452,6 +456,12 @@ class Inverse(UnaryOp):
         )
         super(Inverse, self).__init__(A)
 
+    def arg_function_spaces(self):
+        """
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces()[::-1]
+
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
@@ -468,6 +478,12 @@ class Inverse(UnaryOp):
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
 
+    def arg_function_spaces(self):
+        """
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces()[::-1]
+
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
@@ -483,6 +499,12 @@ class Transpose(UnaryOp):
 
 class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
+
+    def arg_function_spaces(self):
+        """
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces()
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -519,7 +541,6 @@ class BinaryOp(TensorOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Sub: '-',
                Mul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
@@ -551,17 +572,27 @@ class Add(BinaryOp):
         if A.shape != B.shape:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
+
+        assert A.arg_function_spaces() == B.arg_function_spaces(), (
+            "Function spaces associated with operands must match."
+        )
+
         super(Add, self).__init__(A, B)
+
+        # Function space check above ensures that the arguments of the
+        # operands are identical (in the sense that they are arguments
+        # defined on the same function space).
+        self._args = A.arguments()
+
+    def arg_function_spaces(self):
+        """
+        """
+        A, _ = self.operands
+        return A.arg_function_spaces()
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.operands
-        assert [argA.function_space() == argB.function_space()
-                for argA in A.arguments()
-                for argB in B.arguments()], (
-                    "Arguments must share the same function space."
-        )
-        return A.arguments()
+        return self._args
 
 
 class Mul(BinaryOp):
@@ -579,20 +610,29 @@ class Mul(BinaryOp):
         if A.shape[1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
+
+        assert A.arg_function_spaces()[-1] == B.arg_function_spaces()[0], (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
         super(Mul, self).__init__(A, B)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        self._args = A.arguments()[:-1] + B.arguments()[1:]
+
+    def arg_function_spaces(self):
+        """
+        """
+        A, B = self.operands
+        return A.arg_function_spaces()[:-1] + B.arg_function_spaces()[1:]
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
         from multiplying two tensors A and B.
         """
-        A, B = self.operands
-        argsA = A.arguments()
-        argsB = B.arguments()
-        assert argsA[-1].function_space() == argsB[0].function_space(), (
-            "Cannot perform the contraction over middle arguments. "
-            "They need to be in the same function space."
-        )
-        return argsA[:-1] + argsB[1:]
+        return self._args
 
 
 class Action(TensorOp):
@@ -620,6 +660,12 @@ class Action(TensorOp):
         )
         super(Action, self).__init__(tensor)
         self.actee = function,
+
+    def arg_function_spaces(self):
+        """
+        """
+        # TODO: This class will be deleted after Mul is fully closed.
+        return (self.arguments()[-1].function_space(),)
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
