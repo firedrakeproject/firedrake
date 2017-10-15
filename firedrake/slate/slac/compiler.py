@@ -487,9 +487,8 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (slate.Add, slate.Sub, slate.Mul)):
+    elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
-              slate.Sub: '-',
               slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
         result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),

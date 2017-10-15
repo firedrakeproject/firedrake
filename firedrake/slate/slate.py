@@ -31,7 +31,7 @@ from ufl.form import Form
 
 __all__ = ['AssembledVector', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Sub', 'Mul', 'Action']
+           'Add', 'Mul', 'Action']
 
 
 class CheckRestrictions(MultiFunction):
@@ -151,7 +151,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
     def __sub__(self, other):
         if isinstance(other, TensorBase):
-            return Sub(self, other)
+            return Add(self, Negative(other))
         else:
             raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
                                       % (type(self), type(other)))
@@ -564,32 +564,6 @@ class Add(BinaryOp):
         return A.arguments()
 
 
-class Sub(BinaryOp):
-    """Abstract Slate class representing matrix-matrix, vector-vector
-     or scalar-scalar subtraction.
-
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
-    """
-
-    def __init__(self, A, B):
-        """Constructor for the Sub class."""
-        if A.shape != B.shape:
-            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
-                             % (A.shape, B.shape))
-        super(Sub, self).__init__(A, B)
-
-    def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.operands
-        assert [argA.function_space() == argB.function_space()
-                for argA in A.arguments()
-                for argB in B.arguments()], (
-                    "Arguments must share the same function space."
-        )
-        return A.arguments()
-
-
 class Mul(BinaryOp):
     """Abstract Slate class representing the interior product or two tensors.
     By interior product, we mean an operation that results in a tensor of
@@ -685,9 +659,9 @@ class Action(TensorOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [Tensor],
+    [Tensor, AssembledVector],
     [UnaryOp],
-    [Add, Sub],
+    [Add],
     [Mul, Action]
 ]
 
