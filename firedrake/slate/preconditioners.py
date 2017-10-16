@@ -249,12 +249,12 @@ class HybridizationPC(PCBase):
 
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.inv * f - M.inv * (C * A.inv * g + R * lambdar)
+        u_rec = M.inv * (f - C * A.inv * g - R * lambdar)
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.cxt.fc_params)
 
-        sigma_rec = A.inv * g - A.inv * (B * AssembledVector(u) + K_0.T * lambdar)
+        sigma_rec = A.inv * (g - B * AssembledVector(u) - K_0.T * lambdar)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.cxt.fc_params)
