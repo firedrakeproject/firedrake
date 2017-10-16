@@ -31,7 +31,7 @@ from ufl.form import Form
 
 __all__ = ['AssembledVector', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Action']
+           'Add', 'Mul']
 
 
 class CheckRestrictions(MultiFunction):
@@ -171,10 +171,11 @@ class TensorBase(object, metaclass=ABCMeta):
             other.__sub__(self)
 
     def __mul__(self, other):
-        # if other is a firedrake.Function, return action
-        if isinstance(other, Function):
-            return Action(self, other)
-        return Mul(self, other)
+        if isinstance(other, TensorBase):
+            return Mul(self, other)
+        else:
+            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
+                                      % (type(self), type(other)))
 
     def __rmul__(self, other):
         # If other is not a TensorBase, raise NotImplementedError. Otherwise,
@@ -265,14 +266,14 @@ class AssembledVector(TensorBase):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self._function.function_space().mesh()
+        return (self._function.function_space().mesh(),)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
         # FIXME: ???
-        return None
+        return {self.ufl_domain(): {"cell": None}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -635,80 +636,12 @@ class Mul(BinaryOp):
         return self._args
 
 
-class Action(TensorOp):
-    """Abstract Slate class representing the action of a Slate tensor on a
-    UFL coefficient. This class can be interpreted as representing standard
-    matrix-vector multiplication, except the vector is an assembled coefficient
-    rather than a Slate object.
-
-    :arg tensor: a :class:`TensorBase` object.
-    :arg function: a :class:`firedrake.Function` object.
-    """
-
-    def __init__(self, tensor, function):
-        """Constructor for the Action class."""
-        assert isinstance(function, Function), (
-            "Action can only be performed on a firedrake.Function object."
-        )
-        assert isinstance(tensor, TensorBase), (
-            "The tensor must be a Slate `TensorBase` object."
-        )
-        V = function.function_space()
-        assert tensor.arguments()[-1].function_space() == V, (
-            "Argument function space must be the same as the "
-            "coefficient function space."
-        )
-        super(Action, self).__init__(tensor)
-        self.actee = function,
-
-    def arg_function_spaces(self):
-        """
-        """
-        # TODO: This class will be deleted after Mul is fully closed.
-        return (self.arguments()[-1].function_space(),)
-
-    def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        tensor, = self.operands
-        return tensor.arguments()[:-1]
-
-    def coefficients(self):
-        """Returns the expected coefficients of the resulting tensor."""
-        coeffs = [op.coefficients() for op in self.operands] + [self.actee]
-        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        collected_domains = [obj.ufl_domains() for obj in self.operands
-                             + self.actee]
-        return join_domains(chain(*collected_domains))
-
-    def _output_string(self, prec=None):
-        """Creates a string representation."""
-        tensor, = self.operands
-        function, = self.actee
-        return "(%s) * %s" % (tensor, function)
-
-    def __repr__(self):
-        """Slate representation of the action of a tensor on a coefficient."""
-        tensor, = self.operands
-        function, = self.actee
-        return "Action(%r, %r)" % (tensor, function)
-
-    @cached_property
-    def _key(self):
-        """Returns a key for hash and equality."""
-        return (type(self), self.operands, self.actee)
-
-
 # Establishes levels of precedence for Slate tensors
 precedences = [
     [Tensor, AssembledVector],
     [UnaryOp],
     [Add],
-    [Mul, Action]
+    [Mul]
 ]
 
 # Here we establish the precedence class attribute for a given
