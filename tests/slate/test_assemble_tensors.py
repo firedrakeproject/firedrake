@@ -71,14 +71,15 @@ def rank_two_tensor(mass):
 
 
 def test_tensor_action(mass, f):
-    V = assemble(Tensor(mass) * f)
+    V = assemble(Tensor(mass) * AssembledVector(f))
     ref = assemble(action(mass, f))
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
 
 
 def test_sum_tensor_actions(mass, f, g):
-    V = assemble(Tensor(mass) * f + Tensor(0.5*mass) * g)
+    V = assemble(Tensor(mass) * AssembledVector(f)
+                 + Tensor(0.5*mass) * AssembledVector(g))
     ref = assemble(action(mass, f) + action(0.5*mass, g))
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)

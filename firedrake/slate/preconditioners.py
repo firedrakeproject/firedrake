@@ -6,7 +6,7 @@ import ufl
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
-from firedrake.slate.slate import Tensor
+from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.profiling import timed_region, timed_function
 
 
@@ -152,7 +152,7 @@ class HybridizationPC(PCBase):
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * self.broken_residual,
+            K * Atilde.inv * AssembledVector(self.broken_residual),
             tensor=self.schur_rhs,
             form_compiler_parameters=self.cxt.fc_params)
 
@@ -241,11 +241,11 @@ class HybridizationPC(PCBase):
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
         split_sol = self.broken_solution.split()
-        g = split_residual[id0]
-        f = split_residual[id1]
+        g = AssembledVector(split_residual[id0])
+        f = AssembledVector(split_residual[id1])
         sigma = split_sol[id0]
         u = split_sol[id1]
-        lambdar = self.trace_solution
+        lambdar = AssembledVector(self.trace_solution)
 
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
@@ -254,7 +254,7 @@ class HybridizationPC(PCBase):
                                                      tensor=u,
                                                      form_compiler_parameters=self.cxt.fc_params)
 
-        sigma_rec = A.inv * g - A.inv * (B * u + K_0.T * lambdar)
+        sigma_rec = A.inv * g - A.inv * (B * AssembledVector(u) + K_0.T * lambdar)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.cxt.fc_params)
@@ -383,7 +383,7 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
 
     Returns: A nullspace (if there is one) for the Schur-complement system.
     """
-    from firedrake import assemble, Function, project
+    from firedrake import assemble, Function, project, AssembledVector
 
     nullspace = P.getNullSpace()
     if nullspace.handle == 0:
@@ -394,7 +394,7 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
     tmp = Function(V)
     tmp_b = Function(V_d)
     tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * tmp_b
+    forward_action = forward * AssembledVector(tmp_b)
     new_vecs = []
     for v in vecs:
         with tmp.dat.vec_wo as t:

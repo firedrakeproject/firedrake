@@ -175,8 +175,8 @@ def test_equality_relations(function_space):
     V = function_space
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
 
+    f = AssembledVector(Function(V))
     A = Tensor(u * v * dx)
     B = Tensor(inner(grad(u), grad(v)) * dx)
 

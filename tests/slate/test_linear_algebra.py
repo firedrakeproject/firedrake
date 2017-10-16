@@ -87,6 +87,8 @@ def test_aggressive_unaryop_nesting():
     g = Function(V)
     f.assign(1.0)
     g.assign(0.5)
+    F = AssembledVector(f)
+    G = AssembledVector(g)
     u = TrialFunction(V)
     v = TestFunction(V)
 
@@ -94,7 +96,7 @@ def test_aggressive_unaryop_nesting():
     B = Tensor(2.0*u*v*dx)
 
     # This is a very silly way to write the vector of ones
-    foo = (B.T*A.inv).T*g + (-A.inv.T*B.T).inv*f + B.inv*(A.T).T*f
+    foo = (B.T*A.inv).T*G + (-A.inv.T*B.T).inv*F + B.inv*(A.T).T*F
     assert np.allclose(assemble(foo).dat.data, np.ones(V.node_count))
 
 
