@@ -17,7 +17,7 @@ CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
                               "shape",
-                              "coefficient"])
+                              "vector"])
 CoefficientInfo.__doc__ = """\
 Context information for creating coefficient temporaries.
 
@@ -26,8 +26,8 @@ Context information for creating coefficient temporaries.
                      the vector temporary for assignment.
 :param shape: A singleton with an integer describing the shape of
               the coefficient temporary.
-:param coefficient: The :class:`ufl.Coefficient` containing the
-                    relevant data to be placed into the temporary.
+:param vector: The :class:`slate.AssembledVector` containing the
+               relevant data to be placed into the temporary.
 """
 
 
@@ -83,7 +83,7 @@ class LocalKernelBuilder(object):
 
         # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
-        action_coeffs = OrderedDict()
+        coeff_vecs = OrderedDict()
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
@@ -95,14 +95,14 @@ class LocalKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
-            # Actions will always require a coefficient temporary.
-            if isinstance(tensor, slate.Action):
-                actee, = tensor.actee
+            # 'AssembledVector's will always require a coefficient temporary.
+            if isinstance(tensor, slate.AssembledVector):
+                function = tensor._function
 
                 # Ensure coefficient temporaries aren't duplicated
-                if actee not in seen_coeff:
+                if function not in seen_coeff:
                     shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in actee.function_space().split()]
+                              for V in function.function_space().split()]
                     c_shape = (sum(n * d for (n, d) in shapes),)
 
                     offset = 0
@@ -110,11 +110,11 @@ class LocalKernelBuilder(object):
                         cinfo = CoefficientInfo(space_index=fs_i,
                                                 offset_index=offset,
                                                 shape=c_shape,
-                                                coefficient=actee)
-                        action_coeffs.setdefault(fs_shape, []).append(cinfo)
+                                                vector=tensor)
+                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
                         offset += reduce(lambda x, y: x*y, fs_shape)
 
-                    seen_coeff.add(actee)
+                    seen_coeff.add(function)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -126,7 +126,7 @@ class LocalKernelBuilder(object):
                           if counter[tensor] > 1
                           and not isinstance(tensor, (slate.Tensor,
                                                       slate.Negative))]
-        self.action_coefficients = action_coeffs
+        self.coefficient_vecs = coeff_vecs
         self._setup()
 
     def _setup(self):
