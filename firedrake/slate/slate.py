@@ -67,7 +67,9 @@ class TensorBase(object, metaclass=ABCMeta):
 
     @abstractmethod
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on. For example, if A is a rank-2 tensor
+        defined on V x W, then this method returns (V, W).
         """
 
     @abstractmethod
@@ -229,14 +231,16 @@ class TensorBase(object, metaclass=ABCMeta):
 
 
 class AssembledVector(TensorBase):
-    """
+    """This class is a symbolic representation of an assembled
+    vector of data contained in a :class:`firedrake.Function`.
+
+    :arg function: A firedrake function.
     """
 
     operands = ()
 
     def __init__(self, function):
-        """
-        """
+        """Constructor for the AssembledVector class."""
         if not isinstance(function, Function):
             raise TypeError("Object must be a firedrake function.")
 
@@ -245,7 +249,8 @@ class AssembledVector(TensorBase):
         self._function = function
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         return (self._function.function_space(),)
 
@@ -272,7 +277,6 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        # FIXME: ???
         return {self.ufl_domain(): {"cell": None}}
 
     def _output_string(self, prec=None):
@@ -336,7 +340,8 @@ class Tensor(TensorBase):
         self.form = form
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         return tuple(arg.function_space() for arg in self.arguments())
 
@@ -458,7 +463,8 @@ class Inverse(UnaryOp):
         super(Inverse, self).__init__(A)
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         tensor, = self.operands
         return tensor.arg_function_spaces()[::-1]
@@ -480,7 +486,8 @@ class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         tensor, = self.operands
         return tensor.arg_function_spaces()[::-1]
@@ -502,7 +509,8 @@ class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         tensor, = self.operands
         return tensor.arg_function_spaces()
@@ -586,7 +594,8 @@ class Add(BinaryOp):
         self._args = A.arguments()
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         A, _ = self.operands
         return A.arg_function_spaces()
@@ -624,7 +633,8 @@ class Mul(BinaryOp):
         self._args = A.arguments()[:-1] + B.arguments()[1:]
 
     def arg_function_spaces(self):
-        """
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
         """
         A, B = self.operands
         return A.arg_function_spaces()[:-1] + B.arg_function_spaces()[1:]
