@@ -10,6 +10,9 @@ from pyop2.profiling import timed_region, timed_function
 import numpy as np
 
 
+__all__ = ['StaticCondensationPC']
+
+
 class StaticCondensationPC(PCBase):
     """
     """
