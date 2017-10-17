@@ -45,10 +45,9 @@ class StaticCondensationPC(PCBase):
         if V.ufl_element().sobolev_space().name != "H1":
             raise ValueError("Expecting an H1-conforming element.")
 
-        if isinstance(V.ufl_element().cell(), (ufl.TensorProductCell,
-                                               ufl.quadrilateral)):
+        if not V.ufl_element().cell().is_simplex():
             raise NotImplementedError(
-                "Quadrilateral and tensor product elements are not implemented."
+                "Only simplex meshes are implemented."
             )
 
         # We decompose the space into an interior part and facet part
