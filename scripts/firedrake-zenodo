@@ -173,7 +173,7 @@ if args.release_tag:
 
 If the release has only just been created, then the information may not yet have propagated to Zenodo yet. Please try again later.""")
         sys.exit(1)
-    open(args.bibtex_file[0], "w").write(bibtex)
+    open(args.bibtex_file[0], "wb").write(bibtex)
     log.info("Bibliography written to %s" % args.bibtex_file[0])
     sys.exit(0)
 
