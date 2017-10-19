@@ -106,8 +106,9 @@ class Arg(base.Arg):
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                val.append("int %s[%d] = { %s };" % (self.c_offset_name(i, j),
-                                                     m.arity, ', '.join(builtins.map(str, m.offset))))
+                val.append("static const int %s[%d] = { %s };" % (self.c_offset_name(i, j),
+                                                                  m.arity,
+                                                                  ', '.join(builtins.map(str, m.offset))))
         if len(val) == 0:
             return ""
         return "\n".join(val)
