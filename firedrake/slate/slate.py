@@ -254,14 +254,17 @@ class AssembledVector(TensorBase):
         """
         return (self._function.function_space(),)
 
+    @cached_property
+    def _argument(self):
+        """Generates a 'test function' associated with this class."""
+        from firedrake.ufl_expr import TestFunction
+
+        V, = self.arg_function_spaces()
+        return TestFunction(V)
+
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return ()
-
-    @cached_property
-    def rank(self):
-        """Returns the rank information of the tensor object."""
-        return 1
+        return (self._argument,)
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
