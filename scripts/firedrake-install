@@ -1037,6 +1037,20 @@ if mode == "install":
 
 os.chdir(firedrake_env)
 
+
+def write_configuration(config):
+    import json
+    with directory("firedrake/firedrake_configuration"):
+        try:
+            with open("configuration.json", "w") as f:
+                f.write(json.dumps(config))
+            log.info("Configuration saved to configuration.json")
+        except Exception as e:
+            log.warning("Unable to save configuration to a JSON file")
+            log.warning("Error Message:")
+            log.warning(str(e))
+
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1045,6 +1059,8 @@ if mode == "install":
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+
+    write_configuration(config)
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1103,6 +1119,8 @@ else:
         git_update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
+
+    write_configuration(config)
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
@@ -1176,15 +1194,6 @@ if options["adjoint"]:
     build_and_install_adjoint()
 if options["slope"]:
     build_and_install_slope()
-
-try:
-    import firedrake_configuration
-    firedrake_configuration.write_config(config)
-    log.info("Configuration saved to configuration.json")
-except Exception as e:
-    log.warning("Unable to save configuration to a JSON file")
-    log.warning("Error Message:")
-    log.warning(str(e))
 
 if mode == "update":
     try:
