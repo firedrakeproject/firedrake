@@ -112,7 +112,7 @@ cells are not currently supported")
     new_coordinates = Function(coord_fs)
 
     floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
-    absfunc = 'cabs' if get_config() ["options"]["complex"] else 'fabs'
+    absfunc = 'cabs' if get_config()["options"]["complex"] else 'fabs'
 
     periodic_kernel = """
     const {0} pi = 3.141592653589793;
@@ -505,9 +505,9 @@ cells in each direction are not currently supported")
     new_coordinates = Function(coord_fs)
 
     floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
-    absfunc = 'cabs' if get_config() ["options"]["complex"] else 'fabs'
-    sinfunc = 'csin' if get_config() ["options"]["complex"] else 'sin'
-    cosfunc = 'ccos' if get_config() ["options"]["complex"] else 'cos'
+    absfunc = 'cabs' if get_config()["options"]["complex"] else 'fabs'
+    sinfunc = 'csin' if get_config()["options"]["complex"] else 'sin'
+    cosfunc = 'ccos' if get_config()["options"]["complex"] else 'cos'
 
     periodic_kernel = """
 {0} pi = 3.141592653589793;

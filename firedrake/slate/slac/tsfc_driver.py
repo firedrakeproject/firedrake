@@ -49,7 +49,7 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     assert isinstance(tensor, Tensor), (
         "Only terminal tensors have forms associated with them!"
     )
-    
+
     if get_config()['options']['complex']:
         if tsfc_parameters is None:
             tsfc_parameters = {}

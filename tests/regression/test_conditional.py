@@ -30,7 +30,6 @@ def test_conditional(ncell):
         A = assemble(derivative(Fc, u, du)).M.values
 
 
-
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))

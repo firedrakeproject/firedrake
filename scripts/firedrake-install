@@ -59,6 +59,7 @@ class FiredrakeConfiguration(dict):
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir", "complex"]
 
+
 def deep_update(this, that):
     import collections
     for k, v in that.items():
@@ -335,9 +336,9 @@ full_opts = '--download-chaco --download-metis --download-parmetis \
 split_opts = set(full_opts.split())
 
 if options["minimal_petsc"]:
-    split_opts -= {'--download-netcdf','--download-exodusii'}
+    split_opts -= {'--download-netcdf', '--download-exodusii'}
 if options["petsc_int_type"] == 'int64':
-    split_opts -= {'--download-chaco','--download-scalapack','--download-mumps'}
+    split_opts -= {'--download-chaco', '--download-scalapack', '--download-mumps'}
     split_opts |= {'--with-64-bit-indices'}
 if options["complex"]:
     split_opts -= {'--download-hypre'}

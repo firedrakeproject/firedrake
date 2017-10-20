@@ -88,7 +88,6 @@ def test_nonlinear_stokes_hdiv():
            DirichletBC(W.sub(0), zero(2), 3),
            DirichletBC(W.sub(0), zero(2), 4)]
 
-
     solve(F == 0, w, bcs=bcs, solver_parameters=params)
 
     u, p = w.split()

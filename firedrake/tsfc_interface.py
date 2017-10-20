@@ -176,7 +176,6 @@ def compile_form(form, name, parameters=None, inverse=False):
     if get_config()['options']['complex']:
         parameters['scalar_type'] = 'double complex'
 
-
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
     if "firedrake_kernels" in form._cache:

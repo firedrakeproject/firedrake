@@ -28,11 +28,11 @@ def meshdata(request):
                           ((0.9, 0.8), 9)])
 def test_locate_cell(meshdata, point, value):
     m, f = meshdata
-    print(value)
+
     def value_at(p):
         cell = m.locate_cell(p)
         return f.dat.data[cell]
-    print(value_at(point))
+
     assert np.allclose(value, value_at(point))
 
 

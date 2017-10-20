@@ -119,7 +119,7 @@ def test_real_extruded_mixed_two_form_assembly():
     u, p = TrialFunctions(mfs)
     v, q = TestFunctions(mfs)
 
-    m = assemble(dot(u,v)*dx + dot(p,q)*dx + dot(u,q)*dx + dot(p,v)*dx)
+    m = assemble(dot(u, v)*dx + dot(p, q)*dx + dot(u, q)*dx + dot(p, v)*dx)
 
     qq = TestFunction(rfs)
     vv = TestFunction(cgfs)

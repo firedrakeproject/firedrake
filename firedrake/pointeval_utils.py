@@ -37,7 +37,6 @@ def compile_element(expression, coordinates, parameters=None):
         parameters['scalar_type'] = 'double complex'
     set_scalar_type(parameters['scalar_type'])
 
-
     # No arguments, please!
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
