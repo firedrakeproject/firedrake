@@ -33,7 +33,6 @@
 
 """OP2 sequential backend."""
 
-import builtins
 import os
 from textwrap import dedent
 from copy import deepcopy as dcopy
@@ -106,9 +105,9 @@ class Arg(base.Arg):
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                val.append("static const int %s[%d] = { %s };" % (self.c_offset_name(i, j),
-                                                                  m.arity,
-                                                                  ', '.join(builtins.map(str, m.offset))))
+                offset_data = ', '.join(str(o) for o in m.offset)
+                val.append("static const int %s[%d] = { %s };" %
+                           (self.c_offset_name(i, j), m.arity, offset_data))
         if len(val) == 0:
             return ""
         return "\n".join(val)
@@ -226,25 +225,28 @@ class Arg(base.Arg):
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             is_top = is_top_init and m.iterset._extruded
-            offset_str = "%s[%s]" % (self.c_offset_name(i, 0), 'a_0')
-            val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                       "%(vec_name)s[%(idx)s] = %(data)s" %
-                       {'arity': m.arity,
+            idx = "i_0"
+            offset_str = "%s[%s]" % (self.c_offset_name(i, 0), idx)
+            val.append("for (int %(idx)s = 0; %(idx)s < %(dim)d; %(idx)s++) {\n"
+                       "  %(vec_name)s[%(vec_idx)d + %(idx)s] = %(data)s;\n}" %
+                       {'dim': m.arity,
                         'vec_name': self.c_vec_name(),
-                        'idx': '{} + a_0'.format(vec_idx),
-                        'data': self.c_ind_data('a_0', i, is_top=is_top,
+                        'vec_idx': vec_idx,
+                        'idx': idx,
+                        'data': self.c_ind_data(idx, i, is_top=is_top,
                                                 offset=offset_str if is_top else None)})
             vec_idx += m.arity
             if is_facet:
-                val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                           "%(vec_name)s[%(idx)s] = %(data)s" %
-                           {'arity': m.arity,
+                val.append("for (int %(idx)s = 0; %(idx)s < %(dim)d; %(idx)s++) {\n"
+                           "  %(vec_name)s[%(vec_idx)d + %(idx)s] = %(data)s;\n}" %
+                           {'dim': m.arity,
                             'vec_name': self.c_vec_name(),
-                            'idx': '{} + a_0'.format(vec_idx),
-                            'data': self.c_ind_data('a_0', i, is_top=is_top,
+                            'vec_idx': vec_idx,
+                            'idx': idx,
+                            'data': self.c_ind_data(idx, i, is_top=is_top,
                                                     offset=offset_str)})
                 vec_idx += m.arity
-        return ";\n".join(val)
+        return "\n".join(val)
 
     def c_addto(self, i, j, buf_name, tmp_name, tmp_decl,
                 extruded=None, is_facet=False):
@@ -368,21 +370,24 @@ class Arg(base.Arg):
         val = []
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
-            offset_str = "%s[%s]" % (self.c_offset_name(i, 0), 'a_0')
-            val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                       "%(name)s[%(j)s] += %(offset)s * %(dim)s;" %
+            idx = "i_0"
+            offset_str = "%s[%s]" % (self.c_offset_name(i, 0), idx)
+            val.append("for (int %(idx)s = 0; %(idx)s < %(arity)d; %(idx)s++) {\n"
+                       "  %(name)s[%(vec_idx)d + %(idx)s] += %(offset)s * %(dim)s;\n}" %
                        {'arity': m.arity,
                         'name': self.c_vec_name(),
-                        'j': '{} + a_0'.format(vec_idx),
+                        'vec_idx': vec_idx,
+                        'idx': idx,
                         'offset': offset_str,
                         'dim': d.cdim})
             vec_idx += m.arity
             if is_facet:
-                val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                           "%(name)s[%(j)s] += %(offset)s * %(dim)s;" %
+                val.append("for (int %(idx)s = 0; %(idx)s < %(arity)d; %(idx)s++) {\n"
+                           "  %(name)s[%(vec_idx)d + %(idx)s] += %(offset)s * %(dim)s;\n}" %
                            {'arity': m.arity,
                             'name': self.c_vec_name(),
-                            'j': '{} + a_0'.format(vec_idx),
+                            'vec_idx': vec_idx,
+                            'idx': idx,
                             'offset': offset_str,
                             'dim': d.cdim})
                 vec_idx += m.arity
@@ -447,22 +452,20 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         val = []
         for i, (map, dset) in enumerate(zip(as_tuple(self.map, Map), dsets)):
             for j, (m, d) in enumerate(zip(map, dset)):
-                offset_str = "%s[%s]" % (self.c_offset_name(i, j), 'a_0')
-                val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                           "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s)%(off_top)s;" %
-                           {'arity': m.arity,
-                            'name': self.c_map_name(i, j),
+                idx = "i_0"
+                offset_str = "%s[%s]" % (self.c_offset_name(i, j), idx)
+                val.append("for (int %(idx)s = 0; %(idx)s < %(dim)d; %(idx)s++) {\n"
+                           "  xtr_%(name)s[%(idx)s] = *(%(name)s + i * %(dim)d + %(idx)s)%(off_top)s;\n}" %
+                           {'name': self.c_map_name(i, j),
                             'dim': m.arity,
-                            'ind': 'a_0',
+                            'idx': idx,
                             'off_top': ' + (start_layer - bottom_layer) * '+offset_str if is_top else ''})
                 if is_facet:
-                    val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                               "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind_zero)s)%(off_top)s%(off)s;" %
-                               {'arity': m.arity,
-                                'name': self.c_map_name(i, j),
+                    val.append("for (int %(idx)s = 0; %(idx)s < %(dim)d; %(idx)s++) {\n"
+                               "  xtr_%(name)s[%(dim)d + %(idx)s] = *(%(name)s + i * %(dim)d + %(idx)s)%(off_top)s%(off)s;\n}" %
+                               {'name': self.c_map_name(i, j),
                                 'dim': m.arity,
-                                'ind': '{} + {}'.format('a_0', m.arity),
-                                'ind_zero': 'a_0',
+                                'idx': idx,
                                 'off_top': ' + (start_layer - bottom_layer)' if is_top else '',
                                 'off': ' + ' + offset_str})
         return '\n'.join(val)+'\n'
@@ -585,16 +588,19 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, (m, d) in enumerate(zip(map, dset)):
-                offset_str = "%s[%s]" % (self.c_offset_name(i, 0), 'a_0')
-                val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                           "xtr_%(name)s[a_0] += %(off)s;" %
+                idx = "i_0"
+                offset_str = "%s[%s]" % (self.c_offset_name(i, 0), idx)
+                val.append("for (int %(idx)s = 0; %(idx)s < %(arity)d; %(idx)s++) {\n"
+                           "  xtr_%(name)s[%(idx)s] += %(off)s;\n}" %
                            {'arity': m.arity,
+                            'idx': idx,
                             'name': self.c_map_name(i, j),
                             'off': offset_str})
                 if is_facet:
-                    val.append("for (int a_0 = 0; a_0 < %(arity)d; a_0++) "
-                               "xtr_%(name)s[%(arity)d + a_0] += %(off)s;" %
+                    val.append("for (int %(idx)s = 0; %(idx)s < %(arity)d; %(idx)s++) {\n"
+                               "  xtr_%(name)s[%(arity)d + %(idx)s] += %(off)s;\n}" %
                                {'arity': m.arity,
+                                'idx': idx,
                                 'name': self.c_map_name(i, j),
                                 'off': offset_str})
         return '\n'.join(val)+'\n'
@@ -975,6 +981,7 @@ def wrapper_snippets(itspace, args,
     # Pass in the is_facet flag to mark the case when it's an interior horizontal facet in
     # an extruded mesh.
     _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in args])
+    # Add offset arrays to the wrapper declarations
     _wrapper_decs += '\n'.join([arg.c_offset_decl() for arg in args])
 
     _vec_decs = ';\n'.join([arg.c_vec_dec(is_facet=is_facet) for arg in args if arg._is_vec_map])
