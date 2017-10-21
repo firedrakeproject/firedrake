@@ -103,11 +103,11 @@ class StaticCondensationPC(PCBase):
 
         # Set up rhs for the reduced problem
         F0 = AssembledVector(self.interior_residual)
-        F1 = AssembledVector(self.trace_residual)
         self.sc_rhs = Function(V_facet)
-        self._assemble_sc_rhs = create_assembly_callable(
-            F1 - A10 * A00.inv * F0,
-            tensor=self.sc_rhs,
+        self.sc_rhs_thunk = Function(V_facet)
+        self._assemble_sc_rhs_thunk = create_assembly_callable(
+            -A10 * A00.inv * F0,
+            tensor=self.sc_rhs_thunk,
             form_compiler_parameters=self.cxt.fc_params)
 
         # Reconstruction calls
@@ -225,12 +225,23 @@ class StaticCondensationPC(PCBase):
         # Now that the residual data is transfered, we assemble
         # the RHS for the reduced system
         with timed_region("SCRHS"):
-            self._assemble_sc_rhs()
+            self._assemble_sc_rhs_thunk()
+
+            # TODO: Fix this hack?
+            # Assemble the RHS of the reduced system:
+            # If r = [F, G] is the incoming residual separated
+            # into "facet" and "interior" restrictions, then
+            # the Schur complement RHS is:
+            # G - A10 * A00.inv * F.
+            # This is assembled point-wise, with -A10 * A00.inv * F
+            # precomputed element-wise using Slate.
+            self.sc_rhs.assign(self.trace_residual
+                               + self.sc_rhs_thunk)
 
         with timed_region("SCSolve"):
             # Solve the reduced problem
             with self.sc_rhs.dat.vec_ro as b:
-                if self.trace_solution.getInitialGuessNonzero():
+                if self.sc_ksp.getInitialGuessNonzero():
                     acc = self.trace_solution.dat.vec
                 else:
                     acc = self.trace_solution.dat.vec_wo
