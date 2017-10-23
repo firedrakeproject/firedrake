@@ -95,7 +95,7 @@ class StaticCondensationPC(PCBase):
         Smat = self.S.petscmat
 
         # Nullspace for the reduced system
-        nullspace = create_sc_nullspace(P, S, V, V_facet, pc.comm)
+        nullspace = create_sc_nullspace(P, V, V_facet, pc.comm)
 
         if nullspace:
             Smat.setNullSpace(nullspace)
@@ -271,10 +271,10 @@ class StaticCondensationPC(PCBase):
         raise NotImplementedError("Transpose not implemented.")
 
 
-def create_sc_nullspace(P, S, V, V_facet, comm):
+def create_sc_nullspace(P, V, V_facet, comm):
     """
     """
-    from firedrake import assemble, Function, AssembledVector
+    from firedrake import Function
 
     nullspace = P.getNullSpace()
     if nullspace.handle == 0:
@@ -283,7 +283,6 @@ def create_sc_nullspace(P, S, V, V_facet, comm):
 
     vecs = nullspace.getVecs()
     tmp = Function(V)
-    tmp_facet = Function(V_facet)
     scsp_tmp = Function(V_facet)
     new_vecs = []
     for v in vecs:
@@ -299,11 +298,10 @@ def create_sc_nullspace(P, S, V, V_facet, comm):
         }""" % (V_facet.finat_element.space_dimension(),
                 np.prod(V_facet.shape))
 
-        par_loop(kernel, ufl.dx, {"x_facet": (tmp_facet, WRITE),
+        par_loop(kernel, ufl.dx, {"x_facet": (scsp_tmp, WRITE),
                                   "x_h": (tmp, READ)})
 
         # Map vecs to the facet space
-        assemble(S * AssembledVector(tmp_facet), tensor=scsp_tmp)
         with scsp_tmp.dat.vec_ro as v:
             new_vecs.append(v.copy())
 
