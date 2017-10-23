@@ -94,7 +94,11 @@ class StaticCondensationPC(PCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # TODO: Nullspace
+        # Nullspace for the reduced system
+        nullspace = create_sc_nullspace(P, S, V, V_facet, pc.comm)
+
+        if nullspace:
+            Smat.setNullSpace(nullspace)
 
         # Set up KSP for the reduced problem
         sc_ksp = PETSc.KSP().create(comm=pc.comm)
@@ -265,3 +269,47 @@ class StaticCondensationPC(PCBase):
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
         raise NotImplementedError("Transpose not implemented.")
+
+
+def create_sc_nullspace(P, S, V, V_facet, comm):
+    """
+    """
+    from firedrake import assemble, Function, AssembledVector
+
+    nullspace = P.getNullSpace()
+    if nullspace.handle == 0:
+        # No nullspace
+        return None
+
+    vecs = nullspace.getVecs()
+    tmp = Function(V)
+    tmp_facet = Function(V_facet)
+    scsp_tmp = Function(V_facet)
+    new_vecs = []
+    for v in vecs:
+        with tmp.dat.vec_wo as t:
+            v.copy(t)
+
+        # Transfer the trace bit (the interior bit doesn't contribute)
+        kernel = """
+        for (int i=0; i<%d; ++i){
+            for (int j=0; j<%d; ++j){
+                x_facet[i][j] = x_h[i][j];
+            }
+        }""" % (V_facet.finat_element.space_dimension(),
+                np.prod(V_facet.shape))
+
+        par_loop(kernel, ufl.dx, {"x_facet": (tmp_facet, WRITE),
+                                  "x_h": (tmp, READ)})
+
+        # Map vecs to the facet space
+        assemble(S * AssembledVector(tmp_facet), tensor=scsp_tmp)
+        with scsp_tmp.dat.vec_ro as v:
+            new_vecs.append(v.copy())
+
+    # Normalize
+    for v in new_vecs:
+        v.normalize()
+    sc_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
+
+    return sc_nullspace
