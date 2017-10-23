@@ -4,7 +4,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
-from firedrake.parloops import par_loop, READ, INC
+from firedrake.parloops import par_loop, READ, WRITE
 from pyop2.profiling import timed_region, timed_function
 
 import numpy as np
@@ -46,9 +46,12 @@ class StaticCondensationPC(PCBase):
             raise ValueError("Expecting an H1-conforming element.")
 
         if not V.ufl_element().cell().is_simplex():
-            raise NotImplementedError(
-                "Only simplex meshes are implemented."
-            )
+            raise NotImplementedError("Only simplex meshes are implemented.")
+
+        # FIXME: This does not work for tensor product elements
+        top_dim = V.finat_element._element.ref_el.get_dimension()
+        if not V.finat_element.entity_dofs()[top_dim][0]:
+            raise RuntimeError("There are no interior dofs to eliminate.")
 
         # We decompose the space into an interior part and facet part
         interior_element = V.ufl_element()["interior"]
@@ -148,7 +151,9 @@ class StaticCondensationPC(PCBase):
         # any offsets.
 
         # TODO: There must be a cleaner way of getting the offset
-        offset = V.finat_element.entity_dofs()[2][0][0]
+        # NOTE: This does not work for tensor product elements
+        dim = V.finat_element._element.ref_el.get_dimension()
+        offset = V.finat_element.entity_dofs()[dim][0][0]
         args = (Vo.finat_element.space_dimension(), np.prod(Vo.shape),
                 offset,
                 Vd.finat_element.space_dimension(), np.prod(Vd.shape))
@@ -167,7 +172,7 @@ class StaticCondensationPC(PCBase):
         }""" % args
 
         with timed_region("SCReconSolution"):
-            par_loop(kernel, ufl.dx, {"uh": (self.h1_solution, INC),
+            par_loop(kernel, ufl.dx, {"uh": (self.h1_solution, WRITE),
                                       "u_int": (u_int, READ),
                                       "u_facet": (u_facet, READ)})
 
@@ -177,16 +182,19 @@ class StaticCondensationPC(PCBase):
         """
         r_int = self.interior_residual
         r_facet = self.trace_residual
+
         Vo = r_int.function_space()
         Vd = r_facet.function_space()
         V = self.h1_residual.function_space()
 
-        # TODO: There must be a cleaner way of getting the offset
-        offset = V.finat_element.entity_dofs()[2][0][0]
+        # NOTE: This does not work for tensor product elements
+        dim = V.finat_element._element.ref_el.get_dimension()
+        offset = V.finat_element.entity_dofs()[dim][0][0]
         args = (Vo.finat_element.space_dimension(), np.prod(Vo.shape),
                 offset,
                 Vd.finat_element.space_dimension(), np.prod(Vd.shape))
 
+        # This kernel is just the inverse of the previous transfer kernel
         kernel = """
         for (int i=0; i<%d; ++i){
             for (int j=0; j<%d; ++j){
@@ -200,8 +208,8 @@ class StaticCondensationPC(PCBase):
             }
         }""" % args
 
-        par_loop(kernel, ufl.dx, {"r_int": (r_int, INC),
-                                  "r_facet": (r_facet, INC),
+        par_loop(kernel, ufl.dx, {"r_int": (r_int, WRITE),
+                                  "r_facet": (r_facet, WRITE),
                                   "r_h": (self.h1_residual, READ)})
 
     @timed_function("SCUpdate")
