@@ -1,6 +1,7 @@
 
 from firedrake import *
 from firedrake.slate.preconditioners.hybridization_mixed import create_trace_nullspace
+from firedrake.slate.preconditioners.static_condensation import create_sc_nullspace
 import numpy as np
 
 import pytest
@@ -58,6 +59,49 @@ def test_hybrid_nullspace(W):
     v = Snullsp.getVecs()[0].array_r
 
     S = K * Atilde.inv * K.T
+    _, _, vv = np.linalg.svd(assemble(S, mat_type="aij").M.values)
+    singular_vector = vv[-1]
+
+    assert np.allclose(np.linalg.norm(v), 1.0, 1e-13)
+    assert np.allclose(v.min(), v.max(), 1e-13)
+    assert np.allclose(np.absolute(v),
+                       np.absolute(singular_vector), 1e-13)
+
+
+@pytest.mark.parametrize(('dim', 'degree'),
+                         [(2, 3), (2, 4), (3, 4)])
+def test_static_condensation_nullspace(dim, degree):
+    if dim == 2:
+        mesh = UnitSquareMesh(4, 4, quadrilateral=False)
+        ref_el = "triangle"
+    else:
+        mesh = UnitCubeMesh(2, 2, 2)
+        ref_el = "tetrahedron"
+
+    Pk = FiniteElement("CG", ref_el, degree)
+    V = FunctionSpace(mesh, Pk)
+    V_interior = FunctionSpace(mesh, Pk["interior"])
+    V_facet = FunctionSpace(mesh, Pk["facet"])
+
+    def a(v, u):
+        return inner(grad(v), grad(u)) * dx
+
+    M = assemble(a(TestFunction(V), TrialFunction(V)))
+
+    # Supplying constant vector to check computation
+    nullsp = VectorSpaceBasis(constant=True,
+                              vecs=[Function(V).assign(1.0)])
+    nullsp._apply(M)
+
+    A00 = Tensor(a(TestFunction(V_interior), TrialFunction(V_interior)))
+    A01 = Tensor(a(TestFunction(V_interior), TrialFunction(V_facet)))
+    A10 = Tensor(a(TestFunction(V_facet), TrialFunction(V_interior)))
+    A11 = Tensor(a(TestFunction(V_facet), TrialFunction(V_facet)))
+    S = A11 - A10 * A00.inv * A01
+
+    Snullsp = create_sc_nullspace(M.petscmat, V, V_facet, COMM_WORLD)
+    v = Snullsp.getVecs()[0].array_r
+
     _, _, vv = np.linalg.svd(assemble(S, mat_type="aij").M.values)
     singular_vector = vv[-1]
 
