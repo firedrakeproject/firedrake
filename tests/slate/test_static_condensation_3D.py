@@ -29,7 +29,7 @@ def test_static_condensation_3d_helmholtz(degree):
 
     # Solve without static condensation
     u_h = Function(V)
-    solve(a == L, u_h, solver_parameters={'ksp_type': 'cg',
+    solve(a == L, u_h, solver_parameters={'ksp_type': 'preonly',
                                           'pc_type': 'lu',
                                           'pc_factor_mat_solver_package': 'mumps'})
 
