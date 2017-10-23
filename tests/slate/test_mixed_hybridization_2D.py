@@ -20,21 +20,22 @@ u = 42
 
 which appears in the variational form as the term: -<42*tau, n>
 """
-
-
 import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
-                         [(1, "RT", False), (1, "RTCF", True),
-                          (2, "RT", False), (2, "RTCF", True)])
-def test_slate_hybridization(degree, hdiv_family, quadrilateral):
+@pytest.mark.parametrize(("degrees", "hdiv_family", "quadrilateral"),
+                         [((1, 0), "RT", False), ((1, 0), "RTCF", True),
+                          ((2, 1), "RT", False), ((2, 1), "RTCF", True),
+                          ((1, 0), "BDM", False), ((2, 1), "BDM", False),
+                          ((2, 1), "BDFM", False)])
+def test_mixed_hybridization(degrees, hdiv_family, quadrilateral):
     # Create a mesh
-    mesh = UnitSquareMesh(6, 6, quadrilateral=quadrilateral)
-    RT = FunctionSpace(mesh, hdiv_family, degree)
-    DG = FunctionSpace(mesh, "DG", degree - 1)
-    W = RT * DG
+    d_hdiv, d_dg = degrees
+    mesh = UnitSquareMesh(4, 4, quadrilateral=quadrilateral)
+    HDiv = FunctionSpace(mesh, hdiv_family, d_hdiv)
+    DG = FunctionSpace(mesh, "DG", d_dg)
+    W = HDiv * DG
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
     n = FacetNormal(mesh)
@@ -49,7 +50,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     L = f * v * dx - 42 * dot(tau, n)*ds
 
     # Compare hybridized solution with non-hybridized
-    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    # (Hybrid) Python preconditioner
     w = Function(W)
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',

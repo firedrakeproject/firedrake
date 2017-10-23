@@ -1,4 +1,3 @@
-"""Tests for the successful assembly of mimetic elements in Slate"""
 import pytest
 import numpy as np
 from firedrake import *

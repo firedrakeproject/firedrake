@@ -1,4 +1,3 @@
-
 import pytest
 from firedrake import *
 import numpy as np
