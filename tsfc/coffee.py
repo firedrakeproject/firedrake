@@ -334,14 +334,14 @@ def _expression_scalar(expr, parameters):
         return coffee.Symbol("NAN")
     else:
         vr = expr.value.real
-        rr = round(vr, 1)
+        rr = vr.round(1)
         if rr and abs(vr - rr) < parameters.epsilon:
             vr = rr  # round to nonzero
 
         vi = expr.value.imag # also checks if v is purely real
         if vi == 0.0:
             return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
-        ri = round(vi, 1)
+        ri = vi.round(1)
 
         if ri and abs(vi - ri) < parameters.epsilon:
             vi = ri
