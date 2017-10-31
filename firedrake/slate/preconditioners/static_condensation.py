@@ -22,7 +22,8 @@ class StaticCondensationPC(PCBase):
         """
         """
         from firedrake import (FunctionSpace, Function,
-                               TrialFunction, TestFunction)
+                               TrialFunction, TestFunction,
+                               DirichletBC, interpolate)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from ufl.algorithms.replace import replace
@@ -67,9 +68,16 @@ class StaticCondensationPC(PCBase):
         self.interior_residual = Function(V_int)
         self.trace_residual = Function(V_facet)
 
-        # TODO: I think strong BCs just need to be applied to the facet space
-        if self.cxt.row_bcs:
-            raise NotImplementedError("Strong BCs not yet implemented.")
+        # Collect BCs for the facet problem
+        bcs = []
+        for bc in self.cxt.row_bcs:
+            if isinstance(bc.function_arg, Function):
+                g = interpolate(bc.function_arg, V_facet)
+            else:
+                g = bc.function_arg
+            bcs.append(DirichletBC(V_facet, g, bc.sub_domain))
+
+        self.bcs = bcs
 
         A00 = Tensor(replace(self.cxt.a, {test: TestFunction(V_int),
                                           trial: TrialFunction(V_int)}))
@@ -82,12 +90,12 @@ class StaticCondensationPC(PCBase):
 
         # Schur complement operator
         S = A11 - A10 * A00.inv * A01
-        self.S = allocate_matrix(S, bcs=None,
+        self.S = allocate_matrix(S, bcs=self.bcs,
                                  form_compiler_parameters=self.cxt.fc_params)
         self._assemble_S = create_assembly_callable(
             S,
             tensor=self.S,
-            bcs=None,
+            bcs=self.bcs,
             form_compiler_parameters=self.cxt.fc_params)
 
         self._assemble_S()
