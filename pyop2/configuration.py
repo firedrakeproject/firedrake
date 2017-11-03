@@ -54,6 +54,11 @@ class Configuration(dict):
         yes)
     :param check_src_hashes: Should PyOP2 check that generated code is
         the same on all processes?  (Default, yes).  Uses an allreduce.
+    :param cache_dir: Where should generated code be cached?
+    :param node_local_compilation: Should generated code by compiled
+        "node-local" (one process for each set of processes that share
+         a filesystem)?  You should probably arrange to set cache_dir
+         to a node-local filesystem too.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
     :param lazy_evaluation: Should lazy evaluation be on or off?
@@ -93,6 +98,7 @@ class Configuration(dict):
         "cache_dir": ("PYOP2_CACHE_DIR", str,
                       os.path.join(gettempdir(),
                                    "pyop2-cache-uid%s" % os.getuid())),
+        "node_local_compilation": ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
         "no_fork_available": ("PYOP2_NO_FORK_AVAILABLE", bool, False),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),

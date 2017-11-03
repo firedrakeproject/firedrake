@@ -42,6 +42,7 @@ from distutils import version
 
 
 from pyop2.mpi import MPI, collective, COMM_WORLD
+from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -98,6 +99,49 @@ def sniff_compiler_version(cc):
     return CompilerInfo(compiler, ver)
 
 
+@collective
+def compilation_comm(comm):
+    """Get a communicator for compilation.
+
+    :arg comm: The input communicator.
+    :returns: A communicator used for compilation (may be smaller)
+    """
+    # Should we try and do node-local compilation?
+    if not configuration["node_local_compilation"]:
+        return comm
+    retcomm = get_compilation_comm(comm)
+    if retcomm is not None:
+        debug("Found existing compilation communicator")
+        return retcomm
+    if MPI.VERSION >= 3:
+        debug("Creating compilation communicator using MPI_Split_type")
+        retcomm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+        set_compilation_comm(comm, retcomm)
+        return retcomm
+    debug("Creating compilation communicator using MPI_Split + filesystem")
+    import tempfile
+    if comm.rank == 0:
+        if not os.path.exists(configuration["cache_dir"]):
+            os.makedirs(configuration["cache_dir"])
+        tmpname = tempfile.mkdtemp(prefix="rank-determination-",
+                                   dir=configuration["cache_dir"])
+    else:
+        tmpname = None
+    tmpname = comm.bcast(tmpname, root=0)
+    if tmpname is None:
+        raise CompilationError("Cannot determine sharedness of filesystem")
+    # Touch file
+    with open(os.path.join(tmpname, str(comm.rank)), "wb"):
+        pass
+    comm.barrier()
+    import glob
+    ranks = sorted(int(os.path.basename(name))
+                   for name in glob.glob("%s/[0-9]*" % tmpname))
+    retcomm = comm.Split(color=min(ranks), key=comm.rank)
+    set_compilation_comm(comm, retcomm)
+    return retcomm
+
+
 class Compiler(object):
 
     compiler_versions = {}
@@ -115,8 +159,8 @@ class Compiler(object):
         flags specified as the ldflags configuration option).
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
-    :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to COMM_WORLD).
+    :kwarg comm: Optional communicator to compile the code on
+        (defaults to COMM_WORLD).
     """
     def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
                  cpp=False, comm=None):
@@ -125,7 +169,9 @@ class Compiler(object):
         self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs + configuration['cflags'].split() + self.workaround_cflags
         self._ldargs = ldargs + configuration['ldflags'].split()
-        self.comm = comm or COMM_WORLD
+        # Ensure that this is an internal communicator.
+        comm = dup_comm(comm or COMM_WORLD)
+        self.comm = compilation_comm(comm)
 
     @property
     def compiler_version(self):
