@@ -16,9 +16,10 @@ from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
-                         CellOrigin, CellVolume, Coefficient,
-                         FacetArea, FacetCoordinate,
+                         CellOrigin, CellVertices, CellVolume,
+                         Coefficient, FacetArea, FacetCoordinate,
                          GeometricQuantity, QuadratureWeight,
+                         ReferenceCellEdgeVectors,
                          ReferenceCellVolume, ReferenceFacetVolume,
                          ReferenceNormal, SpatialCoordinate)
 
@@ -30,7 +31,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
-from finat.point_set import PointSingleton
+from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
@@ -260,12 +261,12 @@ def translate_reference_normal(terminal, mt, ctx):
     return ctx.entity_selector(callback, mt.restriction)
 
 
-@translate.register(CellEdgeVectors)
-def translate_cell_edge_vectors(terminal, mt, ctx):
+@translate.register(ReferenceCellEdgeVectors)
+def translate_reference_cell_edge_vectors(terminal, mt, ctx):
     from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
-        raise NotImplementedError("CellEdgeVectors not implemented on TensorProductElements yet")
+        raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
 
     nedges = len(fiat_cell.get_topology()[1])
     vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
@@ -364,6 +365,41 @@ def translate_cellorigin(terminal, mt, ctx):
     config.update(interface=ctx, point_set=point_set)
     context = PointSetContext(**config)
     return context.translator(expression)
+
+
+@translate.register(CellVertices)
+def translate_cell_vertices(terminal, mt, ctx):
+    coords = SpatialCoordinate(terminal.ufl_domain())
+    ufl_expr = construct_modified_terminal(mt, coords)
+    ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=ctx, point_set=ps)
+    context = PointSetContext(**config)
+    expr = context.translator(ufl_expr)
+
+    # Wrap up point (vertex) index
+    c = gem.Index()
+    return gem.ComponentTensor(gem.Indexed(expr, (c,)), ps.indices + (c,))
+
+
+@translate.register(CellEdgeVectors)
+def translate_cell_edge_vectors(terminal, mt, ctx):
+    # WARNING: Assumes straight edges!
+    coords = CellVertices(terminal.ufl_domain())
+    ufl_expr = construct_modified_terminal(mt, coords)
+    cell_vertices = ctx.translator(ufl_expr)
+
+    e = gem.Index()
+    c = gem.Index()
+    expr = gem.ListTensor([
+        gem.Sum(gem.Indexed(cell_vertices, (u, c)),
+                gem.Product(gem.Literal(-1),
+                            gem.Indexed(cell_vertices, (v, c))))
+        for _, (u, v) in sorted(iteritems(ctx.fiat_cell.get_topology()[1]))
+    ])
+    return gem.ComponentTensor(gem.Indexed(expr, (e,)), (e, c))
 
 
 def fiat_to_ufl(fiat_dict, order):
