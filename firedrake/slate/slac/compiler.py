@@ -83,7 +83,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     statements.extend(subkernel_calls)
 
     # Create coefficient temporaries if necessary
-    if builder.action_coefficients:
+    if builder.coefficient_vecs:
         coefficient_temps = coefficient_temporaries(builder, declared_temps)
         statements.extend(coefficient_temps)
 
@@ -243,19 +243,19 @@ def coefficient_temporaries(builder, declared_temps):
                          temporaries. This dictionary is updated
                          as coefficients are assigned temporaries.
 
-    Action computations require creating coefficient temporaries to
-    compute the matrix-vector product. The temporaries are created by
-    inspecting the function space of the coefficient to compute node
-    and dof extents. The coefficient is then assigned values by looping
-    over both the node extent and dof extent (double FOR-loop). A double
-    FOR-loop is needed for each function space (if the function space is
-    mixed, then a loop will be constructed for each component space).
-    The general structure of each coefficient loop will be:
+    'AssembledVector's require creating coefficient temporaries to
+    store data. The temporaries are created by inspecting the function
+    space of the coefficient to compute node and dof extents. The
+    coefficient is then assigned values by looping over both the node
+    extent and dof extent (double FOR-loop). A double FOR-loop is needed
+    for each function space (if the function space is mixed, then a loop
+    will be constructed for each component space). The general structure
+    of each coefficient loop will be:
 
          FOR (i1=0; i1<node_extent; i1++):
              FOR (j1=0; j1<dof_extent; j1++):
-                 wT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
-                 wT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
+                 VT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
+                 VT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
                  .
                  .
                  .
@@ -271,25 +271,26 @@ def coefficient_temporaries(builder, declared_temps):
     i_sym = ast.Symbol("i1")
     j_sym = ast.Symbol("j1")
     loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-    for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
+    for (nodes, dofs), cinfo_list in builder.coefficient_vecs.items():
         # Collect all coefficients which share the same node/dof extent
         assignments = []
         for cinfo in cinfo_list:
             fs_i = cinfo.space_index
             offset = cinfo.offset_index
             c_shape = cinfo.shape
-            actee = cinfo.coefficient
+            vector = cinfo.vector
+            function = vector._function
 
-            if actee not in declared_temps:
+            if vector not in declared_temps:
                 # Declare and initialize coefficient temporary
                 c_type = eigen_matrixbase_type(shape=c_shape)
-                t = ast.Symbol("wT%d" % len(declared_temps))
+                t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
                 statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                declared_temps[actee] = t
+                declared_temps[vector] = t
 
             # Assigning coefficient values into temporary
-            coeff_sym = ast.Symbol(builder.coefficient(actee)[fs_i],
+            coeff_sym = ast.Symbol(builder.coefficient(function)[fs_i],
                                    rank=(i_sym, j_sym))
             index = ast.Sum(offset,
                             ast.Sum(ast.Prod(dofs, i_sym), j_sym))
@@ -469,8 +470,8 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         representation of the `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
-    # Coefficients in action expressions will have been declared by now,
-    # as well as any other nodes with high reference count.
+    # Coefficients defined as AssembledVectors will have been declared
+    # by now, as well as any other nodes with high reference count.
     if expr in temps:
         return temps[expr].gencode()
 
@@ -487,23 +488,14 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (slate.Add, slate.Sub, slate.Mul)):
+    elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
-              slate.Sub: '-',
               slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
         result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
                                op,
                                metaphrase_slate_to_cpp(B, temps, expr.prec))
 
-        return parenthesize(result, expr.prec, prec)
-
-    elif isinstance(expr, slate.Action):
-        tensor, = expr.operands
-        c, = expr.actee
-        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
-                                                        temps,
-                                                        expr.prec), temps[c])
         return parenthesize(result, expr.prec, prec)
 
     else:
