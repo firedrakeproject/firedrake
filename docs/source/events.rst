@@ -9,15 +9,18 @@ Firedrake events
 Firedrake '17
 ~~~~~~~~~~~~~
 
-The first Firedrake user and developer workshop will be held at
+The first Firedrake user and developer workshop was held at
 Imperial College London on 27 and 28 March 2017. For more information,
 see :doc:`the workshop page <firedrake_17>`.
 
 Firedrake tutorial at CNRS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The Firedrake team will be presenting a Firedrake tutorial at CNRS in
-Paris. See `this web page <http://calcul.math.cnrs.fr/spip.php?article274>`_.
+The Firedrake team presented a Firedrake tutorial at CNRS in
+Paris. See `this web page
+<http://calcul.math.cnrs.fr/spip.php?article274>`_.  The tutorial
+materials are accessible as part of the :doc:`firedrake documentation
+<documentation>`.
 
 FEniCS '15
 ~~~~~~~~~~
