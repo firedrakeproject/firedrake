@@ -20,7 +20,7 @@ class PCBase(object, metaclass=abc.ABCMeta):
         - :meth:`applyTranspose`
 
         """
-        Citations().register("Mitchell2017")
+        Citations().register("Kirby2017")
         self.initialized = False
         super(PCBase, self).__init__()
 

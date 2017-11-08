@@ -220,9 +220,9 @@ Citations().add("Homolya2017", """
 }
 """)
 
-Citations().add("Mitchell2017", """
-@Article{Mitchell2017,
-  author =       {Lawrence Mitchell and Robert C. Kirby},
+Citations().add("Kirby2017", """
+@Article{Kirby2017,
+  author =       {Robert C. Kirby and Lawrence Mitchell},
   title =        {{Solver composition across the PDE/linear algebra
                   barrier}},
   journal =      {SIAM Journal on Scientific Computing},
@@ -235,8 +235,8 @@ Citations().add("Mitchell2017", """
 }
 """)
 
-Citations().add("Homolya2017b", """
-@Misc{Homolya2017b,
+Citations().add("Homolya2017a", """
+@Misc{Homolya2017a,
   author =       {Mikl\'os Homolya and Robert C. Kirby and David
                   A. Ham},
   title =        {{Exposing and exploiting structure: optimal code
