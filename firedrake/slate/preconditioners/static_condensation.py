@@ -1,5 +1,6 @@
 import ufl
 
+from firedrake.logging import log, WARNING
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -34,7 +35,7 @@ class StaticCondensationPC(PCBase):
         self.cxt = P.getPythonContext()
 
         if not isinstance(self.cxt, ImplicitMatrixContext):
-            raise ValueError("The python context must be an ImplicitMatrixContext")
+            raise ValueError("Context must be an ImplicitMatrixContext")
 
         test, trial = self.cxt.a.arguments()
         V = test.function_space()
@@ -76,6 +77,10 @@ class StaticCondensationPC(PCBase):
             else:
                 g = bc.function_arg
             bcs.append(DirichletBC(V_facet, g, bc.sub_domain))
+
+        if bcs:
+            msg = "Currently strong bcs are not handled appropriately."
+            log(WARNING, msg)
 
         self.bcs = bcs
 
@@ -247,7 +252,6 @@ class StaticCondensationPC(PCBase):
         with timed_region("SCRHS"):
             self._assemble_sc_rhs_thunk()
 
-            # TODO: Fix this hack?
             # Assemble the RHS of the reduced system:
             # If r = [F, G] is the incoming residual separated
             # into "facet" and "interior" restrictions, then
