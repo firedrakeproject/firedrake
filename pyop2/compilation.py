@@ -46,6 +46,7 @@ from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
+from pyop2.base import JITModule
 
 
 def _check_hashes(x, y, datatype):
@@ -200,17 +201,22 @@ class Compiler(object):
         return []
 
     @collective
-    def get_so(self, src, extension):
+    def get_so(self, jitmodule, extension):
         """Build a shared library and load it
 
-        :arg src: The source string to compile.
+        :arg jitmodule: The JIT Module which can generate the code to compile.
         :arg extension: extension of the source file (c, cpp).
 
         Returns a :class:`ctypes.CDLL` object of the resulting shared
         library."""
 
         # Determine cache key
-        hsh = md5(src.encode())
+        if isinstance(jitmodule, JITModule):
+            code_hashee = str(jitmodule.cache_key)
+        else:
+            # we got a string
+            code_hashee = jitmodule
+        hsh = md5(code_hashee.encode())
         hsh.update(self._cc.encode())
         if self._ld:
             hsh.update(self._ld.encode())
@@ -228,6 +234,11 @@ class Compiler(object):
         # atomically (avoiding races).
         tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
+        def get_code(jitmodule):
+            if isinstance(jitmodule, JITModule):
+                return jitmodule.code_to_compile
+            return jitmodule  # we got a string
+
         if configuration['check_src_hashes'] or configuration['debug']:
             matching = self.comm.allreduce(basename, op=_check_op)
             if matching != basename:
@@ -239,7 +250,7 @@ class Compiler(object):
                         os.makedirs(output, exist_ok=True)
                 self.comm.barrier()
                 with open(srcfile, "w") as f:
-                    f.write(src)
+                    f.write(get_code(jitmodule))
                 self.comm.barrier()
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
@@ -255,7 +266,7 @@ class Compiler(object):
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
                     with open(cname, "w") as f:
-                        f.write(src)
+                        f.write(get_code(jitmodule))
                     # Compiler also links
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
@@ -379,6 +390,7 @@ class LinuxCompiler(Compiler):
             stdargs = []
         cppargs = stdargs + ['-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
+
         super(LinuxCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
                                             cpp=cpp, comm=comm)
 
@@ -409,40 +421,50 @@ class LinuxIntelCompiler(Compiler):
 
 
 @collective
-def load(src, extension, fn_name, cppargs=[], ldargs=[],
+def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
          argtypes=None, restype=None, compiler=None, comm=None):
     """Build a shared library and return a function pointer from it.
 
-    :arg src: A string containing the source to build
+    :arg jitmodule: The JIT Module which can generate the code to compile, or
+        the string representing the source code.
     :arg extension: extension of the source file (c, cpp)
     :arg fn_name: The name of the function to return from the resulting library
     :arg cppargs: A list of arguments to the C compiler (optional)
     :arg ldargs: A list of arguments to the linker (optional)
-    :arg argtypes: A list of ctypes argument types matching the
-         arguments of the returned function (optional, pass ``None``
-         for ``void``).
+    :arg argtypes: A list of ctypes argument types matching the arguments of
+         the returned function (optional, pass ``None`` for ``void``). This is
+         only used when string is passed in instead of JITModule.
     :arg restype: The return type of the function (optional, pass
          ``None`` for ``void``).
     :arg compiler: The name of the C compiler (intel, ``None`` for default).
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
+    assert isinstance(jitmodule, (str, JITModule))
+
     platform = sys.platform
     cpp = extension == "cpp"
+    if not compiler:
+        compiler = configuration["compiler"]
     if platform.find('linux') == 0:
-        if compiler == 'intel':
+        if compiler == 'icc':
             compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
-        else:
+        elif compiler == 'gcc':
             compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
+        else:
+            raise CompilationError("Unrecognized compiler name '%s'" % compiler)
     elif platform.find('darwin') == 0:
         compiler = MacCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)
-    dll = compiler.get_so(src, extension)
+    dll = compiler.get_so(jitmodule, extension)
 
     fn = getattr(dll, fn_name)
-    fn.argtypes = argtypes
+    if isinstance(jitmodule, JITModule):
+        fn.argtypes = jitmodule.argtypes
+    else:
+        fn.argtypes = argtypes
     fn.restype = restype
     return fn
 

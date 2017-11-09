@@ -107,51 +107,51 @@ class TestIterationSpaceDats:
                             for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
-        kernel_sum = FunDecl("void", "kernel_sum",
+        kernel_sum = FunDecl("void", "pyop2_kernel_sum",
                              [Decl(
-                                 "int*", c_sym("nodes"), qualifiers=["unsigned"]),
+                                 "int*", c_sym("edge"), qualifiers=["unsigned"]),
                               Decl(
-                                  "int*", c_sym("edge"), qualifiers=["unsigned"])],
+                                  "int*", c_sym("nodes"), qualifiers=["unsigned"])],
                              c_for("i", 2, Incr(c_sym("*edge"), Symbol("nodes", ("i",)))))
 
-        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
-                     node_vals(op2.READ, edge2node[op2.i[0]]),
-                     edge_vals(op2.INC))
+        op2.par_loop(op2.Kernel(kernel_sum.gencode(), "pyop2_kernel_sum"), edges,
+                     edge_vals(op2.INC),
+                     node_vals(op2.READ, edge2node))
 
         expected = numpy.arange(1, nedges * 2 + 1, 2)
         assert all(expected == edge_vals.data)
 
     def test_read_1d_itspace_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = numpy.arange(nele)
-        k = FunDecl("void", "k",
+        k = FunDecl("void", "pyop2_kernel_k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
                     c_for("i", 1, Assign(Symbol("d", (0,)), Symbol("vd", ("i",)))))
 
-        op2.par_loop(op2.Kernel(k, 'k'), node,
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
                      d1(op2.WRITE),
-                     vd1(op2.READ, node2ele[op2.i[0]]))
+                     vd1(op2.READ, node2ele))
         assert all(d1.data[::2] == vd1.data)
         assert all(d1.data[1::2] == vd1.data)
 
     def test_write_1d_itspace_map(self, node, vd1, node2ele):
-        k = FunDecl("void", "k",
+        k = FunDecl("void", "pyop2_kernel_k",
                     [Decl("int*", c_sym("vd"))],
                     c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))))
 
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd1(op2.WRITE, node2ele[op2.i[0]]))
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
+                     vd1(op2.WRITE, node2ele))
         assert all(vd1.data == 2)
 
     def test_inc_1d_itspace_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = 3
         d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
 
-        k = FunDecl("void", "k",
-                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+        k = FunDecl("void", "pyop2_kernel_k",
+                    [Decl("int*", c_sym("vd")), Decl("int*", c_sym("d"))],
                     c_for("i", 1, Incr(Symbol("vd", ("i",)), c_sym("*d"))))
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d1(op2.READ),
-                     vd1(op2.INC, node2ele[op2.i[0]]))
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
+                     vd1(op2.INC, node2ele),
+                     d1(op2.READ))
         expected = numpy.zeros_like(vd1.data)
         expected[:] = 3
         expected += numpy.arange(
@@ -168,12 +168,12 @@ class TestIterationSpaceDats:
                  Symbol(
                      "d", (1,)), Symbol("vd", ("i",), ((1, 1),)))],
             open_scope=True)
-        k = FunDecl("void", "k",
+        k = FunDecl("void", "pyop2_kernel_k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
                     c_for("i", 1, reads))
-        op2.par_loop(op2.Kernel(k, 'k'), node,
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
                      d2(op2.WRITE),
-                     vd2(op2.READ, node2ele[op2.i[0]]))
+                     vd2(op2.READ, node2ele))
         assert all(d2.data[::2, 0] == vd2.data[:, 0])
         assert all(d2.data[::2, 1] == vd2.data[:, 1])
         assert all(d2.data[1::2, 0] == vd2.data[:, 0])
@@ -183,11 +183,11 @@ class TestIterationSpaceDats:
         writes = Block([Assign(Symbol("vd", ("i",), ((1, 0),)), c_sym(2)),
                         Assign(Symbol("vd", ("i",), ((1, 1),)), c_sym(3))],
                        open_scope=True)
-        k = FunDecl("void", "k",
+        k = FunDecl("void", "pyop2_kernel_k",
                     [Decl("int*", c_sym("vd"))],
                     c_for("i", 1, writes))
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd2(op2.WRITE, node2ele[op2.i[0]]))
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
+                     vd2(op2.WRITE, node2ele))
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
 
@@ -200,13 +200,13 @@ class TestIterationSpaceDats:
                       Incr(
                           Symbol("vd", ("i",), ((1, 1),)), Symbol("d", (1,)))],
                      open_scope=True)
-        k = FunDecl("void", "k",
-                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+        k = FunDecl("void", "pyop2_kernel_k",
+                    [Decl("int*", c_sym("vd")), Decl("int*", c_sym("d"))],
                     c_for("i", 1, incs))
 
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d2(op2.READ),
-                     vd2(op2.INC, node2ele[op2.i[0]]))
+        op2.par_loop(op2.Kernel(k.gencode(), 'pyop2_kernel_k'), node,
+                     vd2(op2.INC, node2ele),
+                     d2(op2.READ))
 
         expected = numpy.zeros_like(vd2.data)
         expected[:, 0] = 3

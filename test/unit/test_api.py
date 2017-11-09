@@ -245,7 +245,7 @@ class TestArgAPI:
             assert a.data == d
 
     def test_arg_split_mat(self, mat, m_iterset_toset):
-        arg = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        arg = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
         for a in arg.split:
             assert a == arg
 
@@ -256,15 +256,7 @@ class TestArgAPI:
 
     def test_arg_eq_dat(self, dat, m_iterset_toset):
         assert dat(op2.READ, m_iterset_toset) == dat(op2.READ, m_iterset_toset)
-        assert dat(op2.READ, m_iterset_toset[0]) == dat(op2.READ, m_iterset_toset[0])
         assert not dat(op2.READ, m_iterset_toset) != dat(op2.READ, m_iterset_toset)
-        assert not dat(op2.READ, m_iterset_toset[0]) != dat(op2.READ, m_iterset_toset[0])
-
-    def test_arg_ne_dat_idx(self, dat, m_iterset_toset):
-        a1 = dat(op2.READ, m_iterset_toset[0])
-        a2 = dat(op2.READ, m_iterset_toset[1])
-        assert a1 != a2
-        assert not a1 == a2
 
     def test_arg_ne_dat_mode(self, dat, m_iterset_toset):
         a1 = dat(op2.READ, m_iterset_toset)
@@ -279,20 +271,14 @@ class TestArgAPI:
         assert not dat(op2.READ, m_iterset_toset) == dat(op2.READ, m2)
 
     def test_arg_eq_mat(self, mat, m_iterset_toset):
-        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
-        a2 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        a1 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
+        a2 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
         assert a1 == a2
         assert not a1 != a2
 
-    def test_arg_ne_mat_idx(self, mat, m_iterset_toset):
-        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
-        a2 = mat(op2.INC, (m_iterset_toset[1], m_iterset_toset[1]))
-        assert a1 != a2
-        assert not a1 == a2
-
     def test_arg_ne_mat_mode(self, mat, m_iterset_toset):
-        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
-        a2 = mat(op2.WRITE, (m_iterset_toset[0], m_iterset_toset[0]))
+        a1 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
+        a2 = mat(op2.WRITE, (m_iterset_toset, m_iterset_toset))
         assert a1 != a2
         assert not a1 == a2
 
@@ -384,16 +370,16 @@ class TestExtrudedSetAPI:
         """It should be possible to iterate over an extruded set reading dats
            defined on the base set (indirectly)."""
         e = op2.ExtrudedSet(iterset, 5)
-        k = op2.Kernel('void k() { }', 'k')
+        k = op2.Kernel('void pyop2_kernel_k() { }', 'pyop2_kernel_k')
         dat1, dat2 = dats
-        base.ParLoop(k, e, dat1(op2.READ, m_iterset_toset))
-        base.ParLoop(k, e, dat2(op2.READ, m_iterset_set))
+        op2.par_loop(k, e, dat1(op2.READ, m_iterset_toset))
+        op2.par_loop(k, e, dat2(op2.READ, m_iterset_set))
 
     def test_iteration_incompatibility(self, set, m_iterset_toset, dat):
         """It should not be possible to iteratve over an extruded set reading
            dats not defined on the base set (indirectly)."""
         e = op2.ExtrudedSet(set, 5)
-        k = op2.Kernel('void k() { }', 'k')
+        k = op2.Kernel('void pyop2_kernel_k() { }', 'pyop2_kernel_k')
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(k, e, dat(op2.READ, m_iterset_toset))
 
@@ -976,10 +962,6 @@ class TestMixedDatAPI:
         "MixedDat cdim should return a tuple of the DataSet cdims."
         assert op2.MixedDat(mdset).cdim == mdset.cdim
 
-    def test_mixed_dat_soa(self, mdat):
-        "MixedDat soa should return a tuple of the Dat soa flags."
-        assert mdat.soa == tuple(d.soa for d in mdat)
-
     def test_mixed_dat_data(self, mdat):
         "MixedDat data should return a tuple of the Dat data arrays."
         assert all((d1 == d2.data).all() for d1, d2 in zip(mdat.data, mdat))
@@ -1282,18 +1264,13 @@ class TestMatAPI:
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            mat(op2.INC, (wrongmap[0], wrongmap[1]))
-
-    def test_mat_arg_nonindexed_maps(self, mat, m_iterset_toset):
-        "Mat arg constructor should reject nonindexed maps."
-        with pytest.raises(TypeError):
-            mat(op2.INC, (m_iterset_toset, m_iterset_toset))
+            mat(op2.INC, (wrongmap, wrongmap))
 
     @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MIN, op2.MAX])
     def test_mat_arg_illegal_mode(self, mat, mode, m_iterset_toset):
         """Mat arg constructor should reject illegal access modes."""
         with pytest.raises(exceptions.ModeValueError):
-            mat(mode, (m_iterset_toset[op2.i[0]], m_iterset_toset[op2.i[1]]))
+            mat(mode, (m_iterset_toset, m_iterset_toset))
 
     def test_mat_iter(self, mat):
         "Mat should be iterable and yield self."
@@ -1496,10 +1473,6 @@ class TestMapAPI:
                 and m.arities == (2,) and m.arange == (0, 2)
                 and m.values.sum() == 2 * iterset.size and m.name == 'bar')
 
-    def test_map_indexing(self, m_iterset_toset):
-        "Indexing a map should create an appropriate Arg"
-        assert m_iterset_toset[0].idx == 0
-
     def test_map_eq(self, m_iterset_toset):
         """Map equality is identity."""
         mcopy = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,
@@ -1677,8 +1650,8 @@ class TestKernelAPI:
 
     def test_kernel_repr(self, set):
         "Kernel should have the expected repr."
-        k = op2.Kernel("int foo() { return 0; }", 'foo')
-        assert repr(k) == 'Kernel("""%s""", %r)' % (k.code(), k.name)
+        k = op2.Kernel("int pyop2_kernel_foo() { return 0; }", 'pyop2_kernel_foo')
+        assert repr(k) == 'Kernel("""%s""", %r)' % (k.code, k.name)
 
     def test_kernel_str(self, set):
         "Kernel should have the expected string representation."
@@ -1700,7 +1673,7 @@ class TestParLoopAPI:
     def test_illegal_iterset(self, dat, m_iterset_toset):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.SetTypeError):
-            op2.par_loop(op2.Kernel("", "k"), 'illegal_set',
+            op2.par_loop(op2.Kernel("", "pyop2_kernel_k"), 'illegal_set',
                          dat(op2.READ, m_iterset_toset))
 
     def test_illegal_dat_iterset(self):
@@ -1711,7 +1684,7 @@ class TestParLoopAPI:
         dset1 = op2.DataSet(set1, 1)
         dat = op2.Dat(dset1)
         map = op2.Map(set2, set1, 1, [0, 0, 0])
-        kernel = op2.Kernel("void k() { }", "k")
+        kernel = op2.Kernel("void pyop2_kernel_k() { }", "pyop2_kernel_k")
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(kernel, set1, dat(op2.READ, map))
 
@@ -1721,10 +1694,10 @@ class TestParLoopAPI:
         set1 = op2.Set(2)
         m = op2.Mat(sparsity)
         rmap, cmap = sparsity.maps[0]
-        kernel = op2.Kernel("void k() { }", "k")
+        kernel = op2.Kernel("void pyop2_kernel_k() { }", "pyop2_kernel_k")
         with pytest.raises(exceptions.MapValueError):
             op2.par_loop(kernel, set1,
-                         m(op2.INC, (rmap[op2.i[0]], cmap[op2.i[1]])))
+                         m(op2.INC, (rmap, cmap)))
 
     def test_empty_map_and_iterset(self):
         """If the iterset of the ParLoop is zero-sized, it should not matter if
@@ -1733,8 +1706,8 @@ class TestParLoopAPI:
         s2 = op2.Set(10)
         m = op2.Map(s1, s2, 3)
         d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
-        k = op2.Kernel("void k(int *x) {}", "k")
-        op2.par_loop(k, s1, d(op2.READ, m[0]))
+        k = op2.Kernel("void pyop2_kernel_k(int *x) {}", "pyop2_kernel_k")
+        op2.par_loop(k, s1, d(op2.READ, m))
         # Force evaluation otherwise this loop will remain in the trace forever
         # in case of lazy evaluation mode
         base._trace.evaluate_all()

@@ -57,9 +57,6 @@ class TestHDF5:
         f.create_dataset('dat', data=np.arange(10).reshape(5, 2),
                          dtype=np.float64)
         f['dat'].attrs['type'] = 'double'
-        f.create_dataset('soadat', data=np.arange(10).reshape(5, 2),
-                         dtype=np.float64)
-        f['soadat'].attrs['type'] = 'double:soa'
         f.create_dataset('set', data=np.array((5,)))
         f['set'].attrs['dim'] = 2
         f.create_dataset('myconstant', data=np.arange(3))
@@ -100,12 +97,6 @@ class TestHDF5:
         "Creating a dat from h5file should work"
         d = op2.Dat.fromhdf5(dset, h5file, 'dat')
         assert d.dtype == np.float64
-        assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
-
-    def test_data_hdf5_soa(self, h5file, dset):
-        "Creating an SoA dat from h5file should work"
-        d = op2.Dat.fromhdf5(dset, h5file, 'soadat')
-        assert d.soa
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
     def test_map_hdf5(self, iterset, toset, h5file):

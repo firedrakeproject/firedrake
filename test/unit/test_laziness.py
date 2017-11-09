@@ -54,13 +54,12 @@ class TestLaziness:
         a = op2.Global(1, 0, numpy.uint32, "a")
 
         kernel = """
-void
-count(unsigned int* x)
+void pyop2_kernel_count(unsigned int* x)
 {
   (*x) += 1;
 }
 """
-        op2.par_loop(op2.Kernel(kernel, "count"), iterset, a(op2.INC))
+        op2.par_loop(op2.Kernel(kernel, "pyop2_kernel_count"), iterset, a(op2.INC))
 
         assert a._data[0] == 0
         assert a.data[0] == nelems
@@ -71,14 +70,13 @@ count(unsigned int* x)
         b = op2.Global(1, 0, numpy.uint32, "b")
 
         kernel = """
-void
-count(unsigned int* x)
+void pyop2_kernel_count(unsigned int* x)
 {
   (*x) += 1;
 }
 """
-        op2.par_loop(op2.Kernel(kernel, "count"), iterset, a(op2.INC))
-        op2.par_loop(op2.Kernel(kernel, "count"), iterset, b(op2.INC))
+        op2.par_loop(op2.Kernel(kernel, "pyop2_kernel_count"), iterset, a(op2.INC))
+        op2.par_loop(op2.Kernel(kernel, "pyop2_kernel_count"), iterset, b(op2.INC))
 
         assert a._data[0] == 0
         assert b._data[0] == 0
@@ -90,7 +88,7 @@ count(unsigned int* x)
         """Read-only access to a Dat should force computation that writes to it."""
         base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
-        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
+        k = op2.Kernel('void pyop2_kernel_k(double *x) { *x = 1.0; }', 'pyop2_kernel_k')
         op2.par_loop(k, iterset, d(op2.WRITE))
         assert all(d.data_ro == 1.0)
         assert len(base._trace._trace) == 0
@@ -101,8 +99,8 @@ count(unsigned int* x)
         base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
         d2 = op2.Dat(iterset, numpy.empty(iterset.total_size), dtype=numpy.float64)
-        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
-        k2 = op2.Kernel('void k2(double *x, double *y) { *x = *y; }', 'k2')
+        k = op2.Kernel('void pyop2_kernel_k(double *x) { *x = 1.0; }', 'pyop2_kernel_k')
+        k2 = op2.Kernel('void pyop2_kernel_k2(double *x, double *y) { *x = *y; }', 'pyop2_kernel_k2')
         op2.par_loop(k, iterset, d(op2.WRITE))
         op2.par_loop(k2, iterset, d2(op2.WRITE), d(op2.READ))
         assert all(d.data == 1.0)
@@ -115,29 +113,29 @@ count(unsigned int* x)
 
         kernel_add_one = """
 void
-add_one(unsigned int* x)
+pyop2_kernel_add_one(unsigned int* x)
 {
   (*x) += 1;
 }
 """
         kernel_copy = """
 void
-copy(unsigned int* dst, unsigned int* src)
+pyop2_kernel_copy(unsigned int* dst, unsigned int* src)
 {
   (*dst) = (*src);
 }
 """
         kernel_sum = """
 void
-sum(unsigned int* sum, unsigned int* x)
+pyop2_kernel_sum(unsigned int* sum, unsigned int* x)
 {
   (*sum) += (*x);
 }
 """
 
-        pl_add = op2.par_loop(op2.Kernel(kernel_add_one, "add_one"), iterset, x(op2.RW))
-        pl_copy = op2.par_loop(op2.Kernel(kernel_copy, "copy"), iterset, y(op2.WRITE), x(op2.READ))
-        pl_sum = op2.par_loop(op2.Kernel(kernel_sum, "sum"), iterset, a(op2.INC), x(op2.READ))
+        pl_add = op2.par_loop(op2.Kernel(kernel_add_one, "pyop2_kernel_add_one"), iterset, x(op2.RW))
+        pl_copy = op2.par_loop(op2.Kernel(kernel_copy, "pyop2_kernel_copy"), iterset, y(op2.WRITE), x(op2.READ))
+        pl_sum = op2.par_loop(op2.Kernel(kernel_sum, "pyop2_kernel_sum"), iterset, a(op2.INC), x(op2.READ))
 
         # check everything is zero at first
         assert sum(x._data) == 0

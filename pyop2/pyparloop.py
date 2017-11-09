@@ -126,13 +126,7 @@ class ParLoop(base.ParLoop):
                 elif arg._is_direct:
                     args.append(arrayview(arg.data._data[idx, ...], arg.access))
                 elif arg._is_indirect:
-                    if isinstance(arg.idx, base.IterationIndex):
-                        raise NotImplementedError
-                    if arg._is_vec_map:
-                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
-                    else:
-                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1],
-                                                             ...]), arg.access)
+                    args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
                 elif arg._is_mat:
                     if arg.access not in [base.INC, base.WRITE]:
                         raise NotImplementedError
@@ -150,10 +144,7 @@ class ParLoop(base.ParLoop):
                 elif arg._is_direct:
                     arg.data._data[idx, ...] = tmp[:]
                 elif arg._is_indirect:
-                    if arg._is_vec_map:
-                        arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
-                    else:
-                        arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1]] = tmp[:]
+                    arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
                 elif arg._is_mat:
                     if arg.access is base.INC:
                         arg.data.addto_values(arg.map[0].values_with_halo[idx],

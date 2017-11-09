@@ -39,20 +39,19 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, info, warning, error, critical, set_log_level
 from pyop2.mpi import MPI, COMM_WORLD, collective
 
-from pyop2.base import i                      # noqa: F401
 from pyop2.sequential import par_loop, Kernel  # noqa: F401
 from pyop2.sequential import READ, WRITE, RW, INC, MIN, MAX  # noqa: F401
-from pyop2.sequential import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL  # noqa: F401
+from pyop2.base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL  # noqa: F401
 from pyop2.sequential import Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet  # noqa: F401
 from pyop2.sequential import Map, MixedMap, DecoratedMap, Sparsity, Halo  # noqa: F401
 from pyop2.sequential import Global, GlobalDataSet        # noqa: F401
 from pyop2.sequential import Dat, MixedDat, DatView, Mat  # noqa: F401
 
-from coffee import coffee_init, O0
+import loopy
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
-           'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
+           'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
@@ -61,6 +60,9 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
 
 
 _initialised = False
+
+# turn off loopy caching because pyop2 kernels are cached already
+loopy.set_caching_enabled(False)
 
 
 def initialised():
@@ -77,9 +79,6 @@ def init(**kwargs):
     :arg comm:      The MPI communicator to use for parallel communication,
                     defaults to `MPI_COMM_WORLD`
     :arg log_level: The log level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    :arg opt_level: The default optimization level in COFFEE. Options: O0, O1, O2,
-                    O3, Ofast. For more information about these levels, refer to
-                    ``coffee_init``'s documentation. The default value is O0.
 
     For debugging purposes, `init` accepts all keyword arguments
     accepted by the PyOP2 :class:`Configuration` object, see
@@ -97,8 +96,7 @@ def init(**kwargs):
     configuration.reconfigure(**kwargs)
 
     set_log_level(configuration['log_level'])
-    coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'],
-                optlevel=configuration.get('opt_level', O0))
+
     _initialised = True
 
 
