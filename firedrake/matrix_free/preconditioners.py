@@ -1,6 +1,6 @@
 import abc
 
-from firedrake.citations import Citations
+from firedrake_citations import Citations
 from firedrake.petsc import PETSc
 
 __all__ = ("AssembledPC", "MassInvPC", "PCDPC", "PCBase")

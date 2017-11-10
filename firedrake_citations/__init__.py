@@ -1,4 +1,7 @@
-from firedrake.petsc import PETSc
+import petsc4py
+import sys
+petsc4py.init(sys.argv)
+from petsc4py import PETSc
 
 
 __all__ = ["Citations"]
@@ -89,10 +92,6 @@ Citations().add("Rathgeber2016", """
 }
 """)
 
-# Register the firedrake paper for citations
-Citations().register("Rathgeber2016")
-
-# The rest are all registered only when using appropriate functionality.
 Citations().add("McRae2016", """
 @Article{McRae2016,
   author =       {Andrew T. T. McRae and Gheorghe-Teodor Bercea and

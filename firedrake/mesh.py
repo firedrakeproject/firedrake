@@ -483,7 +483,7 @@ class MeshTopology(object):
                                            cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake.citations import Citations
+            from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
@@ -741,7 +741,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
-        from firedrake.citations import Citations
+        from firedrake_citations import Citations
         Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
