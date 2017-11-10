@@ -24,7 +24,7 @@ class MeshHierarchy(object):
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
-        from firedrake.citations import Citations
+        from firedrake_citations import Citations
         Citations().register("Mitchell2016")
         if m.ufl_cell().cellname() not in ["triangle", "interval"]:
             raise NotImplementedError("Only supported on intervals and triangles")
