@@ -370,7 +370,7 @@ def pick_mode(mode):
         cites = {"vanilla": ("Homolya2017", ),
                  "coffee": ("Luporini2016", "Homolya2017", ),
                  "spectral": ("Luporini2016", "Homolya2017", "Homolya2017a"),
-                 "tensor": ("Homolya2017", )}
+                 "tensor": ("Kirby2006", "Homolya2017", )}
         for c in cites[mode]:
             Citations().register(c)
     except ImportError:
