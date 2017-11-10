@@ -126,6 +126,7 @@ Citations().add("Homolya2016", """
   doi =          {10.1137/15M1021325},
   archiveprefix ={arXiv},
   eprint =       {1505.03357},
+  primaryclass = {cs.MS},
   url =          {http://arxiv.org/abs/1505.03357}
 }
 """)
@@ -160,6 +161,7 @@ Citations().add("Luporini2016", """
   pages =        {3:1--3:26},
   archiveprefix ={arXiv},
   eprint =       {1604.05872},
+  primaryclass = {cs.MS},
   url =          {http://arxiv.org/abs/1604.05872},
   doi =          {10.1145/3054944},
 }
@@ -218,15 +220,31 @@ Citations().add("Homolya2017", """
 }
 """)
 
-Citations().add("Mitchell2017", """
-@Misc{Mitchell2017,
-  author =       {Lawrence Mitchell and Robert C. Kirby},
+Citations().add("Kirby2017", """
+@Article{Kirby2017,
+  author =       {Robert C. Kirby and Lawrence Mitchell},
   title =        {{Solver composition across the PDE/linear algebra
                   barrier}},
+  journal =      {SIAM Journal on Scientific Computing},
+  note =         {to appear},
   year =         2017,
   archiveprefix ={arXiv},
   eprint =       {1706.01346},
   primaryclass = {cs.MS},
   url =          {http://arxiv.org/abs/1706.01346}
+}
+""")
+
+Citations().add("Homolya2017a", """
+@Misc{Homolya2017a,
+  author =       {Mikl\'os Homolya and Robert C. Kirby and David
+                  A. Ham},
+  title =        {{Exposing and exploiting structure: optimal code
+                  generation for high-order finite element methods}},
+  year =         2017,
+  archiveprefix ={arXiv},
+  eprint =       {1711.02473},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1711.02473}
 }
 """)
