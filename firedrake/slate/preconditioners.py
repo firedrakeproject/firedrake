@@ -8,7 +8,7 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
 from pyop2.profiling import timed_region, timed_function
-
+from pyop2.utils import as_tuple
 
 __all__ = ['HybridizationPC']
 
@@ -167,54 +167,38 @@ class HybridizationPC(PCBase):
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
             neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
 
-            # insert all of the jump terms corresponding to neumann conditions
+            integrand = gammar * ufl.dot(sigma, n)
+            measures = []
+            trace_subdomains = []
             if mesh.cell_set._extruded:
-                # insert jump terms on top and/or bottom as appropriate
+                ds = ufl.ds_v
                 for subdomain in extruded_neumann_subdomains:
-                    if subdomain == "top":
-                        Kform += gammar * ufl.dot(sigma, n) * ufl.ds_t
-                    if subdomain == "bottom":
-                        Kform += gammar * ufl.dot(sigma, n) * ufl.ds_b
-                if "on_boundary" in neumann_subdomains:
-                    # insert jump terms on entire side boundary
-                    Kform += gammar * ufl.dot(sigma, n) * ufl.ds_v
-                else:
-                    # insert side jump terms individually
-                    for subdomain in neumann_subdomains:
-                        Kform += gammar * ufl.dot(sigma, n) * ufl.ds_v(subdomain)
+                    measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
+                trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
             else:
-                # insert jump terms as appropriate
-                if "on_boundary" in neumann_subdomains:
-                    # insert jump terms on entire boundary
-                    Kform += gammar * ufl.dot(sigma, n) * ufl.ds
-                else:
-                    # insert jump terms individually
-                    for subdomain in neumann_subdomains:
-                        Kform += gammar * ufl.dot(sigma, n) * ufl.ds(subdomain)
+                ds = ufl.ds
+            if "on_boundary" in neumann_subdomains:
+                measures.append(ds)
+            else:
+                measures.append(ds(tuple(neumann_subdomains)))
+                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
+                trace_subdomains.append(sorted(dirichlet_subdomains))
 
-            # put trace bcs wherever neumann conditions aren't set
-            trace_bcs = []
-            if mesh.cell_set._extruded:
-                if "top" not in extruded_neumann_subdomains:
-                    trace_bcs.append(DirichletBC(TraceSpace, Constant(0.0), "top"))
-                if "bottom" not in extruded_neumann_subdomains:
-                    trace_bcs.append(DirichletBC(TraceSpace, Constant(0.0), "bottom"))
-            if "on_boundary" not in neumann_subdomains:
-                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers).difference(neumann_subdomains)
-                for subdomain in dirichlet_subdomains:
-                    trace_bcs.append(DirichletBC(TraceSpace, Constant(0.0), subdomain))
+            for measure in measures:
+                Kform += integrand*measure
+
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
 
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
             # We zero out the contribution of the trace variables on
             # the exterior boundary. Extruded cells will have both
             # horizontal and vertical facets
+            trace_subdomains = ["on_boundary"]
             if mesh.cell_set._extruded:
-                trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary"),
-                             DirichletBC(TraceSpace, Constant(0.0), "bottom"),
-                             DirichletBC(TraceSpace, Constant(0.0), "top")]
-            else:
-                trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary")]
+                trace_subdomains.extend(["bottom", "top"])
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
