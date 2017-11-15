@@ -1,6 +1,7 @@
 import numpy
 import ufl
 from collections import defaultdict
+from itertools import chain
 
 from pyop2 import op2
 from pyop2.base import collecting_loops
@@ -186,12 +187,18 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
+    topology = f.ufl_domains()[0].topology
     for m in f.ufl_domains():
         # Ensure mesh is "initialised" (could have got here without
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
-        if m.topology != f.ufl_domains()[0].topology:
+        if m.topology != topology:
             raise NotImplementedError("All integration domains must share a mesh topology.")
+
+    for o in chain(f.arguments(), f.coefficients()):
+        domain = o.ufl_domain()
+        if domain is not None and domain.topology != topology:
+            raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if isinstance(f, slate.TensorBase):
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)

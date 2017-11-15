@@ -198,6 +198,11 @@ def _interpolator(V, dat, expr, subset):
     for coefficient in coefficients:
         args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
 
+    for o in coefficients:
+        domain = o.ufl_domain()
+        if domain is not None and domain.topology != mesh.topology:
+            raise NotImplementedError("Interpolation onto another mesh not supported.")
+
     if copy_back:
         return partial(op2.par_loop, *args), partial(dat.copy, output)
     else:
@@ -209,6 +214,7 @@ class GlobalWrapper(object):
     def __init__(self, glob):
         self.dat = glob
         self.cell_node_map = lambda *args: None
+        self.ufl_domain = lambda: None
 
 
 def compile_python_kernel(expression, to_pts, to_element, fs, coords):
