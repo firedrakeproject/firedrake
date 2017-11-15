@@ -157,7 +157,7 @@ class HybridizationPC(PCBase):
                 if bc.function_space().index != self.vidx:
                     raise NotImplementedError("Dirichlet bc set on unsupported space.")
                 # append the set of sub domains
-                neumann_subdomains |= set(bc.sub_domain)
+                neumann_subdomains |= set([bc.sub_domain])
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
             neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
