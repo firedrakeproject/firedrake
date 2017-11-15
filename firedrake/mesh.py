@@ -148,14 +148,14 @@ class _Facets(object):
         :param markers: integer marker id or an iterable of marker ids
             (or ``None``, for an empty subset).
         """
-        if self.markers is None:
-            return self._null_subset
+        valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, int)
+        if self.markers is None and valid_markers.intersection(markers):
+            return self._null_subset
         try:
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            valid_markers = set([unmarked]).union(self.unique_markers)
             if len(set(markers).difference(valid_markers)) > 0:
                 invalid = set(markers).difference(valid_markers)
                 raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))

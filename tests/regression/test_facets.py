@@ -161,7 +161,6 @@ def test_facet_map_no_reshape():
     assert efnm.values_with_halo.shape == (4, 1)
 
 
-@pytest.mark.xfail(reason="subset shortcuts case of no local markers")
 def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
     mesh.init()
