@@ -231,7 +231,6 @@ def test_real_space_mixed_assign():
     assert np.allclose(q.dat.data_ro, 2.0)
 
 
-@pytest.mark.xfail(reason="Error checking in PyOP2 accesses property of None")
 def test_real_space_first():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
