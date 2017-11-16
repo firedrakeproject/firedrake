@@ -2530,6 +2530,12 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None, comm=None):
+        if isinstance(dim, Global):
+            # If g is a Global, Global(g) performs a deep copy. This is for compatibility with Dat.
+            self.__init__(dim._dim, None, dtype=dim.dtype,
+                          name="copy_of_%s" % dim.name, comm=dim.comm)
+            dim.copy(self)
+            return
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
