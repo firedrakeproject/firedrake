@@ -8,7 +8,7 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.profiling import timed_region, timed_function
-
+from pyop2.utils import as_tuple
 
 __all__ = ['HybridizationPC']
 
@@ -132,22 +132,75 @@ class HybridizationPC(PCBase):
         n = ufl.FacetNormal(mesh)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        # We zero out the contribution of the trace variables on the exterior
-        # boundary. Extruded cells will have both horizontal and vertical
-        # facets
         if mesh.cell_set._extruded:
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary"),
-                         DirichletBC(TraceSpace, Constant(0.0), "bottom"),
-                         DirichletBC(TraceSpace, Constant(0.0), "top")]
-            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS_h +
-                       gammar('+') * ufl.dot(sigma, n) * ufl.dS_v)
+            Kform = (gammar('+') * ufl.dot(sigma, n) * ufl.dS_h +
+                     gammar('+') * ufl.dot(sigma, n) * ufl.dS_v)
         else:
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary")]
-            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
+            Kform = (gammar('+') * ufl.dot(sigma, n) * ufl.dS)
+
+        # Here we deal with boundaries. If there are Neumann
+        # conditions (which should be enforced strongly for
+        # H(div)xL^2) then we need to add jump terms on the exterior
+        # facets. If there are Dirichlet conditions (which should be
+        # enforced weakly) then we need to zero out the trace
+        # variables there as they are not active (otherwise the hybrid
+        # problem is not well-posed).
 
         # If boundary conditions are contained in the ImplicitMatrixContext:
         if self.cxt.row_bcs:
-            raise NotImplementedError("Strong BCs not currently handled. Try imposing them weakly.")
+            # Find all the subdomains with neumann BCS
+            # These are Dirichlet BCs on the vidx space
+            neumann_subdomains = set()
+            for bc in self.cxt.row_bcs:
+                if bc.function_space().index == self.pidx:
+                    raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
+                if bc.function_space().index != self.vidx:
+                    raise NotImplementedError("Dirichlet bc set on unsupported space.")
+                # append the set of sub domains
+                subdom = bc.sub_domain
+                if isinstance(subdom, str):
+                    neumann_subdomains |= set([subdom])
+                else:
+                    neumann_subdomains |= set(as_tuple(subdom, int))
+
+            # separate out the top and bottom bcs
+            extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
+            neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
+
+            integrand = gammar * ufl.dot(sigma, n)
+            measures = []
+            trace_subdomains = []
+            if mesh.cell_set._extruded:
+                ds = ufl.ds_v
+                for subdomain in extruded_neumann_subdomains:
+                    measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
+                trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
+            else:
+                ds = ufl.ds
+            if "on_boundary" in neumann_subdomains:
+                measures.append(ds)
+            else:
+                measures.append(ds(tuple(neumann_subdomains)))
+                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
+                trace_subdomains.append(sorted(dirichlet_subdomains))
+
+            for measure in measures:
+                Kform += integrand*measure
+
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+
+        else:
+            # No bcs were provided, we assume weak Dirichlet conditions.
+            # We zero out the contribution of the trace variables on
+            # the exterior boundary. Extruded cells will have both
+            # horizontal and vertical facets
+            trace_subdomains = ["on_boundary"]
+            if mesh.cell_set._extruded:
+                trace_subdomains.extend(["bottom", "top"])
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+
+        # Make a SLATE tensor from Kform
+        K = Tensor(Kform)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
