@@ -246,14 +246,12 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
-            continue
-        elif type(space) is impl.ProxyFunctionSpace:
-            if space.component is not None:
-                raise ValueError("Can't make mixed space with %s" % space)
-            continue
-        else:
+        if not isinstance(space, impl.FunctionSpace):
             raise ValueError("Can't make mixed space with %s" % type(space))
+        if type(space) is impl.RealFunctionSpace:
+            continue
+        if space.component is not None:
+            raise ValueError("Can't make mixed space with %s" % space)
 
     new = impl.MixedFunctionSpace(spaces, name=name)
     if mesh is not mesh.topology:

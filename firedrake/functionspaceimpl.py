@@ -300,8 +300,6 @@ class FunctionSpace(object):
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
-    # These properties are overridden in ProxyFunctionSpaces, but are
-    # provided by FunctionSpace so that we don't have to special case.
     index = None
     """The position of this space in its parent
     :class:`MixedFunctionSpace`, or ``None``."""
@@ -724,60 +722,6 @@ class MixedFunctionSpace(object):
         return self.dof_dset.field_ises
 
 
-class ProxyFunctionSpace(FunctionSpace):
-    """A :class:`FunctionSpace` that one can attach extra properties to.
-
-    :arg mesh: The mesh to use.
-    :arg element: The UFL element.
-    :arg name: The name of the function space.
-
-    .. warning::
-
-       Users should not build a :class:`ProxyFunctionSpace` directly,
-       it is mostly used as an internal implementation detail.
-    """
-    def __new__(cls, mesh, element, name=None):
-        topology = mesh.topology
-        self = super(ProxyFunctionSpace, cls).__new__(cls)
-        if mesh is not topology:
-            return WithGeometry(self, mesh)
-        else:
-            return self
-
-    def __repr__(self):
-        return "%sProxyFunctionSpace(%r, %r, name=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
-
-    def __str__(self):
-        return "%sProxyFunctionSpace(%s, %s, name=%s, index=%s, component=%s)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
-
-    identifier = None
-    """An optional identifier, for debugging purposes."""
-
-    no_dats = False
-    """Can this proxy make :class:`pyop2.Dat` objects"""
-
-    def make_dat(self, *args, **kwargs):
-        """Create a :class:`pyop2.Dat`.
-
-        :raises ValueError: if :attr:`no_dats` is ``True``.
-        """
-        if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.identifier)
-        return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
-
-
 def IndexedFunctionSpace(index, space, parent):
     """Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
@@ -785,7 +729,7 @@ def IndexedFunctionSpace(index, space, parent):
     :arg index: The index into the parent space.
     :arg space: The subspace to represent
     :arg parent: The parent mixed space.
-    :returns: A new :class:`ProxyFunctionSpace` with index and parent
+    :returns: A new :class:`FunctionSpace` with index and parent
         set.
     """
 
@@ -793,11 +737,10 @@ def IndexedFunctionSpace(index, space, parent):
         new = RealFunctionSpace(space.mesh(), space.ufl_element(),
                                 name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
-                                 name=space.name)
+        new = FunctionSpace(space.mesh(), space.ufl_element(),
+                            name=space.name)
     new.index = index
     new.parent = parent
-    new.identifier = "indexed"
     return new
 
 
@@ -809,7 +752,7 @@ def ComponentFunctionSpace(parent, component):
     :arg parent: The parent space (a FunctionSpace with a
         VectorElement).
     :arg component: The component to represent.
-    :returns: A new :class:`ProxyFunctionSpace` with the component set.
+    :returns: A new :class:`FunctionSpace` with the component set.
     """
     element = parent.ufl_element()
     assert type(element) is ufl.VectorElement
@@ -818,9 +761,8 @@ def ComponentFunctionSpace(parent, component):
                          (component, parent.value_size))
     if component > 2:
         raise NotImplementedError("Indexing component > 2 not implemented")
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0],
-                             name=parent.name)
-    new.identifier = "component"
+    new = FunctionSpace(parent.mesh(), element.sub_elements()[0],
+                        name=parent.name)
     new.component = component
     new.parent = parent
     return new
