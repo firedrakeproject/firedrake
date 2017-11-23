@@ -162,6 +162,18 @@ def dup_comm(comm_in=None):
     return comm_out
 
 
+# Comm used for compilation, stashed on the internal communicator
+compilationcomm_keyval = MPI.Comm.Create_keyval()
+
+
+def get_compilation_comm(comm):
+    return comm.Get_attr(compilationcomm_keyval)
+
+
+def set_compilation_comm(comm, inner):
+    comm.Set_attr(compilationcomm_keyval, inner)
+
+
 def free_comm(comm, remove=True):
     """Free an internal communicator.
 
@@ -197,6 +209,9 @@ def free_comm(comm, remove=True):
         if remove:
             # Only do this if not called from free_comms.
             dupped_comms.remove(comm)
+        compilation_comm = get_compilation_comm(comm)
+        if compilation_comm is not None:
+            compilation_comm.Free()
         comm.Free()
 
 
@@ -210,7 +225,8 @@ def free_comms():
             free_comm(c, remove=False)
     map(MPI.Comm.Free_keyval, [refcount_keyval,
                                innercomm_keyval,
-                               outercomm_keyval])
+                               outercomm_keyval,
+                               compilationcomm_keyval])
 
 
 def collective(fn):
