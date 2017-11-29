@@ -5,8 +5,8 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
-from firedrake.slate.preconditioners.sc_nullspaces import create_sc_nullspace
-from firedrake.slate.preconditioners.custom_kernels import get_transfer_kernels
+from firedrake.slate.preconditioners.pc_utils import (create_sc_nullspace,
+                                                      get_transfer_kernels)
 from firedrake.parloops import par_loop, READ, WRITE
 from pyop2.profiling import timed_region, timed_function
 

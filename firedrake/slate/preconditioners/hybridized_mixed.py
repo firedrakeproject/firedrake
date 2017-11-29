@@ -4,7 +4,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
-from firedrake.slate.preconditioners.sc_nullspaces import create_trace_nullspace
+from firedrake.slate.preconditioners.pc_utils import create_trace_nullspace
 from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
