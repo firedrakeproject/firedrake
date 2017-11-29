@@ -1,12 +1,10 @@
-"""This module provides custom python preconditioners utilizing
-the Slate language.
-"""
 import ufl
 
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.preconditioners.pc_utils import create_trace_nullspace
 from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
@@ -45,7 +43,7 @@ class HybridizationPC(PCBase):
         self.cxt = P.getPythonContext()
 
         if not isinstance(self.cxt, ImplicitMatrixContext):
-            raise ValueError("The python context must be an ImplicitMatrixContext")
+            raise ValueError("Context must be an ImplicitMatrixContext")
 
         test, trial = self.cxt.a.arguments()
 
@@ -83,8 +81,8 @@ class HybridizationPC(PCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
-        V_d = FunctionSpace(mesh, broken_elements)
+        broken_elements = [ufl.BrokenElement(Vi.ufl_element()) for Vi in V]
+        V_d = FunctionSpace(mesh, ufl.MixedElement(broken_elements))
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
@@ -102,8 +100,7 @@ class HybridizationPC(PCBase):
         p = TrialFunction(V[self.vidx])
         q = TestFunction(V[self.vidx])
         mass = ufl.dot(p, q)*ufl.dx
-        # TODO: Bcs?
-        M = assemble(mass, bcs=None, form_compiler_parameters=self.cxt.fc_params)
+        M = assemble(mass, form_compiler_parameters=self.cxt.fc_params)
         M.force_evaluation()
         Mmat = M.petscmat
 
@@ -222,9 +219,13 @@ class HybridizationPC(PCBase):
         Smat = self.S.petscmat
 
         # Nullspace for the multiplier problem
-        nullspace = create_schur_nullspace(P, -K * Atilde,
-                                           V, V_d, TraceSpace,
-                                           pc.comm)
+        forward = -K * Atilde
+        comm = pc.comm
+        nullspace = create_trace_nullspace(P=P,
+                                           forward=forward,
+                                           V=V, V_d=V_d,
+                                           TraceSpace=TraceSpace,
+                                           comm=comm)
         if nullspace:
             Smat.setNullSpace(nullspace)
 
@@ -241,12 +242,6 @@ class HybridizationPC(PCBase):
 
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
-
-        # NOTE: The projection stage *might* be replaced by a Fortin
-        # operator. We may want to allow the user to specify if they
-        # wish to use a Fortin operator over a projection, or vice-versa.
-        # In a future add-on, we can add a switch which chooses either
-        # the Fortin reconstruction or the usual KSP projection.
 
         # Set up the projection KSP
         hdiv_projection_ksp = PETSc.KSP().create(comm=pc.comm)
@@ -333,12 +328,13 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
 
     def apply(self, pc, x, y):
-        """We solve the forward eliminated problem for the
+        """Solve the forward eliminated problem for the
         approximate traces of the scalar solution (the multipliers)
         and reconstruct the "broken flux and scalar variable."
 
-        Lastly, we project the broken solutions into the mimetic
-        non-broken finite element space.
+        Once the hybridized solutions are computed, the data
+        is projected back into the original non-broken finite element
+        spaces.
         """
 
         with timed_region("HybridBreak"):
@@ -421,46 +417,3 @@ class HybridizationPC(PCBase):
         viewer.pushASCIITab()
         self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
-
-
-def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
-    """Gets the nullspace vectors corresponding to the Schur complement
-    system for the multipliers.
-
-    :arg P: The mixed operator from the ImplicitMatrixContext.
-    :arg forward: A Slate expression denoting the forward elimination
-                  operator.
-    :arg V: The original "unbroken" space.
-    :arg V_d: The broken space.
-    :arg TraceSpace: The space of approximate traces.
-
-    Returns: A nullspace (if there is one) for the Schur-complement system.
-    """
-    from firedrake import assemble, Function, project, AssembledVector
-
-    nullspace = P.getNullSpace()
-    if nullspace.handle == 0:
-        # No nullspace
-        return None
-
-    vecs = nullspace.getVecs()
-    tmp = Function(V)
-    tmp_b = Function(V_d)
-    tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * AssembledVector(tmp_b)
-    new_vecs = []
-    for v in vecs:
-        with tmp.dat.vec_wo as t:
-            v.copy(t)
-
-        project(tmp, tmp_b)
-        assemble(forward_action, tensor=tnsp_tmp)
-        with tnsp_tmp.dat.vec_ro as v:
-            new_vecs.append(v.copy())
-
-    # Normalize
-    for v in new_vecs:
-        v.normalize()
-    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
-
-    return schur_nullspace
