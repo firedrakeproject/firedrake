@@ -5,6 +5,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.preconditioners.sc_nullspaces import create_sc_nullspace
 from firedrake.parloops import par_loop, READ, WRITE
 from pyop2.profiling import timed_region, timed_function
 
@@ -281,45 +282,3 @@ class StaticCondensationPC(PCBase):
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
         raise NotImplementedError("Transpose not implemented.")
-
-
-def create_sc_nullspace(P, V, V_facet, comm):
-    """
-    """
-    from firedrake import Function
-
-    nullspace = P.getNullSpace()
-    if nullspace.handle == 0:
-        # No nullspace
-        return None
-
-    vecs = nullspace.getVecs()
-    tmp = Function(V)
-    scsp_tmp = Function(V_facet)
-    new_vecs = []
-    for v in vecs:
-        with tmp.dat.vec_wo as t:
-            v.copy(t)
-
-        # Transfer the trace bit (the interior bit doesn't contribute)
-        kernel = """
-        for (int i=0; i<%d; ++i){
-            for (int j=0; j<%d; ++j){
-                x_facet[i][j] = x_h[i][j];
-            }
-        }""" % (V_facet.finat_element.space_dimension(),
-                np.prod(V_facet.shape))
-
-        par_loop(kernel, ufl.dx, {"x_facet": (scsp_tmp, WRITE),
-                                  "x_h": (tmp, READ)})
-
-        # Map vecs to the facet space
-        with scsp_tmp.dat.vec_ro as v:
-            new_vecs.append(v.copy())
-
-    # Normalize
-    for v in new_vecs:
-        v.normalize()
-    sc_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
-
-    return sc_nullspace

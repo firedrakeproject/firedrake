@@ -4,6 +4,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.preconditioners.sc_nullspaces import create_trace_nullspace
 from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
@@ -99,8 +100,7 @@ class HybridizationPC(PCBase):
         p = TrialFunction(V[self.vidx])
         q = TestFunction(V[self.vidx])
         mass = ufl.dot(p, q)*ufl.dx
-        # TODO: Bcs?
-        M = assemble(mass, bcs=None, form_compiler_parameters=self.cxt.fc_params)
+        M = assemble(mass, form_compiler_parameters=self.cxt.fc_params)
         M.force_evaluation()
         Mmat = M.petscmat
 
@@ -219,9 +219,13 @@ class HybridizationPC(PCBase):
         Smat = self.S.petscmat
 
         # Nullspace for the multiplier problem
-        nullspace = create_trace_nullspace(P, -K * Atilde,
-                                           V, V_d, TraceSpace,
-                                           pc.comm)
+        forward = -K * Atilde
+        comm = pc.comm
+        nullspace = create_trace_nullspace(P=P,
+                                           forward=forward,
+                                           V=V, V_d=V_d,
+                                           TraceSpace=TraceSpace,
+                                           comm=comm)
         if nullspace:
             Smat.setNullSpace(nullspace)
 
@@ -418,46 +422,3 @@ class HybridizationPC(PCBase):
         viewer.pushASCIITab()
         self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
-
-
-def create_trace_nullspace(P, forward, V, V_d, TraceSpace, comm):
-    """Gets the nullspace vectors corresponding to the Schur complement
-    system for the multipliers.
-
-    :arg P: The mixed operator from the ImplicitMatrixContext.
-    :arg forward: A Slate expression denoting the forward elimination
-                  operator.
-    :arg V: The original "unbroken" space.
-    :arg V_d: The broken space.
-    :arg TraceSpace: The space of approximate traces.
-
-    Returns: A nullspace (if there is one) for the Schur-complement system.
-    """
-    from firedrake import assemble, Function, project, AssembledVector
-
-    nullspace = P.getNullSpace()
-    if nullspace.handle == 0:
-        # No nullspace
-        return None
-
-    vecs = nullspace.getVecs()
-    tmp = Function(V)
-    tmp_b = Function(V_d)
-    tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * AssembledVector(tmp_b)
-    new_vecs = []
-    for v in vecs:
-        with tmp.dat.vec_wo as t:
-            v.copy(t)
-
-        project(tmp, tmp_b)
-        assemble(forward_action, tensor=tnsp_tmp)
-        with tnsp_tmp.dat.vec_ro as v:
-            new_vecs.append(v.copy())
-
-    # Normalize
-    for v in new_vecs:
-        v.normalize()
-    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
-
-    return schur_nullspace

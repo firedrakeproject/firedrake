@@ -1,6 +1,6 @@
 from firedrake import *
-from firedrake.slate.preconditioners.hybridization_mixed import create_trace_nullspace
-from firedrake.slate.preconditioners.static_condensation import create_sc_nullspace
+from firedrake.slate.preconditioners.sc_nullspaces import (create_trace_nullspace,
+                                                           create_sc_nullspace)
 import numpy as np
 
 import pytest
