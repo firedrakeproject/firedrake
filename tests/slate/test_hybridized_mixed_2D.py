@@ -26,9 +26,7 @@ from firedrake import *
 
 @pytest.mark.parametrize(("degrees", "hdiv_family", "quadrilateral"),
                          [((1, 0), "RT", False), ((1, 0), "RTCF", True),
-                          ((2, 1), "RT", False), ((2, 1), "RTCF", True),
-                          ((1, 0), "BDM", False), ((2, 1), "BDM", False),
-                          ((2, 1), "BDFM", False)])
+                          ((1, 0), "BDM", False), ((2, 1), "BDFM", False)])
 def test_mixed_hybridization(degrees, hdiv_family, quadrilateral):
     # Create a mesh
     d_hdiv, d_dg = degrees
