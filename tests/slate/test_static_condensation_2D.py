@@ -21,7 +21,7 @@ def test_static_condensation(degree):
     sc_params = {'mat_type': 'matfree',
                  'ksp_type': 'preonly',
                  'pc_type': 'python',
-                 'pc_python_type': 'firedrake.StaticCondensationPC',
+                 'pc_python_type': 'firedrake.SCCG',
                  'static_condensation': {'ksp_type': 'preonly',
                                          'pc_type': 'lu'}}
     solve(a == L, u_hsc, solver_parameters=sc_params)

@@ -11,12 +11,12 @@ from firedrake.parloops import par_loop, READ, WRITE
 from pyop2.profiling import timed_region, timed_function
 
 
-__all__ = ['StaticCondensationPC']
+__all__ = ['SCCG']
 
 
-class StaticCondensationPC(PCBase):
-    """A Slate-based python preconditioner that solves an
-    H1-conforming problem using static condensation.
+class SCCG(PCBase):
+    """A Slate-based python preconditioner implementation of
+    static condensation for continuous Galerkin problems.
     """
 
     @timed_function("SCInit")

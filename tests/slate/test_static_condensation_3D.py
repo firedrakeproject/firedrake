@@ -21,7 +21,7 @@ def test_static_condensation_3d_helmholtz(degree):
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
-              'pc_python_type': 'firedrake.StaticCondensationPC',
+              'pc_python_type': 'firedrake.SCCG',
               'static_condensation': {'ksp_type': 'preonly',
                                       'pc_type': 'lu',
                                       'pc_factor_mat_solver_package': 'mumps'}}
