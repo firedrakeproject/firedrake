@@ -15,12 +15,18 @@ __all__ = ['StaticCondensationPC']
 
 
 class StaticCondensationPC(PCBase):
-    """
+    """A Slate-based python preconditioner that solves an
+    H1-conforming problem using static condensation.
     """
 
     @timed_function("SCInit")
     def initialize(self, pc):
-        """
+        """Set up the problem context. Take the original
+        H1-problem and partition the spaces/functions
+        into 'interior' and 'facet' parts.
+
+        A KSP is created for the reduced system after
+        static condensation is applied.
         """
         from firedrake import (FunctionSpace, Function,
                                TrialFunction, TestFunction,
@@ -50,7 +56,6 @@ class StaticCondensationPC(PCBase):
         if not V.ufl_element().cell().is_simplex():
             raise NotImplementedError("Only simplex meshes are implemented.")
 
-        # FIXME: This does not work for tensor product elements
         top_dim = V.finat_element._element.ref_el.get_dimension()
         if not V.finat_element.entity_dofs()[top_dim][0]:
             raise RuntimeError("There are no interior dofs to eliminate.")
@@ -84,7 +89,9 @@ class StaticCondensationPC(PCBase):
             bcs.append(DirichletBC(V_facet, g, bc.sub_domain))
 
         if bcs:
-            msg = "Currently strong bcs are not handled appropriately."
+            msg = ("Currently strong bcs are not handled correctly. "
+                   "The solver may still converge with this PC if an "
+                   "appropriate iterative method is used. ")
             log(WARNING, msg)
 
         self.bcs = bcs
@@ -144,7 +151,10 @@ class StaticCondensationPC(PCBase):
 
     @timed_function("SCRecon")
     def _reconstruct(self):
-        """
+        """Locally solve for the interior degrees of
+        freedom using the computed unknowns for the facets.
+        A transfer kernel is used to join the interior and
+        facet solutions together.
         """
         with timed_region("SCAssembleInterior"):
             self._assemble_interior_u()
@@ -160,8 +170,9 @@ class StaticCondensationPC(PCBase):
                       "x_facet": (u_facet, READ)})
 
     @timed_function("SCTransferResidual")
-    def _transfer_residual(self):
-        """
+    def _partition_residual(self):
+        """Partition the incoming right-hand side residual
+        into 'interior' and 'facet' sections.
         """
         r_int = self.interior_residual
         r_facet = self.trace_residual
@@ -174,21 +185,24 @@ class StaticCondensationPC(PCBase):
 
     @timed_function("SCUpdate")
     def update(self, pc):
-        """
+        """Update by assembling into the KSP operator. No
+        need to reconstruct symbolic objects.
         """
         self._assemble_S()
         self.S.force_evaluation()
 
     def apply(self, pc, x, y):
-        """
+        """Solve the reduced system for the facet degrees of
+        freedom after static condensation is applied. The
+        computed solution is used to solve element-wise problems
+        for the interior degrees of freedom.
         """
         with timed_region("SCTransfer"):
             with self.h1_residual.dat.vec_wo as v:
                 x.copy(v)
 
-            # Transfer residual data into interior and facet
-            # functions
-            self._transfer_residual()
+            # Partition residual data into interior and facet sections
+            self._partition_residual()
 
         # Now that the residual data is transfered, we assemble
         # the RHS for the reduced system

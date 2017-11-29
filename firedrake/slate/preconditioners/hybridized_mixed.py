@@ -43,7 +43,7 @@ class HybridizationPC(PCBase):
         self.cxt = P.getPythonContext()
 
         if not isinstance(self.cxt, ImplicitMatrixContext):
-            raise ValueError("The python context must be an ImplicitMatrixContext")
+            raise ValueError("Context must be an ImplicitMatrixContext")
 
         test, trial = self.cxt.a.arguments()
 
@@ -81,8 +81,8 @@ class HybridizationPC(PCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
-        V_d = FunctionSpace(mesh, broken_elements)
+        broken_elements = [ufl.BrokenElement(Vi.ufl_element()) for Vi in V]
+        V_d = FunctionSpace(mesh, ufl.MixedElement(broken_elements))
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
@@ -243,12 +243,6 @@ class HybridizationPC(PCBase):
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
 
-        # NOTE: The projection stage *might* be replaced by a Fortin
-        # operator. We may want to allow the user to specify if they
-        # wish to use a Fortin operator over a projection, or vice-versa.
-        # In a future add-on, we can add a switch which chooses either
-        # the Fortin reconstruction or the usual KSP projection.
-
         # Set up the projection KSP
         hdiv_projection_ksp = PETSc.KSP().create(comm=pc.comm)
         hdiv_projection_ksp.setOptionsPrefix(prefix + 'hdiv_projection_')
@@ -334,12 +328,13 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
 
     def apply(self, pc, x, y):
-        """We solve the forward eliminated problem for the
+        """Solve the forward eliminated problem for the
         approximate traces of the scalar solution (the multipliers)
         and reconstruct the "broken flux and scalar variable."
 
-        Lastly, we project the broken solutions into the mimetic
-        non-broken finite element space.
+        Once the hybridized solutions are computed, the data
+        is projected back into the original non-broken finite element
+        spaces.
         """
 
         with timed_region("HybridBreak"):
