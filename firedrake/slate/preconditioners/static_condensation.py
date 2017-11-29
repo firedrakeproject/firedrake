@@ -6,10 +6,9 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor, AssembledVector
 from firedrake.slate.preconditioners.sc_nullspaces import create_sc_nullspace
+from firedrake.slate.preconditioners.custom_kernels import get_transfer_kernels
 from firedrake.parloops import par_loop, READ, WRITE
 from pyop2.profiling import timed_region, timed_function
-
-import numpy as np
 
 
 __all__ = ['StaticCondensationPC']
@@ -61,6 +60,11 @@ class StaticCondensationPC(PCBase):
         facet_element = V.ufl_element()["facet"]
         V_int = FunctionSpace(mesh, interior_element)
         V_facet = FunctionSpace(mesh, facet_element)
+
+        # Get transfer kernel for moving data
+        self._transfer_kernel = get_transfer_kernels({'h1-space': V,
+                                                      'interior-space': V_int,
+                                                      'facet-space': V_facet})
 
         # Set up functions for the H1 functions and the interior/trace parts
         self.trace_solution = Function(V_facet)
@@ -147,52 +151,13 @@ class StaticCondensationPC(PCBase):
 
         u_int = self.interior_solution
         u_facet = self.trace_solution
-        Vo = u_int.function_space()
-        Vd = u_facet.function_space()
-        V = self.h1_solution.function_space()
-
-        # Offset for interior dof mapping is determined by inspecting the
-        # entity dofs of V (original FE space) and the dofs of V_o. For
-        # example, degree 5 CG element has entity dofs:
-        #
-        # {0: {0: [0], 1: [1], 2: [2]}, 1: {0: [3, 4, 5, 6], 1: [7, 8, 9, 10],
-        #  2: [11, 12, 13, 14]}, 2: {0: [15, 16, 17, 18, 19, 20]}}.
-        #
-        # Looking at the cell dofs, we have a starting dof index of 15. The
-        # interior element has dofs:
-        #
-        # {0: {0: [], 1: [], 2: []}, 1: {0: [], 1:[], 2:[]},
-        #  2: {0: [0, 1, 2, 3, 4, 5]}}
-        #
-        # with a starting dof index of 0. So the par_loop will need to be
-        # adjusted by the difference: i + 15. The skeleton dofs do no need
-        # any offsets.
-
-        # TODO: There must be a cleaner way of getting the offset
-        # NOTE: This does not work for tensor product elements
-        dim = V.finat_element._element.ref_el.get_dimension()
-        offset = V.finat_element.entity_dofs()[dim][0][0]
-        args = (Vo.finat_element.space_dimension(), np.prod(Vo.shape),
-                offset,
-                Vd.finat_element.space_dimension(), np.prod(Vd.shape))
-
-        kernel = """
-        for (int i=0; i<%d; ++i){
-            for (int j=0; j<%d; ++j){
-                uh[i + %d][j] = u_int[i][j];
-            }
-        }
-
-        for (int i=0; i<%d; ++i){
-            for (int j=0; j<%d; ++j){
-                uh[i][j] = u_facet[i][j];
-            }
-        }""" % args
 
         with timed_region("SCReconSolution"):
-            par_loop(kernel, ufl.dx, {"uh": (self.h1_solution, WRITE),
-                                      "u_int": (u_int, READ),
-                                      "u_facet": (u_facet, READ)})
+            par_loop(self._transfer_kernel.join,
+                     ufl.dx,
+                     {"x": (self.h1_solution, WRITE),
+                      "x_int": (u_int, READ),
+                      "x_facet": (u_facet, READ)})
 
     @timed_function("SCTransferResidual")
     def _transfer_residual(self):
@@ -201,34 +166,11 @@ class StaticCondensationPC(PCBase):
         r_int = self.interior_residual
         r_facet = self.trace_residual
 
-        Vo = r_int.function_space()
-        Vd = r_facet.function_space()
-        V = self.h1_residual.function_space()
-
-        # NOTE: This does not work for tensor product elements
-        dim = V.finat_element._element.ref_el.get_dimension()
-        offset = V.finat_element.entity_dofs()[dim][0][0]
-        args = (Vo.finat_element.space_dimension(), np.prod(Vo.shape),
-                offset,
-                Vd.finat_element.space_dimension(), np.prod(Vd.shape))
-
-        # This kernel is just the inverse of the previous transfer kernel
-        kernel = """
-        for (int i=0; i<%d; ++i){
-            for (int j=0; j<%d; ++j){
-                r_int[i][j] = r_h[i + %d][j];
-            }
-        }
-
-        for (int i=0; i<%d; ++i){
-            for (int j=0; j<%d; ++j){
-                r_facet[i][j] = r_h[i][j];
-            }
-        }""" % args
-
-        par_loop(kernel, ufl.dx, {"r_int": (r_int, WRITE),
-                                  "r_facet": (r_facet, WRITE),
-                                  "r_h": (self.h1_residual, READ)})
+        par_loop(self._transfer_kernel.partition,
+                 ufl.dx,
+                 {"x_int": (r_int, WRITE),
+                  "x_facet": (r_facet, WRITE),
+                  "x": (self.h1_residual, READ)})
 
     @timed_function("SCUpdate")
     def update(self, pc):
