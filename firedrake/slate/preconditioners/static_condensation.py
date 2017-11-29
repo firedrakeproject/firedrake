@@ -1,6 +1,5 @@
 import ufl
 
-from firedrake.logging import log, WARNING
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -29,8 +28,7 @@ class SCCG(PCBase):
         static condensation is applied.
         """
         from firedrake import (FunctionSpace, Function,
-                               TrialFunction, TestFunction,
-                               DirichletBC, interpolate)
+                               TrialFunction, TestFunction)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from ufl.algorithms.replace import replace
@@ -79,22 +77,11 @@ class SCCG(PCBase):
         self.interior_residual = Function(V_int)
         self.trace_residual = Function(V_facet)
 
-        # Collect BCs for the facet problem
-        bcs = []
-        for bc in self.cxt.row_bcs:
-            if isinstance(bc.function_arg, Function):
-                g = interpolate(bc.function_arg, V_facet)
-            else:
-                g = bc.function_arg
-            bcs.append(DirichletBC(V_facet, g, bc.sub_domain))
+        # TODO: Handle strong bcs in Slate
+        if self.cxt.row_bcs:
+            raise NotImplementedError("Strong bcs not implemented yet")
 
-        if bcs:
-            msg = ("Currently strong bcs are not handled correctly. "
-                   "The solver may still converge with this PC if an "
-                   "appropriate iterative method is used. ")
-            log(WARNING, msg)
-
-        self.bcs = bcs
+        self.bcs = None
 
         A00 = Tensor(replace(self.cxt.a, {test: TestFunction(V_int),
                                           trial: TrialFunction(V_int)}))

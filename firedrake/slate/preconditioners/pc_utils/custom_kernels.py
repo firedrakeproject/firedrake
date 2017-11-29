@@ -73,8 +73,8 @@ def get_transfer_kernels(fs_dict):
     #  2: {0: [0, 1, 2, 3, 4, 5]}}
     #
     # with a starting dof index of 0. So the par_loop will need to be
-    # adjusted by the difference: i + 15. The skeleton dofs do no need
-    # any offsets.
+    # adjusted by the difference: i + 15. The facet dofs do not need
+    # an offset.
 
     # NOTE: This does not work for tensor product elements
     V = fs_dict['h1-space']
