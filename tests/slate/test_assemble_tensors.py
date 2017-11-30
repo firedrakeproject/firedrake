@@ -170,6 +170,53 @@ def test_mixed_argument_tensor(mesh):
     assemble(T)
 
 
+def test_assemble_indexed_vectors(mesh):
+    V = FunctionSpace(mesh, "DG", 4)
+    U = FunctionSpace(mesh, "DG", 2)
+    W = V * U
+    q = Function(V).assign(10.0)
+    p = Function(U).assign(42.0)
+    u, phi = TrialFunctions(W)
+    v, psi = TestFunctions(W)
+
+    K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx)
+    F = Tensor(inner(q, v)*dx + inner(p, psi)*dx)
+    E = K.inv * F
+    foo = assemble(E[0])
+    bar = assemble(E[1])
+
+    assert np.allclose(foo.dat.data, q.dat.data, rtol=1e-14)
+    assert np.allclose(bar.dat.data, p.dat.data, rtol=1e-14)
+
+
+def test_assemble_indexed_matrices(mesh):
+    U = VectorFunctionSpace(mesh, "CG", 2)
+    V = FunctionSpace(mesh, "DG", 1)
+    W = U * V
+    u, p = TrialFunctions(W)
+    w, q = TestFunctions(W)
+
+    A = Tensor(inner(u, w)*dx + p*q*dx + div(w)*p*dx + q*div(u)*dx)
+    A00 = assemble(A[0, 0])
+    A01 = assemble(A[0, 1])
+    A10 = assemble(A[1, 0])
+    A11 = assemble(A[1, 1])
+
+    u = TrialFunction(U)
+    w = TestFunction(U)
+    p = TrialFunction(V)
+    q = TestFunction(V)
+    A00ref = assemble(inner(u, w)*dx)
+    A01ref = assemble(div(w)*p*dx)
+    A10ref = assemble(q*div(u)*dx)
+    A11ref = assemble(p*q*dx)
+
+    assert np.allclose(A00.M.values, A00ref.M.values, rtol=1e-14)
+    assert np.allclose(A01.M.values, A01ref.M.values, rtol=1e-14)
+    assert np.allclose(A10.M.values, A10ref.M.values, rtol=1e-14)
+    assert np.allclose(A11.M.values, A11ref.M.values, rtol=1e-14)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
