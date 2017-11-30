@@ -5,6 +5,7 @@ This is the final stage of code generation in TSFC."""
 from collections import defaultdict
 from functools import singledispatch, reduce
 from cmath import isnan
+
 import itertools
 
 import numpy
@@ -334,14 +335,14 @@ def _expression_scalar(expr, parameters):
         return coffee.Symbol("NAN")
     else:
         vr = expr.value.real
-        rr = vr.round(1)
+        rr = round(1)
         if rr and abs(vr - rr) < parameters.epsilon:
             vr = rr  # round to nonzero
 
         vi = expr.value.imag # also checks if v is purely real
         if vi == 0.0:
             return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
-        ri = vi.round(1)
+        ri = round(1)
 
         if ri and abs(vi - ri) < parameters.epsilon:
             vi = ri
