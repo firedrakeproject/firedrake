@@ -207,7 +207,7 @@ def test_assemble_indexed_matrices(mesh):
     w, q, gammar = TestFunctions(W)
 
     A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
-               lambdar('+')*dot(w, n)*dS + gammar('+')*dot(u, n)*dS +
+               lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS +
                lambdar*gammar*ds)
     A00 = assemble(A[0, 0])
     A01 = assemble(A[0, 1])
