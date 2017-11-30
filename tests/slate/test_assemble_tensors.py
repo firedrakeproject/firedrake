@@ -171,50 +171,73 @@ def test_mixed_argument_tensor(mesh):
 
 
 def test_assemble_indexed_vectors(mesh):
-    V = FunctionSpace(mesh, "DG", 4)
+    V = VectorFunctionSpace(mesh, "DG", 3)
     U = FunctionSpace(mesh, "DG", 2)
-    W = V * U
-    q = Function(V).assign(10.0)
-    p = Function(U).assign(42.0)
-    u, phi = TrialFunctions(W)
-    v, psi = TestFunctions(W)
+    T = FunctionSpace(mesh, "DG", 1)
+    W = V * U * T
+    x = SpatialCoordinate(mesh)
+    q = Function(V).project(grad(sin(pi*x[0])*cos(pi*x[1])))
+    p = Function(U).interpolate(-x[0]*exp(-x[1]**2))
+    r = Function(T).assign(42.0)
+    u, phi, eta = TrialFunctions(W)
+    v, psi, nu = TestFunctions(W)
 
-    K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx)
-    F = Tensor(inner(q, v)*dx + inner(p, psi)*dx)
+    K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
+    F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     E = K.inv * F
-    foo = assemble(E[0])
-    bar = assemble(E[1])
+    Eq = assemble(E[0])
+    Ep = assemble(E[1])
+    Er = assemble(E[2])
 
-    assert np.allclose(foo.dat.data, q.dat.data, rtol=1e-14)
-    assert np.allclose(bar.dat.data, p.dat.data, rtol=1e-14)
+    assert np.allclose(Eq.dat.data, q.dat.data, rtol=1e-14)
+    assert np.allclose(Ep.dat.data, p.dat.data, rtol=1e-14)
+    assert np.allclose(Er.dat.data, r.dat.data, rtol=1e-14)
 
 
 def test_assemble_indexed_matrices(mesh):
-    U = VectorFunctionSpace(mesh, "CG", 2)
+    if mesh.ufl_cell() == quadrilateral:
+        U = FunctionSpace(mesh, "RTCF", 2)
+    else:
+        U = FunctionSpace(mesh, "RT", 2)
     V = FunctionSpace(mesh, "DG", 1)
-    W = U * V
-    u, p = TrialFunctions(W)
-    w, q = TestFunctions(W)
+    T = FunctionSpace(mesh, "HDiv Trace", 1)
+    n = FacetNormal(mesh)
+    W = U * V * T
+    u, p, lambdar = TrialFunctions(W)
+    w, q, gammar = TestFunctions(W)
 
-    A = Tensor(inner(u, w)*dx + p*q*dx + div(w)*p*dx + q*div(u)*dx)
+    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
+               lambdar('+')*dot(w, n)*dS + gammar('+')*dot(u, n)*dS +
+               lambdar*gammar*ds)
     A00 = assemble(A[0, 0])
     A01 = assemble(A[0, 1])
+    A02 = assemble(A[0, 2])
     A10 = assemble(A[1, 0])
     A11 = assemble(A[1, 1])
+    A20 = assemble(A[2, 0])
+    A22 = assemble(A[2, 2])
 
     u = TrialFunction(U)
     w = TestFunction(U)
     p = TrialFunction(V)
     q = TestFunction(V)
+    lambdar = TrialFunction(T)
+    gammar = TestFunction(T)
     A00ref = assemble(inner(u, w)*dx)
-    A01ref = assemble(div(w)*p*dx)
+    A01ref = assemble(-div(w)*p*dx)
+    A02ref = assemble(lambdar('+')*jump(w, n=n)*dS)
     A10ref = assemble(q*div(u)*dx)
     A11ref = assemble(p*q*dx)
+    A20ref = assemble(gammar('+')*jump(u, n=n)*dS)
+    A22ref = assemble(lambdar*gammar*ds)
 
     assert np.allclose(A00.M.values, A00ref.M.values, rtol=1e-14)
     assert np.allclose(A01.M.values, A01ref.M.values, rtol=1e-14)
+    assert np.allclose(A02.M.values, A02ref.M.values, rtol=1e-14)
     assert np.allclose(A10.M.values, A10ref.M.values, rtol=1e-14)
     assert np.allclose(A11.M.values, A11ref.M.values, rtol=1e-14)
+    assert np.allclose(A20.M.values, A20ref.M.values, rtol=1e-14)
+    assert np.allclose(A22.M.values, A22ref.M.values, rtol=1e-14)
 
 
 if __name__ == '__main__':
