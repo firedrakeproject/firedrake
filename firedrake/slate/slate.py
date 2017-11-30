@@ -318,8 +318,12 @@ class IndexedTensor(TensorBase):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only index Slate expressions.")
 
-        if len(idx) != tensor.rank:
-            raise ValueError("Number of indices must match the tensor rank.")
+        if tensor.rank == 0:
+            raise ValueError("Cannot index scalars.")
+
+        assert len(idx) == tensor.rank, (
+            "Number of indices must match the tensor rank."
+        )
 
         if not tensor.is_mixed:
             raise ValueError("Can only index block (mixed) tensors")
