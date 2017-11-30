@@ -29,7 +29,7 @@ from ufl.domain import join_domains
 from ufl.form import Form
 
 
-__all__ = ['AssembledVector', 'Tensor',
+__all__ = ['AssembledVector', 'IndexedTensor', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul']
 
@@ -139,6 +139,14 @@ class TensorBase(object, metaclass=ABCMeta):
     @property
     def T(self):
         return Transpose(self)
+
+    def __getitem__(self, idx):
+        """Extract a particular block of a mixed tensor."""
+        try:
+            idx = tuple(idx)
+        except TypeError:
+            idx = (idx,)
+        return IndexedTensor(self, idx)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
@@ -294,6 +302,103 @@ class AssembledVector(TensorBase):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self._function)
+
+
+class IndexedTensor(TensorBase):
+    """This class represents a tensor corresponding
+    to particular block of a mixed tensor.
+
+    :arg tensor: A block (mixed) tensor.
+    :arg idx: A tuple of indices denoting which block
+              to extract.
+    """
+
+    def __init__(self, tensor, idx):
+        """Constructor for the IndexedTensor class."""
+        if not isinstance(tensor, TensorBase):
+            raise TypeError("Can only index Slate expressions.")
+
+        if len(idx) != tensor.rank:
+            raise ValueError("Number of indices must match the tensor rank.")
+
+        if not tensor.is_mixed:
+            raise ValueError("Can only index block (mixed) tensors")
+
+        fs_extent = len(tensor.arguments()[0].function_space())
+        if any(i not in range(0, fs_extent) for i in idx):
+            raise ValueError("The mixed tensor does not have "
+                             "space indices '%s'" % idx)
+
+        super(IndexedTensor, self).__init__()
+        self.operands = (tensor,)
+        self._idx = idx
+
+    @cached_property
+    def _split_arguments(self):
+        """Splits the function space and stores the component
+        spaces determined the indices.
+        """
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.ufl_expr import Argument
+
+        tensor, = self.operands
+        tensor_args = tensor.arguments()
+        split_spaces = [arg.function_space().split() for arg in tensor_args]
+        nargs = []
+        for i, idx in enumerate(self._idx):
+            arg = tensor_args[i]
+            fs = split_spaces[i][idx]
+            # Do not want an indexed subspace of a mixed space
+            W = FunctionSpace(fs.mesh(), fs.ufl_element())
+            nargs.append(Argument(W, arg.number(), part=arg.part()))
+
+        return nargs
+
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        return tuple(arg.function_space() for arg in self.arguments())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self._split_arguments
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        tensor, = self.operands
+        return tensor.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        tensor, = self.operands
+        return tensor.ufl_domains()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        tensor, = self.operands
+        return tensor.subdomain_data()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        tensor, = self.operands
+        return "%s[%s]_%d" % (tensor, self._idx, self.id)
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        tensor, = self.operands
+        return "%s(%r, idx=%s)" % (type(self).__name__,
+                                   tensor, self._idx)
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        tensor, = self.operands
+        return (type(self), tensor)
 
 
 class Tensor(TensorBase):
@@ -651,7 +756,7 @@ class Mul(BinaryOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [Tensor, AssembledVector],
+    [Tensor, AssembledVector, IndexedTensor],
     [UnaryOp],
     [Add],
     [Mul]
