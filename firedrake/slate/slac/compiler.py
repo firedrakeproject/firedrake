@@ -498,6 +498,33 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
 
         return parenthesize(result, expr.prec, prec)
 
+    elif isinstance(expr, slate.IndexedTensor):
+        tensor, = expr.operands
+        idx = expr._idx
+        if expr.rank == 1:
+            # Vector segment
+            idx, = idx
+            shape = tensor.shapes[0][idx]
+            start = sum(tensor.shapes[0][:idx])
+            result = "(%s).segment<%d>(%d)" % (metaphrase_slate_to_cpp(tensor,
+                                                                       temps,
+                                                                       expr.prec),
+                                               shape, start)
+        else:
+            # Matrix block
+            ridx, cidx = idx
+            rshape = tensor.shapes[0][ridx]
+            rstart = sum(tensor.shapes[0][:ridx])
+            cshape = tensor.shapes[1][cidx]
+            cstart = sum(tensor.shapes[1][:cidx])
+            result = "(%s).block<%d, %d>(%d, %d)" % (metaphrase_slate_to_cpp(tensor,
+                                                                             temps,
+                                                                             expr.prec),
+                                                     rshape, cshape,
+                                                     rstart, cstart)
+
+        return parenthesize(result, expr.prec, prec)
+
     else:
         raise NotImplementedError("Type %s not supported.", type(expr))
 
