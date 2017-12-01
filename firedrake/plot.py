@@ -332,7 +332,7 @@ def complex_plot(function_or_mesh,
          axes=None,
          plot3d=False,
          **kwargs):
-    """Plot a Firedrake object.
+    """Plot real part of a complex Firedrake object.
 
     :arg function_or_mesh: The :class:`~.Function` or :func:`~.Mesh`
          to plot.  An iterable of :class:`~.Function`\s may also be
@@ -621,14 +621,6 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     coords_vals = _calculate_values(function.function_space().
                                     mesh().coordinates,
                                     ref_points, 2)
-    """ 
-    #if values are complex, only use real parts
-    if z_vals.dtype == np.complex128:
-        z_vals = z_vals.real
-    if coords_vals.dtype == np.complex128:
-        coords_vals = coords_vals.real
-    """
-     
     Z = z_vals.reshape(-1)
     X = coords_vals.reshape(-1, 2).T[0]
     Y = coords_vals.reshape(-1, 2).T[1]
