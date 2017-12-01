@@ -94,8 +94,7 @@ def _plot_mult(functions, num_points=10, axes=None, **kwargs):
 
 
 def plot_mesh(mesh, axes=None, **kwargs):
-    """
-    Plot a mesh.
+    """Plot a mesh.
 
     :arg mesh: The mesh to plot.
     :arg axes: Optional matplotlib axes to draw on.
@@ -205,11 +204,9 @@ def plot(function_or_mesh,
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
-
-
     # Sanitise input
     if isinstance(function_or_mesh, MeshGeometry):
-        # Mesh..
+        # Mesh...
         return plot_mesh(function_or_mesh, axes=axes, **kwargs)
     if not isinstance(function_or_mesh, Function):
         # Maybe an iterable?
@@ -670,9 +667,7 @@ def two_dimension_plot(function,
             axes = figure.add_subplot(111, projection="3d")
         else:
             axes = figure.add_subplot(111)
-    
     cmap = kwargs.pop('cmap', cm.coolwarm)
-    
     if plot3d:
         if contour:
             mappable = axes.tricontour(triangulation, Z, edgecolor="none",
@@ -681,7 +676,6 @@ def two_dimension_plot(function,
             mappable = axes.plot_trisurf(triangulation, Z, edgecolor="none",
                                          cmap=cmap, antialiased=False,
                                          shade=False, **kwargs)
-        
         plt.colorbar(mappable)
         return axes
     else:
