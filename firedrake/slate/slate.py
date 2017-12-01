@@ -314,25 +314,26 @@ class IndexedTensor(TensorBase):
               to extract.
     """
 
-    def __init__(self, tensor, idx):
-        """Constructor for the IndexedTensor class."""
+    def __new__(cls, tensor, idx):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only index Slate expressions.")
 
-        if tensor.rank == 0:
-            raise ValueError("Cannot index scalars.")
+        if not tensor.is_mixed:
+            assert all(i == 0 for i in idx)
+            return tensor
 
+        return super().__new__(cls)
+
+    def __init__(self, tensor, idx):
+        """Constructor for the IndexedTensor class."""
         assert len(idx) == tensor.rank, (
             "Number of indices must match the tensor rank."
         )
 
-        if not tensor.is_mixed:
-            raise ValueError("Can only index block (mixed) tensors")
-
-        fs_extent = len(tensor.arguments()[0].function_space())
-        if any(i not in range(0, fs_extent) for i in idx):
-            raise ValueError("The mixed tensor does not have "
-                             "space indices '%s'" % idx)
+        for arg, i in zip(tensor.arguments(), idx):
+            if not 0 <= i < len(arg.function_space()):
+                raise ValueError("The mixed tensor does not have "
+                                 "field indices '%s'" % idx)
 
         super(IndexedTensor, self).__init__()
         self.operands = (tensor,)
@@ -443,11 +444,11 @@ class Tensor(TensorBase):
             raise NotImplementedError("No support for tensors of rank %d." % r)
 
         # Remove any negative restrictions and replace with zero
-        _form = map_integrand_dags(RemoveNegativeRestrictions(), form)
+        form = map_integrand_dags(RemoveNegativeRestrictions(), form)
 
         super(Tensor, self).__init__()
 
-        self.form = _form
+        self.form = form
 
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
