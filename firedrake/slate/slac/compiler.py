@@ -500,27 +500,25 @@ def slate_to_cpp(expr, temps, prec=None):
     elif isinstance(expr, slate.IndexedTensor):
         tensor, = expr.operands
         idx = expr._idx
-        if expr.rank == 1:
-            # Vector segment
-            idx, = idx
-            shape = tensor.shapes[0][idx]
-            start = sum(tensor.shapes[0][:idx])
-            result = "(%s).segment<%d>(%d)" % (slate_to_cpp(tensor,
-                                                            temps,
-                                                            expr.prec),
-                                               shape, start)
-        else:
-            # Matrix block
+        try:
             ridx, cidx = idx
-            rshape = tensor.shapes[0][ridx]
-            rstart = sum(tensor.shapes[0][:ridx])
+        except ValueError:
+            ridx, = idx
+            cidx = 0
+        rshape = tensor.shapes[0][ridx]
+        rstart = sum(tensor.shapes[0][:ridx])
+        try:
             cshape = tensor.shapes[1][cidx]
             cstart = sum(tensor.shapes[1][:cidx])
-            result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
-                                                                  temps,
-                                                                  expr.prec),
-                                                     rshape, cshape,
-                                                     rstart, cstart)
+        except KeyError:
+            cshape = 1
+            cstart = 0
+
+        result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
+                                                              temps,
+                                                              expr.prec),
+                                                 rshape, cshape,
+                                                 rstart, cstart)
 
         return parenthesize(result, expr.prec, prec)
 
