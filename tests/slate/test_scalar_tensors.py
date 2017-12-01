@@ -42,6 +42,8 @@ def test_functions(mesh, expr, value, typ, fs_type):
             f = Constant(value, domain=mesh)
 
     actual = assemble(Tensor(eval(expr)*dx))
+    # Checking to make sure an 'empty' index DTRT for scalars
+    actual_idx = assemble(Tensor(eval(expr)*dx)[()])
 
     if fs_type == "vector":
         f = 2*value**2
@@ -51,6 +53,7 @@ def test_functions(mesh, expr, value, typ, fs_type):
         f = value
     expect = eval(expr)
     assert np.allclose(actual, expect)
+    assert np.allclose(actual_idx, expect)
 
 
 if __name__ == '__main__':
