@@ -348,12 +348,9 @@ class IndexedTensor(TensorBase):
         from firedrake.ufl_expr import Argument
 
         tensor, = self.operands
-        tensor_args = tensor.arguments()
-        split_spaces = [arg.function_space().split() for arg in tensor_args]
         nargs = []
-        for i, idx in enumerate(self._idx):
-            arg = tensor_args[i]
-            fs = split_spaces[i][idx]
+        for arg, i in zip(tensor.arguments(), self._idx):
+            fs = arg.function_space().split()[i]
             # Do not want an indexed subspace of a mixed space
             W = FunctionSpace(fs.mesh(), fs.ufl_element())
             nargs.append(Argument(W, arg.number(), part=arg.part()))
