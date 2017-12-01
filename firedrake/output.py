@@ -330,7 +330,7 @@ class File(object):
         if is_linear(function.function_space()) and \
            is_dg(function.function_space()) == (not cg) and \
            is_cg(function.function_space()) == cg:
-           return OFunction(array=get_array(function),
+            return OFunction(array=get_array(function),
                              name=name, function=function)
 
         # OK, let's go and do it.
@@ -338,7 +338,7 @@ class File(object):
             family = "Lagrange"
         else:
             family = "Discontinuous Lagrange"
-        
+
         output = self._output_functions.get(function)
         if output is None:
             # Build appropriate space for output function.
