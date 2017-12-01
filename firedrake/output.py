@@ -217,6 +217,9 @@ def get_array(function):
     # write data arrays in the halo because the cell node map for
     # owned cells can index into ghost data.
     array = function.dat.data_ro_with_halos
+    # if complex, take just the real part 
+    if array.dtype == numpy.complex128:
+        array = array.real 
     if len(shape) == 0:
         pass
     elif len(shape) == 1:
@@ -327,7 +330,7 @@ class File(object):
         if is_linear(function.function_space()) and \
            is_dg(function.function_space()) == (not cg) and \
            is_cg(function.function_space()) == cg:
-            return OFunction(array=get_array(function),
+           return OFunction(array=get_array(function),
                              name=name, function=function)
 
         # OK, let's go and do it.
@@ -335,7 +338,7 @@ class File(object):
             family = "Lagrange"
         else:
             family = "Discontinuous Lagrange"
-
+        
         output = self._output_functions.get(function)
         if output is None:
             # Build appropriate space for output function.
@@ -372,11 +375,75 @@ class File(object):
 
         return OFunction(array=get_array(output), name=name, function=output)
 
+    
+    def _write_complex_vtu(self, *functions):
+        from firedrake.function import Function
+        for f in functions:
+            if not isinstance(f, Function):
+                raise ValueError("Can only output Functions, not %r" % type(f))
+        meshes = tuple(f.ufl_domain() for f in functions)
+        if not all(m == meshes[0] for m in meshes):
+            raise ValueError("All functions must be on same mesh")
+
+        mesh = meshes[0]
+        
+        cell = mesh.topology.ufl_cell()
+        if cell not in cells:
+            raise ValueError("Unhandled cell type %r" % cell)
+        
+        if self._fnames is not None:
+            if tuple(f.name() for f in functions) != self._fnames:
+                raise ValueError("Writing different set of functions")
+        else:
+            self._fnames = tuple(f.name() for f in functions)
+        
+        continuous = all(is_cg(f.function_space()) for f in functions) and \
+            is_cg(mesh.coordinates.function_space())
+        
+        coordinates = self._prepare_output(mesh.coordinates, continuous)
+        
+        functions = tuple(self._prepare_output(f, continuous)
+                          for f in functions)
+
+        if self._topology is None:
+            self._topology = get_topology(coordinates.function)
+
+        basename = "%s_%s" % (self.basename, next(self.counter))
+
+        vtu = self._write_single_vtu(basename, coordinates, *functions)
+
+        if self.comm.size > 1:
+            vtu = self._write_single_pvtu(basename, coordinates, *functions)
+
+        return vtu
+
     def _write_vtu(self, *functions):
         from firedrake.function import Function
         for f in functions:
             if not isinstance(f, Function):
                 raise ValueError("Can only output Functions, not %r" % type(f))
+        complex = False 
+        for f in functions:
+             function_data = f.vector().array()
+             if function_data.dtype == numpy.complex128:
+                 complex = True
+                 break 
+                 
+        if complex:
+           splitFunctions = []
+           for f in functions:
+               function_data = f.vector().array()
+               if function_data.dtype != numpy.complex128:
+                   splitFunctions.append(f)
+               else: 
+                   real_function = Function(f.function_space(),function_data.real) 
+                   real_function.rename(f.name() + " (real part)")
+                   imag_function = Function(f.function_space(),function_data.imag)
+                   imag_function.rename(f.name() + " (imaginary part)")
+                   splitFunctions.append(real_function)
+                   splitFunctions.append(imag_function)
+           return self._write_complex_vtu(*splitFunctions) 
+
         meshes = tuple(f.ufl_domain() for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
