@@ -241,6 +241,8 @@ honoured.""",
     parser.add_argument("--cache-dir", type=str,
                         action="store",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    parser.add_argument("--documentation-dependencies", action="store_true",
+                        help="Install the dependencies required to build the documentation")
 
     args = parser.parse_args()
 
@@ -309,6 +311,8 @@ else:
     parser.add_argument("--cache-dir", type=str,
                         action="store", default=config["options"].get("cache_dir", ""),
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    parser.add_argument("--documentation-dependencies", action="store_true",
+                        help="Install the dependencies required to build the documentation")
 
     args = parser.parse_args()
 
@@ -892,6 +896,15 @@ def build_and_install_slope():
         log.info("No need to rebuild SLOPE")
 
 
+def install_documentation_dependencies():
+    """Just install the required dependencies. There are no provenance
+    issues here so no need to record this in the configuration dict."""
+    log.info("Installing documentation dependencies")
+    install("sphynx")
+    install("sphynxcontrib-bibtex")
+    install("git+https://github.com/sphinx-contrib/youtube.git")
+
+
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     for package in old_git_packages:
@@ -1124,12 +1137,6 @@ if mode == "install":
         pass
     packages.remove("petsc4py")
     packages.remove("firedrake")
-    v = sys.version_info
-    if v.major <= 2:
-        easyinstall = open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
-        new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
-        open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
-            easyinstall[:1] + new_packages + easyinstall[1:])
 
     build_update_script()
 
@@ -1213,6 +1220,8 @@ if options["slepc"]:
     build_and_install_slepc()
 if options["slope"]:
     build_and_install_slope()
+if args.documentation_dependencies:
+    install_documentation_dependencies()
 
 try:
     import firedrake_configuration
