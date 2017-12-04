@@ -75,7 +75,7 @@ def sniff_compiler_version(cc):
     elif ver.startswith("Apple LLVM"):
         compiler = "clang"
     elif ver.startswith("icc"):
-        compiler = "intel"
+        compiler = "icc"
     else:
         compiler = "unknown"
 
