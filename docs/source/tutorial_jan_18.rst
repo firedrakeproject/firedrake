@@ -1,6 +1,6 @@
-.. title:: Learn Firedrake 12 January 2017.
+.. title:: Learn Firedrake 12 January 2018.
 
-Firedrake Tutorial 12 January 2017.
+Firedrake Tutorial 12 January 2018.
 -----------------------------------
 
 The Firedrake team is happy to offer a half day Firedrake tutorial
@@ -19,7 +19,7 @@ Tutorial contents
 The tutorial will be an introduction to solving PDEs using the finite
 element method with Firedrake. The level will be pitched at new
 masters and PhD students just starting to use or develop Firedrake,
-though anyone of any career stage is most welcome.
+though anyone at any career stage is most welcome.
 
 We'll be working through the :doc:`Firedrake tutorial notebooks
 <notebooks>`, which you can have a look at if you'd like to understand
