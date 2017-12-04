@@ -175,11 +175,26 @@ def plot_mesh(mesh, axes=None, **kwargs):
     axes.set_aspect("equal")
     return axes
 
+def prepare_functions(function, real=False):
+    function_data = function.vector().array()
+    if function_data.dtype.kind == "c":
+        real_part = Function(function.function_space(), function_data.real)
+        if real:
+            functions = (real_part,)
+        else:
+            imaginary_part = Function(function.function_space(), function_data.imag)
+            real_part.rename(function.name() + " (real part)")
+            imaginary_part.rename(function.name() + " (imaginary part)")
+            functions = (real_part, imaginary_part)
+    else:
+        functions = (function)
+    return functions
 
 def plot(function_or_mesh,
          num_sample_points=10,
          axes=None,
          plot3d=False,
+         real=False,
          **kwargs):
     """Plot a Firedrake object.
 
@@ -216,25 +231,18 @@ def plot(function_or_mesh,
                             type(function_or_mesh))
         return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
     # Single Function...
-  
-    #if complex, plot real and imaginary parts separately  
-    function_data = function_or_mesh.vector().array()
-    if function_data.dtype == np.complex128:
-        real_function = Function(function_or_mesh.function_space(), 
-                                 function_data.real) 
-        imag_function = Function(function_or_mesh.function_space(), 
-                                 function_data.imag)
-        
-        real_plot = complex_plot(real_function, num_sample_points, axes=axes, 
-                                 plot3d=plot3d, **kwargs)
-        real_plot.set_title(real_plot.get_title() + 'real part')
-        imag_plot = complex_plot(imag_function, num_sample_points, axes=axes, 
-                                 plot3d=plot3d, **kwargs)
-        imag_plot.set_title(imag_plot.get_title() + 'imaginary part')
-        return [real_plot, imag_plot]
-
-    # else plot as normal
     function = function_or_mesh
+    functions = prepare_functions(function, real)
+    if not real:
+        plots = []
+        for function in functions:
+            p = plot(function,  num_sample_points, axes=axes, plot3d=plot3d, real=True, **kwargs)
+            p.set_title(function.name())
+            plots.append(p)
+        return plots
+    else:
+        function = functions[0]
+    
     try:
         import matplotlib.pyplot as plt
         from matplotlib import cm
@@ -327,137 +335,6 @@ def plot(function_or_mesh,
                                   gdim)
 
 
-def complex_plot(function_or_mesh,
-         num_sample_points=10,
-         axes=None,
-         plot3d=False,
-         **kwargs):
-    """Plot real part of a complex Firedrake object.
-
-    :arg function_or_mesh: The :class:`~.Function` or :func:`~.Mesh`
-         to plot.  An iterable of :class:`~.Function`\s may also be
-         provided, in which case an animated plot will be available.
-    :arg num_sample_points: Number of Sample points per element, ignored if
-        degree < 4 where an exact Bezier curve will be used instead of
-        sampling at points.  For 2D plots, the number of sampling
-        points per element will not exactly this value.  Instead, it
-        is used as a guide to the number of subdivisions to use when
-        triangulating the surface.
-    :arg axes: Axes to be plotted on
-    :kwarg plot3d: For 2D plotting, use matplotlib 3D functionality? (slow)
-    :kwarg contour: For 2D plotting, True for a contour plot
-    :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
-        piece-wise linear
-    :kwarg auto_resample: For 1D plotting for functions with degree >= 4,
-        resample automatically when zoomed
-    :kwarg interactive: For 1D plotting for multiple functions, use an
-        interactive inferface in Jupyter Notebook
-    :arg kwargs: Additional keyword arguments passed to
-        ``matplotlib.plot``.
-    """
-    # Sanitise input
-    if isinstance(function_or_mesh, MeshGeometry):
-        # Mesh..
-        return plot_mesh(function_or_mesh, axes=axes, **kwargs)
-    if not isinstance(function_or_mesh, Function):
-        # Maybe an iterable?
-        functions = tuple(function_or_mesh)
-        if not all(isinstance(f, Function) for f in functions):
-            raise TypeError("Expected Function, Mesh, or iterable of Functions, not %r",
-                            type(function_or_mesh))
-        return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
-    # Single Function...
-    function = function_or_mesh
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib import cm
-    except ImportError:
-        raise RuntimeError("Matplotlib not importable, is it installed?")
-    gdim = function.ufl_domain().geometric_dimension()
-    tdim = function.ufl_domain().topological_dimension()
-    if tdim != gdim:
-        raise NotImplementedError("Not supported for topological dimension (%d) != geometric dimension (%d)",
-                                  tdim, gdim)
-    if gdim == 1:
-        if function.ufl_shape != ():
-            raise NotImplementedError("Plotting vector-valued functions is not supported")
-        if function.ufl_element().degree() < 4:
-            return bezier_plot(function, axes, **kwargs)
-        bezier = kwargs.pop('bezier', False)
-        auto_resample = kwargs.pop('auto_resample', False)
-        if bezier:
-            num_sample_points = (num_sample_points // 3) * 3 + 1 \
-                if num_sample_points >= 4 else 4
-        points = calculate_one_dim_points(function, num_sample_points)
-        cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
-        if axes is None:
-            axes = plt.subplot(111)
-
-        def update_points(axes):
-            import numpy.ma as ma
-            axes.set_autoscale_on(False)
-            x_begin = axes.transData.inverted() \
-                .transform(axes.transAxes.transform((0, 0)))[0]
-            x_end = axes.transData.inverted() \
-                .transform(axes.transAxes.transform((1, 0)))[0]
-            x_range = np.array([x_begin, x_end])
-            cell_intersect = np.empty([cell_boundary.shape[0]])
-            for i in range(cell_boundary.shape[0]):
-                cell_intersect[i] = _detect_intersection(x_range,
-                                                         cell_boundary[i])
-            width = plt.gcf().get_size_inches()[0] * plt.gcf().dpi
-            cell_mask = 1 - cell_intersect
-            cell_width = cell_boundary[:, 1] - cell_boundary[:, 0]
-            total_cell_width = ma.masked_array(cell_width,
-                                               mask=cell_mask).sum()
-            num_points = int(width / cell_intersect.sum()
-                             * total_cell_width / (x_end-x_begin))
-            if bezier:
-                num_points = (num_points // 3) * 3 + 1 \
-                    if num_points >= 4 else 4
-            points = calculate_one_dim_points(function, num_points, cell_mask)
-            axes.cla()
-            if bezier:
-                interp_bezier(points,
-                              int(cell_intersect.sum()),
-                              axes, **kwargs)
-            else:
-                piecewise_linear(points, axes, **kwargs)
-            axes.set_xlim(x_range)
-            axes.callbacks.connect('xlim_changed', update_points)
-
-        if auto_resample:
-            axes.callbacks.connect('xlim_changed', update_points)
-        if bezier:
-            return interp_bezier(points,
-                                 function.function_space().mesh().num_cells(),
-                                 axes, **kwargs)
-        return piecewise_linear(points, axes, **kwargs)
-    elif gdim == 2:
-        if len(function.ufl_shape) > 1:
-            raise NotImplementedError("Plotting tensor valued functions not supported")
-        if len(function.ufl_shape) == 1:
-            # Vector-valued, produce a quiver plot interpolated at the
-            # mesh coordinates
-            coords = function.ufl_domain().coordinates.dat.data_ro
-            X, Y = coords.T
-            vals = np.asarray(function.at(coords, tolerance=1e-10))
-            C = np.linalg.norm(vals, axis=1)
-            U, V = vals.T
-            if axes is None:
-                fig = plt.figure()
-                axes = fig.add_subplot(111)
-            cmap = kwargs.pop("cmap", cm.coolwarm)
-            pivot = kwargs.pop("pivot", "mid")
-            mappable = axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
-            plt.colorbar(mappable)
-            return axes
-        return two_dimension_plot(function, num_sample_points,
-                                  axes, plot3d=plot3d, contour=kwargs.pop("contour", False),
-                                  **kwargs)
-    else:
-        raise NotImplementedError("Plotting functions with geometric dimension %d unsupported",
-                                  gdim)
 def interactive_multiple_plot(functions, num_sample_points=10, axes=None, **kwargs):
     """Create an interactive plot for multiple 1D functions to be viewed in
     Jupyter Notebook
@@ -524,17 +401,14 @@ def _calculate_values(function, points, dimension, cell_mask=None):
         cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
                                                           mask=cell_mask))
     data = function.dat.data_ro[cell_node_list]
+    if data.dtype.kind == "c":
+        data = data.real
     if function.ufl_shape == ():
         vec_length = 1
     else:
         vec_length = function.ufl_shape[0]
     if vec_length == 1:
         data = np.reshape(data, data.shape+(1, ))
-   
-    # ensure no problems with data type for complex firedrake 
-    if data.dtype == np.complex128:
-        data = data.real
-
     return np.einsum("ijk,jl->ilk", data, elem)
 
 

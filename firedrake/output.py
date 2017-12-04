@@ -167,37 +167,56 @@ def get_byte_order(dtype):
             ">": "BigEndian"}[dtype.byteorder]
 
 
-def write_array(f, ofunction):
-    array = ofunction.array
-    numpy.uint32(array.nbytes).tofile(f)
-    if get_byte_order(array.dtype) == "BigEndian":
-        array = array.byteswap()
-    array.tofile(f)
-
-
-def write_array_descriptor(f, ofunction, offset=None, parallel=False):
+def prepare_ofunction(ofunction, real):
     array, name, _ = ofunction
-    shape = array.shape[1:]
-    ncmp = {0: "",
-            1: "3",
-            2: "9"}[len(shape)]
-    typ = {numpy.dtype("complex128"): "Complex128",
-           numpy.dtype("float32"): "Float32",
-           numpy.dtype("float64"): "Float64",
-           numpy.dtype("int32"): "Int32",
-           numpy.dtype("int64"): "Int64",
-           numpy.dtype("uint8"): "UInt8"}[array.dtype]
-    if parallel:
-        f.write(('<PDataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+    if array.dtype.kind == "c":
+        if real:
+            arrays = (array.real, )
+            names = (name, )
+        else:
+            arrays = (array.real, array.imag)
+            names = (name + "(real part)", name + "(imaginary part)")
     else:
-        if offset is None:
-            raise ValueError("Must provide offset")
-        f.write(('<DataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" '
-                 'format="appended" '
-                 'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
-    return 4 + array.nbytes     # 4 is for the array size (uint32)
+        arrays = (array, )
+        names = (name,)
+    return arrays, names
+
+
+def write_array(f, ofunction, real=False):
+    arrays, _ = prepare_ofunction(ofunction, real=real)
+    for array in arrays:
+        numpy.uint32(array.nbytes).tofile(f)
+        if get_byte_order(array.dtype) == "BigEndian":
+            array = array.byteswap()
+        array.tofile(f)
+
+
+def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False):
+    arrays, names = prepare_ofunction(ofunction, real)
+    nbytes = 0
+    for array, name in zip(arrays, names):
+        shape = array.shape[1:]
+        ncmp = {0: "",
+                1: "3",
+                2: "9"}[len(shape)]
+        typ = {numpy.dtype("float32"): "Float32",
+               numpy.dtype("float64"): "Float64",
+               numpy.dtype("int32"): "Int32",
+               numpy.dtype("int64"): "Int64",
+               numpy.dtype("uint8"): "UInt8"}[array.dtype]
+        if parallel:
+            f.write(('<PDataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+        else:
+            if offset is None:
+                raise ValueError("Must provide offset")
+            offset += nbytes
+            nbytes += (4 + array.nbytes) # 4 is for the array size (uint32)
+            f.write(('<DataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" '
+                     'format="appended" '
+                     'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
+    return nbytes 
 
 
 def get_vtu_name(basename, rank, size):
@@ -217,9 +236,6 @@ def get_array(function):
     # write data arrays in the halo because the cell node map for
     # owned cells can index into ghost data.
     array = function.dat.data_ro_with_halos
-    # if complex, take just the real part 
-    if array.dtype == numpy.complex128:
-        array = array.real 
     if len(shape) == 0:
         pass
     elif len(shape) == 1:
@@ -375,75 +391,11 @@ class File(object):
 
         return OFunction(array=get_array(output), name=name, function=output)
 
-    
-    def _write_complex_vtu(self, *functions):
-        from firedrake.function import Function
-        for f in functions:
-            if not isinstance(f, Function):
-                raise ValueError("Can only output Functions, not %r" % type(f))
-        meshes = tuple(f.ufl_domain() for f in functions)
-        if not all(m == meshes[0] for m in meshes):
-            raise ValueError("All functions must be on same mesh")
-
-        mesh = meshes[0]
-        
-        cell = mesh.topology.ufl_cell()
-        if cell not in cells:
-            raise ValueError("Unhandled cell type %r" % cell)
-        
-        if self._fnames is not None:
-            if tuple(f.name() for f in functions) != self._fnames:
-                raise ValueError("Writing different set of functions")
-        else:
-            self._fnames = tuple(f.name() for f in functions)
-        
-        continuous = all(is_cg(f.function_space()) for f in functions) and \
-            is_cg(mesh.coordinates.function_space())
-        
-        coordinates = self._prepare_output(mesh.coordinates, continuous)
-        
-        functions = tuple(self._prepare_output(f, continuous)
-                          for f in functions)
-
-        if self._topology is None:
-            self._topology = get_topology(coordinates.function)
-
-        basename = "%s_%s" % (self.basename, next(self.counter))
-
-        vtu = self._write_single_vtu(basename, coordinates, *functions)
-
-        if self.comm.size > 1:
-            vtu = self._write_single_pvtu(basename, coordinates, *functions)
-
-        return vtu
-
     def _write_vtu(self, *functions):
         from firedrake.function import Function
         for f in functions:
             if not isinstance(f, Function):
                 raise ValueError("Can only output Functions, not %r" % type(f))
-        complex = False 
-        for f in functions:
-             function_data = f.vector().array()
-             if function_data.dtype == numpy.complex128:
-                 complex = True
-                 break 
-                 
-        if complex:
-           splitFunctions = []
-           for f in functions:
-               function_data = f.vector().array()
-               if function_data.dtype != numpy.complex128:
-                   splitFunctions.append(f)
-               else: 
-                   real_function = Function(f.function_space(),function_data.real) 
-                   real_function.rename(f.name() + " (real part)")
-                   imag_function = Function(f.function_space(),function_data.imag)
-                   imag_function.rename(f.name() + " (imaginary part)")
-                   splitFunctions.append(real_function)
-                   splitFunctions.append(imag_function)
-           return self._write_complex_vtu(*splitFunctions) 
-
         meshes = tuple(f.ufl_domain() for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
@@ -499,7 +451,7 @@ class File(object):
                      'NumberOfCells="%d">\n' % (num_points, num_cells)).encode('ascii'))
             f.write(b'<Points>\n')
             # Vertex coordinates
-            offset += write_array_descriptor(f, coordinates, offset=offset)
+            offset += write_array_descriptor(f, coordinates, offset=offset, real=True)
             f.write(b'</Points>\n')
 
             f.write(b'<Cells>\n')
@@ -520,7 +472,7 @@ class File(object):
             # Appended data must start with "_", separating whitespace
             # from data
             f.write(b'_')
-            write_array(f, coordinates)
+            write_array(f, coordinates, real=True)
             write_array(f, connectivity)
             write_array(f, offsets)
             write_array(f, types)
@@ -544,7 +496,7 @@ class File(object):
 
             f.write(b'<PPoints>\n')
             # Vertex coordinates
-            write_array_descriptor(f, coordinates, parallel=True)
+            write_array_descriptor(f, coordinates, parallel=True, real=True)
             f.write(b'</PPoints>\n')
 
             f.write(b'<PCells>\n')
