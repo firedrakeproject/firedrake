@@ -376,10 +376,6 @@ class HybridizationPC(PCBase):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
         viewer.pushASCIITab()
-        viewer.printfASCII("Construct the broken HDiv residual.\n")
-        viewer.printfASCII("KSP solver for computing the primal map g = A.inv * r:\n")
-        self.hdiv_mass_ksp.view(viewer)
-        viewer.popASCIITab()
         viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
@@ -388,9 +384,6 @@ class HybridizationPC(PCBase):
         viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
         viewer.pushASCIITab()
         viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
-        viewer.printfASCII("KSP for the HDiv projection stage:\n")
-        viewer.pushASCIITab()
-        self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
 
 
