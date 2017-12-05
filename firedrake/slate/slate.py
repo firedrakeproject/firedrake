@@ -401,7 +401,7 @@ class IndexedTensor(TensorBase):
     def _key(self):
         """Returns a key for hash and equality."""
         tensor, = self.operands
-        return (type(self), tensor)
+        return (type(self), tensor, self._idx)
 
 
 class Tensor(TensorBase):
