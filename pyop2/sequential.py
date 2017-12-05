@@ -1096,15 +1096,14 @@ def wrapper_snippets(itspace, args,
             continue
         _buf_name[arg] = "buffer_%s" % arg.c_arg_name(count)
         _tmp_name[arg] = "tmp_%s" % _buf_name[arg]
-        _buf_size = list(itspace._extents)
+        _loop_size = [m.arity for m in arg.map]
         if not arg._is_mat:
             # Readjust size to take into account the size of a vector space
             _dat_size = (arg.data.cdim,)
-            _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
-            _loop_size = [_buf_size[i]//_dat_size[i] for i in range(len(_buf_size))]
+            _buf_size = [sum([e*d for e, d in zip(_loop_size, _dat_size)])]
         else:
             _dat_size = arg.data.dims[0][0]  # TODO: [0][0] ?
-            _buf_size = [e*d for e, d in zip(_buf_size, _dat_size)]
+            _buf_size = [e*d for e, d in zip(_loop_size, _dat_size)]
         _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name[arg], is_facet=is_facet)
         _tmp_decl[arg] = arg.c_buffer_decl(_buf_size, count, _tmp_name[arg], is_facet=is_facet,
                                            init=False)
