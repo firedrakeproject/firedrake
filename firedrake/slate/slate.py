@@ -355,7 +355,7 @@ class IndexedTensor(TensorBase):
             W = FunctionSpace(fs.mesh(), fs.ufl_element())
             nargs.append(Argument(W, arg.number(), part=arg.part()))
 
-        return nargs
+        return tuple(nargs)
 
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
