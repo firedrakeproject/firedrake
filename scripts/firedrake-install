@@ -900,8 +900,8 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    install("sphinx")
-    install("sphinxcontrib-bibtex")
+    run_pip_install(["sphinx"])
+    run_pip_install(["sphinxcontrib-bibtex"])
     install("git+https://github.com/sphinx-contrib/youtube.git")
 
 
