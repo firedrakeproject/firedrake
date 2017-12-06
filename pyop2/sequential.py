@@ -719,7 +719,7 @@ PetscErrorCode %(wrapper_name)s(int start,
     _system_headers = []
     _extension = 'c'
 
-    def __init__(self, kernel, itspace, *args, **kwargs):
+    def __init__(self, kernel, iterset, *args, **kwargs):
         """
         A cached compiled function to execute for a specified par_loop.
 
@@ -738,11 +738,11 @@ PetscErrorCode %(wrapper_name)s(int start,
         # Return early if we were in the cache.
         if self._initialized:
             return
-        self.comm = itspace.comm
+        self.comm = iterset.comm
         self._kernel = kernel
         self._fun = None
         self._code_dict = None
-        self._itspace = itspace
+        self._iterset = iterset
         self._args = args
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
@@ -751,7 +751,7 @@ PetscErrorCode %(wrapper_name)s(int start,
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
         self._system_headers = dcopy(type(self)._system_headers)
-        self.set_argtypes(itspace.iterset, *args)
+        self.set_argtypes(iterset, *args)
         if not kwargs.get('delay', False):
             self.compile()
             self._initialized = True
@@ -843,13 +843,12 @@ PetscErrorCode %(wrapper_name)s(int start,
         # Blow away everything we don't need any more
         del self._args
         del self._kernel
-        del self._itspace
         del self._direct
         return self._fun
 
     def generate_code(self):
         if not self._code_dict:
-            self._code_dict = wrapper_snippets(self._itspace, self._args,
+            self._code_dict = wrapper_snippets(self._iterset, self._args,
                                                kernel_name=self._kernel._name,
                                                user_code=self._kernel._user_code,
                                                wrapper_name=self._wrapper_name,
@@ -922,7 +921,7 @@ class ParLoop(petsc_base.ParLoop):
 
     @cached_property
     def _jitmodule(self):
-        return JITModule(self.kernel, self.it_space, *self.args,
+        return JITModule(self.kernel, self.iterset, *self.args,
                          direct=self.is_direct, iterate=self.iteration_region,
                          pass_layer_arg=self._pass_layer_arg)
 
@@ -933,14 +932,13 @@ class ParLoop(petsc_base.ParLoop):
             self.log_flops(self.num_flops * part.size)
 
 
-def wrapper_snippets(itspace, args,
+def wrapper_snippets(iterset, args,
                      kernel_name=None, wrapper_name=None, user_code=None,
                      iteration_region=ALL, pass_layer_arg=False):
     """Generates code snippets for the wrapper,
     ready to be into a template.
 
-    :param itspace: :class:`IterationSpace` object of the :class:`ParLoop`,
-                    This is built from the iteration :class:`Set`.
+    :param iterset: The iteration set.
     :param args: :class:`Arg`s of the :class:`ParLoop`
     :param kernel_name: Kernel function name (forwarded)
     :param user_code: Code to insert into the wrapper (forwarded)
@@ -972,7 +970,7 @@ def wrapper_snippets(itspace, args,
     is_top = (iteration_region == ON_TOP)
     is_facet = (iteration_region == ON_INTERIOR_FACETS)
 
-    if isinstance(itspace._iterset, Subset):
+    if isinstance(iterset, Subset):
         _ssinds_arg = "%s* ssinds," % as_cstr(IntType)
         _index_expr = "ssinds[n]"
 
@@ -1016,24 +1014,24 @@ def wrapper_snippets(itspace, args,
     _iterset_masks = ""
     _entity_offset = ""
     _get_mask_indices = ""
-    if itspace._extruded:
+    if iterset._extruded:
         _layer_arg = ", %s *layers" % as_cstr(IntType)
-        if itspace.iterset.constant_layers:
+        if iterset.constant_layers:
             idx0 = "0"
             idx1 = "1"
         else:
-            if isinstance(itspace.iterset, Subset):
+            if isinstance(iterset, Subset):
                 # Subset doesn't hold full layer array
                 idx0 = "2*n"
                 idx1 = "2*n+1"
             else:
                 idx0 = "2*i"
                 idx1 = "2*i+1"
-            if itspace.iterset.masks is not None:
+            if iterset.masks is not None:
                 _iterset_masks = "struct EntityMask *iterset_masks,"
             for arg in args:
                 if arg._is_mat and any(len(m.implicit_bcs) > 0 for map in as_tuple(arg.map) for m in map):
-                    if itspace.iterset.masks is None:
+                    if iterset.masks is None:
                         raise RuntimeError("Somehow iteration set has no masks, but they are needed")
                     _entity_offset = "PetscInt entity_offset;\n"
                     _entity_offset += "ierr = PetscSectionGetOffset(iterset_masks->section, n, &entity_offset);CHKERRQ(ierr);\n"
@@ -1070,7 +1068,7 @@ def wrapper_snippets(itspace, args,
                                  for arg in args if arg._uses_itspace])
         _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, is_facet=is_facet)
                                  for arg in args if arg._uses_itspace])
-        if itspace.iterset.constant_layers:
+        if iterset.constant_layers:
             _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in args if arg._is_mat])
             _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in args if arg._is_mat])
         else:
@@ -1161,7 +1159,7 @@ def wrapper_snippets(itspace, args,
             }
         scatter = ";\n".join(_buf_scatter.values())
 
-        if itspace._extruded:
+        if iterset._extruded:
             _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
                                                        _tmp_name[arg],
                                                        _tmp_decl[arg],
@@ -1223,13 +1221,12 @@ def wrapper_snippets(itspace, args,
                                           for i, j, shape, offsets in itspace])}
 
 
-def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrapper_name=None):
+def generate_cell_wrapper(iterset, args, forward_args=(), kernel_name=None, wrapper_name=None):
     """Generates wrapper for a single cell. No iteration loop, but cellwise data is extracted.
     Cell is expected as an argument to the wrapper. For extruded, the numbering of the cells
     is columnwise continuous, bottom to top.
 
-    :param itspace: :class:`IterationSpace` object. Can be built from
-                    iteration :class:`Set` using pyop2.base.build_itspace
+    :param iterset: The iteration set
     :param args: :class:`Arg`s
     :param forward_args: To forward unprocessed arguments to the kernel via the wrapper,
                          give an iterable of strings describing their C types.
@@ -1240,9 +1237,9 @@ def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrap
     """
 
     direct = all(a.map is None for a in args)
-    snippets = wrapper_snippets(itspace, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
+    snippets = wrapper_snippets(iterset, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
 
-    if itspace._extruded:
+    if iterset._extruded:
         snippets['index_exprs'] = """{0} i = cell / nlayers;
     {0} j = cell % nlayers;""".format(as_cstr(IntType))
         snippets['nlayers_arg'] = ", {0} nlayers".format(as_cstr(IntType))
