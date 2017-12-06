@@ -1120,7 +1120,7 @@ def wrapper_snippets(iterset, args,
     _buf_gather = ";\n".join(_buf_gather.values())
     _buf_decl = ";\n".join(_buf_decl.values())
 
-    def itset_loop_body(i, j, shape, offsets, is_facet=False):
+    def itset_loop_body(is_facet=False):
         template_scatter = """
     %(offset_decl)s;
     %(ofs_itspace_loops)s
@@ -1130,25 +1130,24 @@ def wrapper_snippets(iterset, args,
     %(ind)s%(buffer_scatter)s;
     %(itspace_loop_close)s
 """
-        nloops = len(shape)
         mult = 1 if not is_facet else 2
         _buf_scatter = OrderedDict()  # Deterministic code generation
         for count, arg in enumerate(args):
             if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                 continue
-            elif (arg._is_mat and arg._is_mixed) or (arg._is_dat and nloops > 1):
+            elif arg._is_mat and arg._is_mixed:
                 raise NotImplementedError
             elif arg._is_mat:
                 continue
             elif arg._is_dat:
-                loop_size = shape[0]*mult
+                loop_size = arg.map.arity * mult
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
-                _scatter_stmts = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
+                _scatter_stmts = arg.c_buffer_scatter_vec(count, 0, 0, (0, 0), _buf_name[arg])
                 _buf_offset, _buf_offset_decl = '', ''
             else:
                 raise NotImplementedError
             _buf_scatter[arg] = template_scatter % {
-                'ind': '  ' * nloops,
+                'ind': '  ',
                 'offset_decl': _buf_offset_decl,
                 'offset': _buf_offset,
                 'buffer_scatter': _scatter_stmts,
@@ -1160,7 +1159,7 @@ def wrapper_snippets(iterset, args,
         scatter = ";\n".join(_buf_scatter.values())
 
         if iterset._extruded:
-            _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+            _addtos_extruded = ';\n'.join([arg.c_addto(0, 0, _buf_name[arg],
                                                        _tmp_name[arg],
                                                        _tmp_decl[arg],
                                                        "xtr_", is_facet=is_facet)
@@ -1168,7 +1167,7 @@ def wrapper_snippets(iterset, args,
             _addtos = ""
         else:
             _addtos_extruded = ""
-            _addtos = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+            _addtos = ';\n'.join([arg.c_addto(0, 0, _buf_name[arg],
                                               _tmp_name[arg],
                                               _tmp_decl[arg])
                                   for count, arg in enumerate(args) if arg._is_mat])
@@ -1183,9 +1182,9 @@ def wrapper_snippets(iterset, args,
     %(addtos)s;
 """
         return template % {
-            'ind': '  ' * nloops,
+            'ind': '  ',
             'scatter': scatter,
-            'addtos_extruded': indent(_addtos_extruded, 2 + nloops),
+            'addtos_extruded': indent(_addtos_extruded, 3),
             'addtos': indent(_addtos, 2),
         }
 
@@ -1217,8 +1216,7 @@ def wrapper_snippets(iterset, args,
             'buffer_gather': _buf_gather,
             'kernel_args': _kernel_args,
             'IntType': as_cstr(IntType),
-            'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(iteration_region == ON_INTERIOR_FACETS))
-                                          for i, j, shape, offsets in itspace])}
+            'itset_loop_body': itset_loop_body(is_facet=(iteration_region == ON_INTERIOR_FACETS))}
 
 
 def generate_cell_wrapper(iterset, args, forward_args=(), kernel_name=None, wrapper_name=None):
