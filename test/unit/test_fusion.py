@@ -238,6 +238,7 @@ def loop_fusion(force=None):
     configuration['loop_fusion'] = False
 
 
+@pytest.mark.skip("skip loop fusion tests")
 class TestSoftFusion:
 
     """
@@ -333,6 +334,7 @@ class TestSoftFusion:
         x.data
 
 
+@pytest.mark.skip("skip loop fusion tests")
 class TestHardFusion:
 
     """

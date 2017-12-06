@@ -44,8 +44,7 @@ import numpy as np
 from pyop2.base import Dat, RW, _make_object
 from pyop2.utils import flatten
 
-from .extended import FusionArg, FusionParLoop, \
-    TilingArg, TilingIterationSpace, TilingParLoop
+from .extended import FusionArg, FusionParLoop, TilingArg, TilingParLoop
 from .filters import Filter, WeakFilter
 
 
@@ -211,7 +210,6 @@ class TilingSchedule(Schedule):
                              for arg in loop.args])
         all_args = tuple(all_args)
         # Data for the actual ParLoop
-        it_space = TilingIterationSpace(all_itspaces)
         args = self._filter(loop_chain)
         reduced_globals = [loop._reduced_globals for loop in loop_chain]
         read_args = set(flatten([loop.reads for loop in loop_chain]))
@@ -231,4 +229,4 @@ class TilingSchedule(Schedule):
             'inspection': self._inspection,
             'executor': self._executor
         }
-        return [TilingParLoop(self._kernel, it_space, *args, **kwargs)]
+        return [TilingParLoop(self._kernel, *args, **kwargs)]

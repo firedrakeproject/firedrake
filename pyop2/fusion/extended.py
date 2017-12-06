@@ -348,31 +348,6 @@ class FusionParLoop(ParLoop):
         return self._it_space
 
 
-# API for tiled parallel loops
-
-class TilingIterationSpace(base.IterationSpace):
-
-    """A simple bag of :class:`IterationSpace` objects for a sequence of tiled
-    parallel loops."""
-
-    def __init__(self, all_itspaces):
-        self._iterset = [i._iterset for i in all_itspaces]
-        self._extents = [i._extents for i in all_itspaces]
-        self._block_shape = [i._block_shape for i in all_itspaces]
-        assert all(all_itspaces[0].comm == i.comm for i in all_itspaces)
-        self.comm = all_itspaces[0].comm
-
-    def __str__(self):
-        output = "OP2 Fused Iteration Space:"
-        output += "\n  ".join(["%s with extents %s" % (i._iterset, i._extents)
-                               for i in self.iterset])
-        return output
-
-    def __repr__(self):
-        return "\n".join(["IterationSpace(%r, %r)" % (i._iterset, i._extents)
-                          for i in self.iterset])
-
-
 class TilingJITModule(sequential.JITModule):
 
     """A special :class:`JITModule` for a sequence of tiled kernels."""
@@ -426,9 +401,9 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         if insp_name != lazy_trace_name:
             return key
         all_kernels = kwargs['all_kernels']
-        all_itspaces = kwargs['all_itspaces']
+        all_itsets = kwargs['all_itsets']
         all_args = kwargs['all_args']
-        for kernel, itspace, args in zip(all_kernels, all_itspaces, all_args):
+        for kernel, itset, args in zip(all_kernels, all_itsets, all_args):
             key += super(TilingJITModule, cls)._cache_key(kernel, itspace, *args)
         return key
 

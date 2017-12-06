@@ -3931,6 +3931,8 @@ class ParLoop(LazyComputation):
         self._iteration_region = kwargs.get("iterate", None)
         self._pass_layer_arg = kwargs.get("pass_layer_arg", False)
 
+        check_iterset(self.args, iterset)
+
         if self._pass_layer_arg:
             if self.is_direct:
                 raise ValueError("Can't request layer arg for direct iteration")
@@ -4146,6 +4148,38 @@ class ParLoop(LazyComputation):
         a certain part of an extruded mesh, for example on top cells, bottom cells or
         interior facets."""
         return self._iteration_region
+
+
+def check_iterset(args, iterset):
+    """Checks that the iteration set of the :class:`ParLoop` matches the
+    iteration set of all its arguments. A :class:`MapValueError` is raised
+    if this condition is not met.
+    Also determines the size of the local iteration space and checks all
+    arguments using an :class:`IterationIndex` for consistency."""
+
+    if isinstance(iterset, Subset):
+        _iterset = iterset.superset
+    else:
+        _iterset = iterset
+    if configuration["type_check"]:
+        if isinstance(_iterset, MixedSet):
+            raise SetTypeError("Cannot iterate over MixedSets")
+        for i, arg in enumerate(args):
+            if arg._is_global:
+                continue
+            if arg._is_direct:
+                if arg.data.dataset.set != _iterset:
+                    raise MapValueError(
+                        "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
+                continue
+            for j, m in enumerate(arg._map):
+                if isinstance(_iterset, ExtrudedSet):
+                    if m.iterset != _iterset and m.iterset not in _iterset:
+                        raise MapValueError(
+                            "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                elif m.iterset != _iterset and m.iterset not in _iterset:
+                    raise MapValueError(
+                        "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
 
 
 @collective

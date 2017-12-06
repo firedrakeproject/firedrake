@@ -1659,64 +1659,6 @@ class TestMixedMapAPI:
         assert str(mmap) == "OP2 MixedMap composed of Maps: %s" % (mmap.split,)
 
 
-class TestIterationSpaceAPI:
-
-    """
-    IterationSpace API unit tests
-    """
-
-    def test_iteration_space_illegal_iterset(self, set):
-        "IterationSpace iterset should be Set."
-        with pytest.raises(exceptions.SetTypeError):
-            base.IterationSpace('illegalset', 1)
-
-    def test_iteration_space_illegal_block_shape(self, set):
-        "IterationSpace extents should be int or int tuple."
-        with pytest.raises(TypeError):
-            base.IterationSpace(set, 'illegalextents')
-
-    def test_iteration_space_illegal_extents_tuple(self, set):
-        "IterationSpace extents should be int or int tuple."
-        with pytest.raises(TypeError):
-            base.IterationSpace(set, (1, 'illegalextents'))
-
-    def test_iteration_space_iter(self, set):
-        "Iterating an empty IterationSpace should yield an empty shape."
-        for i, j, shape, offset in base.IterationSpace(set):
-            assert i == 0 and j == 0 and shape == () and offset == (0, 0)
-
-    def test_iteration_space_eq(self, set):
-        """IterationSpaces should compare equal if defined on the same Set."""
-        assert base.IterationSpace(set) == base.IterationSpace(set)
-        assert not base.IterationSpace(set) != base.IterationSpace(set)
-
-    def test_iteration_space_ne_set(self):
-        """IterationSpaces should not compare equal if defined on different
-        Sets."""
-        assert base.IterationSpace(op2.Set(3)) != base.IterationSpace(op2.Set(3))
-        assert not base.IterationSpace(op2.Set(3)) == base.IterationSpace(op2.Set(3))
-
-    def test_iteration_space_ne_block_shape(self, set):
-        """IterationSpaces should not compare equal if defined with different
-        block shapes."""
-        assert base.IterationSpace(set, (((3,),),)) != base.IterationSpace(set, (((2,),),))
-        assert not base.IterationSpace(set, (((3,),),)) == base.IterationSpace(set, (((2,),),))
-
-    def test_iteration_space_repr(self, set):
-        """IterationSpace repr should produce a IterationSpace object when
-        eval'd."""
-        from pyop2.op2 import Set  # noqa: needed by eval
-        from pyop2.base import IterationSpace  # noqa: needed by eval
-        m = IterationSpace(set)
-        assert isinstance(eval(repr(m)), IterationSpace)
-
-    def test_iteration_space_str(self, set):
-        "IterationSpace should have the expected string representation."
-        m = base.IterationSpace(set)
-        s = "OP2 Iteration Space: %s with extents %s" % (m.iterset, m.extents)
-        assert str(m) == s
-
-
 class TestKernelAPI:
 
     """

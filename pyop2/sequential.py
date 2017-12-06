@@ -1140,22 +1140,28 @@ def wrapper_snippets(iterset, args,
             elif arg._is_mat:
                 continue
             elif arg._is_dat:
-                loop_size = arg.map.arity * mult
-                _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
-                _scatter_stmts = arg.c_buffer_scatter_vec(count, 0, 0, (0, 0), _buf_name[arg])
-                _buf_offset, _buf_offset_decl = '', ''
+                arg_scatter = []
+                offset = 0
+                for i, m in enumerate(arg.map):
+                    loop_size = m.arity * mult
+                    _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
+                    _scatter_stmts = arg.c_buffer_scatter_vec(count, i, 0, (offset, 0), _buf_name[arg])
+                    _buf_offset, _buf_offset_decl = '', ''
+                    _scatter = template_scatter % {
+                        'ind': '  ',
+                        'offset_decl': _buf_offset_decl,
+                        'offset': _buf_offset,
+                        'buffer_scatter': _scatter_stmts,
+                        'itspace_loops': indent(_itspace_loops, 2),
+                        'itspace_loop_close': indent(_itspace_loop_close, 2),
+                        'ofs_itspace_loops': indent(_itspace_loops, 2) if _buf_offset else '',
+                        'ofs_itspace_loop_close': indent(_itspace_loop_close, 2) if _buf_offset else ''
+                    }
+                    arg_scatter.append(_scatter)
+                    offset += loop_size
+                _buf_scatter[arg] = ';\n'.join(arg_scatter)
             else:
                 raise NotImplementedError
-            _buf_scatter[arg] = template_scatter % {
-                'ind': '  ',
-                'offset_decl': _buf_offset_decl,
-                'offset': _buf_offset,
-                'buffer_scatter': _scatter_stmts,
-                'itspace_loops': indent(_itspace_loops, 2),
-                'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'ofs_itspace_loops': indent(_itspace_loops, 2) if _buf_offset else '',
-                'ofs_itspace_loop_close': indent(_itspace_loop_close, 2) if _buf_offset else ''
-            }
         scatter = ";\n".join(_buf_scatter.values())
 
         if iterset._extruded:
