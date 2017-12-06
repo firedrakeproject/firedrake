@@ -4327,7 +4327,7 @@ def build_itspace(args, iterset):
             if arg._uses_itspace:
                 _block_shape = arg._block_shape
                 if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
+                    pass  # Allow different block shape
                 block_shape = _block_shape
     else:
         for arg in args:

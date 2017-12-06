@@ -124,6 +124,7 @@ class TestIndirectLoop:
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
                          x(op2.WRITE, op2.Map(iterset, op2.Set(nelems), 1)))
 
+    @pytest.mark.skip("allow different block size")
     def test_mismatching_itspace(self, iterset, iterset2indset, iterset2indset2, x):
         """par_loop arguments using an IterationIndex must use a local
         iteration space of the same extents."""
