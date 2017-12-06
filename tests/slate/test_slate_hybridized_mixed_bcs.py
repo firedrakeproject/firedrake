@@ -33,11 +33,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral, subdom
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'hdiv_residual': {'ksp_type': 'cg',
-                                                  'ksp_rtol': 1e-14},
-                                'hdiv_projection': {'ksp_type': 'cg',
-                                                    'ksp_rtol': 1e-14}}}
+                                'pc_type': 'lu'}}
     bcs = [DirichletBC(W[0], Constant((0., 0.)), subdomain)]
 
     solve(a == L, w, solver_parameters=params, bcs=bcs)
@@ -89,11 +85,7 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'hdiv_residual': {'ksp_type': 'cg',
-                                                  'ksp_rtol': 1e-14},
-                                'hdiv_projection': {'ksp_type': 'cg',
-                                                    'ksp_rtol': 1e-14}}}
+                                'pc_type': 'lu'}}
     bcs = [DirichletBC(W[0], Constant((0., 0.)), "top"),
            DirichletBC(W[0], Constant((0., 0.)), "bottom")]
     solve(a == L, w, solver_parameters=params, bcs=bcs)
