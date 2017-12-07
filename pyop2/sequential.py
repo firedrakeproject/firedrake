@@ -843,6 +843,7 @@ PetscErrorCode %(wrapper_name)s(int start,
         # Blow away everything we don't need any more
         del self._args
         del self._kernel
+        del self._iterset
         del self._direct
         return self._fun
 

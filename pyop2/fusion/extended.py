@@ -334,18 +334,7 @@ class ParLoop(sequential.ParLoop):
 class FusionParLoop(ParLoop):
 
     def __init__(self, kernel, iterset, *args, **kwargs):
-        self._it_space = kwargs['it_space']
         super(FusionParLoop, self).__init__(kernel, iterset, *args, **kwargs)
-
-    def _build_itspace(self, iterset):
-        """
-        Bypass the construction of a new iteration space.
-
-        This avoids type checking in base.ParLoop._build_itspace, which would
-        return an error when the fused loop accesses arguments that are not
-        accessed by the base loop.
-        """
-        return self._it_space
 
 
 class TilingJITModule(sequential.JITModule):
