@@ -22,7 +22,6 @@
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import absolute_import, print_function, division
-from six import iteritems
 
 from singledispatch import singledispatch
 import weakref
@@ -227,7 +226,7 @@ def _create_element(ufl_element, **kwargs):
         _cache[ufl_element] = {}
         cache = _cache[ufl_element]
 
-    for key, finat_element in iteritems(cache):
+    for key, finat_element in cache.items():
         # Cache hit if all relevant parameter values match.
         if all(kwargs[param] == value for param, value in key):
             return finat_element, set(param for param, value in key)

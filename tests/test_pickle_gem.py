@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import cPickle as pickle, range
+import pickle
 import gem
 import numpy
 import pytest

@@ -2,8 +2,6 @@
 geometric quantities into GEM expressions."""
 
 from __future__ import absolute_import, print_function, division
-from six import iterkeys, iteritems, itervalues
-from six.moves import map, range, zip
 
 import collections
 import itertools
@@ -397,17 +395,17 @@ def translate_cell_edge_vectors(terminal, mt, ctx):
         gem.Sum(gem.Indexed(cell_vertices, (u, c)),
                 gem.Product(gem.Literal(-1),
                             gem.Indexed(cell_vertices, (v, c))))
-        for _, (u, v) in sorted(iteritems(ctx.fiat_cell.get_topology()[1]))
+        for _, (u, v) in sorted(ctx.fiat_cell.get_topology()[1].items())
     ])
     return gem.ComponentTensor(gem.Indexed(expr, (e,)), (e, c))
 
 
 def fiat_to_ufl(fiat_dict, order):
     # All derivative multiindices must be of the same dimension.
-    dimension, = list(set(len(alpha) for alpha in iterkeys(fiat_dict)))
+    dimension, = set(len(alpha) for alpha in fiat_dict.keys())
 
     # All derivative tables must have the same shape.
-    shape, = list(set(table.shape for table in itervalues(fiat_dict)))
+    shape, = set(table.shape for table in fiat_dict.values())
     sigma = tuple(gem.Index(extent=extent) for extent in shape)
 
     # Convert from FIAT to UFL format
@@ -434,7 +432,7 @@ def translate_argument(terminal, mt, ctx):
         finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         # Filter out irrelevant derivatives
         filtered_dict = {alpha: table
-                         for alpha, table in iteritems(finat_dict)
+                         for alpha, table in finat_dict.items()
                          if sum(alpha) == mt.local_derivatives}
 
         # Change from FIAT to UFL arrangement
@@ -461,7 +459,7 @@ def translate_coefficient(terminal, mt, ctx):
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
         finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
-        for alpha, table in iteritems(finat_dict):
+        for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
                 # A numerical hack that FFC used to apply on FIAT
@@ -476,11 +474,11 @@ def translate_coefficient(terminal, mt, ctx):
             x, = xs  # asserts singleton
             return x
         per_derivative = {alpha: take_singleton(tables)
-                          for alpha, tables in iteritems(per_derivative)}
+                          for alpha, tables in per_derivative.items()}
     else:
         f = ctx.entity_number(mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
-                          for alpha, tables in iteritems(per_derivative)}
+                          for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
     ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
@@ -488,7 +486,7 @@ def translate_coefficient(terminal, mt, ctx):
     zeta = element.get_value_indices()
     vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}
-    for alpha, table in iteritems(per_derivative):
+    for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
