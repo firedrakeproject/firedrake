@@ -203,7 +203,6 @@ class TilingSchedule(Schedule):
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
         # Track the individual kernels, and the args of each kernel
-        all_itspaces = tuple(loop.it_space for loop in loop_chain)
         all_args = []
         for i, (loop, gtl_maps) in enumerate(zip(loop_chain, self._executor.gtl_maps)):
             all_args.append([TilingArg(arg, i, None if self._opt_glb_maps else gtl_maps)
@@ -217,7 +216,6 @@ class TilingSchedule(Schedule):
         inc_args = set(flatten([loop.incs for loop in loop_chain]))
         kwargs = {
             'all_kernels': self._kernel._kernels,
-            'all_itspaces': all_itspaces,
             'all_args': all_args,
             'read_args': read_args,
             'written_args': written_args,
