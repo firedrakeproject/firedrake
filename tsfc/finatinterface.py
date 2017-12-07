@@ -23,7 +23,7 @@
 
 from __future__ import absolute_import, print_function, division
 
-from singledispatch import singledispatch
+from functools import singledispatch
 import weakref
 
 import finat

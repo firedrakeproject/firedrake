@@ -23,8 +23,7 @@
 
 from __future__ import absolute_import, print_function, division
 
-from singledispatch import singledispatch
-from functools import partial
+from functools import singledispatch, partial
 import weakref
 
 import FIAT

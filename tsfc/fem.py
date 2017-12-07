@@ -5,9 +5,9 @@ from __future__ import absolute_import, print_function, division
 
 import collections
 import itertools
+from functools import singledispatch
 
 import numpy
-from singledispatch import singledispatch
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
