@@ -497,7 +497,7 @@ def slate_to_cpp(expr, temps, prec=None):
 
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, slate.IndexedTensor):
+    elif isinstance(expr, slate.Block):
         tensor, = expr.operands
         idx = expr._idx
         try:

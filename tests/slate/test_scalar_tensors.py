@@ -42,8 +42,8 @@ def test_functions(mesh, expr, value, typ, fs_type):
             f = Constant(value, domain=mesh)
 
     actual = assemble(Tensor(eval(expr)*dx))
-    # Checking to make sure an 'empty' index DTRT for scalars
-    actual_idx = assemble(Tensor(eval(expr)*dx)[()])
+    # Checking to make sure an 'empty' arg DTRT for scalars
+    actual_idx = assemble(Tensor(eval(expr)*dx).block())
 
     if fs_type == "vector":
         f = 2*value**2

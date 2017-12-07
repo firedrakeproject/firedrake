@@ -9,7 +9,7 @@ def test_constant_one_tensor():
     one = Constant(1, domain=mesh)
     assert np.allclose(assemble(Tensor(one * dx)), 1.0)
     # Checking to make sure an 'empty' index DTRT for scalars
-    assert np.allclose(assemble(Tensor(one * dx)[()]), 1.0)
+    assert np.allclose(assemble(Tensor(one * dx).block()), 1.0)
 
 
 if __name__ == '__main__':

@@ -30,7 +30,7 @@ from ufl.domain import join_domains
 from ufl.form import Form
 
 
-__all__ = ['AssembledVector', 'IndexedTensor', 'Tensor',
+__all__ = ['AssembledVector', 'Block', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul']
 
@@ -141,13 +141,9 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def __getitem__(self, idx):
+    def block(self, *idx):
         """Extract a particular block of a mixed tensor."""
-        try:
-            idx = tuple(idx)
-        except TypeError:
-            idx = (idx,)
-        return IndexedTensor(self, idx)
+        return Block(self, idx)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
@@ -305,13 +301,12 @@ class AssembledVector(TensorBase):
         return (type(self), self._function)
 
 
-class IndexedTensor(TensorBase):
+class Block(TensorBase):
     """This class represents a tensor corresponding
     to particular block of a mixed tensor.
 
-    :arg tensor: A block (mixed) tensor.
-    :arg idx: A tuple of indices denoting which block
-              to extract.
+    :arg tensor: A (mixed) tensor.
+    :arg idx: A tuple of argument indices.
     """
 
     def __new__(cls, tensor, idx):
@@ -325,7 +320,7 @@ class IndexedTensor(TensorBase):
         return super().__new__(cls)
 
     def __init__(self, tensor, idx):
-        """Constructor for the IndexedTensor class."""
+        """Constructor for the Block class."""
         assert len(idx) == tensor.rank, (
             "Number of indices must match the tensor rank."
         )
@@ -335,7 +330,7 @@ class IndexedTensor(TensorBase):
                 raise ValueError("The mixed tensor does not have "
                                  "field indices '%s'" % idx)
 
-        super(IndexedTensor, self).__init__()
+        super(Block, self).__init__()
         self.operands = (tensor,)
         self._idx = idx
 
@@ -756,7 +751,7 @@ class Mul(BinaryOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [Tensor, AssembledVector, IndexedTensor],
+    [AssembledVector, Block, Tensor],
     [UnaryOp],
     [Add],
     [Mul]

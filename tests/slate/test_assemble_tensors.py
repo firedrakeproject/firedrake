@@ -170,7 +170,7 @@ def test_mixed_argument_tensor(mesh):
     assemble(T)
 
 
-def test_assemble_indexed_vectors(mesh):
+def test_vector_subblocks(mesh):
     V = VectorFunctionSpace(mesh, "DG", 3)
     U = FunctionSpace(mesh, "DG", 2)
     T = FunctionSpace(mesh, "DG", 1)
@@ -185,16 +185,16 @@ def test_assemble_indexed_vectors(mesh):
     K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     E = K.inv * F
-    Eq = assemble(E[0])
-    Ep = assemble(E[1])
-    Er = assemble(E[2])
+    Eq = assemble(E.block(0))
+    Ep = assemble(E.block(1))
+    Er = assemble(E.block(2))
 
     assert np.allclose(Eq.dat.data, q.dat.data, rtol=1e-14)
     assert np.allclose(Ep.dat.data, p.dat.data, rtol=1e-14)
     assert np.allclose(Er.dat.data, r.dat.data, rtol=1e-14)
 
 
-def test_assemble_indexed_matrices(mesh):
+def test_matrix_subblocks(mesh):
     if mesh.ufl_cell() == quadrilateral:
         U = FunctionSpace(mesh, "RTCF", 2)
     else:
@@ -209,13 +209,13 @@ def test_assemble_indexed_matrices(mesh):
     A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
                lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS +
                lambdar*gammar*ds)
-    A00 = assemble(A[0, 0])
-    A01 = assemble(A[0, 1])
-    A02 = assemble(A[0, 2])
-    A10 = assemble(A[1, 0])
-    A11 = assemble(A[1, 1])
-    A20 = assemble(A[2, 0])
-    A22 = assemble(A[2, 2])
+    A00 = assemble(A.block(0, 0))
+    A01 = assemble(A.block(0, 1))
+    A02 = assemble(A.block(0, 2))
+    A10 = assemble(A.block(1, 0))
+    A11 = assemble(A.block(1, 1))
+    A20 = assemble(A.block(2, 0))
+    A22 = assemble(A.block(2, 2))
 
     u = TrialFunction(U)
     w = TestFunction(U)
