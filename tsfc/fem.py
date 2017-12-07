@@ -1,8 +1,6 @@
 """Functions to translate UFL finite element objects and reference
 geometric quantities into GEM expressions."""
 
-from __future__ import absolute_import, print_function, division
-
 import collections
 import itertools
 from functools import singledispatch

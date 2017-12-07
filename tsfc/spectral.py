@@ -1,5 +1,3 @@
-from __future__ import absolute_import, print_function, division
-
 from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial, reduce
 from itertools import chain, zip_longest

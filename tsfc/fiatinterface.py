@@ -21,8 +21,6 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import, print_function, division
-
 from functools import singledispatch, partial
 import weakref
 
