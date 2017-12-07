@@ -84,8 +84,8 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, _LazyMatOp):
                 continue
-            key += (loop.kernel.cache_key,)
-            key += (loop.iterset.sizes,)
+            key += (loop.kernel.cache_key, loop.iterset.sizes)
+            key += (loop.iterset._extruded, (loop.iterset._extruded and loop.iterset.constant_layers))
             for arg in loop.args:
                 all_dats.append(arg.data)
                 if arg._is_global:
