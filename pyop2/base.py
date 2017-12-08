@@ -4154,6 +4154,7 @@ def check_iterset(args, iterset):
     """Checks that the iteration set of the :class:`ParLoop` matches the
     iteration set of all its arguments. A :class:`MapValueError` is raised
     if this condition is not met.
+
     Also determines the size of the local iteration space and checks all
     arguments using an :class:`IterationIndex` for consistency."""
 
