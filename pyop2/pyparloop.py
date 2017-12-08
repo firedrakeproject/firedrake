@@ -106,7 +106,7 @@ class ParLoop(base.ParLoop):
     def _compute(self, part, *arglist):
         if part.set._extruded:
             raise NotImplementedError
-        subset = isinstance(self._it_space._iterset, base.Subset)
+        subset = isinstance(self.iterset, base.Subset)
 
         def arrayview(array, access):
             array = array.view()
@@ -117,7 +117,7 @@ class ParLoop(base.ParLoop):
         for e in range(part.offset, part.offset + part.size):
             args = []
             if subset:
-                idx = self._it_space._iterset._indices[e]
+                idx = self.iterset._indices[e]
             else:
                 idx = e
             for arg in self.args:

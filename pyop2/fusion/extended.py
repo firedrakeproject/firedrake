@@ -334,43 +334,7 @@ class ParLoop(sequential.ParLoop):
 class FusionParLoop(ParLoop):
 
     def __init__(self, kernel, iterset, *args, **kwargs):
-        self._it_space = kwargs['it_space']
         super(FusionParLoop, self).__init__(kernel, iterset, *args, **kwargs)
-
-    def _build_itspace(self, iterset):
-        """
-        Bypass the construction of a new iteration space.
-
-        This avoids type checking in base.ParLoop._build_itspace, which would
-        return an error when the fused loop accesses arguments that are not
-        accessed by the base loop.
-        """
-        return self._it_space
-
-
-# API for tiled parallel loops
-
-class TilingIterationSpace(base.IterationSpace):
-
-    """A simple bag of :class:`IterationSpace` objects for a sequence of tiled
-    parallel loops."""
-
-    def __init__(self, all_itspaces):
-        self._iterset = [i._iterset for i in all_itspaces]
-        self._extents = [i._extents for i in all_itspaces]
-        self._block_shape = [i._block_shape for i in all_itspaces]
-        assert all(all_itspaces[0].comm == i.comm for i in all_itspaces)
-        self.comm = all_itspaces[0].comm
-
-    def __str__(self):
-        output = "OP2 Fused Iteration Space:"
-        output += "\n  ".join(["%s with extents %s" % (i._iterset, i._extents)
-                               for i in self.iterset])
-        return output
-
-    def __repr__(self):
-        return "\n".join(["IterationSpace(%r, %r)" % (i._iterset, i._extents)
-                          for i in self.iterset])
 
 
 class TilingJITModule(sequential.JITModule):
@@ -420,34 +384,34 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 """
 
     @classmethod
-    def _cache_key(cls, kernel, itspace, *args, **kwargs):
+    def _cache_key(cls, kernel, iterset, *args, **kwargs):
         insp_name = kwargs['insp_name']
         key = (insp_name, kwargs['use_glb_maps'], kwargs['use_prefetch'])
         if insp_name != lazy_trace_name:
             return key
         all_kernels = kwargs['all_kernels']
-        all_itspaces = kwargs['all_itspaces']
+        all_itsets = kwargs['all_itsets']
         all_args = kwargs['all_args']
-        for kernel, itspace, args in zip(all_kernels, all_itspaces, all_args):
-            key += super(TilingJITModule, cls)._cache_key(kernel, itspace, *args)
+        for kernel, itset, args in zip(all_kernels, all_itsets, all_args):
+            key += super(TilingJITModule, cls)._cache_key(kernel, iterset, *args)
         return key
 
-    def __init__(self, kernel, itspace, *args, **kwargs):
+    def __init__(self, kernel, iterset, *args, **kwargs):
         if self._initialized:
             return
         self._all_kernels = kwargs.pop('all_kernels')
-        self._all_itspaces = kwargs.pop('all_itspaces')
+        self._all_itsets = kwargs.pop('all_itsets')
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
         self._use_glb_maps = kwargs.pop('use_glb_maps')
         self._use_prefetch = kwargs.pop('use_prefetch')
-        super(TilingJITModule, self).__init__(kernel, itspace, *args, **kwargs)
+        super(TilingJITModule, self).__init__(kernel, iterset, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
         argtypes = [slope.Executor.meta['py_ctype_exec']]
-        for itspace in self._all_itspaces:
-            if isinstance(itspace.iterset, base.Subset):
-                argtypes.append(itspace.iterset._argtype)
+        for iterset in self._all_itsets:
+            if isinstance(iterset, base.Subset):
+                argtypes.append(iterset._argtype)
         for arg in args:
             if arg._is_mat:
                 argtypes.append(arg.data._argtype)
@@ -486,7 +450,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             # After the JITModule is compiled, can drop any reference to now
             # useless fields
             del self._all_kernels
-            del self._all_itspaces
+            del self._all_itsets
             del self._all_args
             del self._executor
 
@@ -512,9 +476,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         # 2) Construct the kernel invocations
         _loop_body, _user_code, _ssinds_arg = [], [], []
         # For each kernel ...
-        for i, (kernel, it_space, args) in enumerate(zip(self._all_kernels,
-                                                         self._all_itspaces,
-                                                         self._all_args)):
+        for i, (kernel, iterset, args) in enumerate(zip(self._all_kernels, self._all_itsets, self._all_args)):
             # ... bind the Executor's arguments to this kernel's arguments
             binding = []
             for a1 in args:
@@ -527,7 +489,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
             # ... obtain the /code_dict/ as if it were not part of an Executor,
             # since bits of code generation can be reused
-            loop_code_dict = sequential.JITModule(kernel, it_space, *args, delay=True)
+            loop_code_dict = sequential.JITModule(kernel, iterset, *args, delay=True)
             loop_code_dict = loop_code_dict.generate_code()
 
             # ... does the scatter use global or local maps ?
@@ -601,7 +563,7 @@ class TilingParLoop(ParLoop):
 
         # Inspector related stuff
         self._all_kernels = kwargs.get('all_kernels', [kernel])
-        self._all_itspaces = kwargs.get('all_itspaces', [kernel])
+        self._all_itsets = kwargs.get('all_itsets', [kernel])
         self._all_args = kwargs.get('all_args', [args])
         self._insp_name = kwargs.get('insp_name')
         self._inspection = kwargs.get('inspection')
@@ -646,9 +608,9 @@ class TilingParLoop(ParLoop):
 
     def prepare_arglist(self, part, *args):
         arglist = [self._inspection]
-        for itspace in self._all_itspaces:
-            if isinstance(itspace._iterset, base.Subset):
-                arglist.append(itspace._iterset._indices.ctypes.data)
+        for iterset in self._all_itsets:
+            if isinstance(iterset, base.Subset):
+                arglist.append(iterset._indices.ctypes.data)
         for arg in args:
             if arg._is_mat:
                 arglist.append(arg.data.handle.handle)
@@ -664,7 +626,7 @@ class TilingParLoop(ParLoop):
                     for m in map:
                         arglist.append(m._values.ctypes.data)
 
-        arglist.append(self.it_space.comm.rank)
+        arglist.append(self.iterset.comm.rank)
 
         return arglist
 
@@ -675,7 +637,7 @@ class TilingParLoop(ParLoop):
             self.global_to_local_begin()
             kwargs = {
                 'all_kernels': self._all_kernels,
-                'all_itspaces': self._all_itspaces,
+                'all_itsets': self._all_itsets,
                 'all_args': self._all_args,
                 'executor': self._executor,
                 'insp_name': self._insp_name,

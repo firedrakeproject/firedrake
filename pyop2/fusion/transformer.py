@@ -84,8 +84,8 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, _LazyMatOp):
                 continue
-            key += (loop.kernel.cache_key,)
-            key += (loop.it_space.cache_key, loop.it_space.iterset.sizes)
+            key += (loop.kernel.cache_key, loop.iterset.sizes)
+            key += (loop.iterset._extruded, (loop.iterset._extruded and loop.iterset.constant_layers))
             for arg in loop.args:
                 all_dats.append(arg.data)
                 if arg._is_global:
@@ -276,7 +276,7 @@ class Inspector(Cached):
                 # Hard fusion requires a map between the iteration spaces involved
                 maps = set(a.map for a in common_incs if a._is_indirect)
                 maps |= set(flatten(m.factors for m in maps if hasattr(m, 'factors')))
-                set1, set2 = base_loop.it_space.iterset, loop.it_space.iterset
+                set1, set2 = base_loop.iterset, loop.iterset
                 fusion_map_1 = [m for m in maps if set1 == m.iterset and set2 == m.toset]
                 fusion_map_2 = [m for m in maps if set1 == m.toset and set2 == m.iterset]
                 if fusion_map_1:
@@ -484,7 +484,7 @@ def loops_analyzer(loop1, loop2):
 
     info = {}
 
-    homogeneous = loop1.it_space == loop2.it_space
+    homogeneous = loop1.iterset == loop2.iterset
     heterogeneous = not homogeneous
 
     info['homogeneous'] = homogeneous

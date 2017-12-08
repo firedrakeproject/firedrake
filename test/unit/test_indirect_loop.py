@@ -37,7 +37,7 @@ import numpy as np
 import random
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError, IndexValueError
+from pyop2.exceptions import MapValueError
 
 from coffee.base import *
 
@@ -123,14 +123,6 @@ class TestIndirectLoop:
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
                          x(op2.WRITE, op2.Map(iterset, op2.Set(nelems), 1)))
-
-    def test_mismatching_itspace(self, iterset, iterset2indset, iterset2indset2, x):
-        """par_loop arguments using an IterationIndex must use a local
-        iteration space of the same extents."""
-        with pytest.raises(IndexValueError):
-            op2.par_loop(op2.Kernel("", "dummy"), iterset,
-                         x(op2.WRITE, iterset2indset[op2.i[0]]),
-                         x(op2.WRITE, iterset2indset2[op2.i[0]]))
 
     def test_uninitialized_map(self, iterset, indset, x):
         """Accessing a par_loop argument via an uninitialized Map should raise

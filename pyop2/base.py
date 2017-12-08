@@ -301,8 +301,6 @@ class Arg(object):
             self._block_shape = tuple(tuple((mr.arity, mc.arity)
                                       for mc in map[1])
                                       for mr in map[0])
-        elif self._uses_itspace:
-            self._block_shape = tuple(((m.arity,),) for m in map)
         else:
             self._block_shape = None
 
@@ -1414,124 +1412,6 @@ class Halo(object, metaclass=abc.ABCMeta):
         :arg insert_mode: The insertion mode.
         """
         pass
-
-
-class IterationSpace(object):
-
-    """OP2 iteration space type.
-
-    .. Warning ::
-        User code should not directly instantiate :class:`IterationSpace`.
-        This class is only for internal use inside a
-        :func:`pyop2.op2.par_loop`."""
-
-    @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, block_shape=None):
-        self._iterset = iterset
-        self.comm = iterset.comm
-        if block_shape:
-            # Try the Mat case first
-            try:
-                self._extents = (sum(b[0][0] for b in block_shape),
-                                 sum(b[1] for b in block_shape[0]))
-            # Otherwise it's a Dat and only has one extent
-            except IndexError:
-                self._extents = (sum(b[0][0] for b in block_shape),)
-        else:
-            self._extents = ()
-        self._block_shape = block_shape or ((self._extents,),)
-
-    @cached_property
-    def iterset(self):
-        """The :class:`Set` over which this IterationSpace is defined."""
-        return self._iterset
-
-    @cached_property
-    def extents(self):
-        """Extents of the IterationSpace within each item of ``iterset``"""
-        return self._extents
-
-    @cached_property
-    def name(self):
-        """The name of the :class:`Set` over which this IterationSpace is
-        defined."""
-        return self._iterset.name
-
-    @cached_property
-    def core_size(self):
-        """The number of :class:`Set` elements which don't touch halo elements in the set
-        over which this IterationSpace is defined"""
-        return self._iterset.core_size
-
-    @cached_property
-    def size(self):
-        """The size of the :class:`Set` over which this IterationSpace is defined."""
-        return self._iterset.size
-
-    @cached_property
-    def total_size(self):
-        """The size of the :class:`Set` over which this IterationSpace
-        is defined, including halo elements."""
-        return self._iterset.total_size
-
-    @cached_property
-    def layers(self):
-        """Number of layers in the extruded set (or None if this is not an
-        extruded iteration space)
-        """
-        return self._iterset.layers
-
-    @cached_property
-    def _extruded(self):
-        return self._iterset._extruded
-
-    @cached_property
-    def partition_size(self):
-        """Default partition size"""
-        return self.iterset.partition_size
-
-    @cached_property
-    def _extent_ranges(self):
-        return [e for e in self.extents]
-
-    def __iter__(self):
-        """Yield all block shapes with their indices as i, j, shape, offsets
-        tuples."""
-        roffset = 0
-        for i, row in enumerate(self._block_shape):
-            coffset = 0
-            for j, shape in enumerate(row):
-                yield i, j, shape, (roffset, coffset)
-                if len(shape) > 1:
-                    coffset += shape[1]
-            if len(shape) > 0:
-                roffset += shape[0]
-
-    def __eq__(self, other):
-        """:class:`IterationSpace`s compare equal if they are defined on the
-        same :class:`Set` and have the same ``extent``."""
-        return self._iterset == other._iterset and self._extents == other._extents
-
-    def __ne__(self, other):
-        """:class:`IterationSpace`s compare equal if they are defined on the
-        same :class:`Set` and have the same ``extent``."""
-        return not self == other
-
-    def __hash__(self):
-        return hash((self._iterset, self._extents))
-
-    def __str__(self):
-        return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
-
-    def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
-
-    @cached_property
-    def cache_key(self):
-        """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self._block_shape, self.iterset._extruded, \
-            (self.iterset._extruded and self.iterset.constant_layers), \
-            isinstance(self._iterset, Subset)
 
 
 class DataCarrier(object):
@@ -3907,8 +3787,10 @@ class JITModule(Cached):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, kernel, itspace, *args, **kwargs):
-        key = (kernel.cache_key, itspace.cache_key)
+    def _cache_key(cls, kernel, iterset, *args, **kwargs):
+        key = (kernel.cache_key, iterset._extruded,
+               (iterset._extruded and iterset.constant_layers),
+               isinstance(iterset, Subset))
         for arg in args:
             key += (arg.__class__,)
             if arg._is_global:
@@ -4049,6 +3931,8 @@ class ParLoop(LazyComputation):
         self._iteration_region = kwargs.get("iterate", None)
         self._pass_layer_arg = kwargs.get("pass_layer_arg", False)
 
+        check_iterset(self.args, iterset)
+
         if self._pass_layer_arg:
             if self.is_direct:
                 raise ValueError("Can't request layer arg for direct iteration")
@@ -4069,8 +3953,6 @@ class ParLoop(LazyComputation):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
-
-        self._it_space = self._build_itspace(iterset)
 
         # Attach semantic information to the kernel's AST
         # Only need to do this once, since the kernel "defines" the
@@ -4230,11 +4112,6 @@ class ParLoop(LazyComputation):
         return [arg for arg in self.args if arg._is_global_reduction]
 
     @cached_property
-    def it_space(self):
-        """Iteration space of the parallel loop."""
-        return self._it_space
-
-    @cached_property
     def is_direct(self):
         """Is this parallel loop direct? I.e. are all the arguments either
         :class:Dats accessed through the identity map, or :class:Global?"""
@@ -4272,39 +4149,19 @@ class ParLoop(LazyComputation):
         interior facets."""
         return self._iteration_region
 
-    def _build_itspace(self, iterset):
-        """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
-        given iteration set.
 
-        Also checks that the iteration set of the :class:`ParLoop` matches the
-        iteration set of all its arguments. A :class:`MapValueError` is raised
-        if this condition is not met.
-
-        Also determines the size of the local iteration space and checks all
-        arguments using an :class:`IterationIndex` for consistency.
-
-        :return: class:`IterationSpace` for this :class:`ParLoop`"""
-        return build_itspace(self.args, iterset)
-
-
-def build_itspace(args, iterset):
-    """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
-    given iteration set.
-
-    Also checks that the iteration set of the :class:`ParLoop` matches the
+def check_iterset(args, iterset):
+    """Checks that the iteration set of the :class:`ParLoop` matches the
     iteration set of all its arguments. A :class:`MapValueError` is raised
     if this condition is not met.
 
     Also determines the size of the local iteration space and checks all
-    arguments using an :class:`IterationIndex` for consistency.
-
-    :return: class:`IterationSpace` for this :class:`ParLoop`"""
+    arguments using an :class:`IterationIndex` for consistency."""
 
     if isinstance(iterset, Subset):
         _iterset = iterset.superset
     else:
         _iterset = iterset
-    block_shape = None
     if configuration["type_check"]:
         if isinstance(_iterset, MixedSet):
             raise SetTypeError("Cannot iterate over MixedSets")
@@ -4324,21 +4181,10 @@ def build_itspace(args, iterset):
                 elif m.iterset != _iterset and m.iterset not in _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-            if arg._uses_itspace:
-                _block_shape = arg._block_shape
-                if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                block_shape = _block_shape
-    else:
-        for arg in args:
-            if arg._uses_itspace:
-                block_shape = arg._block_shape
-                break
-    return IterationSpace(iterset, block_shape)
 
 
 @collective
-def par_loop(kernel, it_space, *args, **kwargs):
+def par_loop(kernel, iterset, *args, **kwargs):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
@@ -4372,12 +4218,6 @@ def par_loop(kernel, it_space, *args, **kwargs):
         :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
         by the :class:`Kernel`. No runtime check is performed to ensure this!
 
-    If a :func:`par_loop` argument indexes into a :class:`Map` using an
-    :class:`base.IterationIndex`, this implies the use of a local
-    :class:`base.IterationSpace` of a size given by the arity of the
-    :class:`Map`. It is an error to have several arguments using local
-    iteration spaces of different size.
-
     :func:`par_loop` invocation is illustrated by the following example ::
 
       pyop2.par_loop(mass, elements,
@@ -4406,5 +4246,5 @@ def par_loop(kernel, it_space, *args, **kwargs):
     """
     if isinstance(kernel, types.FunctionType):
         from pyop2 import pyparloop
-        return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()
-    return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()
+        return pyparloop.ParLoop(pyparloop.Kernel(kernel), iterset, *args, **kwargs).enqueue()
+    return _make_object('ParLoop', kernel, iterset, *args, **kwargs).enqueue()
