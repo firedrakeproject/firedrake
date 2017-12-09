@@ -499,20 +499,20 @@ def slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, slate.Block):
         tensor, = expr.operands
-        idx = expr._idx
+        indices = expr._arg_indices
         try:
-            ridx, cidx = idx
+            ridx, cidx = indices
         except ValueError:
-            ridx, = idx
-            cidx = 0
-        rshape = tensor.shapes[0][ridx]
-        rstart = sum(tensor.shapes[0][:ridx])
-        try:
-            cshape = tensor.shapes[1][cidx]
-            cstart = sum(tensor.shapes[1][:cidx])
-        except KeyError:
+            ridx, = indices
+            cidx = (0,)
+        rshape = expr.shape[0]
+        rstart = sum(tensor.shapes[0][:min(ridx)])
+        if expr.rank == 1:
             cshape = 1
             cstart = 0
+        else:
+            cshape = expr.shape[1]
+            cstart = sum(tensor.shapes[1][:min(cidx)])
 
         result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
                                                               temps,

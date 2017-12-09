@@ -141,9 +141,41 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def block(self, *idx):
-        """Extract a particular block of a mixed tensor."""
-        return Block(self, idx)
+    def block(self, test_idx, trial_idx=None):
+        """Extract a particular block of a rank 1 or 2 tensor.
+
+        :arg test_idx: Indices of the test function space(s)
+                       This should be an integer or iterable of
+                       integers.
+        :arg trial_idx: Indices of the trial function space(s)
+                        This should be an integer or iterable of
+                        integers. If `None`, then the tensor
+                        is required to be rank 1.
+        """
+
+        def to_tuple(i):
+            try:
+                i = tuple(i)
+            except TypeError:
+                i = (i,)
+            return i
+
+        # One should not use this on rank-0 expressions
+        if self.rank == 0:
+            raise ValueError("Scalars do not have blocks.")
+
+        elif self.rank == 1:
+            if trial_idx is not None:
+                raise ValueError("Trial indices found for a 1-tensor. "
+                                 "If you're attempting to extract a block "
+                                 "over multiple test spaces, provide a tuple.")
+            arg_indices = (to_tuple(test_idx),)
+
+        else:
+            assert self.rank == 2, "Rank %d not supported." % self.rank
+            arg_indices = (to_tuple(test_idx), to_tuple(trial_idx))
+
+        return Block(self, arg_indices)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
@@ -306,48 +338,60 @@ class Block(TensorBase):
     to particular block of a mixed tensor.
 
     :arg tensor: A (mixed) tensor.
-    :arg idx: A tuple of argument indices.
+    :arg arg_indices: Indices of the test and trial function
+                      spaces to extract. This should be a 0-,
+                      1-, or 2-tuple (whose length is equal
+                      to the rank of the tensor.) The entries
+                      are an iterable of integer indices.
     """
 
-    def __new__(cls, tensor, idx):
+    def __new__(cls, tensor, arg_indices):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only index Slate expressions.")
 
         if not tensor.is_mixed:
-            assert all(i == 0 for i in idx)
+            assert all(i == 0 for idx in arg_indices
+                       for i in idx)
             return tensor
 
         return super().__new__(cls)
 
-    def __init__(self, tensor, idx):
+    def __init__(self, tensor, arg_indices):
         """Constructor for the Block class."""
-        assert len(idx) == tensor.rank, (
+        assert len(arg_indices) == tensor.rank, (
             "Number of indices must match the tensor rank."
         )
-
-        for arg, i in zip(tensor.arguments(), idx):
-            if not 0 <= i < len(arg.function_space()):
-                raise ValueError("The mixed tensor does not have "
-                                 "field indices '%s'" % idx)
+        for arg, idx in zip(tensor.arguments(), arg_indices):
+            assert all(0 <= i < len(arg.function_space())
+                       for i in idx), "Index out of bounds."
 
         super(Block, self).__init__()
         self.operands = (tensor,)
-        self._idx = idx
+        self._blocks = dict(zip((0, 1), arg_indices))
+        self._arg_indices = arg_indices
 
     @cached_property
     def _split_arguments(self):
         """Splits the function space and stores the component
-        spaces determined the indices.
+        spaces determined by the indices.
         """
-        from firedrake.functionspace import FunctionSpace
+        from firedrake.functionspace import (FunctionSpace,
+                                             MixedFunctionSpace)
         from firedrake.ufl_expr import Argument
 
         tensor, = self.operands
         nargs = []
-        for arg, i in zip(tensor.arguments(), self._idx):
-            fs = arg.function_space().split()[i]
-            # Do not want an indexed subspace of a mixed space
-            W = FunctionSpace(fs.mesh(), fs.ufl_element())
+        for i, arg in enumerate(tensor.arguments()):
+            V = arg.function_space()
+            V_is = V.split()
+            idx = self._blocks[i]
+            if len(idx) == 1:
+                fidx, = idx
+                W = V_is[fidx]
+                W = FunctionSpace(W.mesh(), W.ufl_element())
+            else:
+                W = MixedFunctionSpace([V_is[fidx] for fidx in idx])
+
             nargs.append(Argument(W, arg.number(), part=arg.part()))
 
         return tuple(nargs)
@@ -384,19 +428,19 @@ class Block(TensorBase):
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
         tensor, = self.operands
-        return "%s[%s]_%d" % (tensor, self._idx, self.id)
+        return "%s[%s]_%d" % (tensor, self._arg_indices, self.id)
 
     def __repr__(self):
         """Slate representation of the tensor object."""
         tensor, = self.operands
         return "%s(%r, idx=%s)" % (type(self).__name__,
-                                   tensor, self._idx)
+                                   tensor, self._arg_indices)
 
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         tensor, = self.operands
-        return (type(self), tensor, self._idx)
+        return (type(self), tensor, self._arg_indices)
 
 
 class Tensor(TensorBase):
