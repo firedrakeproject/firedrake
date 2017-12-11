@@ -902,7 +902,7 @@ def install_documentation_dependencies():
     log.info("Installing documentation dependencies")
     run_pip_install(["sphinx"])
     run_pip_install(["sphinxcontrib-bibtex"])
-    install("git+https://github.com/sphinx-contrib/youtube.git")
+    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
 
 
 def clean_obsolete_packages():
