@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from ufl import (triangle, tetrahedron, FiniteElement,
                  TrialFunction, TestFunction, inner, grad, dx, dS)
 from tsfc import compile_form

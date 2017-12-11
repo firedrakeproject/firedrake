@@ -1,7 +1,5 @@
 """Translation of UFL tensor-algebra into GEM tensor-algebra."""
 
-from __future__ import absolute_import, print_function, division
-
 import collections
 import ufl
 

@@ -20,8 +20,6 @@
 
 """Definitions of 'modified terminals', a core concept in uflacs."""
 
-from __future__ import absolute_import, print_function, division
-
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
                          Restricted, FacetAvg, CellAvg, ConstantValue,

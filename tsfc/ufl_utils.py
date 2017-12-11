@@ -1,9 +1,8 @@
 """Utilities for preprocessing UFL objects."""
 
-from __future__ import absolute_import, print_function, division
+from functools import singledispatch
 
 import numpy
-from singledispatch import singledispatch
 
 import ufl
 from ufl import as_tensor, indices, replace

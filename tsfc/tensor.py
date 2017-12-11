@@ -1,7 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import iteritems
-from six.moves import zip
-
 from collections import defaultdict
 from functools import partial, reduce
 from itertools import count
@@ -39,7 +35,7 @@ def einsum(factors, sum_indices):
         subscript_parts.append(''.join(letters))
 
     result_pairs = sorted((letter, index)
-                          for index, letter in iteritems(index2letter)
+                          for index, letter in index2letter.items()
                           if index not in sum_indices)
 
     subscripts = ','.join(subscript_parts) + '->' + ''.join(l for l, i in result_pairs)

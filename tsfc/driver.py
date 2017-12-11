@@ -1,7 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import iterkeys, iteritems, viewitems
-from six.moves import range, zip
-
 import collections
 import operator
 import string
@@ -186,8 +182,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Finalise mode representations into a set of assignments
     assignments = []
-    for mode, var_reps in iteritems(mode_irs):
-        assignments.extend(mode.flatten(viewitems(var_reps), index_cache))
+    for mode, var_reps in mode_irs.items():
+        assignments.extend(mode.flatten(var_reps.items(), index_cache))
 
     if assignments:
         return_variables, expressions = zip(*assignments)
@@ -197,8 +193,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Need optimised roots for COFFEE
     options = dict(reduce(operator.and_,
-                          [viewitems(mode.finalise_options)
-                           for mode in iterkeys(mode_irs)]))
+                          [mode.finalise_options.items()
+                           for mode in mode_irs.keys()]))
     expressions = impero_utils.preprocess_gem(expressions, **options)
     assignments = list(zip(return_variables, expressions))
 
