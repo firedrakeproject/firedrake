@@ -2,12 +2,10 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize("subdomain", ["on_boundary",
-                                       pytest.mark.xfail(reason="Subdomains not yet implemented in Slate", strict=True)((1, 2))])
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])
-def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral, subdomain):
+def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
     # Create a mesh
     mesh = UnitSquareMesh(6, 6, quadrilateral=quadrilateral)
     RT = FunctionSpace(mesh, hdiv_family, degree)
@@ -34,7 +32,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral, subdom
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu'}}
-    bcs = [DirichletBC(W[0], Constant((0., 0.)), subdomain)]
+    bcs = [DirichletBC(W[0], Constant((0., 0.)), "on_boundary")]
 
     solve(a == L, w, solver_parameters=params, bcs=bcs)
     sigma_h, u_h = w.split()
