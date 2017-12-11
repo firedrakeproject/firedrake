@@ -900,9 +900,9 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip_install(["sphinx"])
-    run_pip_install(["sphinxcontrib-bibtex"])
-    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
+    run_pip_install(["--ignore-installed", "sphinx"])
+    run_pip_install(["--ignore-installed", "sphinxcontrib-bibtex"])
+    run_pip_install(["--ignore-installed", "git+https://github.com/sphinx-contrib/youtube.git"])
 
 
 def clean_obsolete_packages():
