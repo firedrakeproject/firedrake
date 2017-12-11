@@ -160,8 +160,17 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Facet information
     if builder.needs_cell_facets:
-        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
-                             builder.cell_facet_sym))
+        f_sym = builder.cell_facet_sym
+        f_arg = builder.cell_facet_arg
+        f_dtype = as_cstr(cell_to_facets_dtype)
+        # cell_facets is locally a flattened 2-D array. We typecast here so we
+        # can access its entries using standard array notation.
+        tcast = ast.FlatBlock("%s (*%s)[2] = (%s (*)[2])%s;\n" % (f_dtype,
+                                                                  f_sym,
+                                                                  f_dtype,
+                                                                  f_arg))
+        statements.insert(0, tcast)
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype), f_arg))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -359,9 +368,9 @@ def tensor_assembly_calls(builder):
             num_facets = domain.ufl_cell().num_facets()
 
         if_ext = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 0)
+                                   rank=(builder.it_sym, 0)), 0)
         if_int = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 1)
+                                   rank=(builder.it_sym, 0)), 1)
         body = []
         if ext_calls:
             body.append(ast.If(if_ext, (ast.Block(ext_calls,

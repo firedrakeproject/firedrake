@@ -50,6 +50,7 @@ class LocalKernelBuilder(object):
     coord_sym = ast.Symbol("coords")
     cell_orientations_sym = ast.Symbol("cell_orientations")
     cell_facet_sym = ast.Symbol("cell_facets")
+    cell_facet_arg = ast.Symbol("arg_cell_facets")
     it_sym = ast.Symbol("i0")
     mesh_layer_sym = ast.Symbol("layer")
 
