@@ -815,8 +815,14 @@ def cell_facet_labeling(exterior_facets,
     CHKERR(DMGetLabel(plex.dm, int_label, &label))
     CHKERR(DMLabelCreateIndex(label, fstart, fend))
 
-    sub_domain_ids = dict((sid, plex.getStratumIS(FACE_SETS_LABEL, sid))
-                          for sid in set(exterior_facets.markers))
+    exterior_markers = exterior_facets.markers
+    if exterior_markers is None:
+        # No subdomains to collect (for example, mesh is a sphere)
+        collect_subdomains = False
+    else:
+        collect_subdomains = True
+        sub_domain_ids = dict((sid, plex.getStratumIS(FACE_SETS_LABEL, sid))
+                              for sid in set(exterior_markers))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -827,12 +833,15 @@ def cell_facet_labeling(exterior_facets,
                 # This is a facet point
                 DMLabelHasPoint(label, point, &is_interior)
                 cell_facets[cell, fi, 0] = <np.int8_t>is_interior
-                # If on an exterior facet, search for the subdomain marker
-                if not is_interior:
-                    for marker in sub_domain_ids:
-                        # Facet point in subdomain
-                        if point in sub_domain_ids[marker].array:
-                            cell_facets[cell, fi, 1] = <np.int8_t>marker
+
+                # Collect subdomains (if any)
+                if collect_subdomains:
+                    # If on an exterior facet, search for the subdomain marker
+                    if not is_interior:
+                        for marker in sub_domain_ids:
+                            # Facet point in subdomain
+                            if point in sub_domain_ids[marker].array:
+                                cell_facets[cell, fi, 1] = <np.int8_t>marker
                 fi += 1
 
     CHKERR(DMLabelDestroyIndex(label))
