@@ -144,6 +144,7 @@ class LocalKernelBuilder(object):
                                       for it in self.supported_integral_types])
         coords = None
         oriented = False
+        _subdomain_calls = []
         for cxt_kernel in self.context_kernels:
             local_coefficients = cxt_kernel.coefficients
             it_type = cxt_kernel.original_integral_type
@@ -163,10 +164,6 @@ class LocalKernelBuilder(object):
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
 
-                # TODO: Implement subdomains for Slate tensors
-                if kinfo.subdomain_id != "otherwise":
-                    raise NotImplementedError("Subdomains not implemented.")
-
                 args = [c for i in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
 
@@ -185,7 +182,16 @@ class LocalKernelBuilder(object):
                                    tensor,
                                    self.coord_sym,
                                    *args)
-                assembly_calls[it_type].append(call)
+
+                # Subdomains only implemented for exterior facet integrals
+                if kinfo.subdomain_id != "otherwise":
+                    if kinfo.integral_type not in ["exterior_facet",
+                                                   "exterior_facet_vert"]:
+                        msg = "Subdomains implemented for exterior facets only"
+                        raise NotImplementedError(msg)
+                    _subdomain_calls.append((kinfo.subdomain_id, call))
+                else:
+                    assembly_calls[it_type].append(call)
 
                 # Subkernels for local assembly (Eigen templated functions)
                 kast = transformer.visit(kinfo.kernel._ast)
@@ -193,7 +199,13 @@ class LocalKernelBuilder(object):
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
 
+        # Group subdomain calls by subdomain id
+        subdomain_calls = OrderedDict()
+        for k, call in _subdomain_calls:
+            subdomain_calls.setdefault(k, []).append(call)
+
         self.assembly_calls = assembly_calls
+        self.subdomain_calls = subdomain_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented

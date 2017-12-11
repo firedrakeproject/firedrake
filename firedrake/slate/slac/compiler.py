@@ -360,6 +360,17 @@ def tensor_assembly_calls(builder):
                                  for it_type in ("exterior_facet",
                                                  "exterior_facet_vert")]))
 
+        # Generate logical statements for handling exterior facet
+        # integrals on subdomains (these are all of type "exterior")
+        if builder.subdomain_calls:
+            subdomain_calls = builder.subdomain_calls
+            for k in subdomain_calls:
+                if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym,
+                                          rank=(builder.it_sym, 1)), k)
+                calls = subdomain_calls[k]
+                stmt = ast.If(if_sd, (ast.Block(calls, open_scope=True),))
+                ext_calls.append(stmt)
+
         # Compute the number of facets to loop over
         domain = builder.expression.ufl_domain()
         if domain.cell_set._extruded:
