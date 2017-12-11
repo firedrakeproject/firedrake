@@ -9,6 +9,7 @@ from ufl.classes import ReferenceGrad
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
+from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
@@ -551,16 +552,19 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_to_facets(self):
         """Return a :class:`op2.Dat` that maps from a cell index to the local
-        facet types on each cell.
+        facet types on each cell, including the relevant subdomain markers.
 
-        The i-th local facet is exterior if the value of this array is :data:`0`
-        and interior if the value is :data:`1`.
+        The i-th local facet is exterior if the 0th value of this array
+        is :data:`0` and interior if the value is :data:`1`. The second
+        entry returns the facet subdomain marker.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._plex,
+        cell_facets = dmplex.cell_facet_labeling(self._facets("exterior"),
+                                                 self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
-        nfacet = cell_facets.shape[1]
-        return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
+        nfacets = cell_facets.shape[1]
+        dataset = DataSet(self.cell_set, dim=(nfacets, 2))
+        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
     def create_section(self, nodes_per_entity):
