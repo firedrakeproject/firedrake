@@ -107,7 +107,7 @@ class DirichletBC(object):
                 try:
                     # List of bare constants? Convert to Expression
                     g = expression.to_expression(g)
-                except:
+                except ValueError:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
             if isinstance(g, expression.Expression):
