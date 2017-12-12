@@ -186,9 +186,7 @@ def test_vector_subblocks(mesh):
     K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     E = K.inv * F
-    blocks = dict(split_tensor(E, [(0,), (1,), (2,)]))
-
-    items = [(blocks[(0,)], q), (blocks[(1,)], p), (blocks[(2,)], r)]
+    items = [(E.block((0,)), q), (E.block((1,)), p), (E.block((2,)), r)]
 
     for tensor, ref in items:
         assert np.allclose(assemble(tensor).dat.data, ref.dat.data, rtol=1e-14)
@@ -213,24 +211,24 @@ def test_matrix_subblocks(mesh):
     # Test individual blocks
     indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]
     refs = dict(split_form(A.form))
-    blocks = dict(split_tensor(A, indices))
     for idx in indices:
         ref = assemble(refs[idx]).M.values
-        assert np.allclose(assemble(blocks[idx]).M.values, ref, rtol=1e-14)
+        block = A.block(idx)
+        assert np.allclose(assemble(block).M.values, ref, rtol=1e-14)
 
     # Mixed blocks
-    A0101 = Block(A, ((0, 1), (0, 1)))
-    A1212 = Block(A, ((1, 2), (1, 2)))
+    A0101 = A.block(((0, 1), (0, 1)))
+    A1212 = A.block(((1, 2), (1, 2)))
 
     # Block of blocks
-    A0101_00 = Block(A0101, (0, 0))
-    A0101_11 = Block(A0101, (1, 1))
-    A0101_01 = Block(A0101, (0, 1))
-    A0101_10 = Block(A0101, (1, 0))
-    A1212_00 = Block(A1212, (0, 0))
-    A1212_11 = Block(A1212, (1, 1))
-    A1212_01 = Block(A1212, (0, 1))
-    A1212_10 = Block(A1212, (1, 0))
+    A0101_00 = A0101.block((0, 0))
+    A0101_11 = A0101.block((1, 1))
+    A0101_01 = A0101.block((0, 1))
+    A0101_10 = A0101.block((1, 0))
+    A1212_00 = A1212.block((0, 0))
+    A1212_11 = A1212.block((1, 1))
+    A1212_01 = A1212.block((0, 1))
+    A1212_10 = A1212.block((1, 0))
 
     items = [(A0101_00, refs[(0, 0)]),
              (A0101_11, refs[(1, 1)]),

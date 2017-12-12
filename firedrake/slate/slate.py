@@ -16,7 +16,7 @@ functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -34,7 +34,7 @@ from ufl.form import Form
 
 __all__ = ['AssembledVector', 'Block', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'split_tensor']
+           'Add', 'Mul']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -143,8 +143,8 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def split(self, arg_indices):
-        """Splits a tensor into a "block" defined on the component spaces
+    def block(self, arg_indices):
+        """Returns a block of the tensor defined on the component spaces
         described by indices.
 
         For example, consider the rank-2 tensor described by:
@@ -819,26 +819,6 @@ class Mul(BinaryOp):
         from multiplying two tensors A and B.
         """
         return self._args
-
-
-SubBlock = namedtuple("SubBlock", ["indices", "block"])
-
-
-def split_tensor(tensor, indices):
-    """Splits a tensor into a number of sub-blocks
-    corresponding to specific argument indices.
-
-    :arg tensor: A Slate tensor or expression.
-    :arg indices: An iterable of argument indices.
-
-    Returns: A tuple of blocks.
-    """
-    blocks = []
-    for idx in indices:
-        idx = as_tuple(idx)
-        block = Block(tensor=tensor, indices=idx)
-        blocks.append(SubBlock(indices=idx, block=block))
-    return tuple(blocks)
 
 
 # Establishes levels of precedence for Slate tensors

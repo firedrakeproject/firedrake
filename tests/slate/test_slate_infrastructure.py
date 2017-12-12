@@ -221,33 +221,33 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     a = M.form
     L = F.form
     splitter = ExtractSubBlock()
-    M00 = Block(M, (0, 0))
-    M11 = Block(M, (1, 1))
-    M22 = Block(M, (2, 2))
-    M0101 = Block(M, ((0, 1), (0, 1)))
-    M012 = Block(M, ((0, 1), (2,)))
-    M201 = Block(M, (((2,), (0, 1))))
-    F0 = Block(F, (0,))
-    F1 = Block(F, (1,))
-    F2 = Block(F, (2,))
-    F01 = Block(F, ((0, 1),))
-    F12 = Block(F, ((1, 2),))
+    M00 = M.block((0, 0))
+    M11 = M.block((1, 1))
+    M22 = M.block((2, 2))
+    M0101 = M.block(((0, 1), (0, 1)))
+    M012 = M.block(((0, 1), (2,)))
+    M201 = M.block((((2,), (0, 1))))
+    F0 = F.block((0,))
+    F1 = F.block((1,))
+    F2 = F.block((2,))
+    F01 = F.block(((0, 1),))
+    F12 = F.block(((1, 2),))
 
     # Test index checking
     with pytest.raises(ValueError):
-        S.split((0,))
+        S.block((0,))
 
     with pytest.raises(ValueError):
-        F.split((0, 1))
+        F.block((0, 1))
 
     with pytest.raises(ValueError):
-        M.split(((0, 1, 2, 3), 0))
+        M.block(((0, 1, 2, 3), 0))
 
     with pytest.raises(ValueError):
-        M.split((3, 3))
+        M.block((3, 3))
 
     with pytest.raises(ValueError):
-        F.split((3,))
+        F.block((3,))
 
     # Check Tensor is (not) mixed where appropriate
     assert not M00.is_mixed
@@ -263,13 +263,13 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F12.is_mixed
 
     # Taking blocks of non-mixed block (or scalars) should induce a no-op
-    assert S.split(()) == S
-    assert Block(M00, (0, 0)) == M00
-    assert Block(M11, (0, 0)) == M11
-    assert Block(M22, (0, 0)) == M22
-    assert Block(F0, (0,)) == F0
-    assert Block(F1, (0,)) == F1
-    assert Block(F2, (0,)) == F2
+    assert S.block(()) == S
+    assert M00.block((0, 0)) == M00
+    assert M11.block((0, 0)) == M11
+    assert M22.block((0, 0)) == M22
+    assert F0.block((0,)) == F0
+    assert F1.block((0,)) == F1
+    assert F2.block((0,)) == F2
 
     # Test arguments
     assert M00.arguments() == splitter.split(a, (0, 0)).arguments()
