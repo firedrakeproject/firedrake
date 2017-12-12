@@ -34,10 +34,7 @@ from ufl.form import Form
 
 __all__ = ['AssembledVector', 'Block', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul']
-
-
-SubBlock = namedtuple("SubBlock", ["indices", "block"])
+           'Add', 'Mul', 'split_tensor']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -146,10 +143,9 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def split(self, *arg_indices):
-        """Splits a tensor into "blocks" defined on the component spaces
-        described by indices. The number of blocks returned corresponds
-        to the number of index tuples provided.
+    def split(self, arg_indices):
+        """Splits a tensor into a "block" defined on the component spaces
+        described by indices.
 
         For example, consider the rank-2 tensor described by:
 
@@ -168,21 +164,15 @@ class TensorBase(object, metaclass=ABCMeta):
 
             ((0, 0), Block(A, (0, 0)),)
 
-        Providing an iterable of indices will extract multiple blocks. See
-        :class:`Block` for more information.
+        See :class:`Block` for more information.
 
-        :arg arg_indices: an iterable of indices describing the test and trial
-                          spaces to extract. These should be 0-, 1-, or
-                          2-tuples whose length is the same as the rank of the
-                          tensor. Entries can be either an integer index or an
-                          iterable of indices.
+        :arg arg_indices: Indices describing the test and trial spaces to
+                          extract. This should be 0-, 1-, or 2-tuples whose
+                          length is the same as the rank of the tensor. Entries
+                          can be either an integer index or an iterable of
+                          indices.
         """
-        blocks = []
-        for indices in arg_indices:
-            indices = as_tuple(indices)
-            block = Block(tensor=self, indices=indices)
-            blocks.append(SubBlock(indices=indices, block=block))
-        return tuple(blocks)
+        return Block(tensor=self, indices=arg_indices)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
@@ -834,6 +824,26 @@ class Mul(BinaryOp):
         from multiplying two tensors A and B.
         """
         return self._args
+
+
+SubBlock = namedtuple("SubBlock", ["indices", "block"])
+
+
+def split_tensor(tensor, indices):
+    """Splits a tensor into a number of sub-blocks
+    corresponding to specific argument indices.
+
+    :arg tensor: A Slate tensor or expression.
+    :arg indices: An iterable of argument indices.
+
+    Returns: A tuple of blocks.
+    """
+    blocks = []
+    for idx in indices:
+        idx = as_tuple(idx)
+        block = Block(tensor=tensor, indices=idx)
+        blocks.append(SubBlock(indices=idx, block=block))
+    return tuple(blocks)
 
 
 # Establishes levels of precedence for Slate tensors
