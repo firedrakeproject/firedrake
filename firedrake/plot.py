@@ -175,6 +175,7 @@ def plot_mesh(mesh, axes=None, **kwargs):
     axes.set_aspect("equal")
     return axes
 
+
 def prepare_functions(function, real=False):
     function_data = function.vector().array()
     if function_data.dtype.kind == "c":
@@ -189,6 +190,7 @@ def prepare_functions(function, real=False):
     else:
         functions = (function, )
     return functions
+
 
 def plot(function_or_mesh,
          num_sample_points=10,
@@ -236,13 +238,13 @@ def plot(function_or_mesh,
     if not real:
         plots = []
         for function in functions:
-            p = plot(function,  num_sample_points, axes=axes, plot3d=plot3d, real=True, **kwargs)
+            p = plot(function, num_sample_points, axes=axes, plot3d=plot3d, real=True, **kwargs)
             p.set_title(function.name())
             plots.append(p)
         return plots
     else:
         function, = functions
-    
+
     try:
         import matplotlib.pyplot as plt
         from matplotlib import cm
