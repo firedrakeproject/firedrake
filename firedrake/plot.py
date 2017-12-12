@@ -187,7 +187,7 @@ def prepare_functions(function, real=False):
             imaginary_part.rename(function.name() + " (imaginary part)")
             functions = (real_part, imaginary_part)
     else:
-        functions = (function)
+        functions = (function, )
     return functions
 
 def plot(function_or_mesh,
@@ -241,7 +241,7 @@ def plot(function_or_mesh,
             plots.append(p)
         return plots
     else:
-        function = functions[0]
+        function, = functions
     
     try:
         import matplotlib.pyplot as plt
