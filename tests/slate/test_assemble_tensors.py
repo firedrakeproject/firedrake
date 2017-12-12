@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.formmanipulation import split_form
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -171,9 +172,9 @@ def test_mixed_argument_tensor(mesh):
 
 
 def test_vector_subblocks(mesh):
-    V = VectorFunctionSpace(mesh, "DG", 3)
-    U = FunctionSpace(mesh, "DG", 2)
-    T = FunctionSpace(mesh, "DG", 1)
+    V = VectorFunctionSpace(mesh, "DG", 1)
+    U = FunctionSpace(mesh, "DG", 1)
+    T = FunctionSpace(mesh, "DG", 0)
     W = V * U * T
     x = SpatialCoordinate(mesh)
     q = Function(V).project(grad(sin(pi*x[0])*cos(pi*x[1])))
@@ -185,9 +186,10 @@ def test_vector_subblocks(mesh):
     K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     E = K.inv * F
-    Eq = assemble(E.block(0))
-    Ep = assemble(E.block(1))
-    Er = assemble(E.block(2))
+    blocks = dict(E.split(0, 1, 2))
+    Eq = assemble(blocks[(0,)])
+    Ep = assemble(blocks[(1,)])
+    Er = assemble(blocks[(2,)])
 
     assert np.allclose(Eq.dat.data, q.dat.data, rtol=1e-14)
     assert np.allclose(Ep.dat.data, p.dat.data, rtol=1e-14)
@@ -196,11 +198,11 @@ def test_vector_subblocks(mesh):
 
 def test_matrix_subblocks(mesh):
     if mesh.ufl_cell() == quadrilateral:
-        U = FunctionSpace(mesh, "RTCF", 2)
+        U = FunctionSpace(mesh, "RTCF", 1)
     else:
-        U = FunctionSpace(mesh, "RT", 2)
-    V = FunctionSpace(mesh, "DG", 1)
-    T = FunctionSpace(mesh, "HDiv Trace", 1)
+        U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
     n = FacetNormal(mesh)
     W = U * V * T
     u, p, lambdar = TrialFunctions(W)
@@ -209,35 +211,29 @@ def test_matrix_subblocks(mesh):
     A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
                lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS +
                lambdar*gammar*ds)
-    A00 = assemble(A.block(0, 0))
-    A01 = assemble(A.block(0, 1))
-    A02 = assemble(A.block(0, 2))
-    A10 = assemble(A.block(1, 0))
-    A11 = assemble(A.block(1, 1))
-    A20 = assemble(A.block(2, 0))
-    A22 = assemble(A.block(2, 2))
 
-    u = TrialFunction(U)
-    w = TestFunction(U)
-    p = TrialFunction(V)
-    q = TestFunction(V)
-    lambdar = TrialFunction(T)
-    gammar = TestFunction(T)
-    A00ref = assemble(inner(u, w)*dx)
-    A01ref = assemble(-div(w)*p*dx)
-    A02ref = assemble(lambdar('+')*jump(w, n=n)*dS)
-    A10ref = assemble(q*div(u)*dx)
-    A11ref = assemble(p*q*dx)
-    A20ref = assemble(gammar('+')*jump(u, n=n)*dS)
-    A22ref = assemble(lambdar*gammar*ds)
+    # Test individual blocks
+    indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]
+    refs = dict(split_form(A.form))
+    blocks = dict(A.split(*indices))
+    for idx in indices:
+        assert np.allclose(assemble(blocks[idx]).M.values,
+                           assemble(refs[idx]).M.values, rtol=1e-14)
 
-    assert np.allclose(A00.M.values, A00ref.M.values, rtol=1e-14)
-    assert np.allclose(A01.M.values, A01ref.M.values, rtol=1e-14)
-    assert np.allclose(A02.M.values, A02ref.M.values, rtol=1e-14)
-    assert np.allclose(A10.M.values, A10ref.M.values, rtol=1e-14)
-    assert np.allclose(A11.M.values, A11ref.M.values, rtol=1e-14)
-    assert np.allclose(A20.M.values, A20ref.M.values, rtol=1e-14)
-    assert np.allclose(A22.M.values, A22ref.M.values, rtol=1e-14)
+    # Test sub-blocks of blocks
+    A0101 = Block(A, ((0, 1), (0, 1)))
+    A1212 = Block(A, ((1, 2), (1, 2)))
+    A0101_00 = Block(A0101, (0, 0))
+    A0101_11 = Block(A0101, (1, 1))
+    A1212_00 = Block(A1212, (0, 0))
+    A1212_11 = Block(A1212, (1, 1))
+    ref00 = assemble(refs[(0, 0)]).M.values
+    ref11 = assemble(refs[(1, 1)]).M.values
+    ref22 = assemble(refs[(2, 2)]).M.values
+    assert np.allclose(assemble(A0101_00).M.values, ref00, rtol=1e-14)
+    assert np.allclose(assemble(A0101_11).M.values, ref11, rtol=1e-14)
+    assert np.allclose(assemble(A1212_00).M.values, ref11, rtol=1e-14)
+    assert np.allclose(assemble(A1212_11).M.values, ref22, rtol=1e-14)
 
 
 if __name__ == '__main__':
