@@ -23,7 +23,7 @@ from firedrake import op2
 
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
+from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
@@ -139,8 +139,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     statements.append(ast.FlatBlock("/* Linear algebra expression */\n"))
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
-                                                       declared_temps))
+    cpp_string = ast.FlatBlock(slate_to_cpp(slate_expr, declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
@@ -221,7 +220,7 @@ def auxiliary_temporaries(builder, declared_temps):
     for exp in builder.aux_exprs:
         if exp not in declared_temps:
             t = ast.Symbol("auxT%d" % len(declared_temps))
-            result = metaphrase_slate_to_cpp(exp, declared_temps)
+            result = slate_to_cpp(exp, declared_temps)
             tensor_type = eigen_matrixbase_type(shape=exp.shape)
             statements.append(ast.Decl(tensor_type, t))
             statements.append(ast.FlatBlock("%s.setZero();\n" % t))
@@ -453,7 +452,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def metaphrase_slate_to_cpp(expr, temps, prec=None):
+def slate_to_cpp(expr, temps, prec=None):
     """Translates a Slate expression into its equivalent representation in
     the Eigen C++ syntax.
 
@@ -477,24 +476,57 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, slate.Transpose):
         tensor, = expr.operands
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
+        return "(%s).transpose()" % slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, slate.Inverse):
         tensor, = expr.operands
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
+        return "(%s).inverse()" % slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, slate.Negative):
         tensor, = expr.operands
-        result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
+        result = "-%s" % slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
               slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
-        result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
+        result = "%s %s %s" % (slate_to_cpp(A, temps, expr.prec),
                                op,
-                               metaphrase_slate_to_cpp(B, temps, expr.prec))
+                               slate_to_cpp(B, temps, expr.prec))
+
+        return parenthesize(result, expr.prec, prec)
+
+    elif isinstance(expr, slate.Block):
+        tensor, = expr.operands
+        indices = expr._indices
+        try:
+            ridx, cidx = indices
+        except ValueError:
+            ridx, = indices
+            cidx = 0
+        rids = as_tuple(ridx)
+        cids = as_tuple(cidx)
+
+        # Check if indices are non-contiguous
+        if not all(all(ids[i] + 1 == ids[i + 1] for i in range(len(ids) - 1))
+                   for ids in (rids, cids)):
+            raise NotImplementedError("Non-contiguous blocks not implemented")
+
+        rshape = expr.shape[0]
+        rstart = sum(tensor.shapes[0][:min(rids)])
+        if expr.rank == 1:
+            cshape = 1
+            cstart = 0
+        else:
+            cshape = expr.shape[1]
+            cstart = sum(tensor.shapes[1][:min(cids)])
+
+        result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
+                                                              temps,
+                                                              expr.prec),
+                                                 rshape, cshape,
+                                                 rstart, cstart)
 
         return parenthesize(result, expr.prec, prec)
 

@@ -23,25 +23,28 @@ from firedrake.utils import cached_property
 
 from itertools import chain
 
+from pyop2.utils import as_tuple
+
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
+from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
 
 
-__all__ = ['AssembledVector', 'Tensor',
+__all__ = ['AssembledVector', 'Block', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul']
 
 
-class CheckRestrictions(MultiFunction):
-    """UFL MultiFunction for enforcing cell-wise integrals to contain
-    only positive (outward) restrictions.
+class RemoveNegativeRestrictions(MultiFunction):
+    """UFL MultiFunction which removes any negative restrictions
+    in a form.
     """
     expr = MultiFunction.reuse_if_untouched
 
-    def negative_restrictions(self, o):
-        raise ValueError("Must contain only positive restrictions!")
+    def negative_restricted(self, o):
+        return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
 
 
 class TensorBase(object, metaclass=ABCMeta):
@@ -139,6 +142,32 @@ class TensorBase(object, metaclass=ABCMeta):
     @property
     def T(self):
         return Transpose(self)
+
+    def block(self, arg_indices):
+        """Returns a block of the tensor defined on the component spaces
+        described by indices.
+
+        For example, consider the rank-2 tensor described by:
+
+        .. code-block:: python
+
+            V = FunctionSpace(m, "CG", 1)
+            W = V * V * V
+            u, p, r = TrialFunctions(W)
+            w, q, s = TestFunctions(W)
+            A = Tensor(u*w*dx + p*q*dx + r*s*dx)
+
+        The tensor `A` has 3x3 block structure. Providing argument indices
+        (0, 0) will extract the block defined by the form `u*w*dx`:
+        `Block(A, (0, 0))` See :class:`Block` for more information.
+
+        :arg arg_indices: Indices describing the test and trial spaces to
+                          extract. This should be 0-, 1-, or 2-tuples whose
+                          length is the same as the rank of the tensor. Entries
+                          can be either an integer index or an iterable of
+                          indices.
+        """
+        return Block(tensor=self, indices=arg_indices)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
@@ -296,6 +325,152 @@ class AssembledVector(TensorBase):
         return (type(self), self._function)
 
 
+class Block(TensorBase):
+    """This class represents a tensor corresponding
+    to particular block of a mixed tensor. Depending on
+    the indices provided, the subblocks can span multiple
+    test/trial spaces.
+
+    :arg tensor: A (mixed) tensor.
+    :arg indices: Indices of the test and trial function
+                  spaces to extract. This should be a 0-,
+                  1-, or 2-tuple (whose length is equal
+                  to the rank of the tensor.) The entries
+                  should be an iterable of integer indices.
+
+    For example, consider the mixed tensor defined by:
+
+    .. code-block:: python
+
+        n = FacetNormal(m)
+        U = FunctionSpace(m, "DRT", 1)
+        V = FunctionSpace(m, "DG", 0)
+        M = FunctionSpace(m, "DGT", 0)
+        W = U * V * M
+        u, p, r = TrialFunctions(W)
+        w, q, s = TestFunctions(W)
+        A = Tensor(dot(u, w)*dx + p*div(w)*dx + r*dot(w, n)*dS
+                   + div(u)*q*dx + p*q*dx + r*s*ds)
+
+    This describes a block 3x3 mixed tensor of the form:
+
+    .. math::
+
+        \begin{bmatrix}
+            A & B & C \\
+            D & E & F \\
+            G & H & J
+        \end{bmatrix}
+
+    Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
+    corresponding to the upper 2x2 block:
+
+    .. math::
+
+        \begin{bmatrix}
+            A & B \\
+            D & E
+        \end{bmatrix}
+
+    More generally, argument indices of the form `(idr, idc)`
+    produces a tensor of block-size `len(idr)` x `len(idc)`
+    spanning the specified test/trial spaces.
+    """
+
+    def __new__(cls, tensor, indices):
+        if not isinstance(tensor, TensorBase):
+            raise TypeError("Can only extract blocks of Slate tensors.")
+
+        if len(indices) != tensor.rank:
+            raise ValueError("Length of indices must be equal to the tensor rank.")
+
+        if not all(0 <= i < len(arg.function_space())
+                   for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
+            raise ValueError("Indices out of range.")
+
+        if not tensor.is_mixed:
+            return tensor
+
+        return super().__new__(cls)
+
+    def __init__(self, tensor, indices):
+        """Constructor for the Block class."""
+        super(Block, self).__init__()
+        self.operands = (tensor,)
+        self._blocks = dict(enumerate(indices))
+        self._indices = indices
+
+    @cached_property
+    def _split_arguments(self):
+        """Splits the function space and stores the component
+        spaces determined by the indices.
+        """
+        from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+        from firedrake.ufl_expr import Argument
+
+        tensor, = self.operands
+        nargs = []
+        for i, arg in enumerate(tensor.arguments()):
+            V = arg.function_space()
+            V_is = V.split()
+            idx = as_tuple(self._blocks[i])
+            if len(idx) == 1:
+                fidx, = idx
+                W = V_is[fidx]
+                W = FunctionSpace(W.mesh(), W.ufl_element())
+            else:
+                W = MixedFunctionSpace([V_is[fidx] for fidx in idx])
+
+            nargs.append(Argument(W, arg.number(), part=arg.part()))
+
+        return tuple(nargs)
+
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        return tuple(arg.function_space() for arg in self.arguments())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self._split_arguments
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        tensor, = self.operands
+        return tensor.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        tensor, = self.operands
+        return tensor.ufl_domains()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        tensor, = self.operands
+        return tensor.subdomain_data()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        tensor, = self.operands
+        return "%s[%s]_%d" % (tensor, self._indices, self.id)
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        tensor, = self.operands
+        return "%s(%r, idx=%s)" % (type(self).__name__, tensor, self._indices)
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        tensor, = self.operands
+        return (type(self), tensor, self._indices)
+
+
 class Tensor(TensorBase):
     """This class is a symbolic representation of a finite element tensor
     derived from a bilinear or linear form. This class implements all
@@ -332,11 +507,8 @@ class Tensor(TensorBase):
         if r not in (0, 1, 2):
             raise NotImplementedError("No support for tensors of rank %d." % r)
 
-        # Checks for positive restrictions on integrals
-        integrals = form.integrals()
-        mapper = CheckRestrictions()
-        for it in integrals:
-            map_integrand_dags(mapper, it)
+        # Remove any negative restrictions and replace with zero
+        form = map_integrand_dags(RemoveNegativeRestrictions(), form)
 
         super(Tensor, self).__init__()
 
@@ -651,7 +823,7 @@ class Mul(BinaryOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [Tensor, AssembledVector],
+    [AssembledVector, Block, Tensor],
     [UnaryOp],
     [Add],
     [Mul]

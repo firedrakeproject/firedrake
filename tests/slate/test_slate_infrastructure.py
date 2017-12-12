@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.formmanipulation import ExtractSubBlock
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, quadrilateral])
@@ -27,6 +28,17 @@ def function_space(request, mesh):
             'cg2': cg2,
             'dg0': dg0,
             'dg1': dg1}[request.param]
+
+
+@pytest.fixture(scope='module', params=['cg2-cg1-dg0', 'cg1-dg1-dg0'])
+def mixed_space(request, mesh):
+    """Generates a mixed function space."""
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    cg2 = FunctionSpace(mesh, "CG", 2)
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
+    return {'cg2-cg1-dg0': cg2*cg1*dg0,
+            'cg1-dg1-dg0': cg1*dg1*dg0}[request.param]
 
 
 @pytest.fixture
@@ -64,6 +76,19 @@ def zero_rank_tensor(function_space):
     c = Function(function_space)
     c.interpolate(Expression("x[0]*x[1]"))
     return Tensor(c * dx)
+
+
+@pytest.fixture
+def mixed_matrix(mixed_space):
+    u, p, r = TrialFunctions(mixed_space)
+    v, q, s = TestFunctions(mixed_space)
+    return Tensor(u*v*dx + p*q*dx + r*s*dx)
+
+
+@pytest.fixture
+def mixed_vector(mixed_space):
+    v, q, s = TestFunctions(mixed_space)
+    return Tensor(v*dx + q*dx + s*dx)
 
 
 def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
@@ -187,6 +212,77 @@ def test_equality_relations(function_space):
     assert A*B != B*A
     assert B.T != B.inv
     assert A != -A
+
+
+def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
+    S = zero_rank_tensor
+    M = mixed_matrix
+    F = mixed_vector
+    a = M.form
+    L = F.form
+    splitter = ExtractSubBlock()
+    M00 = M.block((0, 0))
+    M11 = M.block((1, 1))
+    M22 = M.block((2, 2))
+    M0101 = M.block(((0, 1), (0, 1)))
+    M012 = M.block(((0, 1), (2,)))
+    M201 = M.block((((2,), (0, 1))))
+    F0 = F.block((0,))
+    F1 = F.block((1,))
+    F2 = F.block((2,))
+    F01 = F.block(((0, 1),))
+    F12 = F.block(((1, 2),))
+
+    # Test index checking
+    with pytest.raises(ValueError):
+        S.block((0,))
+
+    with pytest.raises(ValueError):
+        F.block((0, 1))
+
+    with pytest.raises(ValueError):
+        M.block(((0, 1, 2, 3), 0))
+
+    with pytest.raises(ValueError):
+        M.block((3, 3))
+
+    with pytest.raises(ValueError):
+        F.block((3,))
+
+    # Check Tensor is (not) mixed where appropriate
+    assert not M00.is_mixed
+    assert not M11.is_mixed
+    assert not M22.is_mixed
+    assert not F0.is_mixed
+    assert not F1.is_mixed
+    assert not F2.is_mixed
+    assert M0101.is_mixed
+    assert M012.is_mixed
+    assert M201.is_mixed
+    assert F01.is_mixed
+    assert F12.is_mixed
+
+    # Taking blocks of non-mixed block (or scalars) should induce a no-op
+    assert S.block(()) == S
+    assert M00.block((0, 0)) == M00
+    assert M11.block((0, 0)) == M11
+    assert M22.block((0, 0)) == M22
+    assert F0.block((0,)) == F0
+    assert F1.block((0,)) == F1
+    assert F2.block((0,)) == F2
+
+    # Test arguments
+    assert M00.arguments() == splitter.split(a, (0, 0)).arguments()
+    assert M11.arguments() == splitter.split(a, (1, 1)).arguments()
+    assert M22.arguments() == splitter.split(a, (2, 2)).arguments()
+    assert F0.arguments() == splitter.split(L, (0,)).arguments()
+    assert F1.arguments() == splitter.split(L, (1,)).arguments()
+    assert F2.arguments() == splitter.split(L, (2,)).arguments()
+    assert M0101.arguments() == splitter.split(a, ((0, 1), (0, 1))).arguments()
+    assert M012.arguments() == splitter.split(a, ((0, 1), (2,))).arguments()
+    assert M201.arguments() == splitter.split(a, ((2,), (0, 1))).arguments()
+    assert F01.arguments() == splitter.split(L, ((0, 1),)).arguments()
+    assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
 
 
 def test_illegal_add_sub():
