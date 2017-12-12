@@ -23,7 +23,7 @@ from firedrake import op2
 
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
+from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
@@ -499,20 +499,20 @@ def slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, slate.Block):
         tensor, = expr.operands
-        indices = expr._arg_indices
+        indices = expr._indices
         try:
             ridx, cidx = indices
         except ValueError:
             ridx, = indices
             cidx = (0,)
         rshape = expr.shape[0]
-        rstart = sum(tensor.shapes[0][:min(ridx)])
+        rstart = sum(tensor.shapes[0][:min(as_tuple(ridx))])
         if expr.rank == 1:
             cshape = 1
             cstart = 0
         else:
             cshape = expr.shape[1]
-            cstart = sum(tensor.shapes[1][:min(cidx)])
+            cstart = sum(tensor.shapes[1][:min(as_tuple(cidx))])
 
         result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
                                                               temps,
