@@ -159,12 +159,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
         The tensor `A` has 3x3 block structure. Providing argument indices
         (0, 0) will extract the block defined by the form `u*w*dx`:
-
-        .. code-block:: python
-
-            ((0, 0), Block(A, (0, 0)),)
-
-        See :class:`Block` for more information.
+        `Block(A, (0, 0))` See :class:`Block` for more information.
 
         :arg arg_indices: Indices describing the test and trial spaces to
                           extract. This should be 0-, 1-, or 2-tuples whose
