@@ -504,15 +504,23 @@ def slate_to_cpp(expr, temps, prec=None):
             ridx, cidx = indices
         except ValueError:
             ridx, = indices
-            cidx = (0,)
+            cidx = 0
+        rids = as_tuple(ridx)
+        cids = as_tuple(cidx)
+
+        # Check if indices are non-contiguous
+        if not all(all(ids[i] + 1 == ids[i + 1] for i in range(len(ids) - 1))
+                   for ids in (rids, cids)):
+            raise NotImplementedError("Non-contiguous blocks not implemented")
+
         rshape = expr.shape[0]
-        rstart = sum(tensor.shapes[0][:min(as_tuple(ridx))])
+        rstart = sum(tensor.shapes[0][:min(rids)])
         if expr.rank == 1:
             cshape = 1
             cstart = 0
         else:
             cshape = expr.shape[1]
-            cstart = sum(tensor.shapes[1][:min(as_tuple(cidx))])
+            cstart = sum(tensor.shapes[1][:min(cids)])
 
         result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
                                                               temps,
