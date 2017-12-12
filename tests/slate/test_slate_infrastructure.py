@@ -235,7 +235,7 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
 
     # Test index checking
     with pytest.raises(ValueError):
-        S.split(0)
+        S.split((0,))
 
     with pytest.raises(ValueError):
         F.split((0, 1))
@@ -247,7 +247,7 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
         M.split((3, 3))
 
     with pytest.raises(ValueError):
-        F.split(1, 2, 3)
+        F.split((3,))
 
     # Check Tensor is (not) mixed where appropriate
     assert not M00.is_mixed
@@ -262,7 +262,8 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F01.is_mixed
     assert F12.is_mixed
 
-    # Taking blocks of non-mixed block should induce a no-op
+    # Taking blocks of non-mixed block (or scalars) should induce a no-op
+    assert S.split(()) == S
     assert Block(M00, (0, 0)) == M00
     assert Block(M11, (0, 0)) == M11
     assert Block(M22, (0, 0)) == M22

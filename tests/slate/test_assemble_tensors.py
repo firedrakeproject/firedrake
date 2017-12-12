@@ -186,14 +186,12 @@ def test_vector_subblocks(mesh):
     K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     E = K.inv * F
-    blocks = dict(E.split(0, 1, 2))
-    Eq = assemble(blocks[(0,)])
-    Ep = assemble(blocks[(1,)])
-    Er = assemble(blocks[(2,)])
+    blocks = dict(split_tensor(E, [(0,), (1,), (2,)]))
 
-    assert np.allclose(Eq.dat.data, q.dat.data, rtol=1e-14)
-    assert np.allclose(Ep.dat.data, p.dat.data, rtol=1e-14)
-    assert np.allclose(Er.dat.data, r.dat.data, rtol=1e-14)
+    items = [(blocks[(0,)], q), (blocks[(1,)], p), (blocks[(2,)], r)]
+
+    for tensor, ref in items:
+        assert np.allclose(assemble(tensor).dat.data, ref.dat.data, rtol=1e-14)
 
 
 def test_matrix_subblocks(mesh):
@@ -215,25 +213,38 @@ def test_matrix_subblocks(mesh):
     # Test individual blocks
     indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]
     refs = dict(split_form(A.form))
-    blocks = dict(A.split(*indices))
+    blocks = dict(split_tensor(A, indices))
     for idx in indices:
-        assert np.allclose(assemble(blocks[idx]).M.values,
-                           assemble(refs[idx]).M.values, rtol=1e-14)
+        ref = assemble(refs[idx]).M.values
+        assert np.allclose(assemble(blocks[idx]).M.values, ref, rtol=1e-14)
 
-    # Test sub-blocks of blocks
+    # Mixed blocks
     A0101 = Block(A, ((0, 1), (0, 1)))
     A1212 = Block(A, ((1, 2), (1, 2)))
+
+    # Block of blocks
     A0101_00 = Block(A0101, (0, 0))
     A0101_11 = Block(A0101, (1, 1))
+    A0101_01 = Block(A0101, (0, 1))
+    A0101_10 = Block(A0101, (1, 0))
     A1212_00 = Block(A1212, (0, 0))
     A1212_11 = Block(A1212, (1, 1))
-    ref00 = assemble(refs[(0, 0)]).M.values
-    ref11 = assemble(refs[(1, 1)]).M.values
-    ref22 = assemble(refs[(2, 2)]).M.values
-    assert np.allclose(assemble(A0101_00).M.values, ref00, rtol=1e-14)
-    assert np.allclose(assemble(A0101_11).M.values, ref11, rtol=1e-14)
-    assert np.allclose(assemble(A1212_00).M.values, ref11, rtol=1e-14)
-    assert np.allclose(assemble(A1212_11).M.values, ref22, rtol=1e-14)
+    A1212_01 = Block(A1212, (0, 1))
+    A1212_10 = Block(A1212, (1, 0))
+
+    items = [(A0101_00, refs[(0, 0)]),
+             (A0101_11, refs[(1, 1)]),
+             (A0101_01, refs[(0, 1)]),
+             (A0101_10, refs[(1, 0)]),
+             (A1212_00, refs[(1, 1)]),
+             (A1212_11, refs[(2, 2)]),
+             (A1212_01, refs[(1, 2)]),
+             (A1212_10, refs[(2, 1)])]
+
+    # Test assembly of blocks of mixed blocks
+    for tensor, form in items:
+        ref = assemble(form).M.values
+        assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
 
 
 if __name__ == '__main__':
