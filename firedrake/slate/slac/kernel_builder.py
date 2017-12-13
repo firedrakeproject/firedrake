@@ -50,12 +50,11 @@ class LocalKernelBuilder(object):
     coord_sym = ast.Symbol("coords")
     cell_orientations_sym = ast.Symbol("cell_orientations")
     cell_facet_sym = ast.Symbol("cell_facets")
-    cell_facet_arg = ast.Symbol("arg_cell_facets")
     it_sym = ast.Symbol("i0")
     mesh_layer_sym = ast.Symbol("layer")
 
     # Supported integral types
-    supported_integral_types = [
+    integral_keys = [
         "cell",
         "interior_facet",
         "exterior_facet",
@@ -68,6 +67,9 @@ class LocalKernelBuilder(object):
         "exterior_facet_bottom",
         "exterior_facet_vert"
     ]
+
+    # NOTE: More subdomain types can be added here once implemented
+    subdomain_keys = ["subdomains_exterior_facet"]
 
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalKernelBuilder class.
@@ -140,17 +142,20 @@ class LocalKernelBuilder(object):
         transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
-        assembly_calls = OrderedDict([(it, [])
-                                      for it in self.supported_integral_types])
+        assembly_calls = OrderedDict([(key, []) for key in self.integral_keys])
+        subdomain_calls = OrderedDict([(key, OrderedDict()) for key in self.subdomain_keys])
         coords = None
         oriented = False
-        _subdomain_calls = []
+
+        # Maps integral type to subdomain key
+        subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
+                         "exterior_facet_vert": "subdomains_exterior_facet"}
         for cxt_kernel in self.context_kernels:
             local_coefficients = cxt_kernel.coefficients
             it_type = cxt_kernel.original_integral_type
             exp = cxt_kernel.tensor
 
-            if it_type not in self.supported_integral_types:
+            if it_type not in self.integral_keys:
                 raise ValueError("Integral type '%s' not recognized" % it_type)
 
             # Explicit checking of coordinates
@@ -163,6 +168,7 @@ class LocalKernelBuilder(object):
             for split_kernel in cxt_kernel.tsfc_kernels:
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
+                kint_type = kinfo.integral_type
 
                 args = [c for i in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
@@ -170,10 +176,8 @@ class LocalKernelBuilder(object):
                 if kinfo.oriented:
                     args.insert(0, self.cell_orientations_sym)
 
-                if kinfo.integral_type in ["interior_facet",
-                                           "exterior_facet",
-                                           "interior_facet_vert",
-                                           "exterior_facet_vert"]:
+                if kint_type in ["interior_facet", "exterior_facet",
+                                 "interior_facet_vert", "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
 
                 # Assembly calls within the macro kernel
@@ -185,11 +189,14 @@ class LocalKernelBuilder(object):
 
                 # Subdomains only implemented for exterior facet integrals
                 if kinfo.subdomain_id != "otherwise":
-                    if kinfo.integral_type not in ["exterior_facet",
-                                                   "exterior_facet_vert"]:
-                        msg = "Subdomains implemented for exterior facets only"
+                    if kint_type not in subdomain_map:
+                        msg = "Subdomains for integral type '%s' not implemented" % kint_type
                         raise NotImplementedError(msg)
-                    _subdomain_calls.append((kinfo.subdomain_id, call))
+
+                    sd_id = kinfo.subdomain_id
+                    sd_key = subdomain_map[kint_type]
+                    assert sd_key in self.subdomain_keys
+                    subdomain_calls[sd_key].setdefault(sd_id, []).append(call)
                 else:
                     assembly_calls[it_type].append(call)
 
@@ -199,13 +206,12 @@ class LocalKernelBuilder(object):
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
 
-        # Group subdomain calls by subdomain id
-        subdomain_calls = OrderedDict()
-        for k, call in _subdomain_calls:
-            subdomain_calls.setdefault(k, []).append(call)
+        # Add subdomain calls to the assembly dict. This is a
+        # dictionary, where the key "subdomains_exterior_facet"
+        # corresponds to another dictionary with subdomain ids as keys.
+        assembly_calls.update(subdomain_calls)
 
         self.assembly_calls = assembly_calls
-        self.subdomain_calls = subdomain_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented
