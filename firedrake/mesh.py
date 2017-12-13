@@ -551,12 +551,15 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_to_facets(self):
-        """Return a :class:`op2.Dat` that maps from a cell index to the local
+        """Returns a :class:`op2.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
-        The i-th local facet is exterior if the 0th value of this array
-        is :data:`0` and interior if the value is :data:`1`. The second
-        entry returns the facet subdomain marker.
+        The `i`-th local facet on a cell with index `c` has data
+        `cell_facet[c][i]`. The local facet is exterior if
+        `cell_facet[c][i][0] == 0`, and interior if the value is `1`.
+        The value `cell_facet[c][i][1]` returns the subdomain marker of the
+        facet. For interior facets, this is `-1`, and for exterior facets this
+        is some positive integer.
         """
         cell_facets = dmplex.cell_facet_labeling(self._facets("exterior"),
                                                  self._plex,

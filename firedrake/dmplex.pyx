@@ -782,15 +782,16 @@ def cell_facet_labeling(exterior_facets,
                         PETSc.Section cell_numbering,
                         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
     """Computes a labeling for the facet numbers on a particular cell
-    (interior and exterior facet labels). The i-th local facet is
-    represented as:
+    (interior and exterior facet labels with subdomain markers). The
+    i-th local facet is represented as:
 
     cell_facets[c, i]
 
     If `cell_facets[c, i, 0]` is :data:`0`, then the local facet
     :data:`i` is an exterior facet, otherwise if the result is :data:`1`
     it is interior. `cell_facets[c, i, 1]` returns the subdomain marker
-    for the particular facet.
+    for the local facet. This is `-1` for interior facets, and some
+    positive integer for exterior facets.
 
     :arg exterior_facets: A :class:`_Facets` object of `kind` "exterior".
     :arg plex: The DMPlex object representing the mesh topology.
@@ -818,11 +819,13 @@ def cell_facet_labeling(exterior_facets,
     exterior_markers = exterior_facets.markers
     if exterior_markers is None:
         # No subdomains to collect (for example, mesh is a sphere)
-        collect_subdomains = False
+        exterior_subdomains = False
     else:
-        collect_subdomains = True
+        exterior_subdomains = True
+        # Get unique markers
+        exterior_markers = np.unique(exterior_markers)
         sub_domain_ids = dict((sid, plex.getStratumIS(FACE_SETS_LABEL, sid))
-                              for sid in set(exterior_markers))
+                              for sid in exterior_markers)
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -835,10 +838,10 @@ def cell_facet_labeling(exterior_facets,
                 cell_facets[cell, fi, 0] = <np.int8_t>is_interior
 
                 # Collect subdomains (if any)
-                if collect_subdomains:
+                if exterior_subdomains:
                     # If on an exterior facet, search for the subdomain marker
                     if not is_interior:
-                        for marker in sub_domain_ids:
+                        for marker in exterior_markers:
                             # Facet point in subdomain
                             if point in sub_domain_ids[marker].array:
                                 cell_facets[cell, fi, 1] = <np.int8_t>marker
