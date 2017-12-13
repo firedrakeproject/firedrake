@@ -1,9 +1,6 @@
-from __future__ import absolute_import, print_function, division
-from six.moves import zip, zip_longest
-
 from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial, reduce
-from itertools import chain
+from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.optimise import delta_elimination as _delta_elimination
