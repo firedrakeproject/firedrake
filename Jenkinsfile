@@ -74,6 +74,9 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
           timestamps {
             sh '''
 . ./firedrake/bin/activate
+echo $PATH
+echo $VIRTUAL_ENV
+ls $VIRTUAL_ENV/bin
 cd firedrake/src/firedrake/docs; make html
 '''
           }
