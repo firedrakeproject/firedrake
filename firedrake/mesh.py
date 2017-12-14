@@ -563,8 +563,7 @@ class MeshTopology(object):
         cell_facets = dmplex.cell_facet_labeling(self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
-        nfacets = cell_facets.shape[1]
-        dataset = DataSet(self.cell_set, dim=(nfacets, 2))
+        dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 

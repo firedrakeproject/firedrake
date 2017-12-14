@@ -366,7 +366,7 @@ def tensor_assembly_calls(builder):
         for sd_type in ("subdomains_exterior_facet", "subdomains_interior_facet"):
             stmts = []
             for sd, sd_calls in groupby(assembly_calls[sd_type], lambda x: x[0]):
-                calls = [sd_call[1] for sd_call in sd_calls]
+                _, calls = zip(*sd_calls)
                 if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym, rank=(builder.it_sym, 1)), sd)
                 stmts.append(ast.If(if_sd, (ast.Block(calls, open_scope=True),)))
 
