@@ -798,10 +798,9 @@ def cell_facet_labeling(PETSc.DM plex,
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
         PetscInt f, fstart, fend, point, marker
-        char *int_label = <char *>"interior_facets"
-        PetscBool is_interior
+        PetscBool is_exterior
         const PetscInt *facets
-        DMLabel label, sub_domain
+        DMLabel exterior = NULL, subdomain = NULL
         np.ndarray[np.int8_t, ndim=3, mode="c"] cell_facets
 
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
@@ -810,15 +809,10 @@ def cell_facet_labeling(PETSc.DM plex,
     nfacet = plex.getConeSize(cstart)
     fstart, fend = plex.getHeightStratum(1)
     cell_facets = np.full((cend - cstart, nfacet, 2), -1, dtype=cell_to_facets_dtype)
-    CHKERR(DMGetLabel(plex.dm, int_label, &label))
 
-    # No exterior facets (for example, on a sphere mesh)
-    if plex.getLabelIdIS("exterior_facets").size == 0:
-        CHKERR(DMGetLabel(plex.dm, "interior_facets".encode(), &sub_domain))
-    else:
-        CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &sub_domain))
-
-    CHKERR(DMLabelCreateIndex(label, fstart, fend))
+    CHKERR(DMGetLabel(plex.dm, "exterior_facets".encode(), &exterior))
+    CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &subdomain))
+    CHKERR(DMLabelCreateIndex(exterior, fstart, fend))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -827,17 +821,19 @@ def cell_facet_labeling(PETSc.DM plex,
             point = cell_closures[cell, p]
             # This is a facet point
             if fstart <= point < fend:
-                # Get interior/exterior label
-                DMLabelHasPoint(label, point, &is_interior)
-                cell_facets[cell, fi, 0] = <np.int8_t>is_interior
-
-                # Get subdomain marker
-                CHKERR(DMLabelGetValue(sub_domain, point, &marker))
-                cell_facets[cell, fi, 1] = <np.int8_t>marker
+                # Get exterior label
+                DMLabelHasPoint(exterior, point, &is_exterior)
+                cell_facets[cell, fi, 0] = <np.int8_t>(not is_exterior)
+                if subdomain != NULL:
+                    # Get subdomain marker
+                    CHKERR(DMLabelGetValue(subdomain, point, &marker))
+                    cell_facets[cell, fi, 1] = <np.int8_t>marker
+                else:
+                    cell_facets[cell, fi, 1] = -1
 
                 fi += 1
 
-    CHKERR(DMLabelDestroyIndex(label))
+    CHKERR(DMLabelDestroyIndex(exterior))
     return cell_facets
 
 @cython.boundscheck(False)
