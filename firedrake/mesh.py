@@ -558,11 +558,9 @@ class MeshTopology(object):
         `cell_facet[c][i]`. The local facet is exterior if
         `cell_facet[c][i][0] == 0`, and interior if the value is `1`.
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
-        facet. For interior facets, this is `-1`, and for exterior facets this
-        is some positive integer.
+        facet.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._facets("exterior"),
-                                                 self._plex,
+        cell_facets = dmplex.cell_facet_labeling(self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
         nfacets = cell_facets.shape[1]

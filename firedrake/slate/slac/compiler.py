@@ -21,6 +21,8 @@ from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
 
+from gem.utils import groupby
+
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
@@ -358,16 +360,20 @@ def tensor_assembly_calls(builder):
                                  for it_type in ("exterior_facet",
                                                  "exterior_facet_vert")]))
 
-        # Generate logical statements for handling *exterior facet*
-        # integrals on subdomains (currently this is the only supported type)
-        if assembly_calls["subdomains_exterior_facet"]:
-            subdomain_calls = assembly_calls["subdomains_exterior_facet"]
-            for k in subdomain_calls:
-                if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                          rank=(builder.it_sym, 1)), k)
-                calls = subdomain_calls[k]
-                stmt = ast.If(if_sd, (ast.Block(calls, open_scope=True),))
-                ext_calls.append(stmt)
+        # Generate logical statements for handling exterior/interior facet
+        # integrals on subdomains.
+        # Currently only facet integrals are supported.
+        for sd_type in ("subdomains_exterior_facet", "subdomains_interior_facet"):
+            stmts = []
+            for sd, sd_calls in groupby(assembly_calls[sd_type], lambda x: x[0]):
+                calls = [sd_call[1] for sd_call in sd_calls]
+                if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym, rank=(builder.it_sym, 1)), sd)
+                stmts.append(ast.If(if_sd, (ast.Block(calls, open_scope=True),)))
+
+            if sd_type == "subdomains_exterior_facet":
+                ext_calls.extend(stmts)
+            if sd_type == "subdomains_interior_facet":
+                int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
         domain = builder.expression.ufl_domain()

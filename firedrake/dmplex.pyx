@@ -777,8 +777,7 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def cell_facet_labeling(exterior_facets,
-                        PETSc.DM plex,
+def cell_facet_labeling(PETSc.DM plex,
                         PETSc.Section cell_numbering,
                         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
     """Computes a labeling for the facet numbers on a particular cell
@@ -790,21 +789,19 @@ def cell_facet_labeling(exterior_facets,
     If `cell_facets[c, i, 0]` is :data:`0`, then the local facet
     :data:`i` is an exterior facet, otherwise if the result is :data:`1`
     it is interior. `cell_facets[c, i, 1]` returns the subdomain marker
-    for the local facet. This is `-1` for interior facets, and some
-    positive integer for exterior facets.
+    for the local facet.
 
-    :arg exterior_facets: A :class:`_Facets` object of `kind` "exterior".
     :arg plex: The DMPlex object representing the mesh topology.
     :arg cell_numbering: PETSc.Section describing the global cell numbering
     :arg cell_closures: 2D array of ordered cell closures.
     """
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
-        PetscInt f, fstart, fend, point
+        PetscInt f, fstart, fend, point, marker
         char *int_label = <char *>"interior_facets"
         PetscBool is_interior
         const PetscInt *facets
-        DMLabel label
+        DMLabel label, sub_domain
         np.ndarray[np.int8_t, ndim=3, mode="c"] cell_facets
 
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
@@ -814,37 +811,30 @@ def cell_facet_labeling(exterior_facets,
     fstart, fend = plex.getHeightStratum(1)
     cell_facets = np.full((cend - cstart, nfacet, 2), -1, dtype=cell_to_facets_dtype)
     CHKERR(DMGetLabel(plex.dm, int_label, &label))
-    CHKERR(DMLabelCreateIndex(label, fstart, fend))
 
-    exterior_markers = exterior_facets.markers
-    if exterior_markers is None:
-        # No subdomains to collect (for example, mesh is a sphere)
-        exterior_subdomains = False
+    # No exterior facets (for example, on a sphere mesh)
+    if plex.getLabelIdIS("exterior_facets").size == 0:
+        CHKERR(DMGetLabel(plex.dm, "interior_facets".encode(), &sub_domain))
     else:
-        exterior_subdomains = True
-        # Get unique markers
-        exterior_markers = np.unique(exterior_markers)
-        sub_domain_ids = dict((sid, plex.getStratumIS(FACE_SETS_LABEL, sid))
-                              for sid in exterior_markers)
+        CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &sub_domain))
+
+    CHKERR(DMLabelCreateIndex(label, fstart, fend))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         fi = 0
         for p in range(nclosure):
             point = cell_closures[cell, p]
+            # This is a facet point
             if fstart <= point < fend:
-                # This is a facet point
+                # Get interior/exterior label
                 DMLabelHasPoint(label, point, &is_interior)
                 cell_facets[cell, fi, 0] = <np.int8_t>is_interior
 
-                # Collect subdomains (if any)
-                if exterior_subdomains:
-                    # If on an exterior facet, search for the subdomain marker
-                    if not is_interior:
-                        for marker in exterior_markers:
-                            # Facet point in subdomain
-                            if point in sub_domain_ids[marker].array:
-                                cell_facets[cell, fi, 1] = <np.int8_t>marker
+                # Get subdomain marker
+                CHKERR(DMLabelGetValue(sub_domain, point, &marker))
+                cell_facets[cell, fi, 1] = <np.int8_t>marker
+
                 fi += 1
 
     CHKERR(DMLabelDestroyIndex(label))

@@ -54,7 +54,7 @@ class LocalKernelBuilder(object):
     mesh_layer_sym = ast.Symbol("layer")
 
     # Supported integral types
-    integral_keys = [
+    supported_integral_types = [
         "cell",
         "interior_facet",
         "exterior_facet",
@@ -68,8 +68,9 @@ class LocalKernelBuilder(object):
         "exterior_facet_vert"
     ]
 
-    # NOTE: More subdomain types can be added here once implemented
-    subdomain_keys = ["subdomains_exterior_facet"]
+    # Supported subdomain types
+    supported_subdomain_types = ["subdomains_exterior_facet",
+                                 "subdomains_interior_facet"]
 
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalKernelBuilder class.
@@ -142,20 +143,22 @@ class LocalKernelBuilder(object):
         transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
-        assembly_calls = OrderedDict([(key, []) for key in self.integral_keys])
-        subdomain_calls = OrderedDict([(key, OrderedDict()) for key in self.subdomain_keys])
+        assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
+        subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         oriented = False
 
         # Maps integral type to subdomain key
         subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
-                         "exterior_facet_vert": "subdomains_exterior_facet"}
+                         "exterior_facet_vert": "subdomains_exterior_facet",
+                         "interior_facet": "subdomains_interior_facet",
+                         "interior_facet_vert": "subdomains_interior_facet"}
         for cxt_kernel in self.context_kernels:
             local_coefficients = cxt_kernel.coefficients
             it_type = cxt_kernel.original_integral_type
             exp = cxt_kernel.tensor
 
-            if it_type not in self.integral_keys:
+            if it_type not in self.supported_integral_types:
                 raise ValueError("Integral type '%s' not recognized" % it_type)
 
             # Explicit checking of coordinates
@@ -176,8 +179,10 @@ class LocalKernelBuilder(object):
                 if kinfo.oriented:
                     args.insert(0, self.cell_orientations_sym)
 
-                if kint_type in ["interior_facet", "exterior_facet",
-                                 "interior_facet_vert", "exterior_facet_vert"]:
+                if kint_type in ["interior_facet",
+                                 "exterior_facet",
+                                 "interior_facet_vert",
+                                 "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
 
                 # Assembly calls within the macro kernel
@@ -195,8 +200,7 @@ class LocalKernelBuilder(object):
 
                     sd_id = kinfo.subdomain_id
                     sd_key = subdomain_map[kint_type]
-                    assert sd_key in self.subdomain_keys
-                    subdomain_calls[sd_key].setdefault(sd_id, []).append(call)
+                    subdomain_calls[sd_key].append((sd_id, call))
                 else:
                     assembly_calls[it_type].append(call)
 
@@ -206,9 +210,7 @@ class LocalKernelBuilder(object):
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
 
-        # Add subdomain calls to the assembly dict. This is a
-        # dictionary, where the key "subdomains_exterior_facet"
-        # corresponds to another dictionary with subdomain ids as keys.
+        # Add subdomain call to assembly dict
         assembly_calls.update(subdomain_calls)
 
         self.assembly_calls = assembly_calls
