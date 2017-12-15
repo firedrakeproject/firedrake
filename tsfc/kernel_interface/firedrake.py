@@ -10,8 +10,6 @@ import gem
 from gem.node import traversal
 from gem.optimise import remove_componenttensors as prune
 
-from finat import TensorFiniteElement
-
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.coffee import SCALAR_TYPE
@@ -61,12 +59,12 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         # Cell orientation
         if self.interior_facet:
-            cell_orientations = gem.Variable("cell_orientations", (2, 1))
-            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),
-                                       gem.Indexed(cell_orientations, (1, 0)))
+            cell_orientations = gem.Variable("cell_orientations", (2,))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),
+                                       gem.Indexed(cell_orientations, (1,)))
         else:
-            cell_orientations = gem.Variable("cell_orientations", (1, 1))
-            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),)
+            cell_orientations = gem.Variable("cell_orientations", (1,))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
 
     def _coefficient(self, coefficient, name):
         """Prepare a coefficient. Adds glue code for the coefficient
@@ -284,31 +282,21 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         return funarg, expression
 
     finat_element = create_element(coefficient.ufl_element())
-
-    if isinstance(finat_element, TensorFiniteElement):
-        scalar_shape = finat_element.base_element.index_shape
-        tensor_shape = finat_element.index_shape[len(scalar_shape):]
-    else:
-        scalar_shape = finat_element.index_shape
-        tensor_shape = ()
-    scalar_size = numpy.prod(scalar_shape, dtype=int)
-    tensor_size = numpy.prod(tensor_shape, dtype=int)
+    shape = finat_element.index_shape
+    size = numpy.prod(shape, dtype=int)
 
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
-                         pointers=[("const", "restrict"), ("restrict",)],
+                         pointers=[("restrict",)],
                          qualifiers=["const"])
 
     if not interior_facet:
-        expression = gem.reshape(
-            gem.Variable(name, (scalar_size, tensor_size)),
-            scalar_shape, tensor_shape
-        )
+        expression = gem.reshape(gem.Variable(name, (size,)), shape)
     else:
-        varexp = gem.Variable(name, (2 * scalar_size, tensor_size))
-        plus = gem.view(varexp, slice(scalar_size), slice(tensor_size))
-        minus = gem.view(varexp, slice(scalar_size, 2 * scalar_size), slice(tensor_size))
-        expression = (gem.reshape(plus, scalar_shape, tensor_shape),
-                      gem.reshape(minus, scalar_shape, tensor_shape))
+        varexp = gem.Variable(name, (2 * size,))
+        plus = gem.view(varexp, slice(size))
+        minus = gem.view(varexp, slice(size, 2 * size))
+        expression = (gem.reshape(plus, shape),
+                      gem.reshape(minus, shape))
     return funarg, expression
 
 
@@ -358,6 +346,6 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
 
 
 cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
-                                           pointers=[("restrict", "const"), ("restrict",)],
+                                           pointers=[("restrict",)],
                                            qualifiers=["const"])
 """COFFEE function argument for cell orientations"""
