@@ -22,7 +22,7 @@ def run_test(degree):
     l2error = []
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
-    for n in range(5, 11):
+    for n in range(5, 10):
         mesh = PeriodicUnitIntervalMesh(2**n)
         V = FunctionSpace(mesh, 'DG', degree)
         u = Constant((1, ))
