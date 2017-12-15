@@ -54,6 +54,10 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         # Set up parameters mixin
         super(LinearSolver, self).__init__(solver_parameters, options_prefix)
+
+        self.A.petscmat.setOptionsPrefix(self.options_prefix)
+        self.P.petscmat.setOptionsPrefix(self.options_prefix)
+
         # Set some defaults
         self.set_default_parameter("ksp_rtol", "1e-7")
         # If preconditioning matrix is matrix-free, then default to no

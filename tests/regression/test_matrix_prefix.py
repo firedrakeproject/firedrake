@@ -3,9 +3,9 @@ import pytest
 
 
 @pytest.mark.parametrize("options_prefix",
-                         [pytest.mark.xfail(reason="No matrix options prefix")(None),
+                         [None,
                           "",
-                          pytest.mark.xfail(reason="No matrix options prefix")("foo")])
+                          "foo"])
 def test_matrix_prefix_solver(options_prefix):
     parameters = {"ksp_type": "preonly",
                   "pc_type": "lu",
