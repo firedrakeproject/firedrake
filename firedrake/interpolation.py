@@ -194,9 +194,13 @@ def _interpolator(V, dat, expr, subset):
         args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map()))
+        args.append(co.dat(op2.READ, co.cell_node_map()[op2.i[0]]))
     for coefficient in coefficients:
-        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
+        m_ = coefficient.cell_node_map()
+        if indexed:
+            args.append(coefficient.dat(op2.READ, m_ and m_[op2.i[0]]))
+        else:
+            args.append(coefficient.dat(op2.READ, m_))
 
     for o in coefficients:
         domain = o.ufl_domain()
@@ -288,7 +292,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     init = ast.Block([init_X, init_x, init_pi])
     incr_x = ast.Incr(ast.Symbol(x, rank=(d,)),
                       ast.Prod(ast.Symbol(X, rank=(k, i_)),
-                               ast.Symbol(x_, rank=(i_, d))))
+                               ast.Symbol(x_, rank=(ast.Sum(ast.Prod(i_, dim), d),))))
     assign_x = ast.Assign(ast.Symbol(x, rank=(d,)), 0)
     loop_x = ast.For(init=ast.Decl("unsigned int", i_, 0),
                      cond=ast.Less(i_, xndof),
@@ -310,7 +314,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
             user_args.append(ast.Decl("double *", arg.name))
     kernel_code = ast.FunDecl("void", "expression_kernel",
                               [ast.Decl("double", ast.Symbol(A, (nfdof,))),
-                               ast.Decl("double**", x_)] + user_args,
+                               ast.Decl("double*", x_)] + user_args,
                               ast.Block(user_init + [init, loop],
                                         open_scope=False))
     coefficients = [coords]

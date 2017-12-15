@@ -620,11 +620,11 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     args = []
 
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
     arg.position = 0
     args.append(arg)
 
-    arg = function.dat(op2.READ, function.cell_node_map())
+    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
     arg.position = 1
     args.append(arg)
 
