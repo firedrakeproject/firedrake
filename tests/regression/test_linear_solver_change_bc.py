@@ -1,9 +1,7 @@
 from firedrake import *
-import pytest
 import numpy
 
 
-@pytest.mark.xfail(reason="BC value not lifted correctly")
 def test_linear_solver_change_bc():
     mesh = UnitSquareMesh(4, 4, quadrilateral=False)
     V = FunctionSpace(mesh, "P", 1)
