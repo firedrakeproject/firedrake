@@ -20,6 +20,8 @@ from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
 
+from gem.utils import groupby
+
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
@@ -156,8 +158,15 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Facet information
     if builder.needs_cell_facets:
-        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
-                             builder.cell_facet_sym))
+        f_sym = builder.cell_facet_sym
+        f_arg = ast.Symbol("arg_cell_facets")
+        f_dtype = as_cstr(cell_to_facets_dtype)
+
+        # cell_facets is locally a flattened 2-D array. We typecast here so we
+        # can access its entries using standard array notation.
+        cast = "%s (*%s)[2] = (%s (*)[2])%s;\n" % (f_dtype, f_sym, f_dtype, f_arg)
+        statements.insert(0, ast.FlatBlock(cast))
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype), f_arg))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -319,10 +328,11 @@ def tensor_assembly_calls(builder):
                   all relevant expression information and
                   assembly calls.
     """
+    assembly_calls = builder.assembly_calls
     statements = [ast.FlatBlock("/* Assemble local tensors */\n")]
 
     # Cell integrals are straightforward. Just splat them out.
-    statements.extend(builder.assembly_calls["cell"])
+    statements.extend(assembly_calls["cell"])
 
     if builder.needs_cell_facets:
         # The for-loop will have the general structure:
@@ -338,14 +348,28 @@ def tensor_assembly_calls(builder):
         # (exterior) facets will be present within the loop. The
         # cell facets are labelled `1` for interior, and `0` for
         # exterior.
-
         statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
-        int_calls = list(chain(*[builder.assembly_calls[it_type]
+        int_calls = list(chain(*[assembly_calls[it_type]
                                  for it_type in ("interior_facet",
                                                  "interior_facet_vert")]))
-        ext_calls = list(chain(*[builder.assembly_calls[it_type]
+        ext_calls = list(chain(*[assembly_calls[it_type]
                                  for it_type in ("exterior_facet",
                                                  "exterior_facet_vert")]))
+
+        # Generate logical statements for handling exterior/interior facet
+        # integrals on subdomains.
+        # Currently only facet integrals are supported.
+        for sd_type in ("subdomains_exterior_facet", "subdomains_interior_facet"):
+            stmts = []
+            for sd, sd_calls in groupby(assembly_calls[sd_type], lambda x: x[0]):
+                _, calls = zip(*sd_calls)
+                if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym, rank=(builder.it_sym, 1)), sd)
+                stmts.append(ast.If(if_sd, (ast.Block(calls, open_scope=True),)))
+
+            if sd_type == "subdomains_exterior_facet":
+                ext_calls.extend(stmts)
+            if sd_type == "subdomains_interior_facet":
+                int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
         domain = builder.expression.ufl_domain()
@@ -355,19 +379,16 @@ def tensor_assembly_calls(builder):
             num_facets = domain.ufl_cell().num_facets()
 
         if_ext = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 0)
+                                   rank=(builder.it_sym, 0)), 0)
         if_int = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 1)
+                                   rank=(builder.it_sym, 0)), 1)
         body = []
         if ext_calls:
-            body.append(ast.If(if_ext, (ast.Block(ext_calls,
-                                                  open_scope=True),)))
+            body.append(ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),)))
         if int_calls:
-            body.append(ast.If(if_int, (ast.Block(int_calls,
-                                                  open_scope=True),)))
+            body.append(ast.If(if_int, (ast.Block(int_calls, open_scope=True),)))
 
-        statements.append(ast.For(ast.Decl("unsigned int",
-                                           builder.it_sym, init=0),
+        statements.append(ast.For(ast.Decl("unsigned int", builder.it_sym, init=0),
                                   ast.Less(builder.it_sym, num_facets),
                                   ast.Incr(builder.it_sym, 1), body))
 
@@ -402,19 +423,17 @@ def tensor_assembly_calls(builder):
         # FIXME: No variable layers assumption
         statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
         num_layers = builder.expression.ufl_domain().topological.layers - 1
-        int_top = builder.assembly_calls["interior_facet_horiz_top"]
-        int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
-        ext_top = builder.assembly_calls["exterior_facet_top"]
-        ext_btm = builder.assembly_calls["exterior_facet_bottom"]
+        int_top = assembly_calls["interior_facet_horiz_top"]
+        int_btm = assembly_calls["interior_facet_horiz_bottom"]
+        ext_top = assembly_calls["exterior_facet_top"]
+        ext_btm = assembly_calls["exterior_facet_bottom"]
 
+        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers - 1)
         bottom = ast.Block(int_top + ext_btm, open_scope=True)
         top = ast.Block(int_btm + ext_top, open_scope=True)
         rest = ast.Block(int_btm + int_top, open_scope=True)
         statements.append(ast.If(ast.Eq(builder.mesh_layer_sym, 0),
-                                 (bottom,
-                                  ast.If(ast.Eq(builder.mesh_layer_sym,
-                                                num_layers - 1),
-                                         (top, rest)))))
+                                 (bottom, ast.If(eq_layer, (top, rest)))))
 
     return statements
 
