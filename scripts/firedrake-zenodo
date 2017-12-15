@@ -142,7 +142,7 @@ def collect_repo_shas():
                 log.error("Component %s has uncommitted changes, cannot create release" % component)
                 sys.exit(0)
             shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
-        except:
+        except (subprocess.CalledProcessError, OSError):
             if component in optional_components:
                 log.warning("Failed to retrieve git hash for optional "
                             "component '%s', continuing without it" % component)

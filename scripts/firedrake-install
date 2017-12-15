@@ -390,7 +390,7 @@ def apt_check(name):
         check_call(["dpkg-query", "-s", name])
         log.info("  installed.")
         return True
-    except:
+    except subprocess.CalledProcessError:
         log.info("  missing.")
         return False
 
@@ -434,10 +434,10 @@ def git_clone(url):
         branch = branches[name]
     try:
         if options["disable_ssh"]:
-            raise Exception
+            raise InstallError("Skipping ssh clone because --disable-ssh")
         check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
         log.info("Successfully cloned repository %s" % name)
-    except:
+    except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
@@ -861,7 +861,7 @@ def build_update_script():
 
     try:
         os.mkdir("../bin")
-    except:
+    except OSError:
         pass
     with open("../bin/firedrake-update", "w") as f:
         f.write(update_script)
@@ -925,7 +925,7 @@ if mode == "install" or not args.update_script:
 
             try:
                 check_call(["brew", "--version"])
-            except:
+            except subprocess.CalledProcessError:
                 quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
             log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
@@ -1182,7 +1182,7 @@ if mode == "update":
         print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
-    except:
+    except:                     # noqa: E722
         # Unconditional except in order to avoid upgrade script failures.
         log.error("Failed to clear caches. Try running firedrake-clean.")
 

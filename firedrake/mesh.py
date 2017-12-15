@@ -230,11 +230,11 @@ def _from_triangle(filename, dim, comm):
         try:
             facetfile = open(basename+".face")
             tdim = 3
-        except:
+        except FileNotFoundError:
             try:
                 facetfile = open(basename+".edge")
                 tdim = 2
-            except:
+            except FileNotFoundError:
                 facetfile = None
                 tdim = 1
         if dim is None:
