@@ -90,7 +90,11 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
+<<<<<<< HEAD
     def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False):
+=======
+    def _cache_key(cls, form, name, parameters, number_map, coffee):
+>>>>>>> loopy as default backend for tsfc
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
