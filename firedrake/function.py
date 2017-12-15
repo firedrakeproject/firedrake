@@ -108,10 +108,11 @@ class CoordinatelessFunction(ufl.Coefficient):
                                 enumerate(zip(self.function_space(), self.dat)))
         return self._split
 
-    def sub(self, i):
+    def sub(self, i, deepcopy=False):
         """Extract the ith sub :class:`Function` of this :class:`Function`.
 
         :arg i: the index to extract
+        :arg deepcopy: if True, copy data (otherwise return a view).
 
         See also :meth:`split`.
 
@@ -120,10 +121,16 @@ class CoordinatelessFunction(ufl.Coefficient):
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if len(self.function_space()) == 1 and self.function_space().rank == 1:
+            if deepcopy:
+                raise NotImplementedError("Copying not supported for function views")
             fs = self.function_space().sub(i)
             return CoordinatelessFunction(fs, val=op2.DatView(self.dat, i),
                                           name="view[%d](%s)" % (i, self.name()))
-        return self.split()[i]
+        val = self.split()[i]
+        if deepcopy:
+            return val.copy(deepcopy=True)
+        else:
+            return val
 
     @property
     def cell_set(self):
@@ -287,10 +294,11 @@ class Function(ufl.Coefficient):
                                 enumerate(zip(self.function_space(), self.dat)))
         return self._split
 
-    def sub(self, i):
+    def sub(self, i, deepcopy=False):
         """Extract the ith sub :class:`Function` of this :class:`Function`.
 
         :arg i: the index to extract
+        :arg deepcopy: if True, copy data (otherwise return a view).
 
         See also :meth:`split`.
 
@@ -299,10 +307,15 @@ class Function(ufl.Coefficient):
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if len(self.function_space()) == 1 and self.function_space().rank == 1:
+            if deepcopy:
+                raise NotImplementedError("Copying not supported for function views")
             fs = self.function_space().sub(i)
             return Function(fs, val=op2.DatView(self.dat, i),
                             name="view[%d](%s)" % (i, self.name()))
-        return self.split()[i]
+        if deepcopy:
+            return type(self)(self.split()[i])
+        else:
+            return self.split()[i]
 
     def project(self, b, *args, **kwargs):
         """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
