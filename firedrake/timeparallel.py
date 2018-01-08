@@ -17,13 +17,13 @@ class Subcommunicators(object):
         ## This makes contiguous chunks of size M.
         # use this communicator to instantiate meshes
         self.space_comm = COMM_WORLD.Split(color=(rank // M), key=rank)
-        self.space_rank = space_comm.rank
+        self.space_rank = self.space_comm.rank
         self.time_rank = rank // M
 
         ## This groups all the processes in the space communicators
         ## that have matching rank. These will correspond to the same bit of
         ## the mesh (hence the same slice through the Vec).
-        self.time_comm = COMM_WORLD.Split(color=space_comm.rank, key=rank)
+        self.time_comm = COMM_WORLD.Split(color=self.space_comm.rank, key=rank)
 
     def time_allreduce(self, f, f_reduced):
         """
