@@ -18,8 +18,8 @@ def test_time_allreduce():
     q = Constant(subcomms.time_rank+1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
     subcomms.time_allreduce(u, usum)
-
-    assert(assemble((u_correct-u)**2*dx) < 1.0e-4)
+    err = assemble((u_correct-usum)**2*dx)
+    assert(err < 1.0e-4)
 
 if __name__ == "__main__":
     import os
