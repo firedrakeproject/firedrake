@@ -62,7 +62,7 @@ from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
-from firedrake.timeparallel import *
+from firedrake.ensemble import *
 
 from firedrake.logging import *
 # Set default log level

@@ -16,7 +16,7 @@ def test_time_allreduce():
     usum = Function(V)
 
     u_correct.interpolate(sin(pi*x)*cos(pi*y) + sin(2*pi*x)*cos(2*pi*y) + sin(3*pi*x)*cos(3*pi*y))
-    q = Constant(manager.tcomm.rank + 1)
+    q = Constant(manager.ecomm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
     manager.allreduce(u, usum)
 
@@ -40,7 +40,7 @@ def test_comm_manager_allreduce():
 
     mesh = UnitSquareMesh(1, 1, comm=manager.scomm)
 
-    mesh2 = UnitSquareMesh(2, 2, comm=manager.tcomm)
+    mesh2 = UnitSquareMesh(2, 2, comm=manager.ecomm)
 
     V = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh2, "CG", 1)
