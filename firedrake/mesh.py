@@ -218,6 +218,26 @@ def _from_cgns(filename, comm):
     return plex
 
 
+def _from_file(filename, comm):
+    """Read a generic format (such as HDF5 `.h5`) mesh file from `filename`.
+
+    :arg comm: communicator to build the mesh on.
+    """
+    plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
+    return plex
+
+
+# TODO: Not sure exactly where this function should go.
+def saveMesh(mesh, filename, comm):
+    """Store a mesh in HDF5 `.h5` format under name `filename`.
+
+    :arg mesh: Mesh to be stored.
+    :arg comm: communicator to build the mesh on.
+    """
+    viewer = PETSc.Viewer().createHDF5(filename, 'w', comm=comm)
+    viewer(mesh._plex)
+
+
 def _from_triangle(filename, dim, comm):
     """Read a set of triangle mesh files from `filename`.
 
@@ -1198,6 +1218,7 @@ def Mesh(meshfile, **kwargs):
     * Exodus: with extension `.e`, `.exo`
     * CGNS: with extension `.cgns`
     * Triangle: with extension `.node`
+    * HDF5: with extension `.h5`
 
     .. note::
 
@@ -1245,6 +1266,8 @@ def Mesh(meshfile, **kwargs):
             plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, comm)
+        elif ext.lower() == '.h5':
+            plex = _from_file(meshfile, comm)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
