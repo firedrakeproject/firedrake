@@ -43,9 +43,9 @@ class CommManager(object):
         :arg op: MPI reduction operator.
         :raises ValueError: if communicators mismatch, or function sizes mismatch.
         """
-        if MPI.Group.Compare(f_reduced.comm.Get_group(), f.comm.Get_group()) != MPI.IDENT:
+        if MPI.Comm.Compare(f_reduced.comm, f.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Mismatching communicators for functions")
-        if MPI.Group.Compare(f.comm.Get_group(), self.scomm.Get_group()) != MPI.IDENT:
+        if MPI.Comm.Compare(f.comm, self.scomm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
             if vout.getSizes() != vin.getSizes():
