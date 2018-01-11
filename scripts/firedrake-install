@@ -321,6 +321,8 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
+petsc_opts += "--with-fortran-bindings=0 "
+
 if options["minimal_petsc"]:
     if options["petsc_int_type"] == "int64":
         petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
