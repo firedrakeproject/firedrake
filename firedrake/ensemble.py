@@ -1,9 +1,9 @@
 from pyop2.mpi import MPI
 
-__all__ = ("CommManager", )
+__all__ = ("Ensemble", )
 
 
-class CommManager(object):
+class Ensemble(object):
     def __init__(self, comm, M):
         """
         Create a set of space and ensemble subcommunicators.
@@ -19,10 +19,10 @@ class CommManager(object):
 
         rank = comm.rank
 
-        self.comm = comm
+        self.gcomm = comm
         """The global communicator."""
 
-        self.scomm = comm.Split(color=(rank // M), key=rank)
+        self.comm = comm.Split(color=(rank // M), key=rank)
         """The communicator for spatial parallelism, contains a
         contiguous chunk of M processes from :attr:`comm`"""
 
@@ -31,7 +31,7 @@ class CommManager(object):
         processes in :attr:`comm` which have the same rank in
         :attr:`scomm`."""
 
-        assert self.scomm.size == M
+        assert self.comm.size == M
         assert self.ecomm.size == (size // M)
 
     def allreduce(self, f, f_reduced, op=MPI.SUM):
@@ -55,8 +55,8 @@ class CommManager(object):
         return f_reduced
 
     def __del__(self):
-        if hasattr(self, "scomm"):
-            self.scomm.Free()
+        if hasattr(self, "comm"):
+            self.comm.Free()
             del self.scomm
         if hasattr(self, "ecomm"):
             self.ecomm.Free()

@@ -3,7 +3,7 @@ import pytest
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_time_allreduce():
+def test_ensemble_allreduce():
     manager = CommManager(COMM_WORLD, 2)
 
     mesh = UnitSquareMesh(20, 20, comm=manager.scomm)
@@ -38,7 +38,7 @@ def test_comm_manager_parallel():
 def test_comm_manager_allreduce():
     manager = CommManager(COMM_WORLD, 1)
 
-    mesh = UnitSquareMesh(1, 1, comm=manager.scomm)
+    mesh = UnitSquareMesh(1, 1, comm=manager.comm)
 
     mesh2 = UnitSquareMesh(2, 2, comm=manager.ecomm)
 
