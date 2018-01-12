@@ -31,6 +31,8 @@ class Ensemble(object):
         processes in :attr:`comm` which have the same rank in
         :attr:`scomm`."""
 
+        self.erank = self.ecomm.rank
+        
         assert self.comm.size == M
         assert self.ecomm.size == (size // M)
 
