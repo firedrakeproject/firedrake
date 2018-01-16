@@ -339,15 +339,15 @@ def _expression_scalar(expr, parameters):
         if rr and abs(vr - rr) < parameters.epsilon:
             vr = rr  # round to nonzero
 
-        vi = expr.value.imag # also checks if v is purely real
+        vi = expr.value.imag  # also checks if v is purely real
         if vi == 0.0:
             return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
         ri = round(1)
 
         if ri and abs(vi - ri) < parameters.epsilon:
             vi = ri
-        return coffee.Symbol(("%%.%dg" % parameters.precision) % vr + " + "
-                             + ("%%.%dg" % parameters.precision) % vi  + " * I")
+        return coffee.Symbol(("%%.%dg" % parameters.precision) % vr + " + " +
+                             ("%%.%dg" % parameters.precision) % vi + " * I")
 
 
 @_expression.register(gem.Variable)

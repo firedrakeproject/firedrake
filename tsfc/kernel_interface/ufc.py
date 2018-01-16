@@ -16,7 +16,6 @@ from tsfc.finatinterface import create_element as _create_element
 from tsfc.parameters import scalar_type
 
 
-
 # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
 create_element = functools.partial(_create_element, shape_innermost=False)
 
