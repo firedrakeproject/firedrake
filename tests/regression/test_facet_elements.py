@@ -13,10 +13,10 @@ def test_all_dofs_on_facets():
     g = Function(W1).assign(1)
     n = FacetNormal(mesh)
 
-    assert abs(assemble(dot(f, f)*dx) - assemble(dot(g, g)*dx)) < 1e-13
-    assert abs(assemble(dot(f, f)*ds) - assemble(dot(g, g)*ds)) < 1e-13
-    assert abs(assemble(dot(f, n)*ds) - assemble(dot(g, n)*ds)) < 1e-13
-    assert abs(assemble(dot(f('+'), n('+'))*dS) - assemble(dot(g('+'), n('+'))*dS)) < 1e-13
+    assert abs(assemble(dot(f, f)*dx) - assemble(dot(g, g)*dx)) < 1e-12
+    assert abs(assemble(dot(f, f)*ds) - assemble(dot(g, g)*ds)) < 1e-12
+    assert abs(assemble(dot(f, n)*ds) - assemble(dot(g, n)*ds)) < 1e-12
+    assert abs(assemble(dot(f('+'), n('+'))*dS) - assemble(dot(g('+'), n('+'))*dS)) < 1e-12
 
 
 if __name__ == '__main__':
