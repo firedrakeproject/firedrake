@@ -176,10 +176,27 @@ def plot_mesh(mesh, axes=None, **kwargs):
     return axes
 
 
+def prepare_functions(function, real=False):
+    function_data = function.vector().array()
+    if function_data.dtype.kind == "c":
+        real_part = Function(function.function_space(), function_data.real)
+        if real:
+            functions = (real_part,)
+        else:
+            imaginary_part = Function(function.function_space(), function_data.imag)
+            real_part.rename(function.name() + " (real part)")
+            imaginary_part.rename(function.name() + " (imaginary part)")
+            functions = (real_part, imaginary_part)
+    else:
+        functions = (function, )
+    return functions
+
+
 def plot(function_or_mesh,
          num_sample_points=10,
          axes=None,
          plot3d=False,
+         real=False,
          **kwargs):
     """Plot a Firedrake object.
 
@@ -217,6 +234,17 @@ def plot(function_or_mesh,
         return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
     # Single Function...
     function = function_or_mesh
+    functions = prepare_functions(function, real)
+    if not real:
+        plots = []
+        for function in functions:
+            p = plot(function, num_sample_points, axes=axes, plot3d=plot3d, real=True, **kwargs)
+            p.set_title(function.name())
+            plots.append(p)
+        return plots
+    else:
+        function, = functions
+
     try:
         import matplotlib.pyplot as plt
         from matplotlib import cm
@@ -375,6 +403,8 @@ def _calculate_values(function, points, dimension, cell_mask=None):
         cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
                                                           mask=cell_mask))
     data = function.dat.data_ro[cell_node_list]
+    if data.dtype.kind == "c":
+        data = data.real
     if function.ufl_shape == ():
         vec_length = 1
     else:
