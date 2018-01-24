@@ -185,6 +185,10 @@ def create_subdm(dm, fields, *args, **kwargs):
         # only hold a weakref in the shell DM), and so we can
         # reuse it later.
         W._subspaces[tuple(fields)] = iset, subspace
+
+        # Transfer any custom multigrid operators to the new subspace
+        subspace.set_transfer_operators(W.prolong, W.restrict, W.inject)
+
         return iset, subspace.dm
 
 
@@ -209,6 +213,7 @@ def coarsen(dm, comm):
         cdm = V._coarse.dm
     else:
         V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
+        V._coarse.set_transfer_operators(V.prolong, V.restrict, V.inject)
         cdm = V._coarse.dm
     ctx = get_appctx(dm)
     if ctx is not None:
@@ -235,6 +240,9 @@ def refine(dm, comm):
         fdm = V._fine.dm
     else:
         V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
+        # Carry through any custom multigrid transfer operators
+        V._fine.set_transfer_operators(V.prolong, V.restrict, V.inject)
+
         fdm = V._fine.dm
     return fdm
 

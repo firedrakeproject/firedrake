@@ -124,10 +124,11 @@ def coarsen_function_space(V, coefficient_mapping=None):
 
     mesh = coarsen(V.mesh())
 
-    V = firedrake.FunctionSpace(mesh, V.ufl_element())
+    W = firedrake.FunctionSpace(mesh, V.ufl_element())
+    W.set_transfer_operators(V.prolong, V.restrict, V.inject)
     for i in reversed(indices):
-        V = V.sub(i)
-    return V
+        W = W.sub(i)
+    return W
 
 
 @coarsen.register(firedrake.Function)
@@ -220,13 +221,15 @@ class Interpolation(object):
     def __init__(self, cfn, ffn, cbcs=None, fbcs=None):
         self.cfn = cfn
         self.ffn = ffn
+        self.V_c = cfn.function_space()
+        self.V_f = ffn.function_space()
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
 
     def mult(self, mat, x, y, inc=False):
         with self.cfn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.prolong(self.cfn, self.ffn)
+        self.V_c.prolong(self.cfn, self.ffn)
         for bc in self.fbcs:
             bc.zero(self.ffn)
         with self.ffn.dat.vec_ro as v:
@@ -245,7 +248,7 @@ class Interpolation(object):
     def multTranspose(self, mat, x, y, inc=False):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.restrict(self.ffn, self.cfn)
+        self.V_f.restrict(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.zero(self.cfn)
         with self.cfn.dat.vec_ro as v:
@@ -266,12 +269,13 @@ class Injection(object):
     def __init__(self, cfn, ffn, cbcs=None):
         self.cfn = cfn
         self.ffn = ffn
+        self.V_f = ffn.function_space()
         self.cbcs = cbcs or []
 
     def multTranspose(self, mat, x, y):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.inject(self.ffn, self.cfn)
+        self.V_f.inject(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:

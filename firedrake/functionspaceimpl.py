@@ -17,7 +17,7 @@ from tsfc.finatinterface import create_element
 from firedrake.functionspacedata import get_shared_data
 from firedrake import utils
 from firedrake import dmhooks
-
+import firedrake.mg.interface
 
 class WithGeometry(ufl.FunctionSpace):
     """Attach geometric information to a :class:`~.FunctionSpace`.
@@ -300,6 +300,8 @@ class FunctionSpace(object):
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
+        self.set_transfer_operators() # set default multigrid transfer operators
+
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
     index = None
@@ -512,6 +514,21 @@ class FunctionSpace(object):
         See also :class:`~.DirichletBC` for details of the arguments.
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
+
+    def set_transfer_operators(self, prolong=None, restrict=None, inject=None):
+        """Set custom multigrid transfer operators.
+
+        :arg prolong: a function prolong(coarse, fine), or None for the default.
+        :arg restrict: a function restrict(fine, coarse), or None for the default.
+        :arg inject: a function inject(fine, coarse), or None for the default.
+        """
+        if prolong is None:  prolong = firedrake.mg.interface.prolong
+        if restrict is None: restrict = firedrake.mg.interface.restrict
+        if inject is None:   inject = firedrake.mg.interface.inject
+
+        self.prolong = prolong
+        self.restrict = restrict
+        self.inject = inject
 
 
 class MixedFunctionSpace(object):
