@@ -19,6 +19,7 @@ from firedrake import utils
 from firedrake import dmhooks
 import firedrake.mg.interface
 
+
 class WithGeometry(ufl.FunctionSpace):
     """Attach geometric information to a :class:`~.FunctionSpace`.
 
@@ -300,7 +301,7 @@ class FunctionSpace(object):
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
-        self.set_transfer_operators() # set default multigrid transfer operators
+        self.set_transfer_operators()  # set default multigrid transfer operators
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -522,9 +523,12 @@ class FunctionSpace(object):
         :arg restrict: a function restrict(fine, coarse), or None for the default.
         :arg inject: a function inject(fine, coarse), or None for the default.
         """
-        if prolong is None:  prolong = firedrake.mg.interface.prolong
-        if restrict is None: restrict = firedrake.mg.interface.restrict
-        if inject is None:   inject = firedrake.mg.interface.inject
+        if prolong is None:
+            prolong = firedrake.mg.interface.prolong
+        if restrict is None:
+            restrict = firedrake.mg.interface.restrict
+        if inject is None:
+            inject = firedrake.mg.interface.inject
 
         self.prolong = prolong
         self.restrict = restrict
