@@ -168,7 +168,7 @@ scalar_tests = common_tests + [
     'assigntest(f, sqrt(one), 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
-    'exprtest(ufl.sign(minusthree), -1)',
+    'exprtest(ufl.sign(real(minusthree)), -1)',
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [

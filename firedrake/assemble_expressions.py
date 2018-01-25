@@ -2,6 +2,8 @@ import weakref
 
 import ufl
 from ufl.algorithms import ReuseTransformer
+from ufl.corealg.map_dag import map_expr_dag
+from ufl.algorithms.comparison_checker import CheckComparisons
 from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.core.multiindex import MultiIndex
 from ufl.core.operator import Operator
@@ -16,9 +18,7 @@ from pyop2.profiling import timed_function
 from firedrake import constant
 from firedrake import function
 from firedrake import utils
-
-from firedrake_configuration import get_config
-
+from firedrake.utils import complex_mode
 
 def ufl_type(*args, **kwargs):
     """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
@@ -233,10 +233,29 @@ class Power(ufl.algebra.Power):
 
     @property
     def ast(self):
-        if get_config()['options']['complex']:
-            return ast.FunCall("cpow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
-        else:
-            return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+        func = "cpow" if complex_mode else "pow"
+        return ast.FunCall(func, _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+
+
+class Real(ufl.algebra.Real):
+
+    @property
+    def ast(self):
+        return ast.FunCall("creal", _ast(self.ufl_operands[0]))
+
+
+class Imag(ufl.algebra.Imag):
+
+    @property
+    def ast(self):
+        return ast.FunCall("cimag", _ast(self.ufl_operands[0]))
+
+
+class Conj(ufl.algebra.Conj):
+
+    @property
+    def ast(self):
+        return ast.FunCall("conj", _ast(self.ufl_operands[0]))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -249,10 +268,8 @@ class Ln(ufl.mathfunctions.Ln):
 
     @property
     def ast(self):
-        if get_config()['options']['complex']:
-            return ast.FunCall("clog", _ast(self.ufl_operands[0]))
-        else:
-            return ast.FunCall("log", _ast(self.ufl_operands[0]))
+        func = "clog" if complex_mode else "log"
+        return ast.FunCall(func, _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
@@ -489,6 +506,15 @@ class ExpressionWalker(ReuseTransformer):
         # Need to convert notation to c.
         return Ln(*operands)
 
+    def real(self, o, *operands):
+        return Real(*operands)
+
+    def imag(self, o, *operands):
+        return Imag(*operands)
+
+    def conj(self, o, *operands):
+        return Conj(*operands)
+
     def component_tensor(self, o, *operands):
         """Override string representation to only print first operand."""
         return ComponentTensor(*operands)
@@ -594,6 +620,8 @@ def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
 
+    if utils.complex_mode:
+        expr = map_expr_dag(CheckComparisons(), expr)
     result = function.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result
@@ -603,10 +631,8 @@ _to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(
 _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
-if get_config()['options']['complex']:
-    _absfunc = lambda e: ast.FunCall("cabs", _ast(e.ufl_operands[0]))
-else:
-    _absfunc = lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))
+_absfunc = lambda e: ast.FunCall("cabs" if complex_mode else "abs",
+                            _ast(e.ufl_operands[0]))
 
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
