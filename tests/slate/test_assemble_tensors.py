@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.formmanipulation import split_form
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -71,14 +72,15 @@ def rank_two_tensor(mass):
 
 
 def test_tensor_action(mass, f):
-    V = assemble(Tensor(mass) * f)
+    V = assemble(Tensor(mass) * AssembledVector(f))
     ref = assemble(action(mass, f))
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
 
 
 def test_sum_tensor_actions(mass, f, g):
-    V = assemble(Tensor(mass) * f + Tensor(0.5*mass) * g)
+    V = assemble(Tensor(mass) * AssembledVector(f)
+                 + Tensor(0.5*mass) * AssembledVector(g))
     ref = assemble(action(mass, f) + action(0.5*mass, g))
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
@@ -167,6 +169,80 @@ def test_mixed_argument_tensor(mesh):
     tau, _ = TestFunctions(W)
     T = Tensor(sigma * tau * dx)
     assemble(T)
+
+
+def test_vector_subblocks(mesh):
+    V = VectorFunctionSpace(mesh, "DG", 1)
+    U = FunctionSpace(mesh, "DG", 1)
+    T = FunctionSpace(mesh, "DG", 0)
+    W = V * U * T
+    x = SpatialCoordinate(mesh)
+    q = Function(V).project(grad(sin(pi*x[0])*cos(pi*x[1])))
+    p = Function(U).interpolate(-x[0]*exp(-x[1]**2))
+    r = Function(T).assign(42.0)
+    u, phi, eta = TrialFunctions(W)
+    v, psi, nu = TestFunctions(W)
+
+    K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
+    F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
+    E = K.inv * F
+    items = [(E.block((0,)), q), (E.block((1,)), p), (E.block((2,)), r)]
+
+    for tensor, ref in items:
+        assert np.allclose(assemble(tensor).dat.data, ref.dat.data, rtol=1e-14)
+
+
+def test_matrix_subblocks(mesh):
+    if mesh.ufl_cell() == quadrilateral:
+        U = FunctionSpace(mesh, "RTCF", 1)
+    else:
+        U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    n = FacetNormal(mesh)
+    W = U * V * T
+    u, p, lambdar = TrialFunctions(W)
+    w, q, gammar = TestFunctions(W)
+
+    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
+               lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS +
+               lambdar*gammar*ds)
+
+    # Test individual blocks
+    indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]
+    refs = dict(split_form(A.form))
+    for idx in indices:
+        ref = assemble(refs[idx]).M.values
+        block = A.block(idx)
+        assert np.allclose(assemble(block).M.values, ref, rtol=1e-14)
+
+    # Mixed blocks
+    A0101 = A.block(((0, 1), (0, 1)))
+    A1212 = A.block(((1, 2), (1, 2)))
+
+    # Block of blocks
+    A0101_00 = A0101.block((0, 0))
+    A0101_11 = A0101.block((1, 1))
+    A0101_01 = A0101.block((0, 1))
+    A0101_10 = A0101.block((1, 0))
+    A1212_00 = A1212.block((0, 0))
+    A1212_11 = A1212.block((1, 1))
+    A1212_01 = A1212.block((0, 1))
+    A1212_10 = A1212.block((1, 0))
+
+    items = [(A0101_00, refs[(0, 0)]),
+             (A0101_11, refs[(1, 1)]),
+             (A0101_01, refs[(0, 1)]),
+             (A0101_10, refs[(1, 0)]),
+             (A1212_00, refs[(1, 1)]),
+             (A1212_11, refs[(2, 2)]),
+             (A1212_01, refs[(1, 2)]),
+             (A1212_10, refs[(2, 1)])]
+
+    # Test assembly of blocks of mixed blocks
+    for tensor, form in items:
+        ref = assemble(form).M.values
+        assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
 
 
 if __name__ == '__main__':

@@ -611,7 +611,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.base import build_itspace
     from pyop2.sequential import generate_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -621,15 +620,15 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     args = []
 
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
     arg.position = 0
     args.append(arg)
 
-    arg = function.dat(op2.READ, function.cell_node_map())
+    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
     arg.position = 1
     args.append(arg)
 
-    src += generate_cell_wrapper(build_itspace(args, mesh.cell_set), args,
+    src += generate_cell_wrapper(mesh.cell_set, args,
                                  forward_args=["double*", "double*"],
                                  kernel_name="evaluate_kernel",
                                  wrapper_name="wrap_evaluate")

@@ -781,13 +781,15 @@ def cell_facet_labeling(PETSc.DM plex,
                         PETSc.Section cell_numbering,
                         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
     """Computes a labeling for the facet numbers on a particular cell
-    (interior and exterior facet labels). The i-th local facet is
-    represented as:
+    (interior and exterior facet labels with subdomain markers). The
+    i-th local facet is represented as:
 
     cell_facets[c, i]
 
-    If this result is :data:`0`, then the local facet :data:`ci` is an
-    exterior facet, otherwise if the result is :data:`1` it is interior.
+    If `cell_facets[c, i, 0]` is :data:`0`, then the local facet
+    :data:`i` is an exterior facet, otherwise if the result is :data:`1`
+    it is interior. `cell_facets[c, i, 1]` returns the subdomain marker
+    for the local facet.
 
     :arg plex: The DMPlex object representing the mesh topology.
     :arg cell_numbering: PETSc.Section describing the global cell numbering
@@ -795,34 +797,43 @@ def cell_facet_labeling(PETSc.DM plex,
     """
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
-        PetscInt f, fstart, fend, point
-        char *int_label = <char *>"interior_facets"
-        PetscBool is_interior
+        PetscInt f, fstart, fend, point, marker
+        PetscBool is_exterior
         const PetscInt *facets
-        DMLabel label
-        np.ndarray[np.int8_t, ndim=2, mode="c"] cell_facets
+        DMLabel exterior = NULL, subdomain = NULL
+        np.ndarray[np.int8_t, ndim=3, mode="c"] cell_facets
 
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
     nclosure = cell_closures.shape[1]
     cstart, cend = plex.getHeightStratum(0)
     nfacet = plex.getConeSize(cstart)
     fstart, fend = plex.getHeightStratum(1)
-    cell_facets = np.full((cend - cstart, nfacet), -1, dtype=cell_to_facets_dtype)
-    CHKERR(DMGetLabel(plex.dm, int_label, &label))
-    CHKERR(DMLabelCreateIndex(label, fstart, fend))
+    cell_facets = np.full((cend - cstart, nfacet, 2), -1, dtype=cell_to_facets_dtype)
+
+    CHKERR(DMGetLabel(plex.dm, "exterior_facets".encode(), &exterior))
+    CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &subdomain))
+    CHKERR(DMLabelCreateIndex(exterior, fstart, fend))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         fi = 0
         for p in range(nclosure):
             point = cell_closures[cell, p]
+            # This is a facet point
             if fstart <= point < fend:
-                # This is a facet point
-                DMLabelHasPoint(label, point, &is_interior)
-                cell_facets[cell, fi] = <np.int8_t>is_interior
+                # Get exterior label
+                DMLabelHasPoint(exterior, point, &is_exterior)
+                cell_facets[cell, fi, 0] = <np.int8_t>(not is_exterior)
+                if subdomain != NULL:
+                    # Get subdomain marker
+                    CHKERR(DMLabelGetValue(subdomain, point, &marker))
+                    cell_facets[cell, fi, 1] = <np.int8_t>marker
+                else:
+                    cell_facets[cell, fi, 1] = -1
+
                 fi += 1
 
-    CHKERR(DMLabelDestroyIndex(label))
+    CHKERR(DMLabelDestroyIndex(exterior))
     return cell_facets
 
 @cython.boundscheck(False)

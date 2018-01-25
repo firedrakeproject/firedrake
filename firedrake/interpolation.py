@@ -199,9 +199,18 @@ def _interpolator(V, dat, expr, subset):
         args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map()))
+        args.append(co.dat(op2.READ, co.cell_node_map()[op2.i[0]]))
     for coefficient in coefficients:
-        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
+        m_ = coefficient.cell_node_map()
+        if indexed:
+            args.append(coefficient.dat(op2.READ, m_ and m_[op2.i[0]]))
+        else:
+            args.append(coefficient.dat(op2.READ, m_))
+
+    for o in coefficients:
+        domain = o.ufl_domain()
+        if domain is not None and domain.topology != mesh.topology:
+            raise NotImplementedError("Interpolation onto another mesh not supported.")
 
     if copy_back:
         return partial(op2.par_loop, *args), partial(dat.copy, output)
@@ -214,6 +223,7 @@ class GlobalWrapper(object):
     def __init__(self, glob):
         self.dat = glob
         self.cell_node_map = lambda *args: None
+        self.ufl_domain = lambda: None
 
 
 def compile_python_kernel(expression, to_pts, to_element, fs, coords):
@@ -289,7 +299,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     init = ast.Block([init_X, init_x, init_pi])
     incr_x = ast.Incr(ast.Symbol(x, rank=(d,)),
                       ast.Prod(ast.Symbol(X, rank=(k, i_)),
-                               ast.Symbol(x_, rank=(i_, d))))
+                               ast.Symbol(x_, rank=(ast.Sum(ast.Prod(i_, dim), d),))))
     assign_x = ast.Assign(ast.Symbol(x, rank=(d,)), 0)
     loop_x = ast.For(init=ast.Decl("unsigned int", i_, 0),
                      cond=ast.Less(i_, xndof),
@@ -311,7 +321,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
             user_args.append(ast.Decl("%s *" % num_type, arg.name))
     kernel_code = ast.FunDecl("void", "expression_kernel",
                               [ast.Decl(num_type, ast.Symbol(A, (nfdof,))),
-                               ast.Decl("%s**" % num_type, x_)] + user_args,
+                               ast.Decl("%s*" % num_type, x_)] + user_args,
                               ast.Block(user_init + [init, loop],
                                         open_scope=False))
     coefficients = [coords]

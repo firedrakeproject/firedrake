@@ -16,14 +16,15 @@ this templated function library.
 """
 from coffee import base as ast
 
-from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
 
+from gem.utils import groupby
+
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
+from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import set_scalar_type, scalar_type
@@ -91,7 +92,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     statements.extend(subkernel_calls)
 
     # Create coefficient temporaries if necessary
-    if builder.action_coefficients:
+    if builder.coefficient_vecs:
         coefficient_temps = coefficient_temporaries(builder, declared_temps)
         statements.extend(coefficient_temps)
 
@@ -147,30 +148,33 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     statements.append(ast.FlatBlock("/* Linear algebra expression */\n"))
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
-                                                       declared_temps))
+    cpp_string = ast.FlatBlock(slate_to_cpp(slate_expr, declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % scalar_type(), builder.coord_sym)]
+    args = [result, ast.Decl("%s *" % scalar_type(), builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int **", builder.cell_orientations_sym))
+        args.append(ast.Decl("int *", builder.cell_orientations_sym))
 
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        if isinstance(c, Constant):
-            ctype = "%s *" % scalar_type()
-        else:
-            ctype = "%s **" % scalar_type()
+        ctype = "%s *" % scalar_type()
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information
     if builder.needs_cell_facets:
-        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
-                             builder.cell_facet_sym))
+        f_sym = builder.cell_facet_sym
+        f_arg = ast.Symbol("arg_cell_facets")
+        f_dtype = as_cstr(cell_to_facets_dtype)
+
+        # cell_facets is locally a flattened 2-D array. We typecast here so we
+        # can access its entries using standard array notation.
+        cast = "%s (*%s)[2] = (%s (*)[2])%s;\n" % (f_dtype, f_sym, f_dtype, f_arg)
+        statements.insert(0, ast.FlatBlock(cast))
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype), f_arg))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -229,7 +233,7 @@ def auxiliary_temporaries(builder, declared_temps):
     for exp in builder.aux_exprs:
         if exp not in declared_temps:
             t = ast.Symbol("auxT%d" % len(declared_temps))
-            result = metaphrase_slate_to_cpp(exp, declared_temps)
+            result = slate_to_cpp(exp, declared_temps)
             tensor_type = eigen_matrixbase_type(shape=exp.shape)
             statements.append(ast.Decl(tensor_type, t))
             statements.append(ast.FlatBlock("%s.setZero();\n" % t))
@@ -251,19 +255,19 @@ def coefficient_temporaries(builder, declared_temps):
                          temporaries. This dictionary is updated
                          as coefficients are assigned temporaries.
 
-    Action computations require creating coefficient temporaries to
-    compute the matrix-vector product. The temporaries are created by
-    inspecting the function space of the coefficient to compute node
-    and dof extents. The coefficient is then assigned values by looping
-    over both the node extent and dof extent (double FOR-loop). A double
-    FOR-loop is needed for each function space (if the function space is
-    mixed, then a loop will be constructed for each component space).
-    The general structure of each coefficient loop will be:
+    'AssembledVector's require creating coefficient temporaries to
+    store data. The temporaries are created by inspecting the function
+    space of the coefficient to compute node and dof extents. The
+    coefficient is then assigned values by looping over both the node
+    extent and dof extent (double FOR-loop). A double FOR-loop is needed
+    for each function space (if the function space is mixed, then a loop
+    will be constructed for each component space). The general structure
+    of each coefficient loop will be:
 
          FOR (i1=0; i1<node_extent; i1++):
              FOR (j1=0; j1<dof_extent; j1++):
-                 wT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
-                 wT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
+                 VT0[offset + (dof_extent * i1) + j1] = w_0_0[i1][j1]
+                 VT1[offset + (dof_extent * i1) + j1] = w_1_0[i1][j1]
                  .
                  .
                  .
@@ -279,26 +283,27 @@ def coefficient_temporaries(builder, declared_temps):
     i_sym = ast.Symbol("i1")
     j_sym = ast.Symbol("j1")
     loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-    for (nodes, dofs), cinfo_list in builder.action_coefficients.items():
+    for (nodes, dofs), cinfo_list in builder.coefficient_vecs.items():
         # Collect all coefficients which share the same node/dof extent
         assignments = []
         for cinfo in cinfo_list:
             fs_i = cinfo.space_index
             offset = cinfo.offset_index
             c_shape = cinfo.shape
-            actee = cinfo.coefficient
+            vector = cinfo.vector
+            function = vector._function
 
-            if actee not in declared_temps:
+            if vector not in declared_temps:
                 # Declare and initialize coefficient temporary
                 c_type = eigen_matrixbase_type(shape=c_shape)
-                t = ast.Symbol("wT%d" % len(declared_temps))
+                t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
                 statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-                declared_temps[actee] = t
+                declared_temps[vector] = t
 
             # Assigning coefficient values into temporary
-            coeff_sym = ast.Symbol(builder.coefficient(actee)[fs_i],
-                                   rank=(i_sym, j_sym))
+            coeff_sym = ast.Symbol(builder.coefficient(function)[fs_i],
+                                   rank=(ast.Sum(ast.Prod(i_sym, dofs), j_sym),))
             index = ast.Sum(offset,
                             ast.Sum(ast.Prod(dofs, i_sym), j_sym))
             coeff_temp = ast.Symbol(t, rank=(index,))
@@ -331,10 +336,11 @@ def tensor_assembly_calls(builder):
                   all relevant expression information and
                   assembly calls.
     """
+    assembly_calls = builder.assembly_calls
     statements = [ast.FlatBlock("/* Assemble local tensors */\n")]
 
     # Cell integrals are straightforward. Just splat them out.
-    statements.extend(builder.assembly_calls["cell"])
+    statements.extend(assembly_calls["cell"])
 
     if builder.needs_cell_facets:
         # The for-loop will have the general structure:
@@ -350,14 +356,28 @@ def tensor_assembly_calls(builder):
         # (exterior) facets will be present within the loop. The
         # cell facets are labelled `1` for interior, and `0` for
         # exterior.
-
         statements.append(ast.FlatBlock("/* Loop over cell facets */\n"))
-        int_calls = list(chain(*[builder.assembly_calls[it_type]
+        int_calls = list(chain(*[assembly_calls[it_type]
                                  for it_type in ("interior_facet",
                                                  "interior_facet_vert")]))
-        ext_calls = list(chain(*[builder.assembly_calls[it_type]
+        ext_calls = list(chain(*[assembly_calls[it_type]
                                  for it_type in ("exterior_facet",
                                                  "exterior_facet_vert")]))
+
+        # Generate logical statements for handling exterior/interior facet
+        # integrals on subdomains.
+        # Currently only facet integrals are supported.
+        for sd_type in ("subdomains_exterior_facet", "subdomains_interior_facet"):
+            stmts = []
+            for sd, sd_calls in groupby(assembly_calls[sd_type], lambda x: x[0]):
+                _, calls = zip(*sd_calls)
+                if_sd = ast.Eq(ast.Symbol(builder.cell_facet_sym, rank=(builder.it_sym, 1)), sd)
+                stmts.append(ast.If(if_sd, (ast.Block(calls, open_scope=True),)))
+
+            if sd_type == "subdomains_exterior_facet":
+                ext_calls.extend(stmts)
+            if sd_type == "subdomains_interior_facet":
+                int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
         domain = builder.expression.ufl_domain()
@@ -367,19 +387,16 @@ def tensor_assembly_calls(builder):
             num_facets = domain.ufl_cell().num_facets()
 
         if_ext = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 0)
+                                   rank=(builder.it_sym, 0)), 0)
         if_int = ast.Eq(ast.Symbol(builder.cell_facet_sym,
-                                   rank=(builder.it_sym,)), 1)
+                                   rank=(builder.it_sym, 0)), 1)
         body = []
         if ext_calls:
-            body.append(ast.If(if_ext, (ast.Block(ext_calls,
-                                                  open_scope=True),)))
+            body.append(ast.If(if_ext, (ast.Block(ext_calls, open_scope=True),)))
         if int_calls:
-            body.append(ast.If(if_int, (ast.Block(int_calls,
-                                                  open_scope=True),)))
+            body.append(ast.If(if_int, (ast.Block(int_calls, open_scope=True),)))
 
-        statements.append(ast.For(ast.Decl("unsigned int",
-                                           builder.it_sym, init=0),
+        statements.append(ast.For(ast.Decl("unsigned int", builder.it_sym, init=0),
                                   ast.Less(builder.it_sym, num_facets),
                                   ast.Incr(builder.it_sym, 1), body))
 
@@ -414,19 +431,17 @@ def tensor_assembly_calls(builder):
         # FIXME: No variable layers assumption
         statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
         num_layers = builder.expression.ufl_domain().topological.layers - 1
-        int_top = builder.assembly_calls["interior_facet_horiz_top"]
-        int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
-        ext_top = builder.assembly_calls["exterior_facet_top"]
-        ext_btm = builder.assembly_calls["exterior_facet_bottom"]
+        int_top = assembly_calls["interior_facet_horiz_top"]
+        int_btm = assembly_calls["interior_facet_horiz_bottom"]
+        ext_top = assembly_calls["exterior_facet_top"]
+        ext_btm = assembly_calls["exterior_facet_bottom"]
 
+        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers - 1)
         bottom = ast.Block(int_top + ext_btm, open_scope=True)
         top = ast.Block(int_btm + ext_top, open_scope=True)
         rest = ast.Block(int_btm + int_top, open_scope=True)
         statements.append(ast.If(ast.Eq(builder.mesh_layer_sym, 0),
-                                 (bottom,
-                                  ast.If(ast.Eq(builder.mesh_layer_sym,
-                                                num_layers - 1),
-                                         (top, rest)))))
+                                 (bottom, ast.If(eq_layer, (top, rest)))))
 
     return statements
 
@@ -460,7 +475,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def metaphrase_slate_to_cpp(expr, temps, prec=None):
+def slate_to_cpp(expr, temps, prec=None):
     """Translates a Slate expression into its equivalent representation in
     the Eigen C++ syntax.
 
@@ -477,41 +492,65 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         representation of the `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
-    # Coefficients in action expressions will have been declared by now,
-    # as well as any other nodes with high reference count.
+    # Coefficients defined as AssembledVectors will have been declared
+    # by now, as well as any other nodes with high reference count.
     if expr in temps:
         return temps[expr].gencode()
 
     elif isinstance(expr, slate.Transpose):
         tensor, = expr.operands
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
+        return "(%s).transpose()" % slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, slate.Inverse):
         tensor, = expr.operands
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
+        return "(%s).inverse()" % slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, slate.Negative):
         tensor, = expr.operands
-        result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
+        result = "-%s" % slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (slate.Add, slate.Sub, slate.Mul)):
+    elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
-              slate.Sub: '-',
               slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
-        result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
+        result = "%s %s %s" % (slate_to_cpp(A, temps, expr.prec),
                                op,
-                               metaphrase_slate_to_cpp(B, temps, expr.prec))
+                               slate_to_cpp(B, temps, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, slate.Action):
+    elif isinstance(expr, slate.Block):
         tensor, = expr.operands
-        c, = expr.actee
-        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
-                                                        temps,
-                                                        expr.prec), temps[c])
+        indices = expr._indices
+        try:
+            ridx, cidx = indices
+        except ValueError:
+            ridx, = indices
+            cidx = 0
+        rids = as_tuple(ridx)
+        cids = as_tuple(cidx)
+
+        # Check if indices are non-contiguous
+        if not all(all(ids[i] + 1 == ids[i + 1] for i in range(len(ids) - 1))
+                   for ids in (rids, cids)):
+            raise NotImplementedError("Non-contiguous blocks not implemented")
+
+        rshape = expr.shape[0]
+        rstart = sum(tensor.shapes[0][:min(rids)])
+        if expr.rank == 1:
+            cshape = 1
+            cstart = 0
+        else:
+            cshape = expr.shape[1]
+            cstart = sum(tensor.shapes[1][:min(cids)])
+
+        result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
+                                                              temps,
+                                                              expr.prec),
+                                                 rshape, cshape,
+                                                 rstart, cstart)
+
         return parenthesize(result, expr.prec, prec)
 
     else:

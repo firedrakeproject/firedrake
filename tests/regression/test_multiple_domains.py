@@ -29,6 +29,35 @@ def mesh3(typ):
     return typ()
 
 
+def test_mismatching_meshes_indexed_function(mesh1, mesh3):
+    V1 = VectorFunctionSpace(mesh1, "CG", 1)
+    V2 = FunctionSpace(mesh3, "CG", 1)
+
+    donor = Function(V1)
+    target = Function(V2)
+
+    d1, *_ = split(donor)
+
+    with pytest.raises(NotImplementedError):
+        project(d1, target)
+
+    with pytest.raises(NotImplementedError):
+        assemble(d1*TestFunction(V2)*dx(domain=mesh3))
+
+    with pytest.raises(NotImplementedError):
+        assemble(d1*TestFunction(V2)*dx(domain=mesh1))
+
+
+def test_mismatching_meshes_constant(mesh1, mesh3):
+    V2 = FunctionSpace(mesh3, "CG", 1)
+
+    donor = Constant(1, domain=mesh1)
+    target = Function(V2)
+
+    with pytest.raises(NotImplementedError):
+        project(donor, target)
+
+
 def test_mismatching_topologies(mesh1, mesh3):
     with pytest.raises(NotImplementedError):
         assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))

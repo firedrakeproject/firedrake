@@ -9,6 +9,7 @@ from ufl.classes import ReferenceGrad
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
+from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
@@ -150,14 +151,14 @@ class _Facets(object):
         :param markers: integer marker id or an iterable of marker ids
             (or ``None``, for an empty subset).
         """
-        if self.markers is None:
-            return self._null_subset
+        valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, int)
+        if self.markers is None and valid_markers.intersection(markers):
+            return self._null_subset
         try:
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            valid_markers = set([unmarked]).union(self.unique_markers)
             if len(set(markers).difference(valid_markers)) > 0:
                 invalid = set(markers).difference(valid_markers)
                 raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
@@ -232,11 +233,11 @@ def _from_triangle(filename, dim, comm):
         try:
             facetfile = open(basename+".face")
             tdim = 3
-        except:
+        except FileNotFoundError:
             try:
                 facetfile = open(basename+".edge")
                 tdim = 2
-            except:
+            except FileNotFoundError:
                 facetfile = None
                 tdim = 1
         if dim is None:
@@ -485,7 +486,7 @@ class MeshTopology(object):
                                            cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake.citations import Citations
+            from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
@@ -552,17 +553,20 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_to_facets(self):
-        """Return a :class:`op2.Dat` that maps from a cell index to the local
-        facet types on each cell.
+        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        facet types on each cell, including the relevant subdomain markers.
 
-        The i-th local facet is exterior if the value of this array is :data:`0`
-        and interior if the value is :data:`1`.
+        The `i`-th local facet on a cell with index `c` has data
+        `cell_facet[c][i]`. The local facet is exterior if
+        `cell_facet[c][i][0] == 0`, and interior if the value is `1`.
+        The value `cell_facet[c][i][1]` returns the subdomain marker of the
+        facet.
         """
         cell_facets = dmplex.cell_facet_labeling(self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
-        nfacet = cell_facets.shape[1]
-        return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
+        dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
     def create_section(self, nodes_per_entity):
@@ -743,7 +747,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
-        from firedrake.citations import Citations
+        from firedrake_citations import Citations
         Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh

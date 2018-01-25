@@ -47,7 +47,7 @@ def test_hybrid_nullspace(W):
                                         (TestFunction(Wd),
                                          TrialFunction(Wd))))))
     sigma, _ = TrialFunctions(Wd)
-    K = Tensor(gamma('+') * dot(sigma, FacetNormal(W.mesh())) * dS)
+    K = Tensor(gamma('+') * jump(sigma, n=FacetNormal(W.mesh())) * dS)
 
     nullsp = MixedVectorSpaceBasis(W, [W[0], VectorSpaceBasis(constant=True)])
     nullsp._build_monolithic_basis()

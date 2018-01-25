@@ -84,6 +84,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
                This should be a dict mapping PETSc options to values.
+        :kwarg appctx: A dictionary containing application context that
+               is passed to the preconditioner if matrix-free.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -275,6 +277,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg appctx: A dictionary containing application context that
+               is passed to the preconditioner if matrix-free.
         """
         parameters = {}
         parameters.update(kwargs.get("solver_parameters", {}))

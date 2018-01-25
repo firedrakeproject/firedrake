@@ -18,7 +18,7 @@ CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
                               "shape",
-                              "coefficient"])
+                              "vector"])
 CoefficientInfo.__doc__ = """\
 Context information for creating coefficient temporaries.
 
@@ -27,8 +27,8 @@ Context information for creating coefficient temporaries.
                      the vector temporary for assignment.
 :param shape: A singleton with an integer describing the shape of
               the coefficient temporary.
-:param coefficient: The :class:`ufl.Coefficient` containing the
-                    relevant data to be placed into the temporary.
+:param vector: The :class:`slate.AssembledVector` containing the
+               relevant data to be placed into the temporary.
 """
 
 
@@ -69,6 +69,10 @@ class LocalKernelBuilder(object):
         "exterior_facet_vert"
     ]
 
+    # Supported subdomain types
+    supported_subdomain_types = ["subdomains_exterior_facet",
+                                 "subdomains_interior_facet"]
+
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalKernelBuilder class.
 
@@ -84,7 +88,7 @@ class LocalKernelBuilder(object):
 
         # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
-        action_coeffs = OrderedDict()
+        coeff_vecs = OrderedDict()
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
@@ -96,14 +100,14 @@ class LocalKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
-            # Actions will always require a coefficient temporary.
-            if isinstance(tensor, slate.Action):
-                actee, = tensor.actee
+            # 'AssembledVector's will always require a coefficient temporary.
+            if isinstance(tensor, slate.AssembledVector):
+                function = tensor._function
 
                 # Ensure coefficient temporaries aren't duplicated
-                if actee not in seen_coeff:
+                if function not in seen_coeff:
                     shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in actee.function_space().split()]
+                              for V in function.function_space().split()]
                     c_shape = (sum(n * d for (n, d) in shapes),)
 
                     offset = 0
@@ -111,11 +115,11 @@ class LocalKernelBuilder(object):
                         cinfo = CoefficientInfo(space_index=fs_i,
                                                 offset_index=offset,
                                                 shape=c_shape,
-                                                coefficient=actee)
-                        action_coeffs.setdefault(fs_shape, []).append(cinfo)
+                                                vector=tensor)
+                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
                         offset += reduce(lambda x, y: x*y, fs_shape)
 
-                    seen_coeff.add(actee)
+                    seen_coeff.add(function)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -132,7 +136,7 @@ class LocalKernelBuilder(object):
                           if counter[tensor] > 1
                           and not isinstance(tensor, (slate.Tensor,
                                                       slate.Negative))]
-        self.action_coefficients = action_coeffs
+        self.coefficient_vecs = coeff_vecs
         self._setup()
 
     def _setup(self):
@@ -145,10 +149,16 @@ class LocalKernelBuilder(object):
         transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
-        assembly_calls = OrderedDict([(it, [])
-                                      for it in self.supported_integral_types])
+        assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
+        subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         oriented = False
+
+        # Maps integral type to subdomain key
+        subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
+                         "exterior_facet_vert": "subdomains_exterior_facet",
+                         "interior_facet": "subdomains_interior_facet",
+                         "interior_facet_vert": "subdomains_interior_facet"}
         for cxt_kernel in self.context_kernels:
             local_coefficients = cxt_kernel.coefficients
             it_type = cxt_kernel.original_integral_type
@@ -167,10 +177,7 @@ class LocalKernelBuilder(object):
             for split_kernel in cxt_kernel.tsfc_kernels:
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
-
-                # TODO: Implement subdomains for Slate tensors
-                if kinfo.subdomain_id != "otherwise":
-                    raise NotImplementedError("Subdomains not implemented.")
+                kint_type = kinfo.integral_type
 
                 args = [c for i in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
@@ -178,10 +185,10 @@ class LocalKernelBuilder(object):
                 if kinfo.oriented:
                     args.insert(0, self.cell_orientations_sym)
 
-                if kinfo.integral_type in ["interior_facet",
-                                           "exterior_facet",
-                                           "interior_facet_vert",
-                                           "exterior_facet_vert"]:
+                if kint_type in ["interior_facet",
+                                 "exterior_facet",
+                                 "interior_facet_vert",
+                                 "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
 
                 # Assembly calls within the macro kernel
@@ -190,13 +197,27 @@ class LocalKernelBuilder(object):
                                    tensor,
                                    self.coord_sym,
                                    *args)
-                assembly_calls[it_type].append(call)
+
+                # Subdomains only implemented for exterior facet integrals
+                if kinfo.subdomain_id != "otherwise":
+                    if kint_type not in subdomain_map:
+                        msg = "Subdomains for integral type '%s' not implemented" % kint_type
+                        raise NotImplementedError(msg)
+
+                    sd_id = kinfo.subdomain_id
+                    sd_key = subdomain_map[kint_type]
+                    subdomain_calls[sd_key].append((sd_id, call))
+                else:
+                    assembly_calls[it_type].append(call)
 
                 # Subkernels for local assembly (Eigen templated functions)
                 kast = transformer.visit(kinfo.kernel._ast)
                 templated_subkernels.append(kast)
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
+
+        # Add subdomain call to assembly dict
+        assembly_calls.update(subdomain_calls)
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels

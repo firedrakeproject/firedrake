@@ -4,7 +4,6 @@ import sympy
 
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
-from pyop2.base import build_itspace
 from pyop2.sequential import generate_cell_wrapper
 
 import ufl
@@ -24,14 +23,14 @@ from coffee.base import ArrayInit
 
 
 def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map())
+    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
     arg.position = 0
     return (arg,)
 
 
 def make_wrapper(function, **kwargs):
     args = make_args(function)
-    return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+    return generate_cell_wrapper(function.cell_set, args, **kwargs)
 
 
 def src_locate_cell(mesh, tolerance=None):
@@ -171,7 +170,7 @@ struct ReferenceCoords {
     double X[%(geometric_dimension)d];
 };
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double **C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 

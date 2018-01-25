@@ -37,18 +37,14 @@ def test_callbacks():
 
     # Perform only one iteration; expect to get u = 1.5
     params = {"snes_linesearch_type": "basic",
-              "snes_max_it": 1}
+              "snes_max_it": 1,
+              "snes_convergence_test": "skip"}
 
     solver = NonlinearVariationalSolver(problem,
                                         pre_jacobian_callback=update_alpha,
                                         pre_function_callback=update_beta,
                                         solver_parameters=params)
-    try:
-        # This will error as beta is set to 2.0 when the residual is
-        # recalculated, so the SNES hasn't converged
-        solver.solve()
-    except:
-        pass
+    solver.solve()
 
     assert np.allclose(u.dat.data, 1.5)
 
