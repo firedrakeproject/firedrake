@@ -532,7 +532,7 @@ def git_clone(url):
             log.warning("Failed to clone %s using ssh, falling back to https." % name)
         try:
             if name == "loopy":
-                check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "https")])
+                check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "ssh")])
             else:
                 check_call(["git", "clone", "-q", git_url(plain_url, "https")])
             log.info("Successfully cloned repository %s." % name)
