@@ -219,8 +219,11 @@ else:
     parser.add_argument("--cache-dir", type=str,
                         action="store", default=config["options"].get("cache_dir", ""),
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
-    parser.add_argument("--complex", action="store_true",
-                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
+    complex_group = parser.add_mutually_exclusive_group()
+    group.add_argument("--complex", action="store_true",
+                       help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
+    group.add_argument("--real", action="store_true",
+                       help="Updates to the real version of Firedrake; rebuilds PETSc in complex mode.")
 
     args = parser.parse_args()
 
@@ -232,9 +235,12 @@ else:
         args.rebuild = True
 
     petsc_complex_type_changed = False
-    if config["options"].get("complex", False) != args.complex:
+    previously_complex = config["options"].get("complex", False)
+    now_complex = not args.real and (args.complex or previously_complex)
+    if previously_complex != now_complex:
         petsc_complex_type_changed = True
         args.rebuild = True
+    args.complex = now_complex
 
     config = deep_update(config, FiredrakeConfiguration(args))
 
