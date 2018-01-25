@@ -15,9 +15,9 @@ def test_linearsolver(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v) * dx
 
-    L = v*dx
+    L = inner(1, v) * dx
 
     if bcs:
         bcs = DirichletBC(V, 0, 1)
@@ -117,9 +117,9 @@ def test_linear_solve(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v) * dx
 
-    L = v*dx
+    L = inner(1, v) * dx
 
     if bcs:
         bcs = DirichletBC(V, 0, 1)
