@@ -119,10 +119,7 @@ def evaluate(v, x):
         assert len(v) == len(x)
     except TypeError:
         x = (x,) * len(v)
-    try:
-        return all(np.all(abs(v_.real - x_) < 1e-16) for v_, x_ in zip(v, x))
-    except:
-        return v == x
+    return all(np.all(abs(v_ - x_) < 1.e-14) for v_, x_ in zip(v, x))
 
 
 def ioptest(f, expr, x, op):
