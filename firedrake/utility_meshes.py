@@ -132,10 +132,8 @@ cells are not currently supported")
     if ( creal(a) < creal(-eps) ) {{
         a += 1;
     }}
-    }}
     if ( creal(b) < creal(-eps) ) {{
         b += 1;
-    }}
     }}
     if ( swap ) {{
         const {0} tmp = b;

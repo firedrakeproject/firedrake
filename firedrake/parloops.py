@@ -12,6 +12,7 @@ import pyop2
 import coffee.base as ast
 
 from firedrake import constant
+from firedrake.utils import ScalarType_c
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -74,7 +75,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
             # Do we have a component of a mixed function?
@@ -89,9 +90,9 @@ def _form_kernel(kernel, measure, args, **kwargs):
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             if measure is direct:
-                kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
+                kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof,))))
             else:
-                kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
+                kargs.append(ast.Decl(ScalarType_c + " *", ast.Symbol(var, (ndof,))))
         lkernel = lkernel.replace(var+".dofs", str(ndof))
 
     body = ast.FlatBlock(lkernel)
