@@ -307,7 +307,7 @@ A python script version of this demo can be found `here <linear_fluid_structure_
 
 The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
 
-Extended 3D version of this code is published `here <https://zenodo.org/record/1162196>`__.
+An extended 3D version of this code is published `here <https://zenodo.org/record/1162196>`__.
 
 .. rst-class:: emphasis
 
