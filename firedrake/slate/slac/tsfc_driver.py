@@ -4,6 +4,7 @@ from functools import partial
 
 from firedrake.slate.slate import Tensor
 from firedrake.slate.slac.utils import RemoveRestrictions
+from firedrake.tsfc_interface import compile_form as tsfc_compile
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
@@ -11,8 +12,21 @@ from ufl import Form
 
 ContextKernel = collections.namedtuple("ContextKernel",
                                        ["tensor",
+                                        "coefficients",
                                         "original_integral_type",
                                         "tsfc_kernels"])
+ContextKernel.__doc__ = """\
+A bundled object containing TSFC subkernels corresponding to a
+particular integral type.
+
+:param tensor: The terminal Slate tensor corresponding to the
+               list of TSFC assembly kernels.
+:param coefficients: The local coefficients of the tensor contained
+                     in the integrands (arguments for TSFC subkernels).
+:param original_integral_type: The unmodified measure type
+                               of the form integrals.
+:param tsfc_kernels: A list of local tensor assembly kernels
+                     provided by TSFC."""
 
 
 def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
@@ -29,7 +43,6 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
 
     Returns: A `ContextKernel` containing all relevant information.
     """
-    from firedrake.tsfc_interface import compile_form as tsfc_compile
 
     assert isinstance(tensor, Tensor), (
         "Only terminal tensors have forms associated with them!"
@@ -47,10 +60,12 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     cxt_kernels = []
     for orig_it_type, integrals in transformed_integrals.items():
         subkernel_prefix = prefix + "%s_to_" % orig_it_type
-        kernels = tsfc_compile(Form(integrals),
+        form = Form(integrals)
+        kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters)
         cxt_k = ContextKernel(tensor=tensor,
+                              coefficients=form.coefficients(),
                               original_integral_type=orig_it_type,
                               tsfc_kernels=kernels)
         cxt_kernels.append(cxt_k)
@@ -75,24 +90,27 @@ def transform_integrals(integrals):
 
     for it in integrals:
         it_type = it.integral_type()
-        transformed_integrals.setdefault(it_type, list())
 
         if it_type == "cell" or it_type.startswith("exterior_facet"):
             # No need to reconstruct cell or exterior facet integrals
-            transformed_integrals[it_type].append(it)
+            transformed_integrals.setdefault(it_type, list()).append(it)
 
         elif it_type == "interior_facet":
             new_it = it.reconstruct(integral_type="exterior_facet")
-            transformed_integrals[it_type].append(new_it)
+            transformed_integrals.setdefault(it_type, list()).append(new_it)
 
         elif it_type == "interior_facet_vert":
             new_it = it.reconstruct(integral_type="exterior_facet_vert")
-            transformed_integrals[it_type].append(new_it)
+            transformed_integrals.setdefault(it_type, list()).append(new_it)
 
         elif it_type == "interior_facet_horiz":
+            # Separate into "top" and "bottom"
             top_it = it.reconstruct(integral_type="exterior_facet_top")
             bottom_it = it.reconstruct(integral_type="exterior_facet_bottom")
-            transformed_integrals[it_type].extend((top_it, bottom_it))
+            it_top = it_type + "_top"
+            it_btm = it_type + "_bottom"
+            transformed_integrals.setdefault(it_top, list()).append(top_it)
+            transformed_integrals.setdefault(it_btm, list()).append(bottom_it)
 
         else:
             raise ValueError("Integral type: %s not recognized!" % it_type)

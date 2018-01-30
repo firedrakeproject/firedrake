@@ -1,16 +1,16 @@
 """This module provides custom python preconditioners utilizing
 the Slate language.
 """
-
-
 import ufl
+import numpy as np
 
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
-from firedrake.slate.slate import Tensor
+from firedrake.parloops import par_loop, READ, INC
+from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.profiling import timed_region, timed_function
-
+from pyop2.utils import as_tuple
 
 __all__ = ['HybridizationPC']
 
@@ -35,7 +35,7 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, assemble)
+                               DirichletBC)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
@@ -96,33 +96,21 @@ class HybridizationPC(PCBase):
         self.unbroken_solution = Function(V)
         self.unbroken_residual = Function(V)
 
-        # Set up the KSP for the hdiv residual projection
-        hdiv_mass_ksp = PETSc.KSP().create(comm=pc.comm)
-        hdiv_mass_ksp.setOptionsPrefix(prefix + "hdiv_residual_")
+        shapes = (V[self.vidx].finat_element.space_dimension(),
+                  np.prod(V[self.vidx].shape))
+        weight_kernel = """
+        for (int i=0; i<%d; ++i) {
+        for (int j=0; j<%d; ++j) {
+        w[i][j] += 1.0;
+        }}""" % shapes
 
-        # HDiv mass operator
-        p = TrialFunction(V[self.vidx])
-        q = TestFunction(V[self.vidx])
-        mass = ufl.dot(p, q)*ufl.dx
-        # TODO: Bcs?
-        M = assemble(mass, bcs=None, form_compiler_parameters=self.cxt.fc_params)
-        M.force_evaluation()
-        Mmat = M.petscmat
-
-        hdiv_mass_ksp.setOperators(Mmat)
-        hdiv_mass_ksp.setUp()
-        hdiv_mass_ksp.setFromOptions()
-        self.hdiv_mass_ksp = hdiv_mass_ksp
-
-        # Storing the result of A.inv * r, where A is the HDiv
-        # mass matrix and r is the HDiv residual
-        self._primal_r = Function(V[self.vidx])
-
-        tau = TestFunction(V_d[self.vidx])
-        self._assemble_broken_r = create_assembly_callable(
-            ufl.dot(self._primal_r, tau)*ufl.dx,
-            tensor=self.broken_residual.split()[self.vidx],
-            form_compiler_parameters=self.cxt.fc_params)
+        self.weight = Function(V[self.vidx])
+        par_loop(weight_kernel, ufl.dx, {"w": (self.weight, INC)})
+        self.average_kernel = """
+        for (int i=0; i<%d; ++i) {
+        for (int j=0; j<%d; ++j) {
+        vec_out[i][j] += vec_in[i][j]/w[i][j];
+        }}""" % shapes
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -134,27 +122,80 @@ class HybridizationPC(PCBase):
         n = ufl.FacetNormal(mesh)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        # We zero out the contribution of the trace variables on the exterior
-        # boundary. Extruded cells will have both horizontal and vertical
-        # facets
         if mesh.cell_set._extruded:
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary"),
-                         DirichletBC(TraceSpace, Constant(0.0), "bottom"),
-                         DirichletBC(TraceSpace, Constant(0.0), "top")]
-            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS_h +
-                       gammar('+') * ufl.dot(sigma, n) * ufl.dS_v)
+            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h +
+                     gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary")]
-            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
+            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS)
+
+        # Here we deal with boundaries. If there are Neumann
+        # conditions (which should be enforced strongly for
+        # H(div)xL^2) then we need to add jump terms on the exterior
+        # facets. If there are Dirichlet conditions (which should be
+        # enforced weakly) then we need to zero out the trace
+        # variables there as they are not active (otherwise the hybrid
+        # problem is not well-posed).
 
         # If boundary conditions are contained in the ImplicitMatrixContext:
         if self.cxt.row_bcs:
-            raise NotImplementedError("Strong BCs not currently handled. Try imposing them weakly.")
+            # Find all the subdomains with neumann BCS
+            # These are Dirichlet BCs on the vidx space
+            neumann_subdomains = set()
+            for bc in self.cxt.row_bcs:
+                if bc.function_space().index == self.pidx:
+                    raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
+                if bc.function_space().index != self.vidx:
+                    raise NotImplementedError("Dirichlet bc set on unsupported space.")
+                # append the set of sub domains
+                subdom = bc.sub_domain
+                if isinstance(subdom, str):
+                    neumann_subdomains |= set([subdom])
+                else:
+                    neumann_subdomains |= set(as_tuple(subdom, int))
+
+            # separate out the top and bottom bcs
+            extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
+            neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
+
+            integrand = gammar * ufl.dot(sigma, n)
+            measures = []
+            trace_subdomains = []
+            if mesh.cell_set._extruded:
+                ds = ufl.ds_v
+                for subdomain in extruded_neumann_subdomains:
+                    measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
+                trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
+            else:
+                ds = ufl.ds
+            if "on_boundary" in neumann_subdomains:
+                measures.append(ds)
+            else:
+                measures.append(ds(tuple(neumann_subdomains)))
+                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
+                trace_subdomains.append(sorted(dirichlet_subdomains))
+
+            for measure in measures:
+                Kform += integrand*measure
+
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+
+        else:
+            # No bcs were provided, we assume weak Dirichlet conditions.
+            # We zero out the contribution of the trace variables on
+            # the exterior boundary. Extruded cells will have both
+            # horizontal and vertical facets
+            trace_subdomains = ["on_boundary"]
+            if mesh.cell_set._extruded:
+                trace_subdomains.extend(["bottom", "top"])
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+
+        # Make a SLATE tensor from Kform
+        K = Tensor(Kform)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * self.broken_residual,
+            K * Atilde.inv * AssembledVector(self.broken_residual),
             tensor=self.schur_rhs,
             form_compiler_parameters=self.cxt.fc_params)
 
@@ -191,31 +232,6 @@ class HybridizationPC(PCBase):
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
 
-        # NOTE: The projection stage *might* be replaced by a Fortin
-        # operator. We may want to allow the user to specify if they
-        # wish to use a Fortin operator over a projection, or vice-versa.
-        # In a future add-on, we can add a switch which chooses either
-        # the Fortin reconstruction or the usual KSP projection.
-
-        # Set up the projection KSP
-        hdiv_projection_ksp = PETSc.KSP().create(comm=pc.comm)
-        hdiv_projection_ksp.setOptionsPrefix(prefix + 'hdiv_projection_')
-
-        # Reuse the mass operator from the hdiv_mass_ksp
-        hdiv_projection_ksp.setOperators(Mmat)
-
-        # Construct the RHS for the projection stage
-        self._projection_rhs = Function(V[self.vidx])
-        self._assemble_projection_rhs = create_assembly_callable(
-            ufl.dot(self.broken_solution.split()[self.vidx], q)*ufl.dx,
-            tensor=self._projection_rhs,
-            form_compiler_parameters=self.cxt.fc_params)
-
-        # Finalize ksp setup
-        hdiv_projection_ksp.setUp()
-        hdiv_projection_ksp.setFromOptions()
-        self.hdiv_projection_ksp = hdiv_projection_ksp
-
     def _reconstruction_calls(self, split_mixed_op, split_trace_op):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
@@ -243,20 +259,20 @@ class HybridizationPC(PCBase):
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
         split_sol = self.broken_solution.split()
-        g = split_residual[id0]
-        f = split_residual[id1]
+        g = AssembledVector(split_residual[id0])
+        f = AssembledVector(split_residual[id1])
         sigma = split_sol[id0]
         u = split_sol[id1]
-        lambdar = self.trace_solution
+        lambdar = AssembledVector(self.trace_solution)
 
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.inv * f - M.inv * (C * A.inv * g + R * lambdar)
+        u_rec = M.inv * (f - C * A.inv * g - R * lambdar)
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.cxt.fc_params)
 
-        sigma_rec = A.inv * g - A.inv * (B * u + K_0.T * lambdar)
+        sigma_rec = A.inv * (g - B * AssembledVector(u) - K_0.T * lambdar)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.cxt.fc_params)
@@ -301,19 +317,21 @@ class HybridizationPC(PCBase):
             broken_scalar_data = self.broken_residual.split()[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
-        with timed_region("HybridProject"):
-            # Handle the incoming HDiv residual:
-            # Solve (approximately) for `g = A.inv * r`, where `A` is the HDiv
-            # mass matrix and `r` is the HDiv residual.
-            # Once `g` is obtained, we take the inner product against broken
-            # HDiv test functions to obtain a broken residual.
-            with self.unbroken_residual.split()[self.vidx].dat.vec_ro as r:
-                with self._primal_r.dat.vec_wo as g:
-                    self.hdiv_mass_ksp.solve(r, g)
-
         with timed_region("HybridRHS"):
-            # Now assemble the new "broken" hdiv residual
-            self._assemble_broken_r()
+            # Assemble the new "broken" hdiv residual
+            # We need a residual R' in the broken space that
+            # gives R'[w] = R[w] when w is in the unbroken space.
+            # We do this by splitting the residual equally between
+            # basis functions that add together to give unbroken
+            # basis functions.
+
+            unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
+            broken_res_hdiv = self.broken_residual.split()[self.vidx]
+            broken_res_hdiv.assign(0)
+            par_loop(self.average_kernel, ufl.dx,
+                     {"w": (self.weight, READ),
+                      "vec_in": (unbroken_res_hdiv, READ),
+                      "vec_out": (broken_res_hdiv, INC)})
 
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
@@ -338,10 +356,14 @@ class HybridizationPC(PCBase):
             broken_pressure.dat.copy(unbroken_pressure.dat)
 
             # Compute the hdiv projection of the broken hdiv solution
-            self._assemble_projection_rhs()
-            with self._projection_rhs.dat.vec_ro as b_proj:
-                with self.unbroken_solution.split()[self.vidx].dat.vec_wo as sol:
-                    self.hdiv_projection_ksp.solve(b_proj, sol)
+            broken_hdiv = self.broken_solution.split()[self.vidx]
+            unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
+            unbroken_hdiv.assign(0)
+
+            par_loop(self.average_kernel, ufl.dx,
+                     {"w": (self.weight, READ),
+                      "vec_in": (broken_hdiv, READ),
+                      "vec_out": (unbroken_hdiv, INC)})
 
             with self.unbroken_solution.dat.vec_ro as v:
                 v.copy(y)
@@ -354,10 +376,6 @@ class HybridizationPC(PCBase):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
         viewer.pushASCIITab()
-        viewer.printfASCII("Construct the broken HDiv residual.\n")
-        viewer.printfASCII("KSP solver for computing the primal map g = A.inv * r:\n")
-        self.hdiv_mass_ksp.view(viewer)
-        viewer.popASCIITab()
         viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
@@ -366,9 +384,6 @@ class HybridizationPC(PCBase):
         viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
         viewer.pushASCIITab()
         viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
-        viewer.printfASCII("KSP for the HDiv projection stage:\n")
-        viewer.pushASCIITab()
-        self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
 
 
@@ -385,7 +400,7 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
 
     Returns: A nullspace (if there is one) for the Schur-complement system.
     """
-    from firedrake import assemble, Function, project
+    from firedrake import assemble, Function, project, AssembledVector
 
     nullspace = P.getNullSpace()
     if nullspace.handle == 0:
@@ -396,7 +411,7 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
     tmp = Function(V)
     tmp_b = Function(V_d)
     tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * tmp_b
+    forward_action = forward * AssembledVector(tmp_b)
     new_vecs = []
     for v in vecs:
         with tmp.dat.vec_wo as t:
