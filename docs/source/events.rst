@@ -6,13 +6,19 @@
 Firedrake events
 ----------------
 
+Firedrake '18
+~~~~~~~~~~~~~
+
+The second Firedrake user and developer workshop will be held at
+Imperial College London on 7 and 8 June 2018.  For more information
+see :doc:`the workshop page <firedrake_18>`.
+
 Firedrake tutorial Jan 12 2018
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The Firedrake team will host an introductory tutorial at Imperial
-College London on 12 January. For details and to attend, see :doc:`the
+The Firedrake team hosted an introductory tutorial at Imperial
+College London on 12 January. For details and links to the material, see :doc:`the
 tutorial page <tutorial_jan_18>`.
-
 
 Firedrake '17
 ~~~~~~~~~~~~~
