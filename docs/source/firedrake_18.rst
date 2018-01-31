@@ -30,7 +30,7 @@ Key Dates
 ---------
 
 * Early registration deadline: 10 April 2018
-* Abstract deadline: 10 April 2018
+* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 10 April 2018
 * Workshop: 7-8 June 2018
 
 
@@ -47,7 +47,8 @@ Please consider how your contribution could help other users achieve
 more with Firedrake, and also how Firedrake could be developed to
 further facilitate your science goals.
 
-Abstract submission will open shortly.
+Abstracts can be submitted online `here
+<https://easychair.org/conferences/?conf=firedrake18>`_.
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
@@ -68,6 +69,16 @@ Registration
 Registration will open shortly.  Early bird registration (before 10
 April) will cost £50 (students £40), rising to £75 thereafter.
 
+
+Co-location with PETSc '18 users meeting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This year, Imperial College is also hosting the `PETSc users
+<https://www.mcs.anl.gov/petsc/meetings/2018/>`_ meeting, which will
+be held in the first half of the week: 4-6 June 2018.  if you are
+interested in more general aspects of high-performance computational
+science, and the intricacies of composable solvers, we would encourage
+you to attend.
 
 Further details
 ---------------
