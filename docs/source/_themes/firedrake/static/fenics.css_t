@@ -13,7 +13,7 @@
 @import url("basic.css");
 @import url("nobile-fontfacekit/stylesheet.css");
 @import url("neuton-fontfacekit/stylesheet.css");
-@import url(http://fonts.googleapis.com/css?family=Comfortaa);
+@import url(https://fonts.googleapis.com/css?family=Comfortaa);
 
 /* -- page layout ----------------------------------------------------------- */
 
