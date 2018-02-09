@@ -30,7 +30,8 @@ Key Dates
 ---------
 
 * Early registration deadline: 10 April 2018
-* Abstract deadline: 10 April 2018
+* Registration deadline: 25 May 2018
+* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 10 April 2018
 * Workshop: 7-8 June 2018
 
 
@@ -47,7 +48,8 @@ Please consider how your contribution could help other users achieve
 more with Firedrake, and also how Firedrake could be developed to
 further facilitate your science goals.
 
-Abstract submission will open shortly.
+Abstracts can be submitted online `here
+<https://easychair.org/conferences/?conf=firedrake18>`_.
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
@@ -65,9 +67,46 @@ Kensington Campus.
 Registration
 ------------
 
-Registration will open shortly.  Early bird registration (before 10
-April) will cost £50 (students £40), rising to £75 thereafter.
+Early bird registration (before 10 April) costs £50 (students £40),
+rising to £75 thereafter.
 
+.. raw:: html
+
+    <div id="eventbrite-widget-container-42674323049">
+
+    <script src="https://www.eventbrite.co.uk/static/widgets/eb_widgets.js"></script>
+
+    <script type="text/javascript">
+        var exampleCallback = function() {
+            console.log('Order complete!');
+        };
+
+        window.EBWidgets.createWidget({
+            // Required
+            widgetType: 'checkout',
+            eventId: '42674323049',
+            iframeContainerId: 'eventbrite-widget-container-42674323049',
+
+            // Optional
+            iframeContainerHeight: 425,  // Widget height in pixels. Defaults to a minimum of 425px if not provided
+            onOrderComplete: exampleCallback  // Method called when an order has successfully completed
+        });
+    </script>
+
+    <noscript><a href="https://www.eventbrite.co.uk/e/firedrake-18-tickets-42674323049" rel="noopener noreferrer" target="_blank">Tickets available on Eventbrite</a></noscript>
+
+    </div>
+
+
+Co-location with PETSc '18 users meeting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This year, Imperial College is also hosting the `PETSc users
+<https://www.mcs.anl.gov/petsc/meetings/2018/>`_ meeting, which will
+be held in the first half of the week: 4-6 June 2018.  if you are
+interested in more general aspects of high-performance computational
+science, and the intricacies of composable solvers, we would encourage
+you to attend.
 
 Further details
 ---------------
