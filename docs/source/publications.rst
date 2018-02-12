@@ -22,7 +22,7 @@ Journal papers and conference proceedings about Firedrake
 
 .. raw:: html
 
-   <script src="http://www.bibbase.org/show?bib=http%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Fbibliography.bib&jsonp=1"></script>
+   <script src="https://bibbase.org/show?bib=https%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Fbibliography.bib&jsonp=1"></script>
 
 Journal papers and conference proceedings using Firedrake
 ---------------------------------------------------------
@@ -34,4 +34,4 @@ Journal papers and conference proceedings using Firedrake
 
 .. raw:: html
 
-   <script src="http://www.bibbase.org/show?bib=http%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Ffiredrake-apps.bib&jsonp=1"></script>
+   <script src="https://bibbase.org/show?bib=https%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Ffiredrake-apps.bib&jsonp=1"></script>
