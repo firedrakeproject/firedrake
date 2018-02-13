@@ -1,12 +1,9 @@
-from __future__ import absolute_import, print_function, division
-from six import with_metaclass
-
 from abc import ABCMeta, abstractmethod
 
 from gem.utils import make_proxy_class
 
 
-class KernelInterface(with_metaclass(ABCMeta)):
+class KernelInterface(metaclass=ABCMeta):
     """Abstract interface for accessing the GEM expressions corresponding
     to kernel arguments."""
 

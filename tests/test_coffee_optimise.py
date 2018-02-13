@@ -1,5 +1,3 @@
-from __future__ import absolute_import, print_function, division
-
 import pytest
 
 from gem.gem import Index, Indexed, Product, Variable, Division, Literal, Sum

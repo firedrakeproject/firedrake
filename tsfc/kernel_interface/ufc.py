@@ -1,6 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
-
 import numpy
 import functools
 from itertools import chain, product
@@ -71,6 +68,7 @@ class KernelBuilder(KernelBuilderBase):
         """
         # Create a fake coordinate coefficient for a domain.
         f = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
+        self.domain_coordinate[domain] = f
         self.coordinates_args, expression = prepare_coordinates(
             f, "coordinate_dofs", interior_facet=self.interior_facet)
         self.coefficient_map[f] = expression

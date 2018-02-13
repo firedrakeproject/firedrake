@@ -1,28 +1,26 @@
 """Functions to translate UFL finite element objects and reference
 geometric quantities into GEM expressions."""
 
-from __future__ import absolute_import, print_function, division
-from six import iterkeys, iteritems, itervalues
-from six.moves import map, range, zip
-
 import collections
 import itertools
+from functools import singledispatch
 
 import numpy
-from singledispatch import singledispatch
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
-                         CellOrigin, CellVolume, Coefficient,
-                         FacetArea, FacetCoordinate,
+                         CellOrigin, CellVertices, CellVolume,
+                         Coefficient, FacetArea, FacetCoordinate,
                          GeometricQuantity, Jacobian,
                          NegativeRestricted, QuadratureWeight,
                          PositiveRestricted, ReferenceCellVolume,
+                         ReferenceCellEdgeVectors,
                          ReferenceFacetVolume, ReferenceNormal,
                          SpatialCoordinate)
+
 
 from FIAT.reference_element import make_affine_mapping
 
@@ -32,7 +30,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import DynamicallyScoped, cached_property
 
-from finat.point_set import PointSingleton
+from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
@@ -285,12 +283,12 @@ def translate_reference_normal(terminal, mt, ctx):
     return ctx.entity_selector(callback, mt.restriction)
 
 
-@translate.register(CellEdgeVectors)
-def translate_cell_edge_vectors(terminal, mt, ctx):
+@translate.register(ReferenceCellEdgeVectors)
+def translate_reference_cell_edge_vectors(terminal, mt, ctx):
     from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
-        raise NotImplementedError("CellEdgeVectors not implemented on TensorProductElements yet")
+        raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
 
     nedges = len(fiat_cell.get_topology()[1])
     vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
@@ -391,12 +389,47 @@ def translate_cellorigin(terminal, mt, ctx):
     return context.translator(expression)
 
 
+@translate.register(CellVertices)
+def translate_cell_vertices(terminal, mt, ctx):
+    coords = SpatialCoordinate(terminal.ufl_domain())
+    ufl_expr = construct_modified_terminal(mt, coords)
+    ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
+
+    config = {name: getattr(ctx, name)
+              for name in ["ufl_cell", "precision", "index_cache"]}
+    config.update(interface=ctx, point_set=ps)
+    context = PointSetContext(**config)
+    expr = context.translator(ufl_expr)
+
+    # Wrap up point (vertex) index
+    c = gem.Index()
+    return gem.ComponentTensor(gem.Indexed(expr, (c,)), ps.indices + (c,))
+
+
+@translate.register(CellEdgeVectors)
+def translate_cell_edge_vectors(terminal, mt, ctx):
+    # WARNING: Assumes straight edges!
+    coords = CellVertices(terminal.ufl_domain())
+    ufl_expr = construct_modified_terminal(mt, coords)
+    cell_vertices = ctx.translator(ufl_expr)
+
+    e = gem.Index()
+    c = gem.Index()
+    expr = gem.ListTensor([
+        gem.Sum(gem.Indexed(cell_vertices, (u, c)),
+                gem.Product(gem.Literal(-1),
+                            gem.Indexed(cell_vertices, (v, c))))
+        for _, (u, v) in sorted(ctx.fiat_cell.get_topology()[1].items())
+    ])
+    return gem.ComponentTensor(gem.Indexed(expr, (e,)), (e, c))
+
+
 def fiat_to_ufl(fiat_dict, order):
     # All derivative multiindices must be of the same dimension.
-    dimension, = list(set(len(alpha) for alpha in iterkeys(fiat_dict)))
+    dimension, = set(len(alpha) for alpha in fiat_dict.keys())
 
     # All derivative tables must have the same shape.
-    shape, = list(set(table.shape for table in itervalues(fiat_dict)))
+    shape, = set(table.shape for table in fiat_dict.values())
     sigma = tuple(gem.Index(extent=extent) for extent in shape)
 
     # Convert from FIAT to UFL format
@@ -424,7 +457,7 @@ def translate_argument(terminal, mt, ctx):
             finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         # Filter out irrelevant derivatives
         filtered_dict = {alpha: table
-                         for alpha, table in iteritems(finat_dict)
+                         for alpha, table in finat_dict.items()
                          if sum(alpha) == mt.local_derivatives}
 
         # Change from FIAT to UFL arrangement
@@ -451,9 +484,14 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-        with MT.let(mt):
-            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
-        for alpha, table in iteritems(finat_dict):
+# <<<<<<< HEAD
+#         with MT.let(mt):
+#             finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+#         for alpha, table in iteritems(finat_dict):
+# =======
+        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        for alpha, table in finat_dict.items():
+# >>>>>>> origin/master
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
                 # A numerical hack that FFC used to apply on FIAT
@@ -468,11 +506,11 @@ def translate_coefficient(terminal, mt, ctx):
             x, = xs  # asserts singleton
             return x
         per_derivative = {alpha: take_singleton(tables)
-                          for alpha, tables in iteritems(per_derivative)}
+                          for alpha, tables in per_derivative.items()}
     else:
         f = ctx.entity_number(mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
-                          for alpha, tables in iteritems(per_derivative)}
+                          for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
     ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
@@ -480,7 +518,7 @@ def translate_coefficient(terminal, mt, ctx):
     zeta = element.get_value_indices()
     vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}
-    for alpha, table in iteritems(per_derivative):
+    for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
