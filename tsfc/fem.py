@@ -215,10 +215,10 @@ def translate_reference_cell_volume(terminal, mt, ctx):
 
 @translate.register(ReferenceFacetVolume)
 def translate_reference_facet_volume(terminal, mt, ctx):
-    # FIXME: simplex only code path
-    dim = ctx.fiat_cell.get_spatial_dimension()
-    facet_cell = ctx.fiat_cell.construct_subelement(dim - 1)
-    return gem.Literal(facet_cell.volume())
+    assert ctx.integral_type != "cell"
+    # Sum of quadrature weights is entity volume
+    return gem.optimise.aggressive_unroll(gem.index_sum(ctx.weight_expr,
+                                                        ctx.point_indices))
 
 
 @translate.register(CellFacetJacobian)
