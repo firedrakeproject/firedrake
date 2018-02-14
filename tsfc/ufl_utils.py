@@ -120,9 +120,6 @@ class ModifiedTerminalMixin(object):
     positive_restricted = _modified_terminal
     negative_restricted = _modified_terminal
 
-    cell_avg = _modified_terminal
-    facet_avg = _modified_terminal
-
     reference_grad = _modified_terminal
     reference_value = _modified_terminal
 

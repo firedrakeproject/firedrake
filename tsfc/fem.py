@@ -174,6 +174,32 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         # Need context during translation!
         self.context = context
 
+    # XXXAvg is just (\sum_q w_q expr_q) / reference_XXX_volume
+    # We just use the provided quadrature rule to
+    # perform the integration.
+    # Can't put these in the ufl2gem mixin, since they (unlike
+    # everything else) want access to the translation context.
+    def cell_avg(self, o, expr):
+        if self.context.integral_type != "cell":
+            # Need to create a cell-based quadrature rule and
+            # translate the expression using that (c.f. CellVolume
+            # below).
+            raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
+        indices = tuple(gem.Index() for i in range(len(o.ufl_shape)))
+        expr = gem.Product(gem.Indexed(expr, indices), self.context.weight_expr)
+        expr = gem.index_sum(expr, self.context.point_indices)
+        cellvolume = translate(ReferenceCellVolume(o.ufl_domain()), None, self.context)
+        return gem.ComponentTensor(gem.Product(expr, gem.Division(gem.Literal(1), cellvolume)), indices)
+
+    def facet_avg(self, o, expr):
+        if self.context.integral_type == "cell":
+            raise ValueError("Can't take FacetAvg in cell integral")
+        indices = tuple(gem.Index() for i in range(len(o.ufl_shape)))
+        expr = gem.Product(gem.Indexed(expr, indices), self.context.weight_expr)
+        expr = gem.index_sum(expr, self.context.point_indices)
+        facetvolume = translate(ReferenceFacetVolume(o.ufl_domain()), None, self.context)
+        return gem.ComponentTensor(gem.Product(expr, gem.Division(gem.Literal(1), facetvolume)), indices)
+
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from
         :class:`ModifiedTerminalMixin`."""
