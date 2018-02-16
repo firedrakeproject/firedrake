@@ -438,7 +438,8 @@ def test_bc_nodes_cover_ghost_dofs():
         sizes = None
         points = None
 
-    mesh = Mesh(dm, reorder=False, distribute=(sizes, points))
+    mesh = Mesh(dm, reorder=False, distribution_parameters={"partition":
+                                                            (sizes, points)})
 
     V = FunctionSpace(mesh, "CG", 1)
 

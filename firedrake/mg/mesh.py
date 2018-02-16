@@ -68,7 +68,8 @@ class MeshHierarchy(object):
                 coords *= scale
 
         hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),
-                                     distribute=False, reorder=reorder)
+                                     distribution_parameters={"partition": False},
+                                     reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
         for m in hierarchy:
             m._non_overlapped_lgmap = impl.create_lgmap(m._plex)
