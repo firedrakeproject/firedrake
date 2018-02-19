@@ -170,7 +170,7 @@ class HybridizationPC(PCBase):
             if "on_boundary" in neumann_subdomains:
                 measures.append(ds)
             else:
-                measures.append(ds(tuple(neumann_subdomains)))
+                measures.extend([ds(sd) for sd in neumann_subdomains])
                 dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
                 trace_subdomains.extend([sd for sd in dirichlet_subdomains])
 
