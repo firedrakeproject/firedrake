@@ -37,7 +37,7 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            one_times, simplify_abs,
+                            entity_avg, one_times, simplify_abs,
                             preprocess_expression)
 
 
@@ -174,7 +174,6 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         # Need context during translation!
         self.context = context
 
-    # XXXAvg is just (\sum_q w_q expr_q) / reference_XXX_volume
     # We just use the provided quadrature rule to
     # perform the integration.
     # Can't put these in the ufl2gem mixin, since they (unlike
@@ -185,24 +184,10 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
             # translate the expression using that (c.f. CellVolume
             # below).
             raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
-        from ufl.algorithms.estimate_degrees import estimate_total_polynomial_degree
-        from ufl.algorithms.analysis import extract_arguments
-        from tsfc.ufl_utils import compute_form_data
         integrand, = o.ufl_operands
-
-        arguments = extract_arguments(integrand)
-        if len(arguments) == 1:
-            argument, = arguments
-            integrand = ufl.replace(integrand, {argument: ufl.Argument(argument.function_space(), number=0, part=argument.part())})
-        degree = estimate_total_polynomial_degree(integrand)
-        form = (integrand / CellVolume(o.ufl_domain()))*ufl.dx(domain=o.ufl_domain())
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=False,
-                               do_apply_geometry_lowering=True,
-                               do_estimate_degrees=False)
-        itg_data, = fd.integral_data
-        integral, = itg_data.integrals
-        integrand = integral.integrand()
+        domain = o.ufl_domain()
+        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        integrand, degree = entity_avg(integrand / CellVolume(domain), measure)
 
         config = {name: getattr(self.context, name)
                   for name in ["ufl_cell", "precision", "index_cache",
@@ -214,24 +199,10 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     def facet_avg(self, o):
         if self.context.integral_type == "cell":
             raise ValueError("Can't take FacetAvg in cell integral")
-        from ufl.algorithms.estimate_degrees import estimate_total_polynomial_degree
-        from ufl.algorithms.analysis import extract_arguments
-        from tsfc.ufl_utils import compute_form_data
         integrand, = o.ufl_operands
-
-        arguments = extract_arguments(integrand)
-        if len(arguments) == 1:
-            argument, = arguments
-            integrand = ufl.replace(integrand, {argument: ufl.Argument(argument.function_space(), number=0, part=argument.part())})
-        degree = estimate_total_polynomial_degree(integrand)
-        form = (integrand / FacetArea(o.ufl_domain()))*ufl.Measure(self.context.integral_type, domain=o.ufl_domain())
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=False,
-                               do_apply_geometry_lowering=True,
-                               do_estimate_degrees=False)
-        itg_data, = fd.integral_data
-        integral, = itg_data.integrals
-        integrand = integral.integrand()
+        domain = o.ufl_domain()
+        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        integrand, degree = entity_avg(integrand / FacetArea(domain), measure)
 
         config = {name: getattr(self.context, name)
                   for name in ["ufl_cell", "precision", "index_cache",
