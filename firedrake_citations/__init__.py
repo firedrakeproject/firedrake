@@ -225,8 +225,11 @@ Citations().add("Kirby2017", """
   title =        {{Solver composition across the PDE/linear algebra
                   barrier}},
   journal =      {SIAM Journal on Scientific Computing},
-  note =         {to appear},
-  year =         2017,
+  year =         2018,
+  volume =       40,
+  number =       1,
+  pages =        {C76-C98},
+  doi =          {10.1137/17M1133208},
   archiveprefix ={arXiv},
   eprint =       {1706.01346},
   primaryclass = {cs.MS},
