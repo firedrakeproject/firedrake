@@ -179,17 +179,37 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     # perform the integration.
     # Can't put these in the ufl2gem mixin, since they (unlike
     # everything else) want access to the translation context.
-    def cell_avg(self, o, expr):
+    def cell_avg(self, o):
         if self.context.integral_type != "cell":
             # Need to create a cell-based quadrature rule and
             # translate the expression using that (c.f. CellVolume
             # below).
             raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
-        indices = tuple(gem.Index() for i in range(len(o.ufl_shape)))
-        expr = gem.Product(gem.Indexed(expr, indices), self.context.weight_expr)
-        expr = gem.index_sum(expr, self.context.point_indices)
-        cellvolume = translate(ReferenceCellVolume(o.ufl_domain()), None, self.context)
-        return gem.ComponentTensor(gem.Product(expr, gem.Division(gem.Literal(1), cellvolume)), indices)
+        from ufl.algorithms.estimate_degrees import estimate_total_polynomial_degree
+        from ufl.algorithms.analysis import extract_arguments
+        from tsfc.ufl_utils import compute_form_data
+        integrand, = o.ufl_operands
+
+        arguments = extract_arguments(integrand)
+        if len(arguments) == 1:
+            argument, = arguments
+            integrand = ufl.replace(integrand, {argument: ufl.Argument(argument.function_space(), number=0, part=argument.part())})
+        degree = estimate_total_polynomial_degree(integrand)
+        form = (integrand / CellVolume(o.ufl_domain()))*ufl.dx(domain=o.ufl_domain())
+        fd = compute_form_data(form,
+                               do_apply_function_pullbacks=False,
+                               do_apply_geometry_lowering=True,
+                               do_estimate_degrees=False)
+        itg_data, = fd.integral_data
+        integral, = itg_data.integrals
+        integrand = integral.integrand()
+
+        config = {name: getattr(self.context, name)
+                  for name in ["ufl_cell", "precision", "index_cache",
+                               "argument_multiindices"]}
+        config.update(quadrature_degree=degree, interface=self.context)
+        expr, = compile_ufl(integrand, point_sum=True, **config)
+        return expr
 
     def facet_avg(self, o, expr):
         if self.context.integral_type == "cell":
