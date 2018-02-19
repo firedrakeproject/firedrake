@@ -172,12 +172,7 @@ class HybridizationPC(PCBase):
             else:
                 measures.append(ds(tuple(neumann_subdomains)))
                 dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
-
-                # Make sure there are actually boundary conditions to
-                # apply on the trace space. This avoids appending an 'empty'
-                # set to the trace_subdomains (occurs if mesh is periodic).
-                if dirichlet_subdomains:
-                    trace_subdomains.append(sorted(dirichlet_subdomains))
+                trace_subdomains.extend([sd for sd in dirichlet_subdomains])
 
             for measure in measures:
                 Kform += integrand*measure
