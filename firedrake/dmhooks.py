@@ -151,6 +151,68 @@ class appctx(object):
         pop_appctx(self.dm, self.ctx)
 
 
+def push_transfer_operators(dm, prolong, restrict, inject):
+    stack = dm.getAttr("__transfer__")
+    if stack is None:
+        stack = []
+        dm.setAttr("__transfer__", stack)
+    stack.append((prolong, restrict, inject))
+
+
+def pop_transfer_operators(dm, match=None):
+    stack = dm.getAttr("__transfer__")
+    if stack:
+        if match is not None:
+            transfer = stack[-1]
+            if transfer == match:
+                stack.pop()
+            else:
+                print("Mismatch, not popping")
+        else:
+            stack.pop()
+
+
+def get_transfer_operators(dm):
+    stack = dm.getAttr("__transfer__")
+    if stack:
+        prolong, restrict, inject = stack[-1]
+    else:
+        prolong, restrict, inject = None, None, None
+
+    if prolong is None:
+        prolong = firedrake.prolong
+    if restrict is None:
+        restrict = firedrake.restrict
+    if inject is None:
+        inject = firedrake.inject
+    return prolong, restrict, inject
+
+
+class transfer_operators(object):
+    """Run a code block with custom grid transfer operators attached.
+
+    :arg V: the functionspace to attach the transfer to.
+
+    :arg prolong: prolongation coarse -> fine.
+    :arg restrict: restriction fine^* -> coarse^*.
+    :arg inject: injection fine -> coarse."""
+    def __init__(self, V, prolong=None, restrict=None, inject=None):
+        self.V = V
+        self.transfer = prolong, restrict, inject
+
+    def __enter__(self):
+        push_transfer_operators(self.V.dm, *self.transfer)
+
+    def __exit__(self, typ, value, traceback):
+        V = self.V
+        while hasattr(V, "_coarse"):
+            V = V._coarse
+        while hasattr(V, "_fine"):
+            pop_transfer_operators(V.dm, match=self.transfer)
+            V = V._fine
+        pop_transfer_operators(self.V.dm, match=self.transfer)
+
+
 def create_matrix(dm):
     """
     Callback to create a matrix from this DM.
@@ -262,6 +324,9 @@ def coarsen(dm, comm):
     else:
         V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
         cdm = V._coarse.dm
+
+    transfer = get_transfer_operators(dm)
+    push_transfer_operators(cdm, *transfer)
     ctx = get_appctx(dm)
     if ctx is not None:
         push_appctx(cdm, coarsen(ctx))
