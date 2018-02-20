@@ -187,12 +187,12 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         integrand, = o.ufl_operands
         domain = o.ufl_domain()
         measure = ufl.Measure(self.context.integral_type, domain=domain)
-        integrand, degree = entity_avg(integrand / CellVolume(domain), measure)
+        integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
-                  for name in ["ufl_cell", "precision", "index_cache",
-                               "argument_multiindices"]}
-        config.update(quadrature_degree=degree, interface=self.context)
+                  for name in ["ufl_cell", "precision", "index_cache"]}
+        config.update(quadrature_degree=degree, interface=self.context,
+                      argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, point_sum=True, **config)
         return expr
 
@@ -202,12 +202,12 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         integrand, = o.ufl_operands
         domain = o.ufl_domain()
         measure = ufl.Measure(self.context.integral_type, domain=domain)
-        integrand, degree = entity_avg(integrand / FacetArea(domain), measure)
+        integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
-                  for name in ["ufl_cell", "precision", "index_cache",
-                               "argument_multiindices"]}
-        config.update(quadrature_degree=degree, interface=self.context)
+                  for name in ["ufl_cell", "precision", "index_cache"]},
+        config.update(quadrature_degree=degree, interface=self.context,
+                      argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, point_sum=True, **config)
         return expr
 

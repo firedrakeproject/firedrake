@@ -79,13 +79,14 @@ def one_times(measure):
     return integrand, degree
 
 
-def entity_avg(integrand, measure):
+def entity_avg(integrand, measure, argument_multiindices):
     arguments = extract_arguments(integrand)
     if len(arguments) == 1:
         a, = arguments
         integrand = ufl.replace(integrand, {a: ufl.Argument(a.function_space(),
                                                             number=0,
                                                             part=a.part())})
+        argument_multiindices = (argument_multiindices[a.number()], )
 
     degree = estimate_total_polynomial_degree(integrand)
     form = integrand * measure
@@ -94,7 +95,7 @@ def entity_avg(integrand, measure):
     itg_data, = fd.integral_data
     integral, = itg_data.integrals
     integrand = integral.integrand()
-    return integrand, degree
+    return integrand, degree, argument_multiindices
 
 
 def preprocess_expression(expression):
