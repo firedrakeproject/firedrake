@@ -4,9 +4,9 @@ import pytest
 
 @pytest.mark.parallel(nprocs=6)
 def test_ensemble_allreduce():
-    manager = CommManager(COMM_WORLD, 2)
+    manager = Ensemble(COMM_WORLD, 2)
 
-    mesh = UnitSquareMesh(20, 20, comm=manager.scomm)
+    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
 
     x, y = SpatialCoordinate(mesh)
 
@@ -16,7 +16,7 @@ def test_ensemble_allreduce():
     usum = Function(V)
 
     u_correct.interpolate(sin(pi*x)*cos(pi*y) + sin(2*pi*x)*cos(2*pi*y) + sin(3*pi*x)*cos(3*pi*y))
-    q = Constant(manager.ecomm.rank + 1)
+    q = Constant(manager.ensemble_comm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
     manager.allreduce(u, usum)
 
@@ -25,22 +25,22 @@ def test_ensemble_allreduce():
 
 def test_comm_manager():
     with pytest.raises(ValueError):
-        CommManager(COMM_WORLD, 2)
+        Ensemble(COMM_WORLD, 2)
 
 
 @pytest.mark.parallel(nprocs=3)
 def test_comm_manager_parallel():
     with pytest.raises(ValueError):
-        CommManager(COMM_WORLD, 2)
+        Ensemble(COMM_WORLD, 2)
 
 
 @pytest.mark.parallel(nprocs=2)
 def test_comm_manager_allreduce():
-    manager = CommManager(COMM_WORLD, 1)
+    manager = Ensemble(COMM_WORLD, 1)
 
-    mesh = UnitSquareMesh(1, 1, comm=manager.comm)
+    mesh = UnitSquareMesh(1, 1, comm=manager.global_comm)
 
-    mesh2 = UnitSquareMesh(2, 2, comm=manager.ecomm)
+    mesh2 = UnitSquareMesh(2, 2, comm=manager.ensemble_comm)
 
     V = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh2, "CG", 1)

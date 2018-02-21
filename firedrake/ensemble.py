@@ -19,26 +19,24 @@ class Ensemble(object):
 
         rank = comm.rank
 
-        self.gcomm = comm
+        self.global_comm = comm
         """The global communicator."""
 
         self.comm = comm.Split(color=(rank // M), key=rank)
         """The communicator for spatial parallelism, contains a
         contiguous chunk of M processes from :attr:`comm`"""
 
-        self.ecomm = comm.Split(color=(rank % M), key=rank)
+        self.ensemble_comm = comm.Split(color=(rank % M), key=rank)
         """The communicator for ensemble parallelism, contains all
         processes in :attr:`comm` which have the same rank in
-        :attr:`scomm`."""
+        :attr:`comm`."""
 
-        self.erank = self.ecomm.rank
-        
         assert self.comm.size == M
-        assert self.ecomm.size == (size // M)
+        assert self.ensemble_comm.size == (size // M)
 
     def allreduce(self, f, f_reduced, op=MPI.SUM):
         """
-        Allreduce a function f into f_reduced over :attr:`ecomm`.
+        Allreduce a function f into f_reduced over :attr:`ensemble_comm`.
 
         :arg f: The function to allreduce.
         :arg f_reduced: the result of the reduction.
@@ -47,19 +45,19 @@ class Ensemble(object):
         """
         if MPI.Comm.Compare(f_reduced.comm, f.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Mismatching communicators for functions")
-        if MPI.Comm.Compare(f.comm, self.scomm) not in {MPI.CONGRUENT, MPI.IDENT}:
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
             if vout.getSizes() != vin.getSizes():
                 raise ValueError("Mismatching sizes")
             vout.set(0)
-            self.ecomm.Allreduce(vin.array_r, vout.array, op=op)
+            self.ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 
     def __del__(self):
         if hasattr(self, "comm"):
             self.comm.Free()
-            del self.scomm
-        if hasattr(self, "ecomm"):
-            self.ecomm.Free()
-            del self.ecomm
+            del self.comm
+        if hasattr(self, "ensemble_comm"):
+            self.ensemble_comm.Free()
+            del self.ensemble_comm
