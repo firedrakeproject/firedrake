@@ -1,8 +1,6 @@
-
 import numpy as np
-from fractions import Fraction
 
-from firedrake import functionspace
+from pyop2.datatypes import IntType
 from firedrake import mesh
 from . import impl
 from .utils import set_level
@@ -12,16 +10,12 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
 
 
 class MeshHierarchy(object):
-    def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None,
+    def __init__(self, m, refinement_levels, reorder=None,
                  distribution_parameters=None, callbacks=None):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
         :arg m: the coarse :func:`~.Mesh` to refine
         :arg refinement_levels: the number of levels of refinement
-        :arg refinements_per_level: Optional number of refinements per
-            level in the resulting hierarchy.  Note that the
-            intermediate meshes are still kept, but iteration over the
-            mesh hierarchy skips them.
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`~.Mesh` for details.
         :arg reorder: optional flag indicating whether to reorder the
@@ -33,10 +27,8 @@ class MeshHierarchy(object):
         """
         from firedrake_citations import Citations
         Citations().register("Mitchell2016")
-        if m.ufl_cell().cellname() not in ["triangle", "interval"]:
-            raise NotImplementedError("Only supported on intervals and triangles")
-        if refinements_per_level < 1:
-            raise ValueError("Must provide positive number of refinements per level")
+        # if m.ufl_cell().cellname() not in ["triangle", "interval"]:
+        #     raise NotImplementedError("Only supported on intervals and triangles")
         m._plex.setRefinementUniform(True)
         dm_hierarchy = []
 
@@ -54,7 +46,7 @@ class MeshHierarchy(object):
         else:
             before = after = lambda dm, i: None
 
-        for i in range(refinement_levels*refinements_per_level):
+        for i in range(refinement_levels):
             before(cdm, i)
             rdm = cdm.refine()
             after(rdm, i)
@@ -99,31 +91,25 @@ class MeshHierarchy(object):
             # Tag that this is from a refined mesh
             m._plex.setRefineLevel(i)
 
-        # On coarse mesh n, a map of consistent cell orientations and
-        # vertex permutations for the fine cells on each coarse cell.
-        self._cells_vperm = []
-
+        self._coarse_to_fine = []
         for mc, mf, fpointis in zip(hierarchy[:-1],
                                     hierarchy[1:],
                                     fpoint_ises):
             mc._fpointIS = fpointis
-            c2f = impl.coarse_to_fine_cells(mc, mf)
-            P1c = functionspace.FunctionSpace(mc, 'CG', 1)
-            P1f = functionspace.FunctionSpace(mf, 'CG', 1)
-            self._cells_vperm.append(impl.compute_orientations(P1c, P1f, c2f))
+            self._coarse_to_fine.append(impl.coarse_to_fine_cells(mc, mf))
 
-        self._hierarchy = tuple(hierarchy[::refinements_per_level])
-        self._unskipped_hierarchy = tuple(hierarchy)
+        fine_to_coarse = [None]
+        for l, c2f in enumerate(self._coarse_to_fine):
+            f2c = np.zeros(hierarchy[l+1].cell_set.size, dtype=IntType)
+            tmp = np.zeros(c2f.T.shape, dtype=IntType)
+            tmp[:, ] = np.arange(hierarchy[l].cell_set.size, dtype=IntType)
+            f2c[c2f] = tmp.T
+            fine_to_coarse.append(f2c)
+        self._fine_to_coarse = fine_to_coarse
+
+        self._hierarchy = tuple(hierarchy)
         for level, m in enumerate(self):
             set_level(m, self, level)
-        # Attach fractional levels to skipped parts
-        # This allows us to do magic under the hood so that multigrid
-        # on skipping hierarchies still works!
-        for level, m in enumerate(hierarchy):
-            if level % refinements_per_level == 0:
-                continue
-            set_level(m, self, Fraction(level, refinements_per_level))
-        self.refinements_per_level = refinements_per_level
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -156,15 +142,9 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
                                        layer_height=layer_height,
                                        extrusion_type=extrusion_type,
                                        gdim=gdim)
-                     for m in mesh_hierarchy._unskipped_hierarchy]
-        self._unskipped_hierarchy = tuple(hierarchy)
-        self._hierarchy = tuple(hierarchy[::mesh_hierarchy.refinements_per_level])
-        self._cells_vperm = self._base_hierarchy._cells_vperm
+                     for m in mesh_hierarchy]
+        self._hierarchy = tuple(hierarchy)
+        self._coarse_to_fine = self._base_hierarchy._coarse_to_fine
+        self._fine_to_coarse = self._base_hierarchy._fine_to_coarse
         for level, m in enumerate(self):
             set_level(m, self, level)
-        # Attach fractional levels to skipped parts
-        for level, m in enumerate(hierarchy):
-            if level % mesh_hierarchy.refinements_per_level == 0:
-                continue
-            set_level(m, self, Fraction(level, mesh_hierarchy.refinements_per_level))
-        self.refinements_per_level = mesh_hierarchy.refinements_per_level

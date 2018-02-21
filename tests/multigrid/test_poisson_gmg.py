@@ -2,7 +2,7 @@ from firedrake import *
 import pytest
 
 
-def run_poisson(typ, ref_per_level=1):
+def run_poisson(typ):
     if typ == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
@@ -51,9 +51,9 @@ def run_poisson(typ, ref_per_level=1):
 
     mesh = UnitSquareMesh(10, 10)
 
-    nlevel = 2 // ref_per_level
+    nlevel = 2
 
-    mh = MeshHierarchy(mesh, nlevel, refinements_per_level=ref_per_level)
+    mh = MeshHierarchy(mesh, nlevel)
 
     V = FunctionSpace(mh[-1], 'CG', 2)
 
@@ -67,12 +67,6 @@ def run_poisson(typ, ref_per_level=1):
     # iterations of ilu fails to converge this problem sufficiently.
     f.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
 
-    if ref_per_level == 2:
-        # Need more smoothing iterations if we skipped part of the hierarchy
-        parameters["mg_levels_ksp_max_it"] = 12
-        parameters["fas_levels_ksp_max_it"] = 12
-        parameters["npc_fas_levels_ksp_max_it"] = 12
-
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
 
     exact = Function(V[-1])
@@ -83,9 +77,8 @@ def run_poisson(typ, ref_per_level=1):
 
 @pytest.mark.parametrize("typ",
                          ["mg", "fas", "newtonfas"])
-@pytest.mark.parametrize("ref_per_level", [1, 2])
-def test_poisson_gmg(typ, ref_per_level):
-    assert run_poisson(typ, ref_per_level) < 4e-6
+def test_poisson_gmg(typ):
+    assert run_poisson(typ) < 4e-6
 
 
 @pytest.mark.parallel
