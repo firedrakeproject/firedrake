@@ -89,7 +89,7 @@ def preprocess_expression(expression, complex_mode=False):
     """
     if complex_mode:
         expression = do_comparison_check(expression)
-    if not complex_mode:
+    else:
         expression = remove_complex_nodes(expression)
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
