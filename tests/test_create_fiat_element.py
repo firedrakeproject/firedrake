@@ -29,14 +29,15 @@ def test_triangle_basic(ufl_element):
     assert isinstance(element, supported_elements[ufl_element.family()])
 
 
-@pytest.fixture(params=["CG", "DG"])
+@pytest.fixture(params=["CG", "DG"], scope="module")
 def tensor_name(request):
     return request.param
 
 
 @pytest.fixture(params=[ufl.interval, ufl.triangle,
                         ufl.quadrilateral],
-                ids=lambda x: x.cellname())
+                ids=lambda x: x.cellname(),
+                scope="module")
 def ufl_A(request, tensor_name):
     return ufl.FiniteElement(tensor_name, request.param, 1)
 
