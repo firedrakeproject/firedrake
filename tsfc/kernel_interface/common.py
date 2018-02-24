@@ -10,12 +10,13 @@ from tsfc.kernel_interface import KernelInterface
 class KernelBuilderBase(KernelInterface):
     """Helper class for building local assembly kernels."""
 
-    def __init__(self, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
         assert isinstance(interior_facet, bool)
+        self.scalar_type = scalar_type
         self.interior_facet = interior_facet
 
         self.prepare = []

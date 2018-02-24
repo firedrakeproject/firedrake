@@ -26,7 +26,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters, set_scalar_type, scalar_type
+from tsfc.parameters import default_parameters, numpy_type_map
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -80,8 +80,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _.update(parameters)
         parameters = _
 
-    # Set the scalar type
-    set_scalar_type(parameters["scalar_type"])
 
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
@@ -106,7 +104,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
-                                      domain_numbering[integral_data.domain])
+                                      domain_numbering[integral_data.domain],
+                                      parameters["scalar_type"])
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
@@ -129,6 +128,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       ufl_cell=cell,
                       integral_type=integral_type,
                       precision=parameters["precision"],
+                      numpy_type=numpy_type_map[parameters["scalar_type"]],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
@@ -270,17 +270,14 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
-    # Set the scalar type
-    set_scalar_type(parameters["scalar_type"])
-
     # determine if we're in complex mode
-    complx = parameters and parameters["scalar_type"] == 'double complex'
+    complx = parameters["scalar_type"] == 'double complex'
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression, complex_mode=complx)
 
     # Initialise kernel builder
-    builder = firedrake_interface.ExpressionKernelBuilder()
+    builder = firedrake_interface.ExpressionKernelBuilder(parameters["scalar_type"])
 
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
@@ -302,6 +299,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
+                  numpy_type=numpy_type_map[parameters["scalar_type"]],
                   point_set=point_set)
     ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
@@ -315,12 +313,12 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_shape = (len(points),) + value_shape
     return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
-    return_arg = ast.Decl(scalar_type(), ast.Symbol('A', rank=return_shape))
+    return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
     point_index, = point_set.indices
-    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"], scalar_type())
+    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"], parameters["scalar_type"])
 
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):

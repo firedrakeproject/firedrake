@@ -1,11 +1,5 @@
 import numpy
 
-
-NUMPY_TYPE = numpy.dtype("double")
-
-SCALAR_TYPE = "double"
-
-
 PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto",
@@ -19,8 +13,9 @@ PARAMETERS = {
     # that makes compilation time much shorter.
     "unroll_indexsum": 3,
 
+    "scalar_type": "double",
     # Precision of float printing (number of digits)
-    "precision": numpy.finfo(NUMPY_TYPE).precision,
+    "precision": numpy.finfo(numpy.dtype("double")).precision,
 
     "scalar_type": "double"
 }
@@ -29,20 +24,6 @@ PARAMETERS = {
 def default_parameters():
     return PARAMETERS.copy()
 
-
-def set_scalar_type(type_):
-    global NUMPY_TYPE
-    global SCALAR_TYPE
-
-    SCALAR_TYPE = type_
-    NUMPY_TYPE = {"double": numpy.dtype("double"),
+numpy_type_map = {"double": numpy.dtype("double"),
                   "float": numpy.dtype("float32"),
-                  "double complex": numpy.dtype("complex128")}[type_]
-
-
-def scalar_type():
-    return SCALAR_TYPE
-
-
-def numpy_type():
-    return NUMPY_TYPE
+                  "double complex": numpy.dtype("complex128")}
