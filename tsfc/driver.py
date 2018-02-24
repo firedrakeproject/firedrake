@@ -80,7 +80,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _.update(parameters)
         parameters = _
 
-
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
         del parameters["quadrature_degree"]

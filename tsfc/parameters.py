@@ -1,5 +1,6 @@
 import numpy
 
+
 PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto",
@@ -23,6 +24,7 @@ PARAMETERS = {
 
 def default_parameters():
     return PARAMETERS.copy()
+
 
 numpy_type_map = {"double": numpy.dtype("double"),
                   "float": numpy.dtype("float32"),

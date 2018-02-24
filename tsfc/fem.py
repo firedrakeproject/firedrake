@@ -35,7 +35,6 @@ from tsfc.finatinterface import as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
-from tsfc.parameters import numpy_type_map
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             one_times, simplify_abs,
                             preprocess_expression)
