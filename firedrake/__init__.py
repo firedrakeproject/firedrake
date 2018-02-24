@@ -2,6 +2,9 @@
 import firedrake.petsc as petsc
 del petsc
 
+
+
+
 # UFL Exprs come with a custom __del__ method, but we hold references
 # to them /everywhere/, some of which are circular (the Mesh object
 # holds a ufl.Domain that references the Mesh).  The Python2 GC
