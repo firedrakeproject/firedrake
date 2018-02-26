@@ -45,6 +45,7 @@ class HybridizationPC(PCBase):
         prefix = pc.getOptionsPrefix() + "hybridization_"
         _, P = pc.getOperators()
         self.cxt = P.getPythonContext()
+        self.app_cxt = self.cxt.appctx
 
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("The python context must be an ImplicitMatrixContext")
@@ -211,12 +212,23 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # Nullspace for the multiplier problem
-        nullspace = create_schur_nullspace(P, -K * Atilde,
-                                           V, V_d, TraceSpace,
-                                           pc.comm)
+        # Nullspace for the multiplier problem. Two options here:
+        # (1): The user has provided an appropriate VectorSpaceBasis
+        # for the Schur complement operator. In which case, we always
+        # use the provided nullspace.
+        # (2): If a nullspace is detected in the operator 'P', then
+        # try to determine the nullspace of the Schur complement.
+        # TODO: Retire option 2 and make option 1 standard?
+        nullspace = self.app_cxt.get("hybridization_trace_nullspace", None)
         if nullspace:
-            Smat.setNullSpace(nullspace)
+            Smat.setNullSpace(nullspace.nullspace(comm=pc.comm))
+        else:
+            # Option 2
+            nullsp = create_schur_nullspace(P, -K * Atilde,
+                                            V, V_d, TraceSpace,
+                                            pc.comm)
+            if nullsp:
+                Smat.setNullSpace(nullsp)
 
         # Set up the KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
