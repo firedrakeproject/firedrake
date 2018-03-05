@@ -12,7 +12,8 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
 
 
 class MeshHierarchy(object):
-    def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None):
+    def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None,
+                 distribution_parameters=None):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
         :arg m: the coarse :func:`~.Mesh` to refine
@@ -21,6 +22,8 @@ class MeshHierarchy(object):
             level in the resulting hierarchy.  Note that the
             intermediate meshes are still kept, but iteration over the
             mesh hierarchy skips them.
+        :arg distribution_parameters: options controlling mesh
+            distribution, see :func:`~.Mesh` for details.
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
@@ -38,6 +41,10 @@ class MeshHierarchy(object):
         fpoint_ises = []
         if m.comm.size > 1 and m._grown_halos:
             raise RuntimeError("Cannot refine parallel overlapped meshes (make sure the MeshHierarchy is built immediately after the Mesh)")
+        if distribution_parameters is None:
+            distribution_parameters = {}
+        distribution_parameters.update({"partition": False})
+
         for i in range(refinement_levels*refinements_per_level):
             rdm = cdm.refine()
             fpoint_ises.append(cdm.createCoarsePointIS())
@@ -68,7 +75,7 @@ class MeshHierarchy(object):
                 coords *= scale
 
         hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),
-                                     distribution_parameters={"partition": False},
+                                     distribution_parameters=distribution_parameters,
                                      reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
         for m in hierarchy:
