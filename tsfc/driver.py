@@ -44,7 +44,7 @@ def compile_form(form, prefix="form", parameters=None):
     assert isinstance(form, Form)
 
     # determine if we're in complex mode; coffee mode does not support complex
-    complx = parameters and "scalar_type" in parameters and parameters["scalar_type"] == 'double complex'
+    complx = parameters and "scalar_type" in parameters and 'complex' in parameters["scalar_type"]
     if complx:
         parameters["mode"] = 'vanilla'
     fd = ufl_utils.compute_form_data(form, complex_mode=complx)
