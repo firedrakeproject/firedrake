@@ -384,7 +384,7 @@ class MeshTopology(object):
         def callback(self):
             """Finish initialisation."""
             del self._callback
-            if self.comm.size > 1 and distribute:
+            if self.comm.size > 1:
                 dmplex.set_adjacency_callback(self._plex)
                 self._plex.distributeOverlap(1)
                 dmplex.clear_adjacency_callback(self._plex)
