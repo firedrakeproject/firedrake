@@ -78,13 +78,15 @@ class MeshHierarchy(object):
                                      distribution_parameters=distribution_parameters,
                                      reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
-        for m in hierarchy:
+        for i, m in enumerate(hierarchy):
             m._non_overlapped_lgmap = impl.create_lgmap(m._plex)
             m._non_overlapped_nent = []
             for d in range(m._plex.getDimension()+1):
                 m._non_overlapped_nent.append(m._plex.getDepthStratum(d))
             m.init()
             m._overlapped_lgmap = impl.create_lgmap(m._plex)
+            # Tag that this is from a refined mesh
+            m._plex.setRefineLevel(i)
 
         # On coarse mesh n, a map of consistent cell orientations and
         # vertex permutations for the fine cells on each coarse cell.
