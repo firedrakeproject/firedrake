@@ -1,4 +1,3 @@
-import numpy
 import ufl
 from collections import defaultdict
 from itertools import chain
@@ -6,6 +5,7 @@ from itertools import chain
 from pyop2 import op2
 from pyop2.base import collecting_loops
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from pyop2.datatypes import ScalarType
 
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
@@ -302,7 +302,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+            result_matrix = matrix.Matrix(f, bcs, sparsity, ScalarType,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:

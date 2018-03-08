@@ -846,7 +846,8 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[PetscReal, ndim=2, mode="c"] plex_coords, coords
+        np.ndarray[double complex, ndim=2, mode="c"] plex_coords, coords
+    # Note previous line is broken. Need to work out the right cython fu for this.
 
     plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
     coords = np.empty_like(plex_coords)

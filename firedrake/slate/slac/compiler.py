@@ -25,9 +25,7 @@ from gem.utils import groupby
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr
-
-from tsfc.parameters import SCALAR_TYPE
+from pyop2.datatypes import as_cstr, ScalarType
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -130,10 +128,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(as_cstr(ScalarType), ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             SCALAR_TYPE,
+                                                             as_cstr(ScalarType),
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -144,7 +142,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s *" % SCALAR_TYPE, builder.coord_sym)]
+    args = [result, ast.Decl("%s *" % as_cstr(ScalarType), builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
@@ -153,7 +151,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        ctype = "%s *" % SCALAR_TYPE
+        ctype = "%s *" % as_cstr(ScalarType)
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information

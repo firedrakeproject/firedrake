@@ -1,6 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
+from pyop2.datatypes import ScalarType, as_cstr
 from tsfc import default_parameters
 import sys
 
@@ -74,6 +75,7 @@ pyop2_opts["opt_level"] = coffee_default_optlevel
 parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
+parameters["form_compiler"]["scalar_type"] = as_cstr(ScalarType) 
 
 parameters["reorder_meshes"] = True
 
