@@ -250,3 +250,17 @@ Citations().add("Homolya2017a", """
   url =          {http://arxiv.org/abs/1711.02473}
 }
 """)
+
+Citations().add("Gibson2018", """
+@Misc{Gibson2018,
+  author =       {Thomas H. Gibson and Lawrence Mitchell and David
+                  A. Ham and Colin J. Cotter},
+  title =        {{A domain-specific language for the hybridization
+                  and static condensation of finite element methods}},
+  year =         2018,
+  archiveprefix ={arXiv},
+  eprint =       {1802.00303},
+  primaryclass = {cs.MS},
+  url =          {https://arxiv.org/abs/1802.00303}
+}
+""")

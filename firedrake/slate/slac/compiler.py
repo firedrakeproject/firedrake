@@ -16,6 +16,7 @@ this templated function library.
 """
 from coffee import base as ast
 
+from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake import op2
@@ -52,6 +53,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    Citations().register("Gibson2018")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
