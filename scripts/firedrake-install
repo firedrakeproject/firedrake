@@ -27,6 +27,8 @@ firedrake_apps = {
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "pyadjoint": ("""New generation adjoint. https://bitbucket.org/dolfin-adjoint/pyadjoint""",
                   "git+ssh://bitbucket.org/dolfin-adjoint/pyadjoint.git#egg=pyadjoint"),
+    "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
+                "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
 }
 
 
