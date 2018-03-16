@@ -484,14 +484,9 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-# <<<<<<< HEAD
-#         with MT.let(mt):
-#             finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
-#         for alpha, table in iteritems(finat_dict):
-# =======
-        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
-        for alpha, table in finat_dict.items():
-# >>>>>>> origin/master
+         with MT.let(mt):
+             finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
                 # A numerical hack that FFC used to apply on FIAT
