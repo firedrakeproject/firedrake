@@ -30,6 +30,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import DynamicallyScoped, cached_property
 
+from finat.physical_geometry import PhysicalGeometry
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
@@ -146,7 +147,6 @@ class PointSetContext(ContextBase):
         return self.quadrature_rule.weight_expression
 
     def basis_evaluation(self, finat_element, local_derivatives, entity_id):
-        from finat.hermite import PhysicalGeometry
 
         class CoordinateMapping(PhysicalGeometry):
             def jacobian_at(cm, point):
@@ -484,9 +484,9 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-         with MT.let(mt):
-             finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
-         for alpha, table in finat_dict.items():
+        with MT.let(mt):
+            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
                 # A numerical hack that FFC used to apply on FIAT

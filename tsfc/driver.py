@@ -7,7 +7,7 @@ from itertools import chain
 
 from numpy import asarray
 
-import ufl
+# import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
