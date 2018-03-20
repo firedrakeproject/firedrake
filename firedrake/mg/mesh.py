@@ -13,7 +13,7 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
 
 class MeshHierarchy(object):
     def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None,
-                 distribution_parameters=None):
+                 distribution_parameters=None, callbacks=None):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
         :arg m: the coarse :func:`~.Mesh` to refine
@@ -26,6 +26,10 @@ class MeshHierarchy(object):
             distribution, see :func:`~.Mesh` for details.
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
+        :arg callbacks: A 2-tuple of callbacks to call before and
+            after refinement of the DM.  The before callback receives
+            the DM to be refined (and the current level), the after
+            callback receives the refined DM (and the current level).
         """
         from firedrake_citations import Citations
         Citations().register("Mitchell2016")
@@ -45,8 +49,15 @@ class MeshHierarchy(object):
             distribution_parameters = {}
         distribution_parameters.update({"partition": False})
 
+        if callbacks is not None:
+            before, after = callbacks
+        else:
+            before = after = lambda dm, i: None
+
         for i in range(refinement_levels*refinements_per_level):
+            before(cdm, i)
             rdm = cdm.refine()
+            after(rdm, i)
             fpoint_ises.append(cdm.createCoarsePointIS())
             # Remove interior facet label (re-construct from
             # complement of exterior facets).  Necessary because the
