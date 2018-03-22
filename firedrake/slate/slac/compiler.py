@@ -25,9 +25,7 @@ from gem.utils import groupby
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr
-
-from tsfc.parameters import set_scalar_type, scalar_type
+from pyop2.datatypes import as_cstr, ScalarType
 
 from firedrake_configuration import get_config
 
@@ -57,11 +55,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
-    if get_config()['options']['complex']:
-        if tsfc_parameters is None:
-            tsfc_parameters = {}
-        tsfc_parameters['scalar_type'] = 'double complex'
-    set_scalar_type(tsfc_parameters['scalar_type'])
+    if tsfc_parameters is None:
+        tsfc_parameters = {}
+    cscalar = as_cstr(ScalarType)
+    tsfc_parameters['scalar_type'] = cscalar
 
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
@@ -131,6 +128,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
         shape = (1,)
     else:
         shape = slate_expr.shape
+    cscalar = as_cstr(ScalarType)
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
@@ -138,10 +136,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(scalar_type(), ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(cscalar, ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             scalar_type(),
+                                                             cscalar,
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -152,7 +150,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s *" % scalar_type(), builder.coord_sym)]
+    args = [result, ast.Decl("%s *" % cscalar, builder.coord_sym)]
 
     # Orientation information
     if builder.oriented:
@@ -161,7 +159,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        ctype = "%s *" % scalar_type()
+        ctype = "%s *" % cscalar
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information
