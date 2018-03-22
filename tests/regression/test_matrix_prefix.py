@@ -9,7 +9,7 @@ import pytest
 def test_matrix_prefix_solver(options_prefix):
     parameters = {"ksp_type": "preonly",
                   "pc_type": "lu",
-                  "pc_factor_mat_solver_package": "mumps",
+                  "pc_factor_mat_solver_type": "mumps",
                   "mat_mumps_icntl_24": 1}
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "P", 1)

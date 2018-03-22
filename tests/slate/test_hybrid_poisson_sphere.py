@@ -32,7 +32,7 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
-                                'pc_factor_mat_solver_package': 'mumps'}}
+                                'pc_factor_mat_solver_type': 'mumps'}}
 
     solve(a == L, w, nullspace=nullsp, solver_parameters=params)
     u_h, _ = w.split()
