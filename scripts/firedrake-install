@@ -332,9 +332,9 @@ if options["minimal_petsc"]:
         petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
     else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-pnetcdf --download-exodusii"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
