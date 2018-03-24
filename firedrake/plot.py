@@ -140,8 +140,8 @@ def plot_mesh(mesh, axes=None, **kwargs):
         # Pad 1D array with zeros
         coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
     vertices = coords[cell[:, idx]]
-    figure = plt.figure()
     if axes is None:
+        figure = plt.figure()
         axes = figure.add_subplot(111, projection=projection, **kwargs)
 
     lines = Lines(vertices)

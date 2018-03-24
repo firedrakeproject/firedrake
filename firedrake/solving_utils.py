@@ -340,7 +340,9 @@ class _SNESContext(object):
         with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
-    def set_jacobian(self, snes):
+    def set_jacobian(self, snes, options_prefix):
+        self._pjac.petscmat.setOptionsPrefix(options_prefix)
+        self._jac.petscmat.setOptionsPrefix(options_prefix)
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
 

@@ -225,8 +225,11 @@ Citations().add("Kirby2017", """
   title =        {{Solver composition across the PDE/linear algebra
                   barrier}},
   journal =      {SIAM Journal on Scientific Computing},
-  note =         {to appear},
-  year =         2017,
+  year =         2018,
+  volume =       40,
+  number =       1,
+  pages =        {C76-C98},
+  doi =          {10.1137/17M1133208},
   archiveprefix ={arXiv},
   eprint =       {1706.01346},
   primaryclass = {cs.MS},
@@ -245,5 +248,19 @@ Citations().add("Homolya2017a", """
   eprint =       {1711.02473},
   primaryclass = {cs.MS},
   url =          {http://arxiv.org/abs/1711.02473}
+}
+""")
+
+Citations().add("Gibson2018", """
+@Misc{Gibson2018,
+  author =       {Thomas H. Gibson and Lawrence Mitchell and David
+                  A. Ham and Colin J. Cotter},
+  title =        {{A domain-specific language for the hybridization
+                  and static condensation of finite element methods}},
+  year =         2018,
+  archiveprefix ={arXiv},
+  eprint =       {1802.00303},
+  primaryclass = {cs.MS},
+  url =          {https://arxiv.org/abs/1802.00303}
 }
 """)

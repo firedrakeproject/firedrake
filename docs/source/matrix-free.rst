@@ -13,7 +13,7 @@ computing "matrix-free".  In this case, the matrix returned from
 assembly of a 1-form subject to boundary conditions rather than direct
 construction of a sparse matrix ("aij" format) followed by traditional
 CSR algorithms.  This functionality is documented in more detail in
-:cite:`Mitchell2017`.
+:cite:`Kirby2017`.
 
 There are two ways of accessing this functionality.  One can either
 request a matrix-free operator by passing ``mat_type="matfree"`` to

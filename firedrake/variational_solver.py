@@ -173,7 +173,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
-        ctx.set_jacobian(self.snes)
+        ctx.set_jacobian(self.snes, self.options_prefix)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,

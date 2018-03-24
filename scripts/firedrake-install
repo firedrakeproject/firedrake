@@ -27,6 +27,8 @@ firedrake_apps = {
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "pyadjoint": ("""New generation adjoint. https://bitbucket.org/dolfin-adjoint/pyadjoint""",
                   "git+ssh://bitbucket.org/dolfin-adjoint/pyadjoint.git#egg=pyadjoint"),
+    "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
+                "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
 }
 
 
@@ -337,12 +339,12 @@ If you really want to use your own Python packages, please run again with the
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
 full_opts = '--download-chaco --download-metis --download-parmetis \
---download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --with-fortran-bindings=0'
+--download-scalapack --download-hypre --download-mumps --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-fortran-bindings=0'
 
 split_opts = set(full_opts.split())
 
 if options["minimal_petsc"]:
-    split_opts -= {'--download-netcdf', '--download-exodusii'}
+    split_opts -= {'--download-netcdf', '--download-pnetcdf', '--download-exodusii'}
 if options["petsc_int_type"] == 'int64':
     split_opts -= {'--download-chaco', '--download-scalapack', '--download-mumps'}
     split_opts |= {'--with-64-bit-indices'}
