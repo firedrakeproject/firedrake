@@ -212,23 +212,9 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # Nullspace for the multiplier problem. Two options here:
-        # (1): The user has provided an appropriate VectorSpaceBasis
-        # for the Schur complement operator. In which case, we always
-        # use the provided nullspace.
-        # (2): If a nullspace is detected in the operator 'P', then
-        # try to determine the nullspace of the Schur complement.
-        # TODO: Retire option 2 and make option 1 standard?
         nullspace = self.app_cxt.get("hybridization_trace_nullspace", None)
         if nullspace:
             Smat.setNullSpace(nullspace.nullspace(comm=pc.comm))
-        else:
-            # Option 2
-            nullsp = create_schur_nullspace(P, -K * Atilde,
-                                            V, V_d, TraceSpace,
-                                            pc.comm)
-            if nullsp:
-                Smat.setNullSpace(nullsp)
 
         # Set up the KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
@@ -397,46 +383,3 @@ class HybridizationPC(PCBase):
         viewer.pushASCIITab()
         viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
         viewer.popASCIITab()
-
-
-def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
-    """Gets the nullspace vectors corresponding to the Schur complement
-    system for the multipliers.
-
-    :arg P: The mixed operator from the ImplicitMatrixContext.
-    :arg forward: A Slate expression denoting the forward elimination
-                  operator.
-    :arg V: The original "unbroken" space.
-    :arg V_d: The broken space.
-    :arg TraceSpace: The space of approximate traces.
-
-    Returns: A nullspace (if there is one) for the Schur-complement system.
-    """
-    from firedrake import assemble, Function, project, AssembledVector
-
-    nullspace = P.getNullSpace()
-    if nullspace.handle == 0:
-        # No nullspace
-        return None
-
-    vecs = nullspace.getVecs()
-    tmp = Function(V)
-    tmp_b = Function(V_d)
-    tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * AssembledVector(tmp_b)
-    new_vecs = []
-    for v in vecs:
-        with tmp.dat.vec_wo as t:
-            v.copy(t)
-
-        project(tmp, tmp_b)
-        assemble(forward_action, tensor=tnsp_tmp)
-        with tnsp_tmp.dat.vec_ro as v:
-            new_vecs.append(v.copy())
-
-    # Normalize
-    for v in new_vecs:
-        v.normalize()
-    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
-
-    return schur_nullspace
