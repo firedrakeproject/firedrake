@@ -757,7 +757,8 @@ class Add(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert A.arg_function_spaces() == B.arg_function_spaces(), (
+        assert all([space_equivalence(fsA, fsB) for fsA, fsB in
+                    zip(A.arg_function_spaces(), B.arg_function_spaces())]), (
             "Function spaces associated with operands must match."
         )
 
@@ -796,7 +797,10 @@ class Mul(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert A.arg_function_spaces()[-1] == B.arg_function_spaces()[0], (
+        fsA = A.arg_function_spaces()[-1]
+        fsB = B.arg_function_spaces()[0]
+
+        assert space_equivalence(fsA, fsB), (
             "Cannot perform argument contraction over middle indices. "
             "They must be in the same function space."
         )
@@ -819,6 +823,24 @@ class Mul(BinaryOp):
         from multiplying two tensors A and B.
         """
         return self._args
+
+
+def space_equivalence(A, B):
+    """Checks that two function spaces are equivalent.
+
+    :arg A: A function space.
+    :arg B: Another function space.
+
+    Returns `True` if they have matching meshes, elements, and rank. Otherwise,
+    `False` is returned.
+    """
+
+    equiv = False
+    assert A.mesh() == B.mesh(), "Mismatching meshes!"
+    if A.rank == B.rank and A.ufl_element() == B.ufl_element():
+        equiv = True
+
+    return equiv
 
 
 # Establishes levels of precedence for Slate tensors
