@@ -194,6 +194,11 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self._setup = False
 
     def set_transfer_operators(self, contextmanager):
+        """Set a context manager which manages which grid transfer operators should be used.
+
+        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :raises RuntimeError: if called after calling solve.
+        """
         if self._setup:
             raise RuntimeError("Cannot set transfer operators after solve")
         self._transfer_operators = contextmanager
