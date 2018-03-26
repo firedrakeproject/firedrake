@@ -6,6 +6,8 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 from firedrake.petsc import PETSc
 
+from firedrake.slate import slate
+
 
 __all__ = ("ImplicitMatrixContext", )
 
@@ -76,7 +78,7 @@ class ImplicitMatrixContext(object):
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
         self.a = a
-        self.aT = adjoint(a)
+        self.aT = _adjoint(a)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -109,8 +111,8 @@ class ImplicitMatrixContext(object):
 
         self.block_size = (test_vec.getBlockSize(), trial_vec.getBlockSize())
 
-        self.action = action(self.a, self._x)
-        self.actionT = action(self.aT, self._y)
+        self.action = _action(self.a, self._x)
+        self.actionT = _action(self.aT, self._y)
 
         from firedrake.assemble import create_assembly_callable
         self._assemble_action = create_assembly_callable(self.action, tensor=self._y,
@@ -271,3 +273,21 @@ class ImplicitMatrixContext(object):
         submat.setUp()
 
         return submat
+
+
+def _adjoint(a):
+    """Adjoint of a form (or the transpose of a Slate expression)."""
+    if isinstance(a, slate.TensorBase):
+        return a.T
+    else:
+        return adjoint(a)
+
+
+def _action(a, x):
+    """The action of a bilinear form on a coefficient (or a matrix-vector
+    product for Slate expressions.
+    """
+    if isinstance(a, slate.TensorBase):
+        return a * slate.AssembledVector(x)
+    else:
+        return action(a, x)
