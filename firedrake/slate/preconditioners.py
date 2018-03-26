@@ -199,13 +199,17 @@ class HybridizationPC(PCBase):
             tensor=self.schur_rhs,
             form_compiler_parameters=self.ctx.fc_params)
 
+        mat_type = PETSc.Options().getString(prefix + "S_mat_type", "aij")
+
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
-                                 form_compiler_parameters=self.ctx.fc_params)
+                                 form_compiler_parameters=self.ctx.fc_params,
+                                 mat_type=mat_type)
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params)
+                                                    form_compiler_parameters=self.ctx.fc_params,
+                                                    mat_type=mat_type)
 
         self._assemble_S()
         self.S.force_evaluation()
