@@ -10,18 +10,22 @@ def test_matrix_free_hybridization():
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
+    n = FacetNormal(mesh)
 
     # Define the source function
-    f = Function(V)
     x, y = SpatialCoordinate(mesh)
-    f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
+    f = Function(V)
+    f.interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
     # Define the variational forms
-    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
-    L = f * v * dx
+    a = (dot(sigma, tau) + div(tau) * u + v * div(sigma)) * dx
+    L = -f * v * dx + Constant(0.0) * dot(tau, n) * (ds(3) + ds(4))
 
     # Compare hybridized solution with non-hybridized
     w = Function(W)
+    bc1 = DirichletBC(W[0], as_vector([0.0, -sin(5*x)]), 1)
+    bc2 = DirichletBC(W[0], as_vector([0.0, sin(5*y)]), 2)
+    bcs = [bc1, bc2]
 
     matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
@@ -30,7 +34,7 @@ def test_matrix_free_hybridization():
                       'hybridization': {'ksp_type': 'cg',
                                         'ksp_rtol': 1e-8,
                                         'S_mat_type': 'matfree'}}
-    solve(a == L, w, solver_parameters=matfree_params)
+    solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
     sigma_h, u_h = w.split()
 
     w2 = Function(W)
@@ -41,7 +45,7 @@ def test_matrix_free_hybridization():
                   'hybridization': {'ksp_type': 'cg',
                                     'ksp_rtol': 1e-8,
                                     'S_mat_type': 'aij'}}
-    solve(a == L, w2, solver_parameters=aij_params)
+    solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
     _sigma, _u = w2.split()
 
     # Return the L2 error
