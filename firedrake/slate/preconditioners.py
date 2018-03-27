@@ -44,12 +44,12 @@ class HybridizationPC(PCBase):
         # Extract the problem context
         prefix = pc.getOptionsPrefix() + "hybridization_"
         _, P = pc.getOperators()
-        self.cxt = P.getPythonContext()
+        self.ctx = P.getPythonContext()
 
-        if not isinstance(self.cxt, ImplicitMatrixContext):
+        if not isinstance(self.ctx, ImplicitMatrixContext):
             raise ValueError("The python context must be an ImplicitMatrixContext")
 
-        test, trial = self.cxt.a.arguments()
+        test, trial = self.ctx.a.arguments()
 
         V = test.function_space()
         mesh = V.mesh()
@@ -117,7 +117,7 @@ class HybridizationPC(PCBase):
         # arguments
         arg_map = {test: TestFunction(V_d),
                    trial: TrialFunction(V_d)}
-        Atilde = Tensor(replace(self.cxt.a, arg_map))
+        Atilde = Tensor(replace(self.ctx.a, arg_map))
         gammar = TestFunction(TraceSpace)
         n = ufl.FacetNormal(mesh)
         sigma = TrialFunctions(V_d)[self.vidx]
@@ -137,11 +137,11 @@ class HybridizationPC(PCBase):
         # problem is not well-posed).
 
         # If boundary conditions are contained in the ImplicitMatrixContext:
-        if self.cxt.row_bcs:
+        if self.ctx.row_bcs:
             # Find all the subdomains with neumann BCS
             # These are Dirichlet BCs on the vidx space
             neumann_subdomains = set()
-            for bc in self.cxt.row_bcs:
+            for bc in self.ctx.row_bcs:
                 if bc.function_space().index == self.pidx:
                     raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
                 if bc.function_space().index != self.vidx:
@@ -170,9 +170,9 @@ class HybridizationPC(PCBase):
             if "on_boundary" in neumann_subdomains:
                 measures.append(ds)
             else:
-                measures.append(ds(tuple(neumann_subdomains)))
+                measures.extend([ds(sd) for sd in neumann_subdomains])
                 dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
-                trace_subdomains.append(sorted(dirichlet_subdomains))
+                trace_subdomains.extend(sorted(dirichlet_subdomains))
 
             for measure in measures:
                 Kform += integrand*measure
@@ -197,26 +197,24 @@ class HybridizationPC(PCBase):
         self._assemble_Srhs = create_assembly_callable(
             K * Atilde.inv * AssembledVector(self.broken_residual),
             tensor=self.schur_rhs,
-            form_compiler_parameters=self.cxt.fc_params)
+            form_compiler_parameters=self.ctx.fc_params)
 
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
-                                 form_compiler_parameters=self.cxt.fc_params)
+                                 form_compiler_parameters=self.ctx.fc_params)
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
-                                                    form_compiler_parameters=self.cxt.fc_params)
+                                                    form_compiler_parameters=self.ctx.fc_params)
 
         self._assemble_S()
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # Nullspace for the multiplier problem
-        nullspace = create_schur_nullspace(P, -K * Atilde,
-                                           V, V_d, TraceSpace,
-                                           pc.comm)
-        if nullspace:
-            Smat.setNullSpace(nullspace)
+        nullspace = self.ctx.appctx.get("trace_nullspace", None)
+        if nullspace is not None:
+            nsp = nullspace(TraceSpace)
+            Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
         # Set up the KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
@@ -270,12 +268,12 @@ class HybridizationPC(PCBase):
         u_rec = M.inv * (f - C * A.inv * g - R * lambdar)
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
-                                                     form_compiler_parameters=self.cxt.fc_params)
+                                                     form_compiler_parameters=self.ctx.fc_params)
 
         sigma_rec = A.inv * (g - B * AssembledVector(u) - K_0.T * lambdar)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
-                                                      form_compiler_parameters=self.cxt.fc_params)
+                                                      form_compiler_parameters=self.ctx.fc_params)
 
     @timed_function("HybridRecon")
     def _reconstruct(self):
@@ -385,46 +383,3 @@ class HybridizationPC(PCBase):
         viewer.pushASCIITab()
         viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
         viewer.popASCIITab()
-
-
-def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
-    """Gets the nullspace vectors corresponding to the Schur complement
-    system for the multipliers.
-
-    :arg P: The mixed operator from the ImplicitMatrixContext.
-    :arg forward: A Slate expression denoting the forward elimination
-                  operator.
-    :arg V: The original "unbroken" space.
-    :arg V_d: The broken space.
-    :arg TraceSpace: The space of approximate traces.
-
-    Returns: A nullspace (if there is one) for the Schur-complement system.
-    """
-    from firedrake import assemble, Function, project, AssembledVector
-
-    nullspace = P.getNullSpace()
-    if nullspace.handle == 0:
-        # No nullspace
-        return None
-
-    vecs = nullspace.getVecs()
-    tmp = Function(V)
-    tmp_b = Function(V_d)
-    tnsp_tmp = Function(TraceSpace)
-    forward_action = forward * AssembledVector(tmp_b)
-    new_vecs = []
-    for v in vecs:
-        with tmp.dat.vec_wo as t:
-            v.copy(t)
-
-        project(tmp, tmp_b)
-        assemble(forward_action, tensor=tnsp_tmp)
-        with tnsp_tmp.dat.vec_ro as v:
-            new_vecs.append(v.copy())
-
-    # Normalize
-    for v in new_vecs:
-        v.normalize()
-    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
-
-    return schur_nullspace
