@@ -189,6 +189,20 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         with dmhooks.appctx(dm, self._ctx):
             self.set_from_options(self.snes)
 
+        # Used for custom grid transfer.
+        self._transfer_operators = None
+        self._setup = False
+
+    def set_transfer_operators(self, contextmanager):
+        """Set a context manager which manages which grid transfer operators should be used.
+
+        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :raises RuntimeError: if called after calling solve.
+        """
+        if self._setup:
+            raise RuntimeError("Cannot set transfer operators after solve")
+        self._transfer_operators = contextmanager
+
     def solve(self, bounds=None):
         """Solve the variational problem.
 
@@ -213,13 +227,17 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
         # Ensure options database has full set of options (so monitors work right)
-        with self.inserted_options():
-            with dmhooks.appctx(dm, self._ctx):
-                with self._problem.u.dat.vec as u:
-                    u.copy(work)
+        with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
+            with self._problem.u.dat.vec as u:
+                u.copy(work)
+                if self._transfer_operators is not None:
+                    with self._transfer_operators:
+                        self.snes.solve(None, work)
+                else:
                     self.snes.solve(None, work)
-                    work.copy(u)
+                work.copy(u)
 
+        self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
 
