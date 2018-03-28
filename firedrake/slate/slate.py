@@ -835,12 +835,7 @@ def space_equivalence(A, B):
     `False` is returned.
     """
 
-    equiv = False
-    assert A.mesh() == B.mesh(), "Mismatching meshes!"
-    if A.rank == B.rank and A.ufl_element() == B.ufl_element():
-        equiv = True
-
-    return equiv
+    return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
 
 
 # Establishes levels of precedence for Slate tensors
