@@ -171,7 +171,8 @@ class HybridizationPC(PCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
+                markers = [int(x) for x in mesh.exterior_facets.unique_markers]
+                dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
             for measure in measures:
