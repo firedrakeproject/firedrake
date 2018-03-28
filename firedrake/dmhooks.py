@@ -18,7 +18,7 @@ to attach it.
 Similarly, when a DM is used in a solver, an application context is
 attached to it, such that when PETSc calls back into Firedrake, we can
 grab the relevant information (how to make the Jacobian, etc...).
-This functions in a similar way using :func:`set_appctx` and
+This functions in a similar way using :func:`push_appctx` and
 :func:`get_appctx` on the DM.  You can set whatever you like in here,
 but most of the rest of Firedrake expects to find either ``None`` or
 else a :class:`firedrake.solving_utils._SNESContext` object.
@@ -71,8 +71,8 @@ def set_function_space(dm, V):
     dm.setAttr("__fs_info__", weakref.ref(V))
 
 
-def set_appctx(dm, ctx):
-    """Set an application context on a DM.
+def push_appctx(dm, ctx):
+    """Push an application context onto a DM.
 
     :arg DM: The DM.
     :arg ctx: The context.
@@ -82,21 +82,73 @@ def set_appctx(dm, ctx):
        This stores a weakref to the context in the DM, so you should
        hold a strong reference somewhere else.
     """
-    dm.setAppCtx(weakref.ref(ctx))
+    stack = dm.getAppCtx()
+    if stack is None:
+        stack = []
+        dm.setAppCtx(stack)
+
+    def finalize(ref):
+        stack = dm.getAppCtx()
+        try:
+            stack.remove(ref)
+        except ValueError:
+            pass
+
+    stack.append(weakref.ref(ctx, finalize))
+
+
+def pop_appctx(dm, match=None):
+    """Pop the most recent application context from a DM.
+
+    :arg DM: The DM.
+    :returns: Either an application context, or ``None``.
+    """
+    stack = dm.getAppCtx()
+    if stack == [] or stack is None:
+        return None
+    ctx = stack[-1]()
+    if match is not None:
+        if ctx == match:
+            return stack.pop()()
+    else:
+        return stack.pop()()
 
 
 def get_appctx(dm):
-    """Get an application context from a DM.
+    """Get the most recent application context from a DM.
 
     :arg DM: The DM.
     :returns: Either the stored application context, or ``None`` if
        none was found.
     """
-    ctx = dm.getAppCtx()
-    if ctx is None:
+    stack = dm.getAppCtx()
+    if stack == [] or stack is None:
         return None
     else:
-        return ctx()
+        return stack[-1]()
+
+
+class appctx(object):
+    def __init__(self, dm, ctx):
+        self.ctx = ctx
+        self.dm = dm
+
+    def __enter__(self):
+        push_appctx(self.dm, self.ctx)
+
+    def __exit__(self, typ, value, traceback):
+        ctx = self.ctx
+        while ctx._coarse is not None:
+            ctx = ctx._coarse
+
+        def get_dm(c):
+            return c._problem.u.function_space().dm
+
+        while ctx._fine is not None:
+            dm = get_dm(ctx)
+            pop_appctx(dm, ctx)
+            ctx = ctx._fine
+        pop_appctx(self.dm, self.ctx)
 
 
 def create_matrix(dm):
@@ -145,7 +197,7 @@ def create_field_decomposition(dm, *args, **kwargs):
         if dm.getRefineLevel() - dm.getCoarsenLevel() != 0:
             ctxs = ctx.split([i for i in range(len(W))])
             for d, c in zip(dms, ctxs):
-                set_appctx(d, c)
+                push_appctx(d, c)
     return names, W._ises, dms
 
 
@@ -212,9 +264,10 @@ def coarsen(dm, comm):
         cdm = V._coarse.dm
     ctx = get_appctx(dm)
     if ctx is not None:
-        set_appctx(cdm, coarsen(ctx))
+        push_appctx(cdm, coarsen(ctx))
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+    V._coarse._fine = V
     return cdm
 
 
@@ -236,6 +289,7 @@ def refine(dm, comm):
     else:
         V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
         fdm = V._fine.dm
+    V._fine._coarse = V
     return fdm
 
 
