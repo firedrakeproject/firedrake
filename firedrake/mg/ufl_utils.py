@@ -1,4 +1,4 @@
-
+import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
@@ -149,11 +149,11 @@ def coarsen_constant(expr, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         mesh = coarsen(expr.ufl_domain())
-        if len(expr.ufl_shape) == 0:
-            val = expr.dat.data_ro[0]
-        else:
-            val = expr.dat.data_ro.copy()
-        new = firedrake.Constant(value=val, domain=mesh)
+        new = firedrake.Constant(numpy.zeros(expr.ufl_shape,
+                                             dtype=expr.dat.dtype),
+                                 domain=mesh)
+        # Share data pointer
+        new.dat = expr.dat
     return new
 
 
