@@ -3,6 +3,7 @@ import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.geometry import SpatialCoordinate
 
 import firedrake
 from firedrake import utils
@@ -138,7 +139,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     See also :func:`ufl.derivative`.
     """
     # TODO: What about Constant?
-    if len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
+    notx = not isinstance(u, SpatialCoordinate)
+    if notx and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
     if du is None:
@@ -152,6 +154,11 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
                 raise ValueError("Real function space of vector elements not supported")
             mesh = form.ufl_domain()
             V = firedrake.FunctionSpace(mesh, "Real", 0)
+            args = form.arguments()
+            number = max(a.number() for a in args) if args else -1
+            du = Argument(V, number + 1)
+        elif isinstance(u, ufl.SpatialCoordinate):
+            V = u.ufl_domain().coordinates.function_space()
             args = form.arguments()
             number = max(a.number() for a in args) if args else -1
             du = Argument(V, number + 1)
