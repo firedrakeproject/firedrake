@@ -5,6 +5,7 @@ from firedrake import *
 
 def test_first_shape_derivative():
     mesh = UnitSquareMesh(6, 6)
+    n = FacetNormal(mesh)
     X = SpatialCoordinate(mesh)
     x, y = X
     V = FunctionSpace(mesh, "CG", 1)
@@ -28,6 +29,12 @@ def test_first_shape_derivative():
     J = f * dx
     computed = assemble(derivative(J, X)).dat.data
     dJdX = div(f*dX) * dx
+    actual = assemble(dJdX).dat.data
+    assert np.allclose(computed, actual, rtol=1e-14)    
+
+    J = f * ds
+    computed = assemble(derivative(J, X)).dat.data
+    dJdX = inner(grad(f), dX) * ds + f * (div(dX) - inner(dot(grad(dX),n), n)) * ds
     actual = assemble(dJdX).dat.data
     assert np.allclose(computed, actual, rtol=1e-14)    
 
