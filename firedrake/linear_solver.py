@@ -54,6 +54,10 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         # Set up parameters mixin
         super(LinearSolver, self).__init__(solver_parameters, options_prefix)
+
+        self.A.petscmat.setOptionsPrefix(self.options_prefix)
+        self.P.petscmat.setOptionsPrefix(self.options_prefix)
+
         # Set some defaults
         self.set_default_parameter("ksp_rtol", "1e-7")
         # If preconditioning matrix is matrix-free, then default to no
@@ -66,7 +70,7 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
 
-        W = self.A.a.arguments()[0].function_space()
+        W = self.test_space
         # DM provides fieldsplits (but not operators)
         self.ksp.setDM(W.dm)
         self.ksp.setDMActive(False)
@@ -89,7 +93,6 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace
         self.near_nullspace = near_nullspace
-        self._W = W
         # Operator setting must come after null space has been
         # applied
         # Force evaluation here
@@ -101,27 +104,36 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.set_from_options(self.ksp)
 
     @cached_property
-    def _b(self):
-        """A function to store the RHS.
-
-        Used in presence of BCs."""
-        return function.Function(self._W)
+    def test_space(self):
+        return self.A.a.arguments()[0].function_space()
 
     @cached_property
-    def _Abcs(self):
-        """A function storing the action of the operator on a zero Function
-        satisfying the BCs.
+    def trial_space(self):
+        return self.A.a.arguments()[1].function_space()
 
-        Used in the presence of BCs.
-        """
-        b = function.Function(self._W)
-        for bc in self.A.bcs:
-            bc.apply(b)
-        from firedrake.assemble import _assemble
+    @cached_property
+    def _rhs(self):
+        from firedrake.assemble import create_assembly_callable
+        u = function.Function(self.trial_space)
+        b = function.Function(self.test_space)
         if isinstance(self.A.a, slate.TensorBase):
-            return _assemble(self.A.a * b)
+            expr = -self.A.a * slate.AssembledVector(u)
         else:
-            return _assemble(ufl.action(self.A.a, b))
+            expr = -ufl.action(self.A.a, u)
+        return u, create_assembly_callable(expr, tensor=b), b
+
+    def _lifted(self, b):
+        u, update, blift = self._rhs
+        u.dat.zero()
+        for bc in self.A.bcs:
+            bc.apply(u)
+        update()
+        # blift contains -A u_bc
+        blift += b
+        for bc in self.A.bcs:
+            bc.apply(blift)
+        # blift is now b - A u_bc, and satisfies the boundary conditions
+        return blift
 
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
@@ -131,21 +143,17 @@ class LinearSolver(solving_utils.ParametersMixin):
         if not isinstance(b, function.Function):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
-        if len(self._W) > 1 and self.nullspace is not None:
-            self.nullspace._apply(self._W.dof_dset.field_ises)
-        if len(self._W) > 1 and self.transpose_nullspace is not None:
-            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
-        if len(self._W) > 1 and self.near_nullspace is not None:
-            self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
+        if len(self.trial_space) > 1 and self.nullspace is not None:
+            self.nullspace._apply(self.trial_space.dof_dset.field_ises)
+        if len(self.test_space) > 1 and self.transpose_nullspace is not None:
+            self.transpose_nullspace._apply(self.test_space.dof_dset.field_ises,
+                                            transpose=True)
+        if len(self.trial_space) > 1 and self.near_nullspace is not None:
+            self.near_nullspace._apply(self.trial_space.dof_dset.field_ises, near=True)
+
         if self.A.has_bcs:
-            b_bc = self._b
-            # rhs = b - action(A, zero_function_with_bcs_applied)
-            b_bc.assign(b - self._Abcs)
-            # Now we need to apply the boundary conditions to the "RHS"
-            for bc in self.A.bcs:
-                bc.apply(b_bc)
-            # don't want to write into b itself, because that would confuse user
-            b = b_bc
+            b = self._lifted(b)
+
         with self.inserted_options():
             with b.dat.vec_ro as rhs:
                 if self.ksp.getInitialGuessNonzero():

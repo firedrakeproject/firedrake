@@ -1,19 +1,39 @@
-
-from collections import OrderedDict
-
 from coffee import base as ast
 
-from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
-                                   Action, Inverse)
-from firedrake.slate.slac.utils import (Transformer, traverse_dags,
-                                        collect_reference_count)
+from collections import OrderedDict, Counter, namedtuple
+
+from firedrake.slate.slac.utils import (topological_sort, traverse_dags,
+                                        eigen_tensor, Transformer)
 from firedrake.utils import cached_property
+
+from functools import reduce
 
 from ufl import MixedElement
 
+import firedrake.slate.slate as slate
 
-class KernelBuilder(object):
-    """A helper class for constructing Slate kernels.
+
+CoefficientInfo = namedtuple("CoefficientInfo",
+                             ["space_index",
+                              "offset_index",
+                              "shape",
+                              "vector"])
+CoefficientInfo.__doc__ = """\
+Context information for creating coefficient temporaries.
+
+:param space_index: An integer denoting the function space index.
+:param offset_index: An integer denoting the starting position in
+                     the vector temporary for assignment.
+:param shape: A singleton with an integer describing the shape of
+              the coefficient temporary.
+:param vector: The :class:`slate.AssembledVector` containing the
+               relevant data to be placed into the temporary.
+"""
+
+
+class LocalKernelBuilder(object):
+    """The primary helper class for constructing cell-local linear
+    algebra kernels from Slate expressions.
 
     This class provides access to all temporaries and subkernels associated
     with a Slate expression. If the Slate expression contains nodes that
@@ -24,53 +44,179 @@ class KernelBuilder(object):
     Instructions for assembling the full kernel AST of a Slate expression is
     provided by the method `construct_ast`.
     """
+
+    # Relevant symbols/information needed for kernel construction
+    # defined below
+    coord_sym = ast.Symbol("coords")
+    cell_orientations_sym = ast.Symbol("cell_orientations")
+    cell_facet_sym = ast.Symbol("cell_facets")
+    it_sym = ast.Symbol("i0")
+    mesh_layer_sym = ast.Symbol("layer")
+
+    # Supported integral types
+    supported_integral_types = [
+        "cell",
+        "interior_facet",
+        "exterior_facet",
+        # The "interior_facet_horiz" measure is separated into two parts:
+        # "top" and "bottom"
+        "interior_facet_horiz_top",
+        "interior_facet_horiz_bottom",
+        "interior_facet_vert",
+        "exterior_facet_top",
+        "exterior_facet_bottom",
+        "exterior_facet_vert"
+    ]
+
+    # Supported subdomain types
+    supported_subdomain_types = ["subdomains_exterior_facet",
+                                 "subdomains_interior_facet"]
+
     def __init__(self, expression, tsfc_parameters=None):
-        """Constructor for the KernelBuilder class.
+        """Constructor for the LocalKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
                               TSFC when constructing subkernels associated
                               with the expression.
         """
-        assert isinstance(expression, TensorBase)
+        assert isinstance(expression, slate.TensorBase)
+
+        if expression.ufl_domain().variable_layers:
+            raise NotImplementedError("Variable layers not yet handled in Slate.")
+
+        # Collect terminals, expressions, and reference counts
+        temps = OrderedDict()
+        coeff_vecs = OrderedDict()
+        seen_coeff = set()
+        expression_dag = list(traverse_dags([expression]))
+        counter = Counter([expression])
+
+        for tensor in expression_dag:
+            counter.update(tensor.operands)
+
+            # Terminal tensors will always require a temporary.
+            if isinstance(tensor, slate.Tensor):
+                temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
+
+            # 'AssembledVector's will always require a coefficient temporary.
+            if isinstance(tensor, slate.AssembledVector):
+                function = tensor._function
+
+                # Ensure coefficient temporaries aren't duplicated
+                if function not in seen_coeff:
+                    shapes = [(V.finat_element.space_dimension(), V.value_size)
+                              for V in function.function_space().split()]
+                    c_shape = (sum(n * d for (n, d) in shapes),)
+
+                    offset = 0
+                    for fs_i, fs_shape in enumerate(shapes):
+                        cinfo = CoefficientInfo(space_index=fs_i,
+                                                offset_index=offset,
+                                                shape=c_shape,
+                                                vector=tensor)
+                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
+                        offset += reduce(lambda x, y: x*y, fs_shape)
+
+                    seen_coeff.add(function)
+
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.needs_cell_facets = False
-        self.needs_mesh_layers = False
-        self.oriented = False
-        self.finalized_ast = None
-        self._is_finalized = False
-
-        # Initialize temporaries and any auxiliary temporaries
-        temps, aux_exprs = generate_expr_data(expression)
         self.temps = temps
-        self.aux_exprs = aux_exprs
 
-        # Collect the reference count of operands in auxiliary expressions
-        self._ref_counts = collect_reference_count([expression])
+        # Terminal tensors do not need additional temps created for them
+        # and neither do Negative nodes.
+        self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
+                          if counter[tensor] > 1
+                          and not isinstance(tensor, (slate.Tensor,
+                                                      slate.Negative))]
+        self.coefficient_vecs = coeff_vecs
+        self._setup()
 
-    @property
-    def integral_type(self):
-        """Returns the integral type associated with a Slate kernel.
-
-        Note that Slate kernels are always of type 'cell' since these
-        are localized kernels for element-wise linear algebra. This
-        may change in the future if we want Slate to be used for
-        LDG/CDG finite element discretizations.
+    def _setup(self):
+        """A setup method to initialize all the local assembly
+        kernels generated by TSFC and creates templated function calls
+        conforming to the Eigen-C++ template library standard.
+        This function also collects any information regarding orientations
+        and extra include directories.
         """
-        return "cell"
+        transformer = Transformer()
+        include_dirs = []
+        templated_subkernels = []
+        assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
+        subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
+        coords = None
+        oriented = False
 
-    def require_cell_facets(self):
-        """Assigns `self.needs_cell_facets` to be `True` if facet integrals
-        are present.
-        """
-        self.needs_cell_facets = True
+        # Maps integral type to subdomain key
+        subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
+                         "exterior_facet_vert": "subdomains_exterior_facet",
+                         "interior_facet": "subdomains_interior_facet",
+                         "interior_facet_vert": "subdomains_interior_facet"}
+        for cxt_kernel in self.context_kernels:
+            local_coefficients = cxt_kernel.coefficients
+            it_type = cxt_kernel.original_integral_type
+            exp = cxt_kernel.tensor
 
-    def require_mesh_layers(self):
-        """Assigns `self.needs_mesh_layers` to be `True` if mesh levels are
-        needed.
-        """
-        self.needs_mesh_layers = True
+            if it_type not in self.supported_integral_types:
+                raise ValueError("Integral type '%s' not recognized" % it_type)
+
+            # Explicit checking of coordinates
+            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
+            if coords is not None:
+                assert coordinates == coords, "Mismatching coordinates!"
+            else:
+                coords = coordinates
+
+            for split_kernel in cxt_kernel.tsfc_kernels:
+                indices = split_kernel.indices
+                kinfo = split_kernel.kinfo
+                kint_type = kinfo.integral_type
+
+                args = [c for i in kinfo.coefficient_map
+                        for c in self.coefficient(local_coefficients[i])]
+
+                if kinfo.oriented:
+                    args.insert(0, self.cell_orientations_sym)
+
+                if kint_type in ["interior_facet",
+                                 "exterior_facet",
+                                 "interior_facet_vert",
+                                 "exterior_facet_vert"]:
+                    args.append(ast.FlatBlock("&%s" % self.it_sym))
+
+                # Assembly calls within the macro kernel
+                tensor = eigen_tensor(exp, self.temps[exp], indices)
+                call = ast.FunCall(kinfo.kernel.name,
+                                   tensor,
+                                   self.coord_sym,
+                                   *args)
+
+                # Subdomains only implemented for exterior facet integrals
+                if kinfo.subdomain_id != "otherwise":
+                    if kint_type not in subdomain_map:
+                        msg = "Subdomains for integral type '%s' not implemented" % kint_type
+                        raise NotImplementedError(msg)
+
+                    sd_id = kinfo.subdomain_id
+                    sd_key = subdomain_map[kint_type]
+                    subdomain_calls[sd_key].append((sd_id, call))
+                else:
+                    assembly_calls[it_type].append(call)
+
+                # Subkernels for local assembly (Eigen templated functions)
+                kast = transformer.visit(kinfo.kernel._ast)
+                templated_subkernels.append(kast)
+                include_dirs.extend(kinfo.kernel._include_dirs)
+                oriented = oriented or kinfo.oriented
+
+        # Add subdomain call to assembly dict
+        assembly_calls.update(subdomain_calls)
+
+        self.assembly_calls = assembly_calls
+        self.templated_subkernels = templated_subkernels
+        self.include_dirs = list(set(include_dirs))
+        self.oriented = oriented
 
     @cached_property
     def coefficient_map(self):
@@ -113,113 +259,33 @@ class KernelBuilder(object):
                        for cxt_k in cxt_tuple]
         return cxt_kernels
 
-    def construct_macro_kernel(self, name, args, statements):
-        """Constructs a macro kernel function that calls any subkernels.
-        The :class:`Transformer` is used to perform the conversion from
-        standard C into the Eigen C++ template library syntax.
+    @property
+    def integral_type(self):
+        """Returns the integral type associated with a Slate kernel."""
+        return "cell"
 
-        :arg name: a string denoting the name of the macro kernel.
-        :arg args: a list of arguments for the macro_kernel.
-        :arg statements: a `coffee.base.Block` of instructions, which contains
-                         declarations of temporaries, function calls to all
-                         subkernels and any auxilliary information needed to
-                         evaulate the Slate expression.
-                         E.g. facet integral loops and action loops.
+    @cached_property
+    def needs_cell_facets(self):
+        """Searches for any embedded forms (by inspecting the ContextKernels)
+        which require looping over cell facets. If any are found, this function
+        returns `True` and `False` otherwise.
         """
-        # all kernel body statements must be wrapped up as a coffee.base.Block
-        assert isinstance(statements, ast.Block), (
-            "Body statements must be wrapped in an ast.Block"
-        )
+        cell_facet_types = ["interior_facet",
+                            "exterior_facet",
+                            "interior_facet_vert",
+                            "exterior_facet_vert"]
+        return any(cxt_k.original_integral_type in cell_facet_types
+                   for cxt_k in self.context_kernels)
 
-        macro_kernel = ast.FunDecl("void", name, args,
-                                   statements, pred=["static", "inline"])
-        return macro_kernel
-
-    def _finalize_kernels_and_update(self):
-        """Prepares the kernel AST by transforming all outpute/input
-        references to Slate tensors with eigen references and updates
-        any orientation information.
+    @cached_property
+    def needs_mesh_layers(self):
+        """Searches for any embedded forms (by inspecting the ContextKernels)
+        which require mesh level information (extrusion measures). If any are
+        found, this function returns `True` and `False` otherwise.
         """
-        kernel_list = []
-        transformer = Transformer()
-        oriented = self.oriented
-
-        cxt_kernels = self.context_kernels
-        splitkernels = [splitkernel for cxt_k in cxt_kernels
-                        for splitkernel in cxt_k.tsfc_kernels]
-
-        for splitkernel in splitkernels:
-            oriented = oriented or splitkernel.kinfo.oriented
-            # TODO: Extend multiple domains support
-            if splitkernel.kinfo.subdomain_id != "otherwise":
-                raise NotImplementedError("Subdomains not implemented yet.")
-
-            kast = transformer.visit(splitkernel.kinfo.kernel._ast)
-            kernel_list.append(kast)
-
-        self.oriented = oriented
-        self.finalized_ast = kernel_list
-        self._is_finalized = True
-
-    def construct_ast(self, macro_kernels):
-        """Constructs the final kernel AST.
-
-        :arg macro_kernels: A `list` of macro kernel functions, which
-                            call subkernels and perform elemental
-                            linear algebra.
-
-        Returns: The complete kernel AST as a COFFEE `ast.Node`
-        """
-        assert isinstance(macro_kernels, list), (
-            "Please wrap all macro kernel functions in a list"
-        )
-        assert self._is_finalized, (
-            "AST not finalized. Did you forget to call "
-            "builder._finalize_kernels_and_update()?"
-        )
-        kernel_ast = self.finalized_ast
-        kernel_ast.extend(macro_kernels)
-
-        return ast.Node(kernel_ast)
-
-
-def generate_expr_data(expr):
-    """This function generates a mapping of the form:
-
-       ``temporaries = {node: symbol_name}``
-
-    where `node` objects are :class:`slate.TensorBase` nodes, and
-    `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
-    this function will return a list `aux_exprs` of any expressions that
-    require special handling in the compiler. This includes expressions
-    that require performing operations on already assembled data or
-    generating extra temporaries.
-
-    This mapping is used in the :class:`KernelBuilder` to provide direct
-    access to all temporaries associated with a particular slate expression.
-
-    :arg expression: a :class:`slate.TensorBase` object.
-
-    Returns: the terminal temporaries map and auxiliary temporaries.
-    """
-    # Prepare temporaries map and auxiliary expressions list
-    # NOTE: Ordering here matters, especially when running
-    # Slate in parallel.
-    temps = OrderedDict()
-    aux_exprs = []
-    for tensor in traverse_dags([expr]):
-        if isinstance(tensor, Tensor):
-            temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
-
-        elif isinstance(tensor, TensorOp):
-            # For Action, we need to declare a temporary later on for the
-            # acting coefficient. For inverses, we may declare additional
-            # temporaries (depending on reference count).
-            if isinstance(tensor, (Action, Inverse)):
-                aux_exprs.append(tensor)
-
-    # Aux expressions are visited pre-order. We want to declare as if we'd
-    # visited post-order (child temporaries first), so reverse.
-    aux_exprs = list(OrderedDict.fromkeys(reversed(aux_exprs)))
-
-    return temps, aux_exprs
+        mesh_layer_types = ["interior_facet_horiz_top",
+                            "interior_facet_horiz_bottom",
+                            "exterior_facet_bottom",
+                            "exterior_facet_top"]
+        return any(cxt_k.original_integral_type in mesh_layer_types
+                   for cxt_k in self.context_kernels)

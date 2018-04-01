@@ -84,6 +84,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
                This should be a dict mapping PETSc options to values.
+        :kwarg appctx: A dictionary containing application context that
+               is passed to the preconditioner if matrix-free.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -171,7 +173,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
-        ctx.set_jacobian(self.snes)
+        ctx.set_jacobian(self.snes, self.options_prefix)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
@@ -184,8 +186,22 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         # DM with an app context in place so that if the DM is active
         # on a subKSP the context is available.
         dm = self.snes.getDM()
-        dmhooks.set_appctx(dm, self._ctx)
-        self.set_from_options(self.snes)
+        with dmhooks.appctx(dm, self._ctx):
+            self.set_from_options(self.snes)
+
+        # Used for custom grid transfer.
+        self._transfer_operators = None
+        self._setup = False
+
+    def set_transfer_operators(self, contextmanager):
+        """Set a context manager which manages which grid transfer operators should be used.
+
+        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :raises RuntimeError: if called after calling solve.
+        """
+        if self._setup:
+            raise RuntimeError("Cannot set transfer operators after solve")
+        self._transfer_operators = contextmanager
 
     def solve(self, bounds=None):
         """Solve the variational problem.
@@ -201,7 +217,6 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         """
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
-        dmhooks.set_appctx(dm, self._ctx)
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
@@ -212,12 +227,17 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
         # Ensure options database has full set of options (so monitors work right)
-        with self.inserted_options():
+        with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
             with self._problem.u.dat.vec as u:
                 u.copy(work)
-                self.snes.solve(None, work)
+                if self._transfer_operators is not None:
+                    with self._transfer_operators:
+                        self.snes.solve(None, work)
+                else:
+                    self.snes.solve(None, work)
                 work.copy(u)
 
+        self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
 
@@ -275,6 +295,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg appctx: A dictionary containing application context that
+               is passed to the preconditioner if matrix-free.
         """
         parameters = {}
         parameters.update(kwargs.get("solver_parameters", {}))

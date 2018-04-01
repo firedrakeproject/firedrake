@@ -56,11 +56,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'hdiv_residual': {'ksp_type': 'cg',
-                                                  'ksp_rtol': 1e-14},
-                                'hdiv_projection': {'ksp_type': 'cg',
-                                                    'ksp_rtol': 1e-14}}}
+                                'pc_type': 'lu'}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 

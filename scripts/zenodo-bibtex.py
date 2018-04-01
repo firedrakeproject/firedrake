@@ -77,7 +77,8 @@ try:
     assert firedrake_tag[18] == "."
     digits = map(str, range(10))
     assert all([a in digits for a in (firedrake_tag[10:18] + firedrake_tag[19:])])
-except:
+except:                    # noqa: E722
+    # We really want to swallow everything here
     fail("400 Bad Request", "%s is not a legal Firedrake release tag" % firedrake_tag)
 
 # Use sed to insert OAUTH token on next line before uploading to web server.

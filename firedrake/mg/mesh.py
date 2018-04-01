@@ -12,7 +12,8 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
 
 
 class MeshHierarchy(object):
-    def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None):
+    def __init__(self, m, refinement_levels, refinements_per_level=1, reorder=None,
+                 distribution_parameters=None, callbacks=None):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
         :arg m: the coarse :func:`~.Mesh` to refine
@@ -21,10 +22,16 @@ class MeshHierarchy(object):
             level in the resulting hierarchy.  Note that the
             intermediate meshes are still kept, but iteration over the
             mesh hierarchy skips them.
+        :arg distribution_parameters: options controlling mesh
+            distribution, see :func:`~.Mesh` for details.
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
+        :arg callbacks: A 2-tuple of callbacks to call before and
+            after refinement of the DM.  The before callback receives
+            the DM to be refined (and the current level), the after
+            callback receives the refined DM (and the current level).
         """
-        from firedrake.citations import Citations
+        from firedrake_citations import Citations
         Citations().register("Mitchell2016")
         if m.ufl_cell().cellname() not in ["triangle", "interval"]:
             raise NotImplementedError("Only supported on intervals and triangles")
@@ -38,8 +45,19 @@ class MeshHierarchy(object):
         fpoint_ises = []
         if m.comm.size > 1 and m._grown_halos:
             raise RuntimeError("Cannot refine parallel overlapped meshes (make sure the MeshHierarchy is built immediately after the Mesh)")
+        if distribution_parameters is None:
+            distribution_parameters = {}
+        distribution_parameters.update({"partition": False})
+
+        if callbacks is not None:
+            before, after = callbacks
+        else:
+            before = after = lambda dm, i: None
+
         for i in range(refinement_levels*refinements_per_level):
+            before(cdm, i)
             rdm = cdm.refine()
+            after(rdm, i)
             fpoint_ises.append(cdm.createCoarsePointIS())
             # Remove interior facet label (re-construct from
             # complement of exterior facets).  Necessary because the
@@ -51,10 +69,9 @@ class MeshHierarchy(object):
             # facets.  Interior facets will be relabeled in Mesh
             # construction below.
             impl.filter_exterior_facet_labels(rdm)
-            rdm.removeLabel("op2_core")
-            rdm.removeLabel("op2_non_core")
-            rdm.removeLabel("op2_exec_halo")
-            rdm.removeLabel("op2_non_exec_halo")
+            rdm.removeLabel("pyop2_core")
+            rdm.removeLabel("pyop2_owned")
+            rdm.removeLabel("pyop2_ghost")
 
             dm_hierarchy.append(rdm)
             cdm = rdm
@@ -69,15 +86,18 @@ class MeshHierarchy(object):
                 coords *= scale
 
         hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),
-                                     distribute=False, reorder=reorder)
+                                     distribution_parameters=distribution_parameters,
+                                     reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
-        for m in hierarchy:
+        for i, m in enumerate(hierarchy):
             m._non_overlapped_lgmap = impl.create_lgmap(m._plex)
             m._non_overlapped_nent = []
             for d in range(m._plex.getDimension()+1):
                 m._non_overlapped_nent.append(m._plex.getDepthStratum(d))
             m.init()
             m._overlapped_lgmap = impl.create_lgmap(m._plex)
+            # Tag that this is from a refined mesh
+            m._plex.setRefineLevel(i)
 
         # On coarse mesh n, a map of consistent cell orientations and
         # vertex permutations for the fine cells on each coarse cell.

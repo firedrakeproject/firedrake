@@ -1,6 +1,8 @@
-from pyop2.utils import maybe_setflags
+from pyop2 import op2
+from pyop2 import utils
 from mpi4py import MPI
 
+from firedrake.petsc import PETSc
 import firedrake.dmplex as dmplex
 
 
@@ -33,20 +35,27 @@ def _get_mtype(dat):
         return typ
 
 
-class Halo(object):
+class Halo(op2.Halo):
     """Build a Halo for a function space.
 
-    :arg dm:  The DM describing the data layout (has a Section attached).
+    :arg dm:  The DMPlex describing the topology.
+    :arg section: The data layout.
 
     The halo is implemented using a PETSc SF (star forest) object and
     is usable as a PyOP2 :class:`pyop2.Halo`."""
 
-    def __init__(self, dm):
-        lsec = dm.getDefaultSection()
-        gsec = dm.getDefaultGlobalSection()
-        dm.createDefaultSF(lsec, gsec)
-        sf = dm.getDefaultSF()
+    def __init__(self, dm, section):
+        super(Halo, self).__init__()
+        # Use a DM to create the halo SFs
+        self.dm = PETSc.DMShell().create(dm.comm)
+        self.dm.setPointSF(dm.getPointSF())
+        self.dm.setDefaultSection(section)
 
+    @utils.cached_property
+    def sf(self):
+        lsec = self.dm.getDefaultSection()
+        gsec = self.dm.getDefaultGlobalSection()
+        self.dm.createDefaultSF(lsec, gsec)
         # The full SF is designed for GlobalToLocal or LocalToGlobal
         # where the input and output buffers are different.  So on the
         # local rank, it copies data from input to output.  However,
@@ -54,50 +63,52 @@ class Halo(object):
         # (so we don't need to do the local copy).  To facilitate
         # this, prune the SF to remove all the roots that reference
         # the local rank.
-        self.sf = dmplex.prune_sf(sf)
-        self.comm = self.sf.comm.tompi4py()
-        self.sf.setFromOptions()
-        if self.sf.getType() != self.sf.Type.BASIC:
+        sf = dmplex.prune_sf(self.dm.getDefaultSF())
+        sf.setFromOptions()
+        if sf.getType() != sf.Type.BASIC:
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
-        if self.comm.size == 1:
-            self._gnn2unn = None
-        self._gnn2unn = dmplex.make_global_numbering(lsec, gsec)
+        return sf
 
-    def begin(self, dat, reverse=False):
-        """Begin a halo exchange.
+    @utils.cached_property
+    def comm(self):
+        return self.dm.comm.tompi4py()
 
-        :arg dat: The :class:`pyop2.Dat` to start a halo exchange on.
-        :arg reverse: (optional) perform a reverse halo exchange.
+    @utils.cached_property
+    def local_to_global_numbering(self):
+        lsec = self.dm.getDefaultSection()
+        gsec = self.dm.getDefaultGlobalSection()
+        return dmplex.make_global_numbering(lsec, gsec)
 
-        .. note::
-
-           If ``reverse`` is ``True`` then the input buffer
-           may not be touched before calling :meth:`.end`."""
-        if self.comm.size == 1:
-            return
-        mtype = _get_mtype(dat)
-        dmplex.halo_begin(self.sf, dat, mtype, reverse)
-
-    def end(self, dat, reverse=False):
-        """End a halo exchange.
-
-        :arg dat: The :class:`pyop2.Dat` to end a halo exchange on.
-        :arg reverse: (optional) perform a reverse halo exchange.
-
-        See also :meth:`.begin`."""
+    def global_to_local_begin(self, dat, insert_mode):
+        assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
             return
         mtype = _get_mtype(dat)
-        maybe_setflags(dat._data, write=True)
-        dmplex.halo_end(self.sf, dat, mtype, reverse)
-        maybe_setflags(dat._data, write=False)
+        dmplex.halo_begin(self.sf, dat, mtype, False)
 
-    def verify(self, *args):
-        """No-op"""
-        pass
+    def global_to_local_end(self, dat, insert_mode):
+        assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
+        if self.comm.size == 1:
+            return
+        mtype = _get_mtype(dat)
+        dmplex.halo_end(self.sf, dat, mtype, False)
 
-    @property
-    def global_to_petsc_numbering(self):
-        """Return a mapping from global (process-local) to universal
-    (process-global) numbers"""
-        return self._gnn2unn
+    def local_to_global_begin(self, dat, insert_mode):
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
+        if self.comm.size == 1:
+            return
+        mtype = _get_mtype(dat)
+        op = {op2.INC: MPI.SUM,
+              op2.MIN: MPI.MIN,
+              op2.MAX: MPI.MAX}[insert_mode]
+        dmplex.halo_begin(self.sf, dat, mtype, True, op=op)
+
+    def local_to_global_end(self, dat, insert_mode):
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
+        if self.comm.size == 1:
+            return
+        mtype = _get_mtype(dat)
+        op = {op2.INC: MPI.SUM,
+              op2.MIN: MPI.MIN,
+              op2.MAX: MPI.MAX}[insert_mode]
+        dmplex.halo_end(self.sf, dat, mtype, True, op=op)

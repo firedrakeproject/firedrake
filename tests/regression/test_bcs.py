@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.mesh import _from_cell_list as create_dm
+from pyop2.datatypes import IntType
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -396,6 +398,57 @@ def test_shared_expression_bc(mesh):
 
         assert np.allclose(np.unique(f.dat.data), [0, t])
         assert np.allclose(g.dat.data, f.dat.data)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bc_nodes_cover_ghost_dofs():
+    #         4
+    #    +----+----+
+    #    |\ 1 | 2 /
+    #  1 | \  |  / 2
+    #    |  \ | /
+    #    | 0 \|/
+    #    +----+
+    #      3
+    # Rank 0 gets cell 0
+    # Rank 1 gets cells 1 & 2
+    dm = create_dm(2, [[0, 1, 2],
+                       [1, 2, 3],
+                       [1, 3, 4]],
+                   [[0, 0],
+                    [1, 0],
+                    [0, 1],
+                    [0.5, 1],
+                    [1, 1]],
+                   COMM_WORLD)
+
+    dm.createLabel("Face Sets")
+
+    if dm.comm.rank == 0:
+        dm.setLabelValue("Face Sets", 14, 2)
+        dm.setLabelValue("Face Sets", 13, 4)
+        dm.setLabelValue("Face Sets", 11, 4)
+        dm.setLabelValue("Face Sets", 10, 1)
+        dm.setLabelValue("Face Sets", 8, 3)
+
+    if dm.comm.rank == 0:
+        sizes = np.asarray([1, 2], dtype=IntType)
+        points = np.asarray([0, 1, 2], dtype=IntType)
+    else:
+        sizes = None
+        points = None
+
+    mesh = Mesh(dm, reorder=False, distribution_parameters={"partition":
+                                                            (sizes, points)})
+
+    V = FunctionSpace(mesh, "CG", 1)
+
+    bc = DirichletBC(V, 0, 2)
+
+    if mesh.comm.rank == 0:
+        assert np.allclose(bc.nodes, [1])
+    else:
+        assert np.allclose(bc.nodes, [1, 2])
 
 
 if __name__ == '__main__':

@@ -27,6 +27,8 @@ firedrake_apps = {
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "pyadjoint": ("""New generation adjoint. https://bitbucket.org/dolfin-adjoint/pyadjoint""",
                   "git+ssh://bitbucket.org/dolfin-adjoint/pyadjoint.git#egg=pyadjoint"),
+    "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
+                "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
 }
 
 
@@ -321,6 +323,8 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
+petsc_opts += "--with-fortran-bindings=0 "
+
 if options["minimal_petsc"]:
     if options["petsc_int_type"] == "int64":
         petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-pragmatic --with-64-bit-indices"""
@@ -328,9 +332,10 @@ if options["minimal_petsc"]:
         petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5 --download-pragmatic"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-pragmatic --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --download-pragmatic --with-64-bit-indices"""
     else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-pragmatic"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-pnetcdf --download-exodusii --download-pragmatic"""
+
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
@@ -389,7 +394,7 @@ def apt_check(name):
         check_call(["dpkg-query", "-s", name])
         log.info("  installed.")
         return True
-    except:
+    except subprocess.CalledProcessError:
         log.info("  missing.")
         return False
 
@@ -433,10 +438,10 @@ def git_clone(url):
         branch = branches[name]
     try:
         if options["disable_ssh"]:
-            raise Exception
+            raise InstallError("Skipping ssh clone because --disable-ssh")
         check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
         log.info("Successfully cloned repository %s" % name)
-    except:
+    except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
@@ -734,10 +739,23 @@ def build_and_install_slepc():
         log.info("Using installed SLEPc from %s/%s", slepc_dir, slepc_arch)
     else:
         log.info("Installing SLEPc.")
+        url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
         if os.path.exists("slepc"):
-            slepc_changed = git_update("slepc")
+            slepc_changed = False
+            with directory("slepc"):
+                plain_url = split_requirements_url(url)[1]
+                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                proto = "https" if current_remote.startswith("https") else "ssh"
+                new_remote = git_url(plain_url, proto)
+                if new_remote != current_remote:
+                    log.info("Updating git remote for SLEPc from %s to %s", current_remote, new_remote)
+                    check_call(["git", "remote", "set-url", "origin", new_remote])
+                    check_call(["git", "fetch", "-p", "origin"])
+                    check_call(["git", "checkout", "firedrake"])
+                    slepc_changed = True
+            slepc_changed |= git_update("slepc")
         else:
-            git_clone("git+https://bitbucket.org/slepc/slepc.git")
+            git_clone(url)
             slepc_changed = True
         if slepc_changed:
             install("slepc/")
@@ -745,10 +763,23 @@ def build_and_install_slepc():
             log.info("No need to rebuild SLEPc")
 
     log.info("Installing slepc4py.")
+    url = "git+https://github.com/firedrakeproject/slepc4py.git@firedrake"
     if os.path.exists("slepc4py"):
-        slepc4py_changed = git_update("slepc4py")
+        slepc4py_changed = False
+        with directory("slepc4py"):
+                plain_url = split_requirements_url(url)[1]
+                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                proto = "https" if current_remote.startswith("https") else "ssh"
+                new_remote = git_url(plain_url, proto)
+                if new_remote != current_remote:
+                    log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
+                    check_call(["git", "remote", "set-url", "origin", new_remote])
+                    check_call(["git", "fetch", "-p", "origin"])
+                    check_call(["git", "checkout", "firedrake"])
+                    slepc4py_changed = True
+        slepc4py_changed |= git_update("slepc4py")
     else:
-        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+        git_clone(url)
         slepc4py_changed = True
     if slepc4py_changed:
         install("slepc4py/")
@@ -834,7 +865,7 @@ def build_update_script():
 
     try:
         os.mkdir("../bin")
-    except:
+    except OSError:
         pass
     with open("../bin/firedrake-update", "w") as f:
         f.write(update_script)
@@ -898,7 +929,7 @@ if mode == "install" or not args.update_script:
 
             try:
                 check_call(["brew", "--version"])
-            except:
+            except subprocess.CalledProcessError:
                 quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
             log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
@@ -1144,7 +1175,7 @@ try:
 except Exception as e:
     log.warning("Unable to save configuration to a JSON file")
     log.warning("Error Message:")
-    log.warning(e.message)
+    log.warning(str(e))
 
 if mode == "update":
     try:
@@ -1155,7 +1186,7 @@ if mode == "update":
         print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
-    except:
+    except:                     # noqa: E722
         # Unconditional except in order to avoid upgrade script failures.
         log.error("Failed to clear caches. Try running firedrake-clean.")
 

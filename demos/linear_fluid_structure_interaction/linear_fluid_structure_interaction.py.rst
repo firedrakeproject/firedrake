@@ -307,12 +307,11 @@ A python script version of this demo can be found `here <linear_fluid_structure_
 
 The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
 
+An extended 3D version of this code is published `here <https://zenodo.org/record/1162196>`__.
+
 .. rst-class:: emphasis
 
-   The work is based on the article "Variational modelling of
-   wave-structure interactions with an offshore wind-turbine mast" by
-   Tomasz Salwa, Onno Bokhove and Mark Kelmanson
-   :cite:`Salwa:2017`. The authors gratefully acknowledge funding from
+   The work is based on the articles :cite:`Salwa:2017` and :cite:`Salwa:2016`. The authors gratefully acknowledge funding from
    European Commission, Marie Curie Actions - Initial Training
    Networks (ITN), project number 607596.
 

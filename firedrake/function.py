@@ -443,7 +443,7 @@ class Function(ufl.Coefficient):
         # Store data into ``C struct''
         c_function = _CFunction()
         c_function.n_cols = mesh.num_cells()
-        if hasattr(mesh, '_layers'):
+        if mesh.layers is not None:
             c_function.n_layers = mesh.layers - 1
         else:
             c_function.n_layers = 1
@@ -489,6 +489,8 @@ class Function(ufl.Coefficient):
         """
         # Need to ensure data is up-to-date for reading
         self.dat._force_evaluation(read=True, write=False)
+        self.dat.global_to_local_begin(op2.READ)
+        self.dat.global_to_local_end(op2.READ)
         from mpi4py import MPI
 
         if args:
@@ -502,9 +504,12 @@ class Function(ufl.Coefficient):
         if not arg.shape:
             arg = arg.reshape(-1)
 
+        mesh = self.function_space().mesh()
+        if mesh.variable_layers:
+            raise NotImplementedError("Point evaluation not implemented for variable layers")
         # Immersed not supported
-        tdim = self.function_space().mesh().ufl_cell().topological_dimension()
-        gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        tdim = mesh.ufl_cell().topological_dimension()
+        gdim = mesh.ufl_cell().geometric_dimension()
         if tdim < gdim:
             raise NotImplementedError("Point is almost certainly not on the manifold.")
 
@@ -606,7 +611,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.base import build_itspace
     from pyop2.sequential import generate_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -616,15 +620,15 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     args = []
 
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
     arg.position = 0
     args.append(arg)
 
-    arg = function.dat(op2.READ, function.cell_node_map())
+    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
     arg.position = 1
     args.append(arg)
 
-    src += generate_cell_wrapper(build_itspace(args, mesh.cell_set), args,
+    src += generate_cell_wrapper(mesh.cell_set, args,
                                  forward_args=["double*", "double*"],
                                  kernel_name="evaluate_kernel",
                                  wrapper_name="wrap_evaluate")

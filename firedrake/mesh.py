@@ -6,15 +6,18 @@ import ufl
 import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
+import enum
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
+from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
-from pyop2.utils import as_tuple
+from pyop2.utils import as_tuple, tuplify
 
 import firedrake.dmplex as dmplex
 import firedrake.expression as expression
+import firedrake.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
@@ -24,7 +27,8 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
+           'DistributedMeshOverlapType']
 
 
 _cells = {
@@ -38,6 +42,25 @@ unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
 
+class DistributedMeshOverlapType(enum.Enum):
+    """How should the mesh overlap be grown for distributed meshes?
+
+    Possible options are:
+
+     - :attr:`NONE`:  Don't overlap distributed meshes, only useful for problems with
+              no interior facet integrals.
+     - :attr:`FACET`: Add ghost entities in the closure of the star of
+              facets.
+     - :attr:`VERTEX`: Add ghost entities in the closure of the star
+              of vertices.
+
+    Defaults to :attr:`FACET.
+    """
+    NONE = 1
+    FACET = 2
+    VERTEX = 3
+
+
 class _Facets(object):
     """Wrapper class for facet interation information on a :func:`Mesh`
 
@@ -49,7 +72,7 @@ class _Facets(object):
 
         self.mesh = mesh
 
-        classes = as_tuple(classes, int, 4)
+        classes = as_tuple(classes, int, 3)
         self.classes = classes
 
         self.kind = kind
@@ -76,11 +99,15 @@ class _Facets(object):
     def set(self):
         size = self.classes
         if isinstance(self.mesh, ExtrudedMeshTopology):
-            if self.kind == "interior":
-                base = self.mesh._base_mesh.interior_facets.set
+            label = "%s_facets" % self.kind
+            layers = self.mesh.entity_layers(1, label)
+            if self.mesh.variable_layers:
+                masks = extnum.facet_entity_masks(self.mesh, layers, label)
             else:
-                base = self.mesh._base_mesh.exterior_facets.set
-            return op2.ExtrudedSet(base, layers=self.mesh.layers)
+                masks = None
+            base = getattr(self.mesh._base_mesh, label).set
+            return op2.ExtrudedSet(base, layers=layers,
+                                   masks=masks)
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
@@ -143,14 +170,14 @@ class _Facets(object):
         :param markers: integer marker id or an iterable of marker ids
             (or ``None``, for an empty subset).
         """
-        if self.markers is None:
-            return self._null_subset
+        valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, int)
+        if self.markers is None and valid_markers.intersection(markers):
+            return self._null_subset
         try:
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            valid_markers = set([unmarked]).union(self.unique_markers)
             if len(set(markers).difference(valid_markers)) > 0:
                 invalid = set(markers).difference(valid_markers)
                 raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
@@ -225,11 +252,11 @@ def _from_triangle(filename, dim, comm):
         try:
             facetfile = open(basename+".face")
             tdim = 3
-        except:
+        except FileNotFoundError:
             try:
                 facetfile = open(basename+".edge")
                 tdim = 2
-            except:
+            except FileNotFoundError:
                 facetfile = None
                 tdim = 1
         if dim is None:
@@ -319,15 +346,44 @@ class MeshTopology(object):
     """A representation of mesh topology."""
 
     @timed_function("CreateMesh")
-    def __init__(self, plex, name, reorder, distribute):
+    def __init__(self, plex, name, reorder, distribution_parameters):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
-        :arg distribute: whether to distribute the mesh to parallel processes
+        :arg distribution_parameters: options controlling mesh
+            distribution, see :func:`Mesh` for details.
         """
         # Do some validation of the input mesh
+        distribute = distribution_parameters.get("partition")
+        if distribute is None:
+            distribute = True
+
+        overlap_type, overlap = distribution_parameters.get("overlap_type",
+                                                            (DistributedMeshOverlapType.FACET, 1))
+
+        if overlap < 0:
+            raise ValueError("Overlap depth must be >= 0")
+        if overlap_type == DistributedMeshOverlapType.NONE:
+            def add_overlap():
+                pass
+            if overlap > 0:
+                raise ValueError("Can't have NONE overlap with overlap > 0")
+        elif overlap_type == DistributedMeshOverlapType.FACET:
+            def add_overlap():
+                dmplex.set_adjacency_callback(self._plex)
+                self._plex.distributeOverlap(overlap)
+                dmplex.clear_adjacency_callback(self._plex)
+                self._grown_halos = True
+        elif overlap_type == DistributedMeshOverlapType.VERTEX:
+            def add_overlap():
+                # Default is FEM (vertex star) adjacency.
+                self._plex.distributeOverlap(overlap)
+                self._grown_halos = True
+        else:
+            raise ValueError("Unknown overlap type %r" % overlap_type)
+
         dmplex.validate_mesh(plex)
         utils._init()
 
@@ -356,6 +412,12 @@ class MeshTopology(object):
             if IntType.itemsize == 8:
                 # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
                 partitioner.setType(partitioner.Type.PARMETIS)
+            try:
+                sizes, points = distribute
+                partitioner.setType(partitioner.Type.SHELL)
+                partitioner.setShellPartition(self.comm.size, sizes, points)
+            except TypeError:
+                pass
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
@@ -373,8 +435,7 @@ class MeshTopology(object):
             """Finish initialisation."""
             del self._callback
             if self.comm.size > 1:
-                self._plex.distributeOverlap(1)
-            self._grown_halos = True
+                add_overlap()
 
             if reorder:
                 with timed_region("Mesh: reorder"):
@@ -398,19 +459,22 @@ class MeshTopology(object):
                 entity_dofs = np.zeros(dim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
-                self._cell_numbering = self._plex.createSection([1], entity_dofs,
-                                                                perm=self._plex_renumbering)
+                self._cell_numbering = self.create_section(entity_dofs)
                 entity_dofs[:] = 0
                 entity_dofs[0] = 1
-                self._vertex_numbering = self._plex.createSection([1], entity_dofs,
-                                                                  perm=self._plex_renumbering)
+                self._vertex_numbering = self.create_section(entity_dofs)
 
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
-                facet_numbering = self._plex.createSection([1], entity_dofs,
-                                                           perm=self._plex_renumbering)
+                facet_numbering = self.create_section(entity_dofs)
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
+
+    layers = None
+    """No layers on unstructured mesh"""
+
+    variable_layers = False
+    """No variable layers on unstructured mesh"""
 
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
@@ -433,10 +497,6 @@ class MeshTopology(object):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
-
-    @property
-    def layers(self):
-        return None
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
@@ -471,7 +531,7 @@ class MeshTopology(object):
                                            cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake.citations import Citations
+            from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
@@ -538,28 +598,47 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_to_facets(self):
-        """Return a :class:`op2.Dat` that maps from a cell index to the local
-        facet types on each cell.
+        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        facet types on each cell, including the relevant subdomain markers.
 
-        The i-th local facet is exterior if the value of this array is :data:`0`
-        and interior if the value is :data:`1`.
+        The `i`-th local facet on a cell with index `c` has data
+        `cell_facet[c][i]`. The local facet is exterior if
+        `cell_facet[c][i][0] == 0`, and interior if the value is `1`.
+        The value `cell_facet[c][i][1]` returns the subdomain marker of the
+        facet.
         """
         cell_facets = dmplex.cell_facet_labeling(self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
-        nfacet = cell_facets.shape[1]
-        return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
+        dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
-    def make_cell_node_list(self, global_numbering, entity_dofs):
+    def create_section(self, nodes_per_entity):
+        """Create a PETSc Section describing a function space.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: a new PETSc Section.
+        """
+        return dmplex.create_section(self, nodes_per_entity)
+
+    def node_classes(self, nodes_per_entity):
+        """Compute node classes given nodes per entity.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: the number of nodes in each of core, owned, and ghost classes.
+        """
+        return tuple(np.dot(nodes_per_entity, self._entity_classes))
+
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     entity_dofs)
+        return dmplex.get_cell_nodes(self, global_numbering,
+                                     entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -713,7 +792,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
-        from firedrake.citations import Citations
+        from firedrake_citations import Citations
         Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
@@ -721,13 +800,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
         mesh.init()
         self._base_mesh = mesh
-        if layers < 1:
-            raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
         self.comm = mesh.comm
-        # All internal logic works with layers of base mesh (not layers of cells)
-        self._layers = layers + 1
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -736,6 +809,28 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
+        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        if layers.shape:
+            self.variable_layers = True
+            extents = extnum.layer_extents(self._plex,
+                                           self._cell_numbering,
+                                           layers)
+            if np.any(extents[:, 3] - extents[:, 2] <= 0):
+                raise NotImplementedError("Vertically disconnected cells unsupported")
+            self.layer_extents = extents
+            """The layer extents for all mesh points.
+
+            For variable layers, the layer extent does not match those for cells.
+            A numpy array of layer extents (in PyOP2 format
+            :math:`[start, stop)`), of shape ``(num_mesh_points, 4)`` where
+            the first two extents are used for allocation and the last
+            two for iteration.
+            """
+            masks = extnum.cell_entity_masks(self)
+        else:
+            self.variable_layers = False
+            masks = None
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, masks=masks)
 
     @property
     def name(self):
@@ -760,41 +855,43 @@ class ExtrudedMeshTopology(MeshTopology):
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
-    def make_cell_node_list(self, global_numbering, entity_dofs):
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg offsets: layer offsets for each entity dof.
         """
-        flat_entity_dofs = {}
-        for b, v in entity_dofs:
-            # v in [0, 1].  Only look at the ones, then grab the data from zeros.
-            if v == 0:
-                continue
-            flat_entity_dofs[b] = {}
-            for i in entity_dofs[(b, v)]:
-                # This line is fairly magic.
-                # It works because an interval has two points.
-                # We pick up the DoFs from the bottom point,
-                # then the DoFs from the interior of the interval,
-                # then finally the DoFs from the top point.
-                flat_entity_dofs[b][i] = \
-                    entity_dofs[(b, 0)][2*i] + entity_dofs[(b, 1)][i] + entity_dofs[(b, 0)][2*i+1]
-
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     flat_entity_dofs)
+        entity_dofs = eutils.flat_entity_dofs(entity_dofs)
+        return super().make_cell_node_list(global_numbering, entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
         i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
 
+        each entry is a 2-tuple giving the number of dofs on, and
+        above the given plex entity.
+
         :arg entity_dofs: FInAT element entity DoFs
+
         """
-        dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
+        dofs_per_entity = np.zeros((1 + self._base_mesh.cell_dimension(), 2), dtype=IntType)
         for (b, v), entities in entity_dofs.items():
-            dofs_per_entity[b] += (self.layers - v) * len(entities[0])
-        return dofs_per_entity
+            dofs_per_entity[b, v] += len(entities[0])
+        return tuplify(dofs_per_entity)
+
+    def node_classes(self, nodes_per_entity):
+        """Compute node classes given nodes per entity.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: the number of nodes in each of core, owned, and ghost classes.
+        """
+        if self.variable_layers:
+            return extnum.node_classes(self, nodes_per_entity)
+        else:
+            nodes = np.asarray(nodes_per_entity)
+            nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
+            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
     def make_offset(self, entity_dofs, ndofs):
         """Returns the offset between the neighbouring cells of a
@@ -814,11 +911,31 @@ class ExtrudedMeshTopology(MeshTopology):
                     dof_offset[i] = entity_offset[b]
         return dof_offset
 
-    @property
+    @utils.cached_property
     def layers(self):
         """Return the number of layers of the extruded mesh
         represented by the number of occurences of the base mesh."""
-        return self._layers
+        if self.variable_layers:
+            raise ValueError("Can't ask for mesh layers with variable layers")
+        else:
+            return self.cell_set.layers
+
+    def entity_layers(self, height, label=None):
+        """Return the number of layers on each entity of a given plex
+        height.
+
+        :arg height: The height of the entity to compute the number of
+           layers (0 -> cells, 1 -> facets, etc...)
+        :arg label: An optional label name used to select points of
+           the given height (if None, then all points are used).
+        :returns: a numpy array of the number of layers on the asked
+           for entities (or a single layer number for the constant
+           layer case).
+        """
+        if self.variable_layers:
+            return extnum.entity_layers(self, height, label)
+        else:
+            return self.cell_set.layers
 
     def cell_dimension(self):
         """Returns the cell dimension."""
@@ -834,10 +951,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         """
         return (self._base_mesh.facet_dimension(), 1)
-
-    @utils.cached_property
-    def cell_set(self):
-        return op2.ExtrudedSet(self._base_mesh.cell_set, layers=self.layers)
 
     def _order_data_by_cell_index(self, column_list, cell_data):
         cell_list = []
@@ -983,6 +1096,8 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
+        if self.variable_layers:
+            raise NotImplementedError("Cell location not implemented for variable layers")
         x = np.asarray(x, dtype=np.float)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
@@ -1113,6 +1228,18 @@ def Mesh(meshfile, **kwargs):
            meshes for better cache locality.  If not supplied the
            default value in ``parameters["reorder_meshes"]``
            is used.
+    :param distribution_parameters:  an optional dictionary of options for
+           parallel mesh distribution.  Supported keys are:
+
+             - ``"partition"``: which may take the value ``None`` (use
+                 the default choice), ``False`` (do not) ``True``
+                 (do), or a 2-tuple that specifies a partitioning of
+                 the cells (only really useful for debugging).
+             - ``"overlap_type"``: a 2-tuple indicating how to grow
+                 the mesh overlap.  The first entry should be a
+                 :class:`DistributedMeshOverlapType` instance, the
+                 second the number of levels of overlap.
+
     :param comm: the communicator to use when creating the mesh.  If
            not supplied, then the mesh will be created on COMM_WORLD.
            Ignored if ``meshfile`` is a DMPlex object (in which case
@@ -1153,7 +1280,10 @@ def Mesh(meshfile, **kwargs):
     reorder = kwargs.get("reorder", None)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
-    distribute = kwargs.get("distribute", True)
+
+    distribution_parameters = kwargs.get("distribution_parameters", None)
+    if distribution_parameters is None:
+        distribution_parameters = {}
 
     if isinstance(meshfile, PETSc.DMPlex):
         name = "plexmesh"
@@ -1176,7 +1306,8 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
 
     # Create mesh topology
-    topology = MeshTopology(plex, name=name, reorder=reorder, distribute=distribute)
+    topology = MeshTopology(plex, name=name, reorder=reorder,
+                            distribution_parameters=distribution_parameters)
 
     tcell = topology.ufl_cell()
     if geometric_dim is None:
@@ -1216,11 +1347,17 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
     :arg mesh:           the unstructured base mesh
     :arg layers:         number of extruded cell layers in the "vertical"
-                         direction.
+                         direction.  One may also pass an array of
+                         shape (cells, 2) to specify a variable number
+                         of layers.  In this case, each entry is a pair
+                         ``[a, b]`` where ``a`` indicates the starting
+                         cell layer of the column and ``b`` the number
+                         of cell layers in that column.
     :arg layer_height:   the layer height, assuming all layers are evenly
                          spaced. If this is omitted, the value defaults to
                          1/layers (i.e. the extruded mesh has total height 1.0)
-                         unless a custom kernel is used.
+                         unless a custom kernel is used.  Must be
+                         provided if using a variable number of layers.
     :arg extrusion_type: the algorithm to employ to calculate the extruded
                          coordinates. One of "uniform", "radial",
                          "radial_hedgehog" or "custom". See below.
@@ -1260,6 +1397,22 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     import firedrake.function as function
 
     mesh.init()
+    layers = np.asarray(layers, dtype=IntType)
+    if layers.shape:
+        if layers.shape != (mesh.cell_set.total_size, 2):
+            raise ValueError("Must provide single layer number or array of shape (%d, 2), not %s",
+                             mesh.cell_set.total_size, layers.shape)
+        if layer_height is None:
+            raise ValueError("Must provide layer height for variable layers")
+        # Convert to internal representation
+        layers[:, 1] += 1 + layers[:, 0]
+    else:
+        if layer_height is None:
+            # Default to unit
+            layer_height = 1 / layers
+        # All internal logic works with layers of base mesh (not layers of cells)
+        layers = layers + 1
+
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 
     if extrusion_type == "uniform":
@@ -1275,11 +1428,6 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # otherwise, use the gdim that was passed in
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
-
-    # Compute Coordinates of the extruded mesh
-    if layer_height is None:
-        # Default to unit
-        layer_height = 1 / layers
 
     if extrusion_type == 'radial_hedgehog':
         hfamily = "DG"

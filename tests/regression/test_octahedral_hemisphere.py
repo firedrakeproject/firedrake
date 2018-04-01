@@ -4,8 +4,7 @@ from firedrake import *
 import numpy
 
 
-@pytest.fixture(params=[1, 2,
-                        pytest.mark.xfail(reason="Grid imprinting near pole?")(3)])
+@pytest.fixture(params=[1, 2, 3])
 def degree(request):
     return request.param
 
@@ -42,7 +41,6 @@ def run_test(degree, refinements, hemisphere):
     solve(a == L, u, bcs=bc,
           solver_parameters={"ksp_type": "preonly",
                              "pc_type": "lu"})
-
     return errornorm(u, interpolate(exact, V))
 
 

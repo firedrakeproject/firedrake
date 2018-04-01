@@ -1,5 +1,4 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
 
@@ -108,7 +107,7 @@ class DirichletBC(object):
                 try:
                     # List of bare constants? Convert to Expression
                     g = expression.to_expression(g)
-                except:
+                except ValueError:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
             if isinstance(g, expression.Expression):
@@ -163,25 +162,7 @@ class DirichletBC(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
-
-        V = self.function_space()
-        mesh = V.mesh()
-        if self.sub_domain == "bottom":
-            return V.bottom_nodes(method=self.method)
-        elif self.sub_domain == "top":
-            return V.top_nodes(method=self.method)
-        else:
-            values = V.exterior_facet_boundary_node_map(
-                self.method).values_with_halo
-            if self.sub_domain != "on_boundary":
-                values = values.take(mesh.exterior_facets.subset(self.sub_domain).indices,
-                                     axis=0)
-            if V.extruded:
-                offset = V.exterior_facet_boundary_node_map(self.method).offset
-                return np.unique(np.concatenate([values + i * offset
-                                                 for i in range(mesh.layers - 1)]))
-            else:
-                return np.unique(values)
+        return self._function_space.boundary_nodes(self.sub_domain, self.method)
 
     @utils.cached_property
     def node_set(self):

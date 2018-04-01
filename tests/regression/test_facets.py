@@ -158,12 +158,14 @@ def test_facet_map_no_reshape():
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, "DG", 0)
     efnm = V.exterior_facet_node_map()
-    efbnmt = V.exterior_facet_boundary_node_map("topological")
-    efbnmg = V.exterior_facet_boundary_node_map("geometric")
     assert efnm.values_with_halo.shape == (4, 1)
-    assert efbnmt.values_with_halo.shape == (4, 0)
-    assert efbnmg.values_with_halo.shape == (4, 1)
-    assert efnm.values_with_halo.shape == (4, 1)
+
+
+def test_mesh_with_no_facet_markers():
+    mesh = UnitTriangleMesh()
+    mesh.init()
+    with pytest.raises(LookupError):
+        mesh.exterior_facets.subset((10,))
 
 
 if __name__ == '__main__':

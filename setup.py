@@ -44,12 +44,14 @@ try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
     dmplex_sources = ["firedrake/dmplex.pyx"]
+    extnum_sources = ["firedrake/extrusion_numbering.pyx"]
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
+    extnum_sources = ["firedrake/extrusion_numbering.c"]
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
@@ -71,13 +73,21 @@ setup(name='firedrake',
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
       packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
-                "firedrake.matrix_free", "firedrake_configuration"],
+                "firedrake.matrix_free", "firedrake_configuration",
+                "firedrake_citations"],
       package_data={"firedrake": ["evaluate.h",
                                   "locate.c",
                                   "icons/*.png"]},
       scripts=glob('scripts/*'),
       ext_modules=[Extension('firedrake.dmplex',
                              sources=dmplex_sources,
+                             include_dirs=include_dirs,
+                             libraries=["petsc"],
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
+                   Extension('firedrake.extrusion_numbering',
+                             sources=extnum_sources,
                              include_dirs=include_dirs,
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +

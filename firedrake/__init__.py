@@ -26,13 +26,15 @@ from ufl import *
 import firedrake_configuration
 firedrake_configuration.setup_cache_dirs()
 
-from pyop2 import op2                                           # noqa
-from pyop2.mpi import COMM_WORLD, COMM_SELF                     # noqa
+from firedrake_citations import Citations    # noqa: F401
+# Always get the firedrake paper.
+Citations().register("Rathgeber2016")
+from pyop2 import op2                        # noqa: F401
+from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
 from firedrake.assemble import *
 from firedrake.bcs import *
 from firedrake.checkpointing import *
-from firedrake.citations import *
 from firedrake.constant import *
 from firedrake.exceptions import *
 from firedrake.expression import *
@@ -60,7 +62,7 @@ from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.vector import *
-from firedrake.version import __version__ as ver, __version_info__, check  # noqa
+from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 
 from firedrake.logging import *
 # Set default log level

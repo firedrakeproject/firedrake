@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 import os
+import subprocess
+import sys
 
 
 @pytest.fixture(scope='module')
@@ -53,6 +55,27 @@ def cache_key(mass):
 class TestTSFCCache:
 
     """TSFC code generation cache tests."""
+
+    def test_cache_key_persistent_across_invocations(self, tmpdir):
+        code = """
+from firedrake import *
+mesh = UnitSquareMesh(1, 1)
+V = FunctionSpace(mesh, "CG", 1)
+u = TrialFunction(V)
+v = TestFunction(V)
+key = tsfc_interface.TSFCKernel(u*v*dx, "mass", parameters["form_compiler"], {{}}).cache_key
+with open("{file}", "w") as f:
+    f.write(key)
+        """
+        filea = tmpdir.join("a")
+        fileb = tmpdir.join("b")
+        subprocess.check_call([sys.executable, "-c", code.format(file=filea)])
+        subprocess.check_call([sys.executable, "-c", code.format(file=fileb)])
+        with filea.open("r") as f:
+            key1 = f.read()
+        with fileb.open("r") as f:
+            key2 = f.read()
+        assert key1 == key2
 
     def test_tsfc_cache_persist_on_disk(self, cache_key):
         """TSFCKernel should be persisted on disk."""

@@ -1,4 +1,4 @@
-
+import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
@@ -149,11 +149,11 @@ def coarsen_constant(expr, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         mesh = coarsen(expr.ufl_domain())
-        if len(expr.ufl_shape) == 0:
-            val = expr.dat.data_ro[0]
-        else:
-            val = expr.dat.data_ro.copy()
-        new = firedrake.Constant(value=val, domain=mesh)
+        new = firedrake.Constant(numpy.zeros(expr.ufl_shape,
+                                             dtype=expr.dat.dtype),
+                                 domain=mesh)
+        # Share data pointer
+        new.dat = expr.dat
     return new
 
 
@@ -217,16 +217,18 @@ def coarsen_snescontext(context, coefficient_mapping=None):
 
 
 class Interpolation(object):
-    def __init__(self, cfn, ffn, cbcs=None, fbcs=None):
+    def __init__(self, cfn, ffn, prolong, restrict, cbcs=None, fbcs=None):
         self.cfn = cfn
         self.ffn = ffn
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
+        self.prolong = prolong
+        self.restrict = restrict
 
     def mult(self, mat, x, y, inc=False):
         with self.cfn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.prolong(self.cfn, self.ffn)
+        self.prolong(self.cfn, self.ffn)
         for bc in self.fbcs:
             bc.zero(self.ffn)
         with self.ffn.dat.vec_ro as v:
@@ -245,7 +247,7 @@ class Interpolation(object):
     def multTranspose(self, mat, x, y, inc=False):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.restrict(self.ffn, self.cfn)
+        self.restrict(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.zero(self.cfn)
         with self.cfn.dat.vec_ro as v:
@@ -263,15 +265,16 @@ class Interpolation(object):
 
 
 class Injection(object):
-    def __init__(self, cfn, ffn, cbcs=None):
+    def __init__(self, cfn, ffn, inject, cbcs=None):
         self.cfn = cfn
         self.ffn = ffn
         self.cbcs = cbcs or []
+        self.inject = inject
 
     def multTranspose(self, mat, x, y):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        firedrake.inject(self.ffn, self.cfn)
+        self.inject(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
@@ -282,6 +285,8 @@ def create_interpolation(dmc, dmf):
     cctx = firedrake.dmhooks.get_appctx(dmc)
     fctx = firedrake.dmhooks.get_appctx(dmf)
 
+    prolong, _, _ = firedrake.dmhooks.get_transfer_operators(dmc)
+    _, restrict, _ = firedrake.dmhooks.get_transfer_operators(dmf)
     V_c = cctx._problem.u.function_space()
     V_f = fctx._problem.u.function_space()
 
@@ -293,7 +298,7 @@ def create_interpolation(dmc, dmf):
     cbcs = cctx._problem.bcs
     fbcs = fctx._problem.bcs
 
-    ctx = Interpolation(cfn, ffn, cbcs, fbcs)
+    ctx = Interpolation(cfn, ffn, prolong, restrict, cbcs, fbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
@@ -306,6 +311,7 @@ def create_injection(dmc, dmf):
     cctx = firedrake.dmhooks.get_appctx(dmc)
     fctx = firedrake.dmhooks.get_appctx(dmf)
 
+    _, _, inject = firedrake.dmhooks.get_transfer_operators(dmf)
     V_c = cctx._problem.u.function_space()
     V_f = fctx._problem.u.function_space()
 
@@ -316,7 +322,7 @@ def create_injection(dmc, dmf):
     ffn = firedrake.Function(V_f)
     cbcs = cctx._problem.bcs
 
-    ctx = Injection(cfn, ffn, cbcs)
+    ctx = Injection(cfn, ffn, inject, cbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)

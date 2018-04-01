@@ -590,7 +590,7 @@ option up to a few tens of thousands of degrees of freedom. ::
 
    For larger problems, you will probably need to use a sparse direct
    solver such as MUMPS_, which may be selected by additionally
-   specifying ``"fieldsplit_0_pc_factor_mat_solver_package": "mumps"``.
+   specifying ``"fieldsplit_0_pc_factor_mat_solver_type": "mumps"``.
 
    To use MUMPS_ you will need to have configured PETSc_ appropriately
    (using at the very least ``--download-mumps``).
