@@ -155,14 +155,14 @@ class HybridizationPC(PCBase):
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
-            neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
+            neumann_subdomains = neumann_subdomains - extruded_neumann_subdomains
 
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
             if mesh.cell_set._extruded:
                 ds = ufl.ds_v
-                for subdomain in extruded_neumann_subdomains:
+                for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
                 trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
             else:
@@ -170,7 +170,7 @@ class HybridizationPC(PCBase):
             if "on_boundary" in neumann_subdomains:
                 measures.append(ds)
             else:
-                measures.extend([ds(sd) for sd in neumann_subdomains])
+                measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
                 dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
