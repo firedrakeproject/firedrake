@@ -56,7 +56,7 @@ class FiredrakeConfiguration(dict):
                     self["options"][o] = args.__dict__[o]
 
     _persistent_options = ["package_manager",
-                           "minimal_petsc", "mpicc", "disable_ssh",
+                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir"]
@@ -158,6 +158,12 @@ honoured.""",
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
+    parser.add_argument("--mpicxx", type=str,
+                        action="store", default="mpicxx",
+                        help="C++ compiler to use when building with MPI (default is 'mpicxx')")
+    parser.add_argument("--mpif90", type=str,
+                        action="store", default="mpif90",
+                        help="Fortran compiler to use when building with MPI (default is 'mpif90')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
     parser.add_argument("--venv-name", default="firedrake",
@@ -642,6 +648,9 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
+    os.environ["MPICC"] = options["mpicc"] or "mpicc"
+    os.environ["MPICXX"] = options["mpicxx"] or "mpicxx"
+    os.environ["MPIF90"] = options["mpif90"] or "mpif90"
     run_pip_install(["--ignore-installed", "petsc/"])
 
 
