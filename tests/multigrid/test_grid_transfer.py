@@ -68,8 +68,6 @@ def exact_primal(mesh, vector, degree):
 
 
 def run_injection(hierarchy, vector, space, degrees):
-    if space == "DG":
-        pytest.xfail(reason="Injection of DG fields not yet implemented")
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
 

@@ -107,20 +107,38 @@ def inject(fine, coarse):
     # For DG, for each coarse cell, instead:
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
-    node_locations = utils.physical_node_locations(Vc)
+    kernel, dg = kernels.inject_kernel(Vf, Vc)
+    if not dg:
+        node_locations = utils.physical_node_locations(Vc)
 
-    fine_coords = Vf.ufl_domain().coordinates
-    coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
-    coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
+        fine_coords = Vf.ufl_domain().coordinates
+        coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
+        coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
-    kernel = kernels.inject_kernel(Vc, Vf)
-    # Have to do this, because the node set core size is not right for
-    # this expanded stencil
-    for d in [fine, fine_coords]:
-        d.dat.global_to_local_begin(op2.READ)
-        d.dat.global_to_local_end(op2.READ)
-    op2.par_loop(kernel, coarse.node_set,
-                 coarse.dat(op2.INC),
-                 node_locations.dat(op2.READ),
-                 fine.dat(op2.READ, coarse_node_to_fine_nodes[op2.i[0]]),
-                 fine_coords.dat(op2.READ, coarse_node_to_fine_coords[op2.i[0]]))
+        # Have to do this, because the node set core size is not right for
+        # this expanded stencil
+        for d in [fine, fine_coords]:
+            d.dat.global_to_local_begin(op2.READ)
+            d.dat.global_to_local_end(op2.READ)
+        coarse.dat.zero()
+        op2.par_loop(kernel, coarse.node_set,
+                     coarse.dat(op2.INC),
+                     node_locations.dat(op2.READ),
+                     fine.dat(op2.READ, coarse_node_to_fine_nodes[op2.i[0]]),
+                     fine_coords.dat(op2.READ, coarse_node_to_fine_coords[op2.i[0]]))
+    else:
+        coarse.dat.zero()
+        coarse_coords = Vc.mesh().coordinates
+        fine_coords = Vf.mesh().coordinates
+        coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
+        coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
+        # Have to do this, because the node set core size is not right for
+        # this expanded stencil
+        for d in [fine, fine_coords]:
+            d.dat.global_to_local_begin(op2.READ)
+            d.dat.global_to_local_end(op2.READ)
+        op2.par_loop(kernel, Vc.mesh().cell_set,
+                     coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
+                     fine.dat(op2.READ, coarse_cell_to_fine_nodes[op2.i[0]]),
+                     fine_coords.dat(op2.READ, coarse_cell_to_fine_coords[op2.i[0]]),
+                     coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()[op2.i[0]]))

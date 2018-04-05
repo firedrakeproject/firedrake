@@ -1,4 +1,5 @@
 import numpy
+import string
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
 from firedrake.functionspacedata import entity_dofs_key
@@ -6,18 +7,26 @@ import firedrake
 from firedrake.mg import utils
 
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
+from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.corealg.map_dag import map_expr_dags, map_expr_dag
+
+import coffee.base as ast
+
 import gem
 import gem.impero_utils as impero_utils
-import coffee.base as ast
+
 import ufl
 import tsfc
 import sympy
+
 import tsfc.kernel_interface.firedrake as firedrake_interface
+
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
-from tsfc import ufl_utils
+from tsfc import fem, ufl_utils, spectral
+from tsfc.driver import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
+from finat.quadrature import make_quadrature
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -347,19 +356,22 @@ def inside_cell(cell, sym, epsilon=1e-8):
     return " && ".join("(%s)" % arg for arg in cell.contains_point(point, epsilon=epsilon).args)
 
 
-def inject_kernel(Vc, Vf):
+def inject_kernel(Vf, Vc):
     cache = Vf.ufl_domain()._shared_data_cache["transfer_kernels"]
     coordinates = Vf.ufl_domain().coordinates
     key = (("inject", ) +
            Vf.ufl_element().value_shape() +
+           entity_dofs_key(Vc.finat_element.entity_dofs()) +
            entity_dofs_key(Vf.finat_element.entity_dofs()) +
+           entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs()) +
            entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
         hierarchy, level = utils.get_level(Vc.ufl_domain())
         ncandidate = hierarchy._coarse_to_fine[level].shape[1]
-
+        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
+            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
         coordinates = Vf.ufl_domain().coordinates
         evaluate_kernel = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
@@ -400,5 +412,188 @@ def inject_kernel(Vc, Vf):
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
+        return cache.setdefault(key, (op2.Kernel(kernel, name="inject_kernel"), False))
 
-        return cache.setdefault(key, op2.Kernel(kernel, name="inject_kernel"))
+
+class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
+    """Kernel builder for integration on a macro-cell."""
+
+    oriented = False
+
+    def __init__(self, num_entities):
+        """:arg num_entities: the number of micro-entities to integrate over."""
+        super().__init__()
+        self.indices = (gem.Index("entity", extent=num_entities), )
+        self.shape = tuple(i.extent for i in self.indices)
+        self.unsummed_coefficient_indices = frozenset(self.indices)
+
+    def set_coefficients(self, coefficients):
+        self.coefficients = []
+        self.coefficient_split = {}
+        self.kernel_args = []
+        for i, coefficient in enumerate(coefficients):
+            if type(coefficient.ufl_element()) == ufl.MixedElement:
+                raise NotImplementedError("Sorry, not for mixed.")
+            self.coefficients.append(coefficient)
+            self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))
+
+    def set_coordinates(self, domain):
+        """Prepare the coordinate field.
+
+        :arg domain: :class:`ufl.Domain`
+        """
+        # Create a fake coordinate coefficient for a domain.
+        f = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
+        self.domain_coordinate[domain] = f
+        self.coordinates_arg = self._coefficient(f, "macro_coords")
+
+    def _coefficient(self, coefficient, name):
+        element = create_element(coefficient.ufl_element())
+        shape = self.shape + element.index_shape
+        size = numpy.prod(shape, dtype=int)
+        funarg = ast.Decl(SCALAR_TYPE, ast.Symbol(name), pointers=[("restrict", )],
+                          qualifiers=["const"])
+        expression = gem.reshape(gem.Variable(name, (size, )), shape)
+        expression = gem.partial_indexed(expression, self.indices)
+        self.coefficient_map[coefficient] = expression
+        return funarg
+
+
+def dg_injection_kernel(Vf, Vc, ncell):
+    from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
+    from firedrake.slate.slac import compile_expression
+    macro_builder = MacroKernelBuilder(ncell)
+    f = ufl.Coefficient(Vf)
+    macro_builder.set_coefficients([f])
+    macro_builder.set_coordinates(Vf.mesh())
+
+    Vfe = create_element(Vf.ufl_element())
+    macro_quadrature_rule = make_quadrature(Vfe.cell, estimate_total_polynomial_degree(ufl.inner(f, f)))
+    index_cache = {}
+    parameters = default_parameters()
+    integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
+    macro_cfg = dict(interface=macro_builder,
+                     ufl_cell=Vf.ufl_cell(),
+                     precision=parameters["precision"],
+                     integration_dim=integration_dim,
+                     entity_ids=entity_ids,
+                     index_cache=index_cache,
+                     quadrature_rule=macro_quadrature_rule)
+
+    fexpr, = fem.compile_ufl(f, **macro_cfg)
+    X = ufl.SpatialCoordinate(Vf.mesh())
+    C_a, = fem.compile_ufl(X, **macro_cfg)
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())))
+    macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
+
+    Vce = create_element(Vc.ufl_element())
+
+    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0)
+    coarse_builder.set_coordinates(Vc.mesh())
+    argument_multiindices = (Vce.get_indices(), )
+    argument_multiindex, = argument_multiindices
+    return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
+
+    integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
+    # Midpoint quadrature for jacobian on coarse cell.
+    quadrature_rule = make_quadrature(Vce.cell, 0)
+
+    coarse_cfg = dict(interface=coarse_builder,
+                      ufl_cell=Vc.ufl_cell(),
+                      precision=parameters["precision"],
+                      integration_dim=integration_dim,
+                      entity_ids=entity_ids,
+                      index_cache=index_cache,
+                      quadrature_rule=quadrature_rule)
+
+    X = ufl.SpatialCoordinate(Vc.mesh())
+    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()))
+    C_0, = fem.compile_ufl(X, **coarse_cfg)
+    K, = fem.compile_ufl(K, **coarse_cfg)
+
+    i = gem.Index()
+    j = gem.Index()
+
+    C_0 = gem.Indexed(C_0, (j, ))
+    C_0 = gem.index_sum(C_0, quadrature_rule.point_set.indices)
+    C_a = gem.Indexed(C_a, (j, ))
+    X_a = gem.Sum(C_0, gem.Product(gem.Literal(-1), C_a))
+
+    K_ij = gem.Indexed(K, (i, j))
+    K_ij = gem.index_sum(K_ij, quadrature_rule.point_set.indices)
+    X_a = gem.index_sum(gem.Product(K_ij, X_a), (j, ))
+    C_0, = quadrature_rule.point_set.points
+    C_0 = gem.Indexed(gem.Literal(C_0), (i, ))
+    # fine quad points in coarse reference space.
+    X_a = gem.Sum(C_0, gem.Product(gem.Literal(-1), X_a))
+    X_a = gem.ComponentTensor(X_a, (i, ))
+
+    # Coarse basis function evaluated at fine quadrature points
+    phi_c = fem.fiat_to_ufl(Vce.point_evaluation(0, X_a, (Vce.cell.get_dimension(), 0)), 0)
+
+    tensor_indices = tuple(gem.Index(extent=d) for d in f.ufl_shape)
+
+    phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
+    fexpr = gem.Indexed(fexpr, tensor_indices)
+    quadrature_weight = macro_quadrature_rule.weight_expression
+    expr = gem.Product(gem.IndexSum(gem.Product(phi_c, fexpr), tensor_indices),
+                       gem.Product(macro_detJ, quadrature_weight))
+
+    quadrature_indices = macro_builder.indices + macro_quadrature_rule.point_set.indices
+
+    reps = spectral.Integrals([expr], quadrature_indices, argument_multiindices, parameters)
+    assignments = spectral.flatten([(return_variable, reps)], index_cache)
+    return_variables, expressions = zip(*assignments)
+    expressions = impero_utils.preprocess_gem(expressions, **spectral.finalise_options)
+    assignments = list(zip(return_variables, expressions))
+    impero_c = impero_utils.compile_gem(assignments, quadrature_indices + argument_multiindex,
+                                        remove_zeros=True)
+
+    index_names = []
+
+    def name_index(index, name):
+        index_names.append((index, name))
+        if index in index_cache:
+            for multiindex, suffix in zip(index_cache[index],
+                                          string.ascii_lowercase):
+                name_multiindex(multiindex, name + suffix)
+
+    def name_multiindex(multiindex, name):
+        if len(multiindex) == 1:
+            name_index(multiindex[0], name)
+        else:
+            for i, index in enumerate(multiindex):
+                name_index(index, name + str(i))
+
+    name_multiindex(quadrature_indices, 'ip')
+    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
+        name_multiindex(multiindex, name)
+
+    index_names.extend(zip(macro_builder.indices, ["entity"]))
+    body = generate_coffee(impero_c, index_names, parameters["precision"], argument_indices=argument_multiindices)
+
+    retarg = ast.Decl(SCALAR_TYPE, ast.Symbol("R", rank=(Vce.space_dimension(), )))
+    local_tensor = coarse_builder.local_tensor
+    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=SCALAR_TYPE))
+    body.children.insert(0, local_tensor)
+    args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
+                                                   coarse_builder.coordinates_arg]
+
+    # Now we have the kernel that computes <f, phi_c>dx_c
+    # So now we need to hit it with the inverse mass matrix on dx_c
+
+    u = TrialFunction(Vc)
+    v = TestFunction(Vc)
+    expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
+    Ainv, = compile_expression(expr)
+    Ainv = Ainv.kinfo.kernel
+    A = ast.Symbol(local_tensor.sym.symbol)
+    R = ast.Symbol("R")
+    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
+    return op2.Kernel(ast.Node([Ainv._ast,
+                                ast.FunDecl("void", "injection_dg", args, body,
+                                            pred=["static", "inline"])]),
+                      name="injection_dg",
+                      cpp=True,
+                      include_dirs=Ainv._include_dirs,
+                      headers=Ainv._headers)
