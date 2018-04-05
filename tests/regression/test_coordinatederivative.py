@@ -122,6 +122,8 @@ def test_coordinate_handling():
     computed6 = assemble(derivative(J3, mesh.coordinates)).dat.data
     assert not np.allclose(computed1, computed5, rtol=1e-14)
     assert not np.allclose(computed1, computed6, rtol=1e-14)
+    actual_moving = assemble(inner(u, u) * div(dX) * dx).dat.data
+    assert np.allclose(actual_moving, computed5, rtol=1e-14)
 
 
 if __name__ == "__main__":
