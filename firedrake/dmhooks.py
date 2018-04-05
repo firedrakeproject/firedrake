@@ -133,19 +133,26 @@ class appctx(object):
         self.ctx = ctx
         self.dm = dm
 
+    @staticmethod
+    def get_dm(ctx):
+        return ctx._problem.u.function_space().dm
+
     def __enter__(self):
         push_appctx(self.dm, self.ctx)
+        ctx = self.ctx._coarse
+        while ctx is not None:
+            dm = self.get_dm(ctx)
+            if dm is not None:
+                push_appctx(dm, ctx)
+            ctx = ctx._coarse
 
     def __exit__(self, typ, value, traceback):
         ctx = self.ctx
         while ctx._coarse is not None:
             ctx = ctx._coarse
 
-        def get_dm(c):
-            return c._problem.u.function_space().dm
-
         while ctx._fine is not None:
-            dm = get_dm(ctx)
+            dm = self.get_dm(ctx)
             pop_appctx(dm, ctx)
             ctx = ctx._fine
         pop_appctx(self.dm, self.ctx)
@@ -198,10 +205,20 @@ class transfer_operators(object):
     :arg inject: injection fine -> coarse."""
     def __init__(self, V, prolong=None, restrict=None, inject=None):
         self.V = V
+        if prolong is None:
+            prolong = firedrake.prolong
+        if restrict is None:
+            restrict = firedrake.restrict
+        if inject is None:
+            inject = firedrake.inject
         self.transfer = prolong, restrict, inject
 
     def __enter__(self):
         push_transfer_operators(self.V.dm, *self.transfer)
+        V = self.V
+        while hasattr(V, "_coarse"):
+            V = V._coarse
+            push_transfer_operators(V.dm, *self.transfer)
 
     def __exit__(self, typ, value, traceback):
         V = self.V

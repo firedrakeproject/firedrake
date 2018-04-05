@@ -83,6 +83,7 @@ class AssembledPC(PCBase):
 
         _, P = pc.getOperators()
 
+        opc = pc
         context = P.getPythonContext()
         prefix = pc.getOptionsPrefix()
 
@@ -114,6 +115,7 @@ class AssembledPC(PCBase):
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -assembled_pc_type ksp.
         pc = PETSc.PC().create()
+        pc.incrementTabLevel(1, parent=opc)
         pc.setOptionsPrefix(prefix+"assembled_")
         pc.setOperators(Pmat, Pmat)
         pc.setUp()
@@ -132,11 +134,9 @@ class AssembledPC(PCBase):
 
     def view(self, pc, viewer=None):
         super(AssembledPC, self).view(pc, viewer)
-        viewer.pushASCIITab()
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
-        viewer.popASCIITab()
 
 
 class MassInvPC(PCBase):
@@ -190,6 +190,7 @@ class MassInvPC(PCBase):
             Pmat.setTransposeNullSpace(tnullsp)
 
         ksp = PETSc.KSP().create()
+        ksp.incrementTabLevel(1, parent=pc)
         ksp.setOperators(Pmat)
         ksp.setOptionsPrefix(prefix + "Mp_")
         ksp.setUp()
@@ -208,9 +209,7 @@ class MassInvPC(PCBase):
     def view(self, pc, viewer=None):
         super(MassInvPC, self).view(pc, viewer)
         viewer.printfASCII("KSP solver for M^-1\n")
-        viewer.pushASCIITab()
         self.ksp.view(viewer)
-        viewer.popASCIITab()
 
 
 class PCDPC(PCBase):
@@ -290,6 +289,7 @@ class PCDPC(PCBase):
         # FIXME: Should we transfer nullspaces over.  I think not.
 
         Mksp = PETSc.KSP().create()
+        Mksp.incrementTabLevel(1, parent=pc)
         Mksp.setOptionsPrefix(prefix + "Mp_")
         Mksp.setOperators(Mp.petscmat)
         Mksp.setUp()
@@ -297,6 +297,7 @@ class PCDPC(PCBase):
         self.Mksp = Mksp
 
         Kksp = PETSc.KSP().create()
+        Kksp.incrementTabLevel(1, parent=pc)
         Kksp.setOptionsPrefix(prefix + "Kp_")
         Kksp.setOperators(Kp.petscmat)
         Kksp.setUp()
@@ -342,15 +343,9 @@ class PCDPC(PCBase):
     def view(self, pc, viewer=None):
         super(PCDPC, self).view(pc, viewer)
         viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
-        viewer.pushASCIITab()
         viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %s\n" %
                            str(self.Re))
         viewer.printfASCII("KSP solver for K^-1:\n")
-        viewer.pushASCIITab()
         self.Kksp.view(viewer)
-        viewer.popASCIITab()
         viewer.printfASCII("KSP solver for M^-1:\n")
-        viewer.pushASCIITab()
         self.Mksp.view(viewer)
-        viewer.popASCIITab()
-        viewer.popASCIITab()
