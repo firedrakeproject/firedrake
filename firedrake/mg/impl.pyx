@@ -6,6 +6,7 @@ from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
 from firedrake import dmplex
 from pyop2 import MPI
+from pyop2.datatypes import IntType
 import numpy as np
 cimport numpy as np
 import cython
@@ -55,6 +56,99 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 
     return old_to_new, new_to_old
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine_cells):
+    cdef:
+        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, coarse_to_fine_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        PetscInt i, j, k, l, m, node, fine, layer
+        PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
+        PetscInt layers
+        bint extruded
+
+    fine_map = Vf.cell_node_map().values
+    coarse_map = Vc.cell_node_map().values
+
+    fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
+    extruded = Vc.extruded
+
+    if extruded:
+        coarse_offset = Vc.offset
+        fine_offset = Vf.offset
+        layers = Vc.mesh().layers - 1
+    coarse_cells = coarse_map.shape[0]
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
+    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
+                                  fine_per_cell * fine_cell_per_coarse_cell),
+                                 -1,
+                                 dtype=IntType)
+    for i in range(coarse_cells):
+        for j in range(coarse_per_cell):
+            node = coarse_map[i, j]
+            if extruded:
+                for layer in range(layers):
+                    k = 0
+                    for l in range(fine_cell_per_coarse_cell):
+                        fine = coarse_to_fine_cells[i, l]
+                        for m in range(fine_per_cell):
+                            coarse_to_fine_map[node + coarse_offset[j]*layer, k] = (fine_map[fine, m] +
+                                                                                    fine_offset[m]*layer)
+                            k += 1
+            else:
+                k = 0
+                for l in range(fine_cell_per_coarse_cell):
+                    fine = coarse_to_fine_cells[i, l]
+                    for m in range(fine_per_cell):
+                        coarse_to_fine_map[node, k] = fine_map[fine, m]
+                        k += 1
+
+    return coarse_to_fine_map
+    
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse_cells):
+    cdef:
+        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        PetscInt i, j, k, node, layer, layers
+        PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
+        bint extruded
+
+    fine_map = Vf.cell_node_map().values
+    coarse_map = Vc.cell_node_map().values
+
+    extruded = Vc.extruded
+
+    if extruded:
+        coarse_offset = Vc.offset
+        fine_offset = Vf.offset
+        layers = Vc.mesh().layers - 1
+    fine_cells = fine_map.shape[0]
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
+    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+                                  coarse_per_cell),
+                                 -1,
+                                 dtype=IntType)
+    for i in range(fine_cells):
+        coarse_cell = fine_to_coarse_cells[i]
+        for j in range(fine_per_cell):
+            node = fine_map[i, j]
+            if extruded:
+                for layer in range(layers):
+                    for k in range(coarse_per_cell):
+                        fine_to_coarse_map[node + fine_offset[j]*layer, k] = (coarse_map[coarse_cell, k] +
+                                                                              coarse_offset[k]*layer)
+            else:
+                for k in range(coarse_per_cell):
+                    fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
+
+    return fine_to_coarse_map
+    
 
 def create_lgmap(PETSc.DM dm):
     """Create a local to global map for all points in the given DM.

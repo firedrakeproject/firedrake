@@ -1,9 +1,8 @@
-import numpy
 from pyop2 import op2
-from pyop2.datatypes import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import ufl
 import firedrake
+from . import impl
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
@@ -30,25 +29,16 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        # XXX: Rewrite in cython.
+        assert Vc.extruded == Vf.extruded
+        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
+            raise NotImplementedError("Not implemented for variable layers, sorry")
+        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
+            raise ValueError("Coarse and fine meshes must have same number of layers")
+
         fine_to_coarse = hierarchy._fine_to_coarse[levelc+1]
-        fine_map = Vf.cell_node_map()
-        coarse_map = Vc.cell_node_map()
-        fine_to_coarse_nodes = numpy.full((fine_map.toset.total_size,
-                                           coarse_map.arity),
-                                          -1,
-                                          dtype=IntType)
-        extruded = Vf.extruded
-        assert extruded == Vc.extruded
-        assert Vc.mesh().layers == Vf.mesh().layers
-        for fcell, nodes in enumerate(fine_map.values):
-            ccell = fine_to_coarse[fcell]
-            if extruded:
-                for l in range(Vf.mesh().layers - 1):
-                    fine_to_coarse_nodes[nodes + Vf.offset*l, :] = coarse_map.values[ccell, :] + Vc.offset * l
-            else:
-                fine_to_coarse_nodes[nodes, :] = coarse_map.values[ccell, :]
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set, coarse_map.arity,
+        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
+                                             fine_to_coarse_nodes.shape[1],
                                              values=fine_to_coarse_nodes))
 
 
@@ -76,31 +66,16 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     try:
         return cache[key]
     except KeyError:
-        # XXX: Rewrite in cython.
+        assert Vc.extruded == Vf.extruded
+        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
+            raise NotImplementedError("Not implemented for variable layers, sorry")
+        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
+            raise ValueError("Coarse and fine meshes must have same number of layers")
+
         coarse_to_fine = hierarchy._coarse_to_fine[levelc]
-        fine_map = Vf.cell_node_map()
-        coarse_map = Vc.cell_node_map()
-
-        _, fcell_per_ccell = coarse_to_fine.shape
-
-        coarse_to_fine_nodes = numpy.full((coarse_map.toset.total_size,
-                                           fine_map.arity * fcell_per_ccell),
-                                          -1,
-                                          dtype=IntType)
-        extruded = Vc.extruded
-        assert extruded == Vf.extruded
-        assert Vc.mesh().layers == Vf.mesh().layers
-        for ccell, nodes in enumerate(coarse_map.values):
-            fcells = coarse_to_fine[ccell]
-            if extruded:
-                for l in range(Vc.mesh().layers - 1):
-                    coarse_to_fine_nodes[nodes + Vc.offset*l, :] = (fine_map.values[fcells, :].reshape(-1) +
-                                                                    numpy.tile(Vf.offset*l, len(fcells)))
-            else:
-                coarse_to_fine_nodes[nodes, :] = fine_map.values[fcells, :].reshape(-1)
-
+        coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
         return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             fine_map.arity * fcell_per_ccell,
+                                             coarse_to_fine_nodes.shape[1],
                                              values=coarse_to_fine_nodes))
 
 
