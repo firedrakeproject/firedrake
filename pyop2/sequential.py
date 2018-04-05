@@ -183,7 +183,7 @@ class Arg(base.Arg):
     def c_global_reduction_name(self, count=None):
         return self.c_arg_name()
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,)):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), extruded=False):
         if self._is_dat_view and not self._is_direct:
             raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
@@ -198,7 +198,7 @@ class Arg(base.Arg):
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
-                if self.data is not None and self.data.dataset._extruded:
+                if self.data is not None and extruded:
                     return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 else:
                     return self.c_ind_data("i_%d" % self.idx.index, i)
@@ -622,18 +622,18 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
              "align": " " + align,
              "init": init_expr}
 
-    def c_buffer_gather(self, size, idx, buf_name):
+    def c_buffer_gather(self, size, idx, buf_name, extruded=False):
         dim = self.data.cdim
         return ";\n".join(["%(name)s[i_0*%(dim)d%(ofs)s] = *(%(ind)s%(ofs)s);\n" %
                            {"name": buf_name,
                             "dim": dim,
-                            "ind": self.c_kernel_arg(idx),
+                            "ind": self.c_kernel_arg(idx, extruded=extruded),
                             "ofs": " + %s" % j if j else ""} for j in range(dim)])
 
-    def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name):
+    def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name, extruded=False):
         dim = self.data.split[i].cdim
         return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
-                           {"ind": self.c_kernel_arg(count, i, j),
+                           {"ind": self.c_kernel_arg(count, i, j, extruded=extruded),
                             "op": "=" if self.access == WRITE else "+=",
                             "name": buf_name,
                             "dim": dim,
@@ -1109,7 +1109,7 @@ def wrapper_snippets(iterset, args,
         facet_mult = 2 if is_facet else 1
         if arg.access not in [WRITE, INC]:
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*facet_mult) for n, e in enumerate(_loop_size)])
-            _buf_gather[arg] = arg.c_buffer_gather(_buf_size, count, _buf_name[arg])
+            _buf_gather[arg] = arg.c_buffer_gather(_buf_size, count, _buf_name[arg], extruded=iterset._extruded)
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_loop_size) - 1, -1, -1))
             _buf_gather[arg] = "\n".join([_itspace_loops, _buf_gather[arg], _itspace_loop_close])
     _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_name[arg]
@@ -1146,7 +1146,8 @@ def wrapper_snippets(iterset, args,
                 for i, m in enumerate(arg.map):
                     loop_size = m.arity * mult
                     _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
-                    _scatter_stmts = arg.c_buffer_scatter_vec(count, i, 0, (offset, 0), _buf_name[arg])
+                    _scatter_stmts = arg.c_buffer_scatter_vec(count, i, 0, (offset, 0), _buf_name[arg],
+                                                              extruded=iterset._extruded)
                     _buf_offset, _buf_offset_decl = '', ''
                     _scatter = template_scatter % {
                         'ind': '  ',
