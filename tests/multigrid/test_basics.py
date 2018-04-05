@@ -19,18 +19,28 @@ def test_refine_interval_parallel():
     assert mh[1].num_cells() < 2 * mh[0].num_cells()
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_refine_quad_mesh():
     m = UnitSquareMesh(2, 2, quadrilateral=True)
 
-    mh = MeshHierarchy(m, 1)    # noqa
+    mh = MeshHierarchy(m, 1)
+
+    assert mh[1].num_cells() == 4 * mh[0].num_cells()
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
-def test_refine_cube_mesh():
+def test_refine_tet_mesh():
     m = UnitCubeMesh(2, 2, 2)
 
-    mh = MeshHierarchy(m, 1)    # noqa
+    mh = MeshHierarchy(m, 1)
+
+    assert mh[1].num_cells() == 8 * mh[0].num_cells()
+
+
+def test_refine_hex_mesh():
+    m = UnitSquareMesh(2, 2, quadrilateral=True)
+    mh = MeshHierarchy(m, 1)
+    mh = ExtrudedMeshHierarchy(mh, layers=2)
+
+    assert mh[1].num_cells() == 4 * mh[0].num_cells()
 
 
 def test_refine_square_ncell():
