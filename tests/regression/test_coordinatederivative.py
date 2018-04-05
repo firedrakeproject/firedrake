@@ -82,6 +82,48 @@ def test_second_shape_derivative():
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
+def test_coordinate_handling():
+    mesh = UnitSquareMesh(60, 60)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    X = SpatialCoordinate(mesh)
+    dX = TestFunction(mesh.coordinates.function_space())
+
+    # The shape derivative of an expression and a coefficient is different.  If
+    # f is some expression, then the shape derivative of J = \int f dx is given
+    # by dJ[V] = \int \nabla f \cdot V + f div(V) dx.  If however the
+    # functional is given by J = \int u dx and u moves with the domain, as is
+    # the case for finite element functions, then the shape derivative reads
+    # dJ[V] = \int u div(V) dx. This can get confusing, because
+    # mesh.coordinates is a special finite element function: it changes values
+    # as the domain is moved. It is treated seperately and here we check that this
+    # does the right thing.
+
+    J1 = inner(mesh.coordinates, mesh.coordinates) * dx
+    J2 = inner(X, X) * dx
+
+    computed1 = assemble(derivative(J1, mesh.coordinates)).dat.data
+    computed2 = assemble(derivative(J2, mesh.coordinates)).dat.data
+    computed3 = assemble(derivative(J1, X)).dat.data
+    computed4 = assemble(derivative(J2, X)).dat.data
+    actual = assemble(div(inner(X, X) * dX) * dx).dat.data
+
+    assert np.allclose(actual, computed1, rtol=1e-14)
+    assert np.allclose(actual, computed2, rtol=1e-14)
+    assert np.allclose(actual, computed3, rtol=1e-14)
+    assert np.allclose(actual, computed4, rtol=1e-14)
+
+    # if we interpolate into some fe function first, the result should be different,
+    # as the values of u are not updated with the deformation but stay the same
+
+    u = Function(V)
+    u.interpolate(X)
+    J3 = inner(u, u) * dx
+    computed5 = assemble(derivative(J3, X)).dat.data
+    computed6 = assemble(derivative(J3, mesh.coordinates)).dat.data
+    assert not np.allclose(computed1, computed5, rtol=1e-14)
+    assert not np.allclose(computed1, computed6, rtol=1e-14)
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))
