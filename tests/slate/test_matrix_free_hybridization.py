@@ -32,8 +32,9 @@ def test_matrix_free_hybridization():
                       'pc_type': 'python',
                       'pc_python_type': 'firedrake.HybridizationPC',
                       'hybridization': {'ksp_type': 'cg',
+                                        'pc_type': 'none',
                                         'ksp_rtol': 1e-8,
-                                        'S_mat_type': 'matfree'}}
+                                        'mat_type': 'matfree'}}
     solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
     sigma_h, u_h = w.split()
 
@@ -43,8 +44,9 @@ def test_matrix_free_hybridization():
                   'pc_type': 'python',
                   'pc_python_type': 'firedrake.HybridizationPC',
                   'hybridization': {'ksp_type': 'cg',
+                                    'pc_type': 'none',
                                     'ksp_rtol': 1e-8,
-                                    'S_mat_type': 'aij'}}
+                                    'mat_type': 'aij'}}
     solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
     _sigma, _u = w2.split()
 
