@@ -236,6 +236,10 @@ else:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
+    if "mpicxx" not in config["options"]:
+        config["options"]["mpicxx"] = "mpicxx"
+    if "mpif90" not in config["options"]:
+        config["options"]["mpif90"] = "mpif90"
 
 if args.install_help:
     help_string = """
