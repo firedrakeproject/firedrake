@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 
 
 def test_matrix_free_hybridization():
@@ -56,8 +55,3 @@ def test_matrix_free_hybridization():
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
