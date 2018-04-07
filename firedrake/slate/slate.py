@@ -34,7 +34,7 @@ from ufl.form import Form
 
 __all__ = ['AssembledVector', 'Block', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul']
+           'Add', 'Mul', 'Solve']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -142,6 +142,12 @@ class TensorBase(object, metaclass=ABCMeta):
     @property
     def T(self):
         return Transpose(self)
+
+    def solve(self, B, factor_type=None):
+        """
+        """
+
+        return Solve(self, B, factor_type=factor_type)
 
     def block(self, arg_indices):
         """Returns a block of the tensor defined on the component spaces
@@ -725,7 +731,8 @@ class BinaryOp(TensorOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Mul: '*'}
+               Mul: '*',
+               Solve: '\\'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -791,8 +798,7 @@ class Mul(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
 
-    def __init__(self, A, B):
-        """Constructor for the Mul class."""
+    def __new__(cls, A, B):
         if A.shape[1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
@@ -804,6 +810,18 @@ class Mul(BinaryOp):
             "Cannot perform argument contraction over middle indices. "
             "They must be in the same function space."
         )
+
+        # If A is an inverse, return a "solve" node.
+        # NOTE: If, for whatever reason,  B is an inverse,
+        # this will be passed down the stack and handled elsewhere.
+        if isinstance(A, Inverse) and A.shape > (4, 4):
+            op, = A.operands
+            return Solve(op, B)
+
+        return super().__new__(cls)
+
+    def __init__(self, A, B):
+        """Constructor for the Mul class."""
 
         super(Mul, self).__init__(A, B)
 
@@ -821,6 +839,70 @@ class Mul(BinaryOp):
     def arguments(self):
         """Returns the arguments of a tensor resulting
         from multiplying two tensors A and B.
+        """
+        return self._args
+
+
+class Solve(BinaryOp):
+    """
+    """
+
+    def __new__(cls, A, B):
+        assert A.rank == 2, "Operator must be a matrix."
+
+        # Same rules for performing multiplication on Slate tensors
+        # applies here.
+        if A.shape[1] != B.shape[0]:
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
+                             % (A.shape, B.shape))
+
+        fsA = A.arg_function_spaces()[::-1][-1]
+        fsB = B.arg_function_spaces()[0]
+
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
+        # For matrices smaller than 5x5, exact formulae can be used
+        # to evaluate the inverse. Otherwise, this class will trigger
+        # a factorization method in the code-generation.
+        if A.shape < (5, 5):
+            return A.inv * B
+
+        return super().__new__(cls)
+
+    def __init__(self, A, B, factor_type=None):
+        """Constructor for the Solve class."""
+
+        # Partial pivoted LU is a stable default.
+        factor_type = factor_type or "partialPivLu"
+
+        # These are the currently supported factorizations
+        # in Eigen. This will change when the linear algebra
+        # backend changes.
+        if factor_type not in ["partialPivLu", "fullPivLu",
+                               "householderQr", "colPivHouseholderQr",
+                               "fullPivHouseholderQr", "llt",
+                               "ldlt", "jacobiSvd"]:
+            raise ValueError("Factorization '%s' not supported" % factor_type)
+
+        super(Solve, self).__init__(A, B)
+
+        self.factor_type = factor_type
+
+        self._args = A.arguments()[::-1][:-1] + B.arguments()[1:]
+
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        A, B = self.operands
+        return A.arg_function_spaces()[::-1][:-1] + B.arg_function_spaces()[1:]
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from applying the inverse of A onto B.
         """
         return self._args
 
@@ -843,7 +925,8 @@ precedences = [
     [AssembledVector, Block, Tensor],
     [UnaryOp],
     [Add],
-    [Mul]
+    [Mul],
+    [Solve]
 ]
 
 # Here we establish the precedence class attribute for a given
