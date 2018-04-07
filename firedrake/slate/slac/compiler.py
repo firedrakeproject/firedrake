@@ -547,6 +547,15 @@ def slate_to_cpp(expr, temps, prec=None):
 
         return parenthesize(result, expr.prec, prec)
 
+    elif isinstance(expr, slate.Solve):
+        A, B = expr.operands
+        factor_type = expr.factor_type
+        result = "(%s).%s().solve(%s)" % (slate_to_cpp(A, temps, expr.prec),
+                                          factor_type,
+                                          slate_to_cpp(B, temps, expr.prec))
+
+        return parenthesize(result, expr.prec, prec)
+
     else:
         raise NotImplementedError("Type %s not supported.", type(expr))
 
