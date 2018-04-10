@@ -67,7 +67,7 @@ Kensington Campus.
 Registration
 ------------
 
-Early bird registration (before 10 April) costs £50 (students £40),
+Early bird registration (before 20 April) costs £50 (students £40),
 rising to £75 thereafter.
 
 .. raw:: html
