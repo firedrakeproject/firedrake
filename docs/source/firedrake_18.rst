@@ -29,9 +29,9 @@ interested new users and the main science programme will start at lunchtime on 7
 Key Dates
 ---------
 
-* Early registration deadline: 10 April 2018
+* Early registration deadline: 20 April 2018
 * Registration deadline: 25 May 2018
-* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 10 April 2018
+* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 20 April 2018
 * Workshop: 7-8 June 2018
 
 
