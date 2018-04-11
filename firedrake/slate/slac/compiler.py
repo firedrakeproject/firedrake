@@ -95,6 +95,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         aux_temps = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_temps)
 
+    if builder.factor_mats:
+        factorizations = declare_factorizations(builder, declared_temps)
+        statements.extend(factorizations)
+
     # Generate the kernel information with complete AST
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
@@ -209,6 +213,33 @@ def generate_kernel_ast(builder, statements, declared_temps):
     return kinfo
 
 
+def declare_factorizations(builder, declared_temps):
+    """
+    """
+
+    statements = [ast.FlatBlock("/* Matrix factorizations */\n")]
+    for factor_type, tensors in builder.factor_mats.items():
+        for ainv in tensors:
+            if ainv not in declared_temps:
+                dsym = ast.Symbol("dec%d" % len(declared_temps))
+
+                # NOTE: In Eigen: LU.inverse() * b is the same
+                # as LU.solve(b), where LU is a previously declared
+                # factorization. This does not explicitly compute
+                # the inverse.
+                t = ast.Symbol("%s.inverse()" % dsym)
+                operand, = ainv.operands
+                expr = slate_to_cpp(operand, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=operand.shape)
+                dec = "Eigen::%s<%s > %s(%s);\n" % (factor_type,
+                                                    tensor_type,
+                                                    dsym, expr)
+                statements.append(dec)
+                declared_temps[ainv] = t
+
+    return statements
+
+
 def auxiliary_temporaries(builder, declared_temps):
     """Generates statements for assigning auxiliary temporaries
     for nodes in an expression with "high" reference count.
@@ -226,12 +257,28 @@ def auxiliary_temporaries(builder, declared_temps):
     results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
     for exp in builder.aux_exprs:
         if exp not in declared_temps:
-            t = ast.Symbol("auxT%d" % len(declared_temps))
-            result = slate_to_cpp(exp, declared_temps)
-            tensor_type = eigen_matrixbase_type(shape=exp.shape)
-            statements.append(ast.Decl(tensor_type, t))
-            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-            results.append(ast.Assign(t, result))
+            # For larger inverses, store the factorization and reuse
+            # NOTE: LU.inverse() * b is equivalent to LU.solve(b) if
+            # LU is previously defined factorization
+            if isinstance(exp, slate.Inverse) and exp.shape > (4, 4):
+                dsym = ast.Symbol("dec%d" % len(declared_temps))
+                t = ast.Symbol("%s.inverse()" % dsym)
+                operand, = exp.operands
+                expr = slate_to_cpp(operand, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=operand.shape)
+
+                # By default, we use partial pivoted LU, since it's the most
+                # stable and balances speed/accuracy
+                dec = "Eigen::PartialPivLU<%s > %s(%s);\n" % (tensor_type, dsym, expr)
+                statements.append(dec)
+            else:
+                t = ast.Symbol("auxT%d" % len(declared_temps))
+                result = slate_to_cpp(exp, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                statements.append(ast.Decl(tensor_type, t))
+                statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+                results.append(ast.Assign(t, result))
+
             declared_temps[exp] = t
 
     statements.extend(results)
@@ -504,9 +551,13 @@ def slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (slate.Add, slate.Mul)):
+    elif isinstance(expr, (slate.Add, slate.Mul, slate.Solve)):
+        # NOTE: Solve is the application of a matrix inverse
+        # onto a right-hand side. Treated as multiplication,
+        # except a previously declared factorization is used.
         op = {slate.Add: '+',
-              slate.Mul: '*'}[type(expr)]
+              slate.Mul: '*',
+              slate.Solve: '*'}[type(expr)]
         A, B = expr.operands
         result = "%s %s %s" % (slate_to_cpp(A, temps, expr.prec),
                                op,
@@ -544,15 +595,6 @@ def slate_to_cpp(expr, temps, prec=None):
                                                               expr.prec),
                                                  rshape, cshape,
                                                  rstart, cstart)
-
-        return parenthesize(result, expr.prec, prec)
-
-    elif isinstance(expr, slate.Solve):
-        A, B = expr.operands
-        factor_type = expr.factor_type
-        result = "(%s).%s().solve(%s)" % (slate_to_cpp(A, temps, expr.prec),
-                                          factor_type,
-                                          slate_to_cpp(B, temps, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
