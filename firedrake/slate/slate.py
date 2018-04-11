@@ -847,7 +847,7 @@ class Solve(BinaryOp):
     """
     """
 
-    def __new__(cls, A, B):
+    def __new__(cls, A, B, factor_type=None):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
