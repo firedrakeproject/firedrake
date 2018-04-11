@@ -91,7 +91,7 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-
+        factor_mats = OrderedDict()
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
@@ -120,6 +120,17 @@ class LocalKernelBuilder(object):
 
                     seen_coeff.add(function)
 
+            # Collect inverse for factorization
+            if isinstance(tensor, slate.Inverse) and tensor.shape > (4, 4):
+                factor_type = "PartialPivLU"
+                factor_mats.setdefault(factor_type, list()).append(tensor)
+
+            # Collect matrices to factor for computing local solves
+            if isinstance(tensor, slate.Solve):
+                Ainv, _ = tensor.operands
+                factor_type = tensor.factor_type
+                factor_mats.setdefault(factor_type, list()).append(Ainv)
+
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
@@ -130,6 +141,8 @@ class LocalKernelBuilder(object):
                           if counter[tensor] > 1
                           and not isinstance(tensor, (slate.Tensor,
                                                       slate.Negative))]
+        self.factor_mats = factor_mats
+
         self.coefficient_vecs = coeff_vecs
         self._setup()
 
