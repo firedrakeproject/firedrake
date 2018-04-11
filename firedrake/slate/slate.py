@@ -876,18 +876,18 @@ class Solve(BinaryOp):
         """Constructor for the Solve class."""
 
         # Partial pivoted LU is a stable default.
-        factor_type = factor_type or "partialPivLu"
+        factor_type = factor_type or "PartialPivLU"
 
         # These are the currently supported factorizations
         # in Eigen. This will change when the linear algebra
         # backend changes.
-        if factor_type not in ["partialPivLu", "fullPivLu",
-                               "householderQr", "colPivHouseholderQr",
-                               "fullPivHouseholderQr", "llt",
-                               "ldlt", "jacobiSvd"]:
+        if factor_type not in ["PartialPivLU", "FullPivLU",
+                               "HouseholderQR", "ColPivHouseholderQR",
+                               "FullPivHouseholderQR", "LLT",
+                               "LDLT", "JacobiSVD"]:
             raise ValueError("Factorization '%s' not supported" % factor_type)
 
-        super(Solve, self).__init__(A, B)
+        super(Solve, self).__init__(A.inv, B)
 
         self.factor_type = factor_type
 
@@ -897,8 +897,8 @@ class Solve(BinaryOp):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        A, B = self.operands
-        return A.arg_function_spaces()[::-1][:-1] + B.arg_function_spaces()[1:]
+        Ainv, B = self.operands
+        return Ainv.arg_function_spaces()[:-1] + B.arg_function_spaces()[1:]
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
