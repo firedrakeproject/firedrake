@@ -844,7 +844,13 @@ class Mul(BinaryOp):
 
 
 class Solve(BinaryOp):
-    """
+    """Abstract Slate class describing a local linear system of equations,
+    with the possibility of multiple right-hand sides.
+
+    :arg A: The left-hand side operator.
+    :arg B: The right-hand side vector (or matrix).
+    :arg factor_type: A string denoting the type of factorization
+                      to be used.
     """
 
     def __new__(cls, A, B, factor_type=None):
