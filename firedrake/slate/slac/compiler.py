@@ -95,6 +95,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         aux_temps = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_temps)
 
+    # Declare matrix factorizations
     if builder.factor_mats:
         factorizations = declare_factorizations(builder, declared_temps)
         statements.extend(factorizations)
@@ -214,7 +215,16 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
 
 def declare_factorizations(builder, declared_temps):
-    """
+    """Generates declarations of matrix factorizations for use
+    when applying the inverse of a matrix expression onto another
+    expression.
+
+    :arg builder: The :class:`LocalKernelBuilder` containing
+                  all relevant expression information.
+    :arg declared_temps: A `dict` containing all previously
+                         declared temporaries. This dictionary
+                         is updated as auxiliary expressions
+                         are assigned temporaries.
     """
 
     statements = [ast.FlatBlock("/* Matrix factorizations */\n")]
@@ -254,12 +264,11 @@ def auxiliary_temporaries(builder, declared_temps):
                          are assigned temporaries.
     """
     statements = [ast.FlatBlock("/* Auxiliary temporaries */\n")]
-    results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
+    results = []
     for exp in builder.aux_exprs:
         if exp not in declared_temps:
-            # For larger inverses, store the factorization and reuse
-            # NOTE: LU.inverse() * b is equivalent to LU.solve(b) if
-            # LU is previously defined factorization
+            # If inverses are nested inside multiple expressions,
+            # factorize and reuse.
             if isinstance(exp, slate.Inverse) and exp.shape > (4, 4):
                 dsym = ast.Symbol("dec%d" % len(declared_temps))
                 t = ast.Symbol("%s.inverse()" % dsym)
