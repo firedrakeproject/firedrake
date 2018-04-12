@@ -120,11 +120,6 @@ class LocalKernelBuilder(object):
 
                     seen_coeff.add(function)
 
-            # Collect inverse for factorization
-            if isinstance(tensor, slate.Inverse) and tensor.shape > (4, 4):
-                factor_type = "PartialPivLU"
-                factor_mats.setdefault(factor_type, list()).append(tensor)
-
             # Collect matrices to factor for computing local solves
             if isinstance(tensor, slate.Solve):
                 Ainv, _ = tensor.operands
@@ -140,7 +135,8 @@ class LocalKernelBuilder(object):
         self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
                           if counter[tensor] > 1
                           and not isinstance(tensor, (slate.Tensor,
-                                                      slate.Negative))]
+                                                      slate.Negative))
+                          or isinstance(tensor, slate.Inverse)]
         self.factor_mats = factor_mats
 
         self.coefficient_vecs = coeff_vecs
