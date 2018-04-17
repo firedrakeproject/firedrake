@@ -18,6 +18,8 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict
 
+from ufl import Coefficient
+
 from firedrake.function import Function
 from firedrake.utils import cached_property
 
@@ -270,8 +272,8 @@ class AssembledVector(TensorBase):
 
     def __init__(self, function):
         """Constructor for the AssembledVector class."""
-        if not isinstance(function, Function):
-            raise TypeError("Object must be a firedrake function.")
+        if not isinstance(function, Coefficient):
+            raise TypeError("Object must be a ufl Coefficient (typically a Firedrake Function).")
 
         super(AssembledVector, self).__init__()
 
@@ -281,7 +283,7 @@ class AssembledVector(TensorBase):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        return (self._function.function_space(),)
+        return (self._function.ufl_function_space(),)
 
     @cached_property
     def _argument(self):
@@ -303,7 +305,7 @@ class AssembledVector(TensorBase):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return (self._function.function_space().mesh(),)
+        return self._function.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:

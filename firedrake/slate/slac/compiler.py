@@ -274,10 +274,9 @@ def coefficient_temporaries(builder, declared_temps):
     the component spaces of the mixed space.
     """
     statements = [ast.FlatBlock("/* Coefficient temporaries */\n")]
-    i_sym = ast.Symbol("i1")
-    j_sym = ast.Symbol("j1")
+    j = ast.Symbol("j1")
     loops = [ast.FlatBlock("/* Loops for coefficient temps */\n")]
-    for (nodes, dofs), cinfo_list in builder.coefficient_vecs.items():
+    for dofs, cinfo_list in builder.coefficient_vecs.items():
         # Collect all coefficients which share the same node/dof extent
         assignments = []
         for cinfo in cinfo_list:
@@ -297,23 +296,16 @@ def coefficient_temporaries(builder, declared_temps):
 
             # Assigning coefficient values into temporary
             coeff_sym = ast.Symbol(builder.coefficient(function)[fs_i],
-                                   rank=(ast.Sum(ast.Prod(i_sym, dofs), j_sym),))
-            index = ast.Sum(offset,
-                            ast.Sum(ast.Prod(dofs, i_sym), j_sym))
-            coeff_temp = ast.Symbol(t, rank=(index,))
+                                   rank=(j, ))
+            index = ast.Sum(offset, j)
+            coeff_temp = ast.Symbol(t, rank=(index, ))
             assignments.append(ast.Assign(coeff_temp, coeff_sym))
 
-        # Inner-loop running over dof extent
-        inner_loop = ast.For(ast.Decl("unsigned int", j_sym, init=0),
-                             ast.Less(j_sym, dofs),
-                             ast.Incr(j_sym, 1),
-                             assignments)
-
-        # Outer-loop running over node extent
-        loop = ast.For(ast.Decl("unsigned int", i_sym, init=0),
-                       ast.Less(i_sym, nodes),
-                       ast.Incr(i_sym, 1),
-                       inner_loop)
+        # loop over dofs
+        loop = ast.For(ast.Decl("unsigned int", j, init=0),
+                       ast.Less(j, dofs),
+                       ast.Incr(j, 1),
+                       assignments)
 
         loops.append(loop)
 

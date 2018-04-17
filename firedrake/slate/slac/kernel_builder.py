@@ -6,8 +6,7 @@ from firedrake.slate.slac.utils import (topological_sort, traverse_dags,
                                         eigen_tensor, Transformer)
 from firedrake.utils import cached_property
 
-from functools import reduce
-
+from tsfc.finatinterface import create_element
 from ufl import MixedElement
 
 import firedrake.slate.slate as slate
@@ -103,20 +102,24 @@ class LocalKernelBuilder(object):
             if isinstance(tensor, slate.AssembledVector):
                 function = tensor._function
 
+                def dimension(e):
+                    return create_element(e).space_dimension()
+
                 # Ensure coefficient temporaries aren't duplicated
                 if function not in seen_coeff:
-                    shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in function.function_space().split()]
-                    c_shape = (sum(n * d for (n, d) in shapes),)
+                    if type(function.ufl_element()) == MixedElement:
+                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
+                    else:
+                        shapes = [dimension(function.ufl_element())]
 
                     offset = 0
-                    for fs_i, fs_shape in enumerate(shapes):
-                        cinfo = CoefficientInfo(space_index=fs_i,
+                    for i, shape in enumerate(shapes):
+                        cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=c_shape,
+                                                shape=(sum(shapes), ),
                                                 vector=tensor)
-                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
-                        offset += reduce(lambda x, y: x*y, fs_shape)
+                        coeff_vecs.setdefault(shape, []).append(cinfo)
+                        offset += shape
 
                     seen_coeff.add(function)
 
