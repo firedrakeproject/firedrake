@@ -146,17 +146,22 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s *" % SCALAR_TYPE, builder.coord_sym)]
+    args = [result, ast.Decl(SCALAR_TYPE, builder.coord_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"])]
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int *", builder.cell_orientations_sym))
+        args.append(ast.Decl("int", builder.cell_orientations_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
 
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        ctype = "%s *" % SCALAR_TYPE
-        args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
+        args.extend([ast.Decl(SCALAR_TYPE, csym,
+                              pointers=[("restrict",)],
+                              qualifiers=["const"]) for csym in builder.coefficient(c)])
 
     # Facet information
     if builder.needs_cell_facets:
@@ -168,7 +173,9 @@ def generate_kernel_ast(builder, statements, declared_temps):
         # can access its entries using standard array notation.
         cast = "%s (*%s)[2] = (%s (*)[2])%s;\n" % (f_dtype, f_sym, f_dtype, f_arg)
         statements.insert(0, ast.FlatBlock(cast))
-        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype), f_arg))
+        args.append(ast.Decl(f_dtype, f_arg,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
