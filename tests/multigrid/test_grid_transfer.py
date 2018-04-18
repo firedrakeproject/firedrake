@@ -3,15 +3,18 @@ import numpy
 from firedrake import *
 
 
-@pytest.fixture(params=["CG", "DG"])
-def space(request):
-    return request.param
-
-
 @pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron",
                         "prism", "hexahedron"], scope="module")
 def cell(request):
     return request.param
+
+
+@pytest.fixture(params=["CG", "DG"])
+def space(request, cell):
+    if cell in {"quadrilateral", "prism", "hexahedron"} and request.param == "DG":
+        return "DQ"
+    else:
+        return request.param
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +51,7 @@ def transfer_type(request):
 def degrees(space):
     if space == "CG":
         return (1, 2, 3)
-    elif space == "DG":
+    elif space in {"DG", "DQ"}:
         return (0, 1, 2)
 
 
