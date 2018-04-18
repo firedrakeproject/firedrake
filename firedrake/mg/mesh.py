@@ -1,4 +1,5 @@
 import numpy as np
+from collections import defaultdict
 
 from pyop2.datatypes import IntType
 from firedrake import mesh
@@ -110,6 +111,7 @@ class MeshHierarchy(object):
         self._hierarchy = tuple(hierarchy)
         for level, m in enumerate(self):
             set_level(m, self, level)
+        self._shared_data_cache = defaultdict(dict)
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -148,3 +150,4 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
         self._fine_to_coarse = self._base_hierarchy._fine_to_coarse
         for level, m in enumerate(self):
             set_level(m, self, level)
+        self._shared_data_cache = defaultdict(dict)

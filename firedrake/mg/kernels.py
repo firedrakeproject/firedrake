@@ -273,7 +273,8 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 
 def prolong_kernel(expression):
-    cache = expression.ufl_domain()._shared_data_cache["transfer_kernels"]
+    hierarchy, _ = utils.get_level(expression.ufl_domain())
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
     key = (("prolong", ) +
            expression.ufl_element().value_shape() +
@@ -314,7 +315,8 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    cache = Vf.ufl_domain()._shared_data_cache["transfer_kernels"]
+    hierarchy, _ = utils.get_level(Vc.ufl_domain())
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
     key = (("restrict", ) +
            Vf.ufl_element().value_shape() +
@@ -350,14 +352,9 @@ def restrict_kernel(Vf, Vc):
         return cache.setdefault(key, op2.Kernel(my_kernel, name="restrict_kernel"))
 
 
-def inside_cell(cell, sym, epsilon=1e-8):
-    dim = cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("%s[%d]" % (sym, i)) for i in range(dim))
-    return " && ".join("(%s)" % arg for arg in cell.contains_point(point, epsilon=epsilon).args)
-
-
 def inject_kernel(Vf, Vc):
-    cache = Vf.ufl_domain()._shared_data_cache["transfer_kernels"]
+    hierarchy, level = utils.get_level(Vc.ufl_domain())
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vf.ufl_domain().coordinates
     key = (("inject", ) +
            Vf.ufl_element().value_shape() +
@@ -368,10 +365,15 @@ def inject_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        hierarchy, level = utils.get_level(Vc.ufl_domain())
         ncandidate = hierarchy._coarse_to_fine[level].shape[1]
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+
+        def inside_cell(cell, sym, epsilon=1e-8):
+            dim = cell.get_spatial_dimension()
+            point = tuple(sympy.Symbol("%s[%d]" % (sym, i)) for i in range(dim))
+            return " && ".join("(%s)" % arg for arg in cell.contains_point(point, epsilon=epsilon).args)
+
         coordinates = Vf.ufl_domain().coordinates
         evaluate_kernel = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
