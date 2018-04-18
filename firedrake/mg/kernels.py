@@ -8,7 +8,7 @@ from firedrake.mg import utils
 
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
-from ufl.corealg.map_dag import map_expr_dags, map_expr_dag
+from ufl.corealg.map_dag import map_expr_dags
 
 import coffee.base as ast
 
@@ -17,7 +17,6 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
-import sympy
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -27,6 +26,8 @@ from tsfc.driver import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
+from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine
+from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -37,77 +38,6 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         _.update(parameters)
         parameters = _
 
-    def dX_norm_square(topological_dimension):
-        return " + ".join("dX[{0}]*dX[{0}]".format(i)
-                          for i in range(topological_dimension))
-
-    def X_isub_dX(topological_dimension):
-        return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
-                         for i in range(topological_dimension))
-
-    def is_affine(ufl_element):
-        return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
-
-    def init_X(fiat_cell):
-        vertices = numpy.array(fiat_cell.get_vertices())
-        X = numpy.average(vertices, axis=0)
-
-        formatter = ast.ArrayInit(X, precision=parameters["precision"])._formatter
-        return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
-
-    def to_reference_coordinates(ufl_coordinate_element):
-        # Set up UFL form
-        cell = ufl_coordinate_element.cell()
-        domain = ufl.Mesh(ufl_coordinate_element)
-        K = ufl.JacobianInverse(domain)
-        x = ufl.SpatialCoordinate(domain)
-        x0_element = ufl.VectorElement("Real", cell, 0)
-        x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
-        expr = ufl.dot(K, x - x0)
-
-        # Translation to GEM
-        C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-        expr = ufl_utils.preprocess_expression(expr)
-        expr = ufl_utils.simplify_abs(expr)
-
-        builder = firedrake_interface.KernelBuilderBase()
-        builder.domain_coordinate[domain] = C
-        builder._coefficient(C, "C")
-        builder._coefficient(x0, "x0")
-
-        dim = cell.topological_dimension()
-        point = gem.Variable('X', (dim,))
-        context = tsfc.fem.GemPointContext(
-            interface=builder,
-            ufl_cell=cell,
-            precision=parameters["precision"],
-            point_indices=(),
-            point_expr=point,
-        )
-        translator = tsfc.fem.Translator(context)
-        ir = map_expr_dag(translator, expr)
-
-        # Unroll result
-        ir = [gem.Indexed(ir, alpha) for alpha in numpy.ndindex(ir.shape)]
-
-        # Unroll IndexSums
-        max_extent = parameters["unroll_indexsum"]
-        if max_extent:
-            def predicate(index):
-                return index.extent <= max_extent
-            ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
-
-        # Translate to COFFEE
-        ir = impero_utils.preprocess_gem(ir)
-        return_variable = gem.Variable('dX', (dim,))
-        assignments = [(gem.Indexed(return_variable, (i,)), e)
-                       for i, e in enumerate(ir)]
-        impero_c = impero_utils.compile_gem(assignments, ())
-        body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
-        body.open_scope = False
-
-        return body
-
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
@@ -116,8 +46,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "to_reference_coords": to_reference_coordinates(ufl_coordinate_element),
-        "init_X": init_X(element.cell),
+        "to_reference_coords": to_reference_coordinates_body(ufl_coordinate_element, parameters),
+        "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),
@@ -156,13 +86,12 @@ static inline void to_reference_coords_kernel(double *X, const double *x0, const
 
 def compile_element(expression, dual_space=None, parameters=None,
                     name="evaluate_kernel"):
-    """Generates C code for point evaluations.
-    :arg expression: UFL expression
-    :arg coordinates: coordinate field
-    :arg parameters: form compiler parameters
-    :returns: C code as string
+    """Generate code for point evaluations.
+
+    :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
+    :arg dual_space: if the expression has an argument, should we also distribute residual data?
+    :returns: Some coffee AST
     """
-    from tsfc.finatinterface import create_element
     if parameters is None:
         parameters = default_parameters()
     else:
@@ -170,11 +99,6 @@ def compile_element(expression, dual_space=None, parameters=None,
         _.update(parameters)
         parameters = _
 
-    # # No arguments, please!
-    # if extract_arguments(expression):
-    #     return ValueError("Cannot interpolate UFL expression with Arguments!")
-
-    # Apply UFL preprocessing
     expression = tsfc.ufl_utils.preprocess_expression(expression)
 
     # # Collect required coefficients
@@ -369,11 +293,6 @@ def inject_kernel(Vf, Vc):
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        def inside_cell(cell, sym, epsilon=1e-8):
-            dim = cell.get_spatial_dimension()
-            point = tuple(sympy.Symbol("%s[%d]" % (sym, i)) for i in range(dim))
-            return " && ".join("(%s)" % arg for arg in cell.contains_point(point, epsilon=epsilon).args)
-
         coordinates = Vf.ufl_domain().coordinates
         evaluate_kernel = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
@@ -407,7 +326,7 @@ def inject_kernel(Vf, Vc):
         """ % {
             "to_reference": str(to_reference_kernel),
             "evaluate": str(evaluate_kernel),
-            "inside_cell": inside_cell(Vc.finat_element.cell, "Xref"),
+            "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "tdim": Vc.ufl_domain().topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
