@@ -525,7 +525,8 @@ def translate_coefficient(terminal, mt, ctx):
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
-            value = gem.IndexSum(gem.Product(expr, var), var.index_ordering())
+            indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
+            value = gem.IndexSum(gem.Product(expr, var), indices)
             summands.append(gem.optimise.contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
@@ -533,7 +534,7 @@ def translate_coefficient(terminal, mt, ctx):
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    assert set(result.free_indices) <= set(ctx.point_indices)
+    assert set(result.free_indices) - ctx.unsummed_coefficient_indices <= set(ctx.point_indices)
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
