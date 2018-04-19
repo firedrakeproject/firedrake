@@ -48,8 +48,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     :arg slate_expr: a :class:'TensorBase' expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
-                          be passed onto TSFC during the compilation of
-                          ufl forms.
+        be passed onto TSFC during the compilation of ufl forms.
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
@@ -116,11 +115,11 @@ def generate_kernel_ast(builder, statements, declared_temps):
     contained in the :class:`LocalKernelBuilder`.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg statements: A list of COFFEE objects containing all
-                     assembly calls and temporary declarations.
+        assembly calls and temporary declarations.
     :arg declared_temps: A `dict` containing all previously
-                         declared temporaries.
+        declared temporaries.
 
     Return: A `KernelInfo` object describing the complete AST.
     """
@@ -220,11 +219,10 @@ def declare_factorizations(builder, declared_temps):
     expression.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg declared_temps: A `dict` containing all previously
-                         declared temporaries. This dictionary
-                         is updated as auxiliary expressions
-                         are assigned temporaries.
+        declared temporaries. This dictionary is updated as
+        auxiliary expressions are assigned temporaries.
     """
 
     statements = [ast.FlatBlock("/* Matrix factorizations */\n")]
@@ -257,11 +255,10 @@ def auxiliary_temporaries(builder, declared_temps):
     by the :class:`LocalKernelBuilder`.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg declared_temps: A `dict` containing all previously
-                         declared temporaries. This dictionary
-                         is updated as auxiliary expressions
-                         are assigned temporaries.
+        declared temporaries. This dictionary is updated as
+        auxiliary expressions are assigned temporaries.
     """
     statements = [ast.FlatBlock("/* Auxiliary temporaries */\n")]
     results = []
@@ -299,10 +296,10 @@ def coefficient_temporaries(builder, declared_temps):
     coefficients to vector temporaries.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg declared_temps: A `dict` keeping track of all declared
-                         temporaries. This dictionary is updated
-                         as coefficients are assigned temporaries.
+        temporaries. This dictionary is updated as coefficients
+        are assigned temporaries.
 
     'AssembledVector's require creating coefficient temporaries to
     store data. The temporaries are created by inspecting the function
@@ -381,8 +378,7 @@ def tensor_assembly_calls(builder):
     finite element tensors.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information and
-                  assembly calls.
+        all relevant expression information and assembly calls.
     """
     assembly_calls = builder.assembly_calls
     statements = [ast.FlatBlock("/* Assemble local tensors */\n")]
@@ -529,15 +525,15 @@ def slate_to_cpp(expr, temps, prec=None):
 
     :arg expr: a :class:`slate.TensorBase` expression.
     :arg temps: a `dict` of temporaries which map a given expression to its
-                corresponding representation as a `coffee.Symbol` object.
+        corresponding representation as a `coffee.Symbol` object.
     :arg prec: an argument dictating the order of precedence in the linear
-               algebra operations. This ensures that parentheticals are placed
-               appropriately and the order in which linear algebra operations
-               are performed are correct.
+        algebra operations. This ensures that parentheticals are placed
+        appropriately and the order in which linear algebra operations
+        are performed are correct.
 
-    Returns
-        This function returns a `string` which represents the C/C++ code
-        representation of the `slate.TensorBase` expr.
+    Returns:
+        a `string` which represents the C/C++ code representation of the
+        `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
     # Coefficients defined as AssembledVectors will have been declared
@@ -613,11 +609,12 @@ def eigen_matrixbase_type(shape):
     """Returns the Eigen::Matrix declaration of the tensor.
 
     :arg shape: a tuple of integers the denote the shape of the
-                :class:`slate.TensorBase` object.
+        :class:`slate.TensorBase` object.
 
-    Returns: Returns a string indicating the appropriate declaration of the
-             `slate.TensorBase` object in the appropriate Eigen C++ template
-             library syntax.
+    Returns:
+        a string indicating the appropriate declaration of the
+        `slate.TensorBase` object in the appropriate Eigen C++ template
+        library syntax.
     """
     if len(shape) == 0:
         rows = 1

@@ -77,8 +77,7 @@ class LocalKernelBuilder(object):
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
-                              TSFC when constructing subkernels associated
-                              with the expression.
+            TSFC when constructing subkernels associated with the expression.
         """
         assert isinstance(expression, slate.TensorBase)
 

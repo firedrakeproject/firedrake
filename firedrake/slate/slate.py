@@ -144,9 +144,17 @@ class TensorBase(object, metaclass=ABCMeta):
         return Transpose(self)
 
     def solve(self, B, factor_type=None):
-        """
-        """
+        """Solve a system of equations with
+        a specified right-hand side.
 
+        :arg B: a Slate expression. This can be either a
+            vector or a matrix.
+        :arg factor_type: A string describing the type of
+            factorization to use when inverting the local
+            systems. At the moment, these are determined by
+            what is available in Eigen. See the :class:`Solve`
+            documentation for details.
+        """
         return Solve(self, B, factor_type=factor_type)
 
     def block(self, arg_indices):
@@ -157,21 +165,20 @@ class TensorBase(object, metaclass=ABCMeta):
 
         .. code-block:: python
 
-            V = FunctionSpace(m, "CG", 1)
-            W = V * V * V
-            u, p, r = TrialFunctions(W)
-            w, q, s = TestFunctions(W)
-            A = Tensor(u*w*dx + p*q*dx + r*s*dx)
+           V = FunctionSpace(m, "CG", 1)
+           W = V * V * V
+           u, p, r = TrialFunctions(W)
+           w, q, s = TestFunctions(W)
+           A = Tensor(u*w*dx + p*q*dx + r*s*dx)
 
         The tensor `A` has 3x3 block structure. Providing argument indices
         (0, 0) will extract the block defined by the form `u*w*dx`:
         `Block(A, (0, 0))` See :class:`Block` for more information.
 
         :arg arg_indices: Indices describing the test and trial spaces to
-                          extract. This should be 0-, 1-, or 2-tuples whose
-                          length is the same as the rank of the tensor. Entries
-                          can be either an integer index or an iterable of
-                          indices.
+            extract. This should be 0-, 1-, or 2-tuples whose length is
+            the same as the rank of the tensor. Entries can be either an
+            integer index or an iterable of indices.
         """
         return Block(tensor=self, indices=arg_indices)
 
@@ -339,44 +346,44 @@ class Block(TensorBase):
 
     :arg tensor: A (mixed) tensor.
     :arg indices: Indices of the test and trial function
-                  spaces to extract. This should be a 0-,
-                  1-, or 2-tuple (whose length is equal
-                  to the rank of the tensor.) The entries
-                  should be an iterable of integer indices.
+        spaces to extract. This should be a 0-, 1-, or
+        2-tuple (whose length is equal to the rank of the
+        tensor.) The entries should be an iterable of integer
+        indices.
 
     For example, consider the mixed tensor defined by:
 
     .. code-block:: python
 
-        n = FacetNormal(m)
-        U = FunctionSpace(m, "DRT", 1)
-        V = FunctionSpace(m, "DG", 0)
-        M = FunctionSpace(m, "DGT", 0)
-        W = U * V * M
-        u, p, r = TrialFunctions(W)
-        w, q, s = TestFunctions(W)
-        A = Tensor(dot(u, w)*dx + p*div(w)*dx + r*dot(w, n)*dS
-                   + div(u)*q*dx + p*q*dx + r*s*ds)
+       n = FacetNormal(m)
+       U = FunctionSpace(m, "DRT", 1)
+       V = FunctionSpace(m, "DG", 0)
+       M = FunctionSpace(m, "DGT", 0)
+       W = U * V * M
+       u, p, r = TrialFunctions(W)
+       w, q, s = TestFunctions(W)
+       A = Tensor(dot(u, w)*dx + p*div(w)*dx + r*dot(w, n)*dS
+                  + div(u)*q*dx + p*q*dx + r*s*ds)
 
     This describes a block 3x3 mixed tensor of the form:
 
     .. math::
 
-        \begin{bmatrix}
+      \\begin{bmatrix}
             A & B & C \\
             D & E & F \\
             G & H & J
-        \end{bmatrix}
+      \\end{bmatrix}
 
     Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
     corresponding to the upper 2x2 block:
 
     .. math::
 
-        \begin{bmatrix}
+       \\begin{bmatrix}
             A & B \\
             D & E
-        \end{bmatrix}
+       \\end{bmatrix}
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
@@ -565,7 +572,7 @@ class TensorOp(TensorBase):
     existing Slate tensors.
 
     :arg operands: an iterable of operands that are :class:`TensorBase`
-                   objects.
+        objects.
     """
 
     def __init__(self, *operands):
@@ -615,10 +622,10 @@ class UnaryOp(TensorOp):
     Tensor object.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any
-            number of linear algebra operations on `Tensor` objects. For
-            example, another instance of a `UnaryOp` object is an acceptable
-            input, or a `BinaryOp` object.
+        (:class:`Tensor`) or any derived expression resulting from any
+        number of linear algebra operations on `Tensor` objects. For
+        example, another instance of a `UnaryOp` object is an acceptable
+        input, or a `BinaryOp` object.
     """
 
     def __repr__(self):
@@ -721,10 +728,10 @@ class BinaryOp(TensorOp):
     Such operations take two operands and returns a tensor-valued expression.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any
-            number of linear algebra operations on `Tensor` objects. For
-            example, another instance of a `BinaryOp` object is an acceptable
-            input, or a `UnaryOp` object.
+        (:class:`Tensor`) or any derived expression resulting from any
+        number of linear algebra operations on `Tensor` objects. For
+        example, another instance of a `BinaryOp` object is an acceptable
+        input, or a `UnaryOp` object.
     :arg B: a :class:`TensorBase` object.
     """
 
@@ -845,12 +852,20 @@ class Mul(BinaryOp):
 
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations,
-    with the possibility of multiple right-hand sides.
+    with the possibility of multiple right-hand sides. The factorizations
+    available are the following:
+
+        (1) LU with full or partial pivoting ('FullPivLU' and 'PartialPivLU');
+        (2) QR using Householder reflectors ('HouseholderQR') with the option
+            to use column pivoting ('ColPivHouseholderQR') or full pivoting
+            ('FullPivHouseholderQR'); and
+        (3) Standard Cholesky ('LLT') and stabilized Cholesky factorizations
+            with pivoting ('LDLT').
 
     :arg A: The left-hand side operator.
     :arg B: The right-hand side vector (or matrix).
     :arg factor_type: A string denoting the type of factorization
-                      to be used.
+        to be used.
     """
 
     def __new__(cls, A, B, factor_type=None):
@@ -889,8 +904,7 @@ class Solve(BinaryOp):
         # backend changes.
         if factor_type not in ["PartialPivLU", "FullPivLU",
                                "HouseholderQR", "ColPivHouseholderQR",
-                               "FullPivHouseholderQR", "LLT",
-                               "LDLT", "JacobiSVD"]:
+                               "FullPivHouseholderQR", "LLT", "LDLT"]:
             raise ValueError("Factorization '%s' not supported" % factor_type)
 
         super(Solve, self).__init__(A.inv, B)
