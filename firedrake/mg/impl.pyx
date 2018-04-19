@@ -106,7 +106,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
                         k += 1
 
     return coarse_to_fine_map
-    
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -148,7 +148,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_
                     fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
-    
+
 
 def create_lgmap(PETSc.DM dm):
     """Create a local to global map for all points in the given DM.
