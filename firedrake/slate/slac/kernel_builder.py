@@ -135,8 +135,7 @@ class LocalKernelBuilder(object):
         self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
                           if counter[tensor] > 1
                           and not isinstance(tensor, (slate.Tensor,
-                                                      slate.Negative))
-                          or isinstance(tensor, slate.Inverse)]
+                                                      slate.Negative))]
         self.factor_mats = factor_mats
 
         self.coefficient_vecs = coeff_vecs
