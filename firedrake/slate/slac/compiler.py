@@ -19,6 +19,7 @@ from coffee import base as ast
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
+from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 
 from gem.utils import groupby
@@ -89,15 +90,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         coefficient_temps = coefficient_temporaries(builder, declared_temps)
         statements.extend(coefficient_temps)
 
-    # Create auxiliary temporaries if necessary
-    if builder.aux_exprs:
-        aux_temps = auxiliary_temporaries(builder, declared_temps)
-        statements.extend(aux_temps)
-
-    # Declare matrix factorizations
-    if builder.factor_mats:
-        factorizations = declare_factorizations(builder, declared_temps)
-        statements.extend(factorizations)
+    # Create auxiliary temporaries/expressions (if necessary)
+    statements.extend(auxiliary_expressions(builder, declared_temps))
 
     # Generate the kernel information with complete AST
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
@@ -213,46 +207,32 @@ def generate_kernel_ast(builder, statements, declared_temps):
     return kinfo
 
 
-def declare_factorizations(builder, declared_temps):
+def declare_factorizations(exp, factor_type, declared_temps):
     """Generates declarations of matrix factorizations for use
     when applying the inverse of a matrix expression onto another
     expression.
-
-    :arg builder: The :class:`LocalKernelBuilder` containing
-        all relevant expression information.
-    :arg declared_temps: A `dict` containing all previously
-        declared temporaries. This dictionary is updated as
-        auxiliary expressions are assigned temporaries.
     """
 
-    statements = [ast.FlatBlock("/* Matrix factorizations */\n")]
-    for factor_type, tensors in builder.factor_mats.items():
-        for ainv in tensors:
-            if ainv not in declared_temps:
-                dsym = ast.Symbol("dec%d" % len(declared_temps))
+    statements = []
 
-                # NOTE: In Eigen: LU.inverse() * b is the same
-                # as LU.solve(b), where LU is a previously declared
-                # factorization. This does not explicitly compute
-                # the inverse.
-                t = ast.Symbol("%s.inverse()" % dsym)
-                operand, = ainv.operands
-                expr = slate_to_cpp(operand, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=operand.shape)
-                dec = "Eigen::%s<%s > %s(%s);\n" % (factor_type,
-                                                    tensor_type,
-                                                    dsym, expr)
-                statements.append(dec)
-                declared_temps[ainv] = t
+    # Check if the matrix factorization is previously defined
+    if exp not in declared_temps:
+        dsym = ast.Symbol("dec%d" % len(declared_temps))
+        operand, = exp.operands
+        expr = slate_to_cpp(operand, declared_temps)
+        tensor_type = eigen_matrixbase_type(shape=operand.shape)
+        dec = "Eigen::%s<%s > %s(%s);\n" % (factor_type, tensor_type,
+                                            dsym, expr)
+        statements.append(dec)
+        declared_temps[exp] = ast.Symbol("%s.inverse()" % dsym)
 
     return statements
 
 
-def auxiliary_temporaries(builder, declared_temps):
+def auxiliary_expressions(builder, declared_temps):
     """Generates statements for assigning auxiliary temporaries
-    for nodes in an expression with "high" reference count.
-    Expressions which require additional temporaries are provided
-    by the :class:`LocalKernelBuilder`.
+    and declaring factorizations for local matrix inverses
+    (if the matrix is larger than 4 x 4).
 
     :arg builder: The :class:`LocalKernelBuilder` containing
         all relevant expression information.
@@ -260,30 +240,36 @@ def auxiliary_temporaries(builder, declared_temps):
         declared temporaries. This dictionary is updated as
         auxiliary expressions are assigned temporaries.
     """
-    statements = [ast.FlatBlock("/* Auxiliary temporaries */\n")]
+
+    # These are either already declared terminals or expressions
+    # which do not require an extra temporary/expression
+    terminals = (slate.Tensor, slate.Negative, slate.Transpose)
+    statements = []
     results = []
-    for exp in builder.aux_exprs:
-        if exp not in declared_temps:
-            # If inverses are nested inside multiple expressions,
-            # factorize and reuse.
-            if isinstance(exp, slate.Inverse) and exp.shape > (4, 4):
-                dsym = ast.Symbol("dec%d" % len(declared_temps))
-                t = ast.Symbol("%s.inverse()" % dsym)
-                operand, = exp.operands
-                expr = slate_to_cpp(operand, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=operand.shape)
 
-                # By default, we use partial pivoted LU, since it's the most
-                # stable and balances speed/accuracy
-                dec = "Eigen::PartialPivLU<%s > %s(%s);\n" % (tensor_type, dsym, expr)
-                statements.append(dec)
-            else:
-                t = ast.Symbol("auxT%d" % len(declared_temps))
-                result = slate_to_cpp(exp, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=exp.shape)
-                statements.append(ast.Decl(tensor_type, t))
-                results.append(ast.Assign(t, result))
+    for exp in [tensor for tensor in topological_sort(builder.expression_dag)
+                if not isinstance(tensor, terminals)]:
 
+        # For 5x5 and larger inverses, always use a factorization
+        if isinstance(exp, slate.Inverse) and exp.shape > (4, 4):
+            # LU with partial pivoting is a safe default
+            factor_type = "PartialPivLU"
+            factor = declare_factorizations(exp, factor_type, declared_temps)
+            statements.extend(factor)
+
+        if isinstance(exp, slate.Solve):
+            # declare matrix factorization (specified by solve objects)
+            ainv, _ = exp.operands
+            factor_type = exp.factor_type
+            factor = declare_factorizations(ainv, factor_type, declared_temps)
+            statements.extend(factor)
+
+        if builder.ref_counter[exp] > 1 and exp not in declared_temps:
+            t = ast.Symbol("auxT%d" % len(declared_temps))
+            result = slate_to_cpp(exp, declared_temps)
+            tensor_type = eigen_matrixbase_type(shape=exp.shape)
+            statements.append(ast.Decl(tensor_type, t))
+            results.append(ast.Assign(t, result))
             declared_temps[exp] = t
 
     statements.extend(results)
@@ -555,9 +541,10 @@ def slate_to_cpp(expr, temps, prec=None):
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, (slate.Add, slate.Mul, slate.Solve)):
-        # NOTE: Solve is the application of a matrix inverse
-        # onto a right-hand side. Treated as multiplication,
-        # except a previously declared factorization is used.
+        # NOTE: In Eigen: LU.inverse() * b is the same
+        # as LU.solve(b), where LU is a previously declared
+        # factorization. This does not explicitly compute
+        # and store the full inverse.
         op = {slate.Add: '+',
               slate.Mul: '*',
               slate.Solve: '*'}[type(expr)]

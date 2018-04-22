@@ -2,8 +2,7 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 
-from firedrake.slate.slac.utils import (topological_sort, traverse_dags,
-                                        eigen_tensor, Transformer)
+from firedrake.slate.slac.utils import (traverse_dags, eigen_tensor, Transformer)
 from firedrake.utils import cached_property
 
 from functools import reduce
@@ -90,7 +89,6 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-        factor_mats = OrderedDict()
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
@@ -119,24 +117,11 @@ class LocalKernelBuilder(object):
 
                     seen_coeff.add(function)
 
-            # Collect matrices to factor for computing local solves
-            if isinstance(tensor, slate.Solve):
-                Ainv, _ = tensor.operands
-                factor_type = tensor.factor_type
-                factor_mats.setdefault(factor_type, list()).append(Ainv)
-
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-
-        # Terminal tensors do not need additional temps created for them
-        # and neither do Negative nodes.
-        self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
-                          if counter[tensor] > 1
-                          and not isinstance(tensor, (slate.Tensor,
-                                                      slate.Negative))]
-        self.factor_mats = factor_mats
-
+        self.ref_counter = counter
+        self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self._setup()
 
