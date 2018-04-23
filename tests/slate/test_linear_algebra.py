@@ -102,8 +102,8 @@ def test_aggressive_unaryop_nesting():
     assert np.allclose(assemble(foo).dat.data, np.ones(V.node_count))
 
 
-@pytest.mark.parametrize("factor_type", ["PartialPivLU", "FullPivLU"])
-def test_local_solve(factor_type):
+@pytest.mark.parametrize("decomp", ["PartialPivLU", "FullPivLU"])
+def test_local_solve(decomp):
 
     V = FunctionSpace(UnitSquareMesh(3, 3), "DG", 3)
     f = Function(V).assign(1.0)
@@ -113,7 +113,7 @@ def test_local_solve(factor_type):
 
     A = Tensor(inner(v, u)*dx)
     b = Tensor(inner(v, f)*dx)
-    x = assemble(A.solve(b, factor_type=factor_type))
+    x = assemble(A.solve(b, decomposition=decomp))
 
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
 
