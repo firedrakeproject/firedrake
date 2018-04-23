@@ -207,28 +207,6 @@ def generate_kernel_ast(builder, statements, declared_temps):
     return kinfo
 
 
-def declare_factorizations(exp, factor_type, declared_temps):
-    """Generates declarations of matrix factorizations for use
-    when applying the inverse of a matrix expression onto another
-    expression.
-    """
-
-    statements = []
-
-    # Check if the matrix factorization is previously defined
-    if exp not in declared_temps:
-        dsym = ast.Symbol("dec%d" % len(declared_temps))
-        operand, = exp.operands
-        expr = slate_to_cpp(operand, declared_temps)
-        tensor_type = eigen_matrixbase_type(shape=operand.shape)
-        dec = "Eigen::%s<%s > %s(%s);\n" % (factor_type, tensor_type,
-                                            dsym, expr)
-        statements.append(dec)
-        declared_temps[exp] = ast.Symbol("%s.inverse()" % dsym)
-
-    return statements
-
-
 def auxiliary_expressions(builder, declared_temps):
     """Generates statements for assigning auxiliary temporaries
     and declaring factorizations for local matrix inverses
@@ -243,36 +221,33 @@ def auxiliary_expressions(builder, declared_temps):
 
     # These are either already declared terminals or expressions
     # which do not require an extra temporary/expression
-    terminals = (slate.Tensor, slate.Negative, slate.Transpose)
+    terminals = (slate.Tensor, slate.AssembledVector,
+                 slate.Negative, slate.Transpose)
     statements = []
-    results = []
 
-    for exp in [tensor for tensor in topological_sort(builder.expression_dag)
-                if not isinstance(tensor, terminals)]:
+    sorted_exprs = [exp for exp in topological_sort(builder.expression_dag)
+                    if (builder.ref_counter[exp] > 1 and not isinstance(exp, terminals))
+                    or isinstance(exp, slate.Factorization)]
 
-        # For 5x5 and larger inverses, always use a factorization
-        if isinstance(exp, slate.Inverse) and exp.shape > (4, 4):
-            # LU with partial pivoting is a safe default
-            factor_type = "PartialPivLU"
-            factor = declare_factorizations(exp, factor_type, declared_temps)
-            statements.extend(factor)
+    for exp in sorted_exprs:
+        if exp not in declared_temps:
+            if isinstance(exp, slate.Factorization):
+                t = ast.Symbol("dec%d" % len(declared_temps))
+                operand, = exp.operands
+                expr = slate_to_cpp(operand, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                stmt = "Eigen::%s<%s > %s(%s);\n" % (exp.decomposition,
+                                                     tensor_type, t, expr)
+                statements.append(stmt)
+            else:
+                t = ast.Symbol("auxT%d" % len(declared_temps))
+                result = slate_to_cpp(exp, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                stmt = ast.Decl(tensor_type, t)
+                assignment = ast.Assign(t, result)
+                statements.extend([stmt, assignment])
 
-        if isinstance(exp, slate.Solve):
-            # declare matrix factorization (specified by solve objects)
-            ainv, _ = exp.operands
-            factor_type = exp.factor_type
-            factor = declare_factorizations(ainv, factor_type, declared_temps)
-            statements.extend(factor)
-
-        if builder.ref_counter[exp] > 1 and exp not in declared_temps:
-            t = ast.Symbol("auxT%d" % len(declared_temps))
-            result = slate_to_cpp(exp, declared_temps)
-            tensor_type = eigen_matrixbase_type(shape=exp.shape)
-            statements.append(ast.Decl(tensor_type, t))
-            results.append(ast.Assign(t, result))
             declared_temps[exp] = t
-
-    statements.extend(results)
 
     return statements
 
@@ -523,7 +498,8 @@ def slate_to_cpp(expr, temps, prec=None):
     """
     # If the tensor is terminal, it has already been declared.
     # Coefficients defined as AssembledVectors will have been declared
-    # by now, as well as any other nodes with high reference count.
+    # by now, as well as any other nodes with high reference count or
+    # matrix factorizations.
     if expr in temps:
         return temps[expr].gencode()
 
@@ -540,14 +516,9 @@ def slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, (slate.Add, slate.Mul, slate.Solve)):
-        # NOTE: In Eigen: LU.inverse() * b is the same
-        # as LU.solve(b), where LU is a previously declared
-        # factorization. This does not explicitly compute
-        # and store the full inverse.
+    elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
-              slate.Mul: '*',
-              slate.Solve: '*'}[type(expr)]
+              slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
         result = "%s %s %s" % (slate_to_cpp(A, temps, expr.prec),
                                op,
@@ -585,6 +556,13 @@ def slate_to_cpp(expr, temps, prec=None):
                                                               expr.prec),
                                                  rshape, cshape,
                                                  rstart, cstart)
+
+        return parenthesize(result, expr.prec, prec)
+
+    elif isinstance(expr, slate.Solve):
+        A, B = expr.operands
+        result = "%s.solve(%s)" % (slate_to_cpp(A, temps, expr.prec),
+                                   slate_to_cpp(B, temps, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
