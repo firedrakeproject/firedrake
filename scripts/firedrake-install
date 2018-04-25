@@ -57,6 +57,7 @@ class FiredrakeConfiguration(dict):
 
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
+                           "honour_petsc_dir",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir"]
@@ -208,6 +209,7 @@ else:
                         help="Install SLEPc along with PETSc")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
+                       default=config["options"].get("honour_petsc_dir", False),
                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     group.add_argument("--petsc-int-type", choices=["int32", "int64"],
                        default="int32", type=str,
