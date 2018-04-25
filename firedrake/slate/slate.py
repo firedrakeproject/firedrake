@@ -939,9 +939,9 @@ class Mul(BinaryOp):
 
 
 class Solve(BinaryOp):
-    """Abstract Slate class describing a local linear system of equations,
+    """Abstract Slate class describing a local linear system of equations.
     This object is a direct solver, utilizing the application of the inverse
-    of matrix decompositions.
+    of matrix in a decomposed form.
 
     :arg A: The left-hand side operator.
     :arg B: The right-hand side.

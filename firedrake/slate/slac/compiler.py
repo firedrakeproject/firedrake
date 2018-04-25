@@ -49,13 +49,18 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     :arg slate_expr: a :class:'TensorBase' expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
-        be passed onto TSFC during the compilation of ufl forms.
+        be passed to TSFC during the compilation of ufl forms.
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
-    Citations().register("Gibson2018")
+
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
+
+    # If the expression has already been symbolically compiled, then
+    # simply reuse the produced kernel.
+    if slate_expr._metakernel_cache is not None:
+        return slate_expr._metakernel_cache
 
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
@@ -64,11 +69,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
-    # If the expression has already been symbolically compiled, then
-    # simply reuse the produced kernel.
-    if slate_expr._metakernel_cache is not None:
-        return slate_expr._metakernel_cache
-
+    Citations().register("Gibson2018")
     # Create a builder for the Slate expression
     builder = LocalKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
@@ -226,8 +227,8 @@ def auxiliary_expressions(builder, declared_temps):
     statements = []
 
     sorted_exprs = [exp for exp in topological_sort(builder.expression_dag)
-                    if (builder.ref_counter[exp] > 1 and not isinstance(exp, terminals))
-                    or isinstance(exp, slate.Factorization)]
+                    if ((builder.ref_counter[exp] > 1 and not isinstance(exp, terminals))
+                        or isinstance(exp, slate.Factorization))]
 
     for exp in sorted_exprs:
         if exp not in declared_temps:
