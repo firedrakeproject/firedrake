@@ -88,12 +88,15 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
+        dynamic_sizing = False
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
+                if tensor.rank == 2 and tensor.shape > (100, 100):
+                    dynamic_sizing = True
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
@@ -120,6 +123,7 @@ class LocalKernelBuilder(object):
 
                     seen_coeff.add(function)
 
+        self.dynamic_sizing = dynamic_sizing
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
@@ -181,7 +185,8 @@ class LocalKernelBuilder(object):
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
 
                 # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
+                tensor = eigen_tensor(exp, self.temps[exp], indices,
+                                      dynamic=self.dynamic_sizing)
                 call = ast.FunCall(kinfo.kernel.name,
                                    tensor,
                                    self.coord_sym,

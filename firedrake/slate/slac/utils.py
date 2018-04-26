@@ -136,7 +136,7 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-def eigen_tensor(expr, temporary, index):
+def eigen_tensor(expr, temporary, index, dynamic=False):
     """Returns an appropriate assignment statement for populating a particular
     `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
     :meth:`block` of the eigen tensor is provided. Otherwise, no block
@@ -163,9 +163,14 @@ def eigen_tensor(expr, temporary, index):
             cshape = 1
             cstart = 0
 
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                             rshape, cshape,
-                                                             rstart, cstart))
+        if dynamic:
+            tensor = ast.FlatBlock("%s.block(%d, %d, %d, %d)" % (temporary,
+                                                                 rstart, cstart,
+                                                                 rshape, cshape))
+        else:
+            tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                                 rshape, cshape,
+                                                                 rstart, cstart))
     else:
         tensor = temporary
 

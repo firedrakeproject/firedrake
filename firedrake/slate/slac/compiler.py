@@ -155,18 +155,34 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.FlatBlock("/* Map eigen tensor into C struct */\n"))
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
-    result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
+    result_type = eigen_matrixbase_type(shape, dynamic=builder.dynamic_sizing)
+    map_expr = "Eigen::Map<%s >" % result_type
     result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
-    result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
-                                                             result_sym,
-                                                             SCALAR_TYPE,
-                                                             result_data_sym))
-    statements.append(result_statement)
+
+    if builder.dynamic_sizing:
+        if len(shape) == 1:
+            nrow, = shape
+            ncol = 1
+        else:
+            nrow, ncol = shape
+
+        stmt = ast.FlatBlock("%s (%s((%s *)%s), %d, %d);\n" % (map_expr,
+                                                               result_sym,
+                                                               SCALAR_TYPE,
+                                                               result_data_sym,
+                                                               nrow, ncol))
+    else:
+        stmt = ast.FlatBlock("%s %s((%s *)%s);\n" % (map_expr,
+                                                     result_sym,
+                                                     SCALAR_TYPE,
+                                                     result_data_sym))
+    statements.append(stmt)
 
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     statements.append(ast.FlatBlock("/* Linear algebra expression */\n"))
-    cpp_string = ast.FlatBlock(slate_to_cpp(slate_expr, declared_temps))
+    cpp_string = ast.FlatBlock(slate_to_cpp(slate_expr, declared_temps,
+                                            dynamic=builder.dynamic_sizing))
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
@@ -267,15 +283,19 @@ def auxiliary_expressions(builder, declared_temps):
             if isinstance(exp, slate.Factorization):
                 t = ast.Symbol("dec%d" % len(declared_temps))
                 operand, = exp.operands
-                expr = slate_to_cpp(operand, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                expr = slate_to_cpp(operand, declared_temps,
+                                    dynamic=builder.dynamic_sizing)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape,
+                                                    dynamic=builder.dynamic_sizing)
                 stmt = "Eigen::%s<%s > %s(%s);\n" % (exp.decomposition,
                                                      tensor_type, t, expr)
                 statements.append(stmt)
             else:
                 t = ast.Symbol("auxT%d" % len(declared_temps))
-                result = slate_to_cpp(exp, declared_temps)
-                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                result = slate_to_cpp(exp, declared_temps,
+                                      dynamic=builder.dynamic_sizing)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape,
+                                                    dynamic=builder.dynamic_sizing)
                 stmt = ast.Decl(tensor_type, t)
                 assignment = ast.Assign(t, result)
                 statements.extend([stmt, assignment])
@@ -334,7 +354,8 @@ def coefficient_temporaries(builder, declared_temps):
 
             if vector not in declared_temps:
                 # Declare and initialize coefficient temporary
-                c_type = eigen_matrixbase_type(shape=c_shape)
+                c_type = eigen_matrixbase_type(shape=c_shape,
+                                               dynamic=builder.dynamic_sizing)
                 t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
                 declared_temps[vector] = t
@@ -491,7 +512,9 @@ def terminal_temporaries(builder, declared_temps):
     statements = [ast.FlatBlock("/* Declare and initialize */\n")]
     for exp in builder.temps:
         t = builder.temps[exp]
-        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+        eig_type = eigen_matrixbase_type(exp.shape,
+                                         dynamic=builder.dynamic_sizing)
+        statements.append(ast.Decl(eig_type, t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
         declared_temps[exp] = t
 
@@ -505,7 +528,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def slate_to_cpp(expr, temps, prec=None):
+def slate_to_cpp(expr, temps, dynamic=False, prec=None):
     """Translates a Slate expression into its equivalent representation in
     the Eigen C++ syntax.
 
@@ -530,24 +553,24 @@ def slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, slate.Transpose):
         tensor, = expr.operands
-        return "(%s).transpose()" % slate_to_cpp(tensor, temps)
+        return "(%s).transpose()" % slate_to_cpp(tensor, temps, dynamic)
 
     elif isinstance(expr, slate.Inverse):
         tensor, = expr.operands
-        return "(%s).inverse()" % slate_to_cpp(tensor, temps)
+        return "(%s).inverse()" % slate_to_cpp(tensor, temps, dynamic)
 
     elif isinstance(expr, slate.Negative):
         tensor, = expr.operands
-        result = "-%s" % slate_to_cpp(tensor, temps, expr.prec)
+        result = "-%s" % slate_to_cpp(tensor, temps, dynamic, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, (slate.Add, slate.Mul)):
         op = {slate.Add: '+',
               slate.Mul: '*'}[type(expr)]
         A, B = expr.operands
-        result = "%s %s %s" % (slate_to_cpp(A, temps, expr.prec),
+        result = "%s %s %s" % (slate_to_cpp(A, temps, dynamic, expr.prec),
                                op,
-                               slate_to_cpp(B, temps, expr.prec))
+                               slate_to_cpp(B, temps, dynamic, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
@@ -576,11 +599,20 @@ def slate_to_cpp(expr, temps, prec=None):
             cshape = expr.shape[1]
             cstart = sum(tensor.shapes[1][:min(cids)])
 
-        result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
-                                                              temps,
-                                                              expr.prec),
-                                                 rshape, cshape,
-                                                 rstart, cstart)
+        if dynamic:
+            result = "(%s).block(%d, %d, %d, %d)" % (slate_to_cpp(tensor,
+                                                                  temps,
+                                                                  dynamic,
+                                                                  expr.prec),
+                                                     rstart, cstart,
+                                                     rshape, cshape)
+        else:
+            result = "(%s).block<%d, %d>(%d, %d)" % (slate_to_cpp(tensor,
+                                                                  temps,
+                                                                  dynamic,
+                                                                  expr.prec),
+                                                     rshape, cshape,
+                                                     rstart, cstart)
 
         return parenthesize(result, expr.prec, prec)
 
@@ -595,7 +627,7 @@ def slate_to_cpp(expr, temps, prec=None):
         raise NotImplementedError("Type %s not supported.", type(expr))
 
 
-def eigen_matrixbase_type(shape):
+def eigen_matrixbase_type(shape, dynamic=False):
     """Returns the Eigen::Matrix declaration of the tensor.
 
     :arg shape: a tuple of integers the denote the shape of the
@@ -619,9 +651,15 @@ def eigen_matrixbase_type(shape):
             )
         rows = shape[0]
         cols = shape[1]
-    if cols != 1:
-        order = ", Eigen::RowMajor"
-    else:
-        order = ""
 
-    return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
+    if cols != 1:
+        order = "Eigen::RowMajor"
+    else:
+        order = 0
+
+    if dynamic:
+        return "Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, %s, %s, %s>" % (order,
+                                                                                      rows,
+                                                                                      cols)
+
+    return "Eigen::Matrix<double, %d, %d, %s>" % (rows, cols, order)
