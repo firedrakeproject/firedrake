@@ -46,6 +46,89 @@ def src_locate_cell(mesh, tolerance=None):
     return src
 
 
+def dX_norm_square(topological_dimension):
+    return " + ".join("dX[{0}]*dX[{0}]".format(i)
+                      for i in range(topological_dimension))
+
+
+def X_isub_dX(topological_dimension):
+    return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
+                     for i in range(topological_dimension))
+
+
+def is_affine(ufl_element):
+    return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
+
+
+def inside_check(fiat_cell, eps, X="X"):
+    dim = fiat_cell.get_spatial_dimension()
+    point = tuple(sympy.Symbol("%s[%d]" % (X, i)) for i in range(dim))
+
+    return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
+
+
+def init_X(fiat_cell, parameters):
+    vertices = numpy.array(fiat_cell.get_vertices())
+    X = numpy.average(vertices, axis=0)
+
+    formatter = ArrayInit(X, precision=parameters["precision"])._formatter
+    return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
+
+
+def to_reference_coordinates(ufl_coordinate_element, parameters):
+    # Set up UFL form
+    cell = ufl_coordinate_element.cell()
+    domain = ufl.Mesh(ufl_coordinate_element)
+    K = ufl.JacobianInverse(domain)
+    x = ufl.SpatialCoordinate(domain)
+    x0_element = ufl.VectorElement("Real", cell, 0)
+    x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
+    expr = ufl.dot(K, x - x0)
+
+    # Translation to GEM
+    C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
+    expr = ufl_utils.preprocess_expression(expr)
+    expr = ufl_utils.simplify_abs(expr)
+
+    builder = firedrake_interface.KernelBuilderBase()
+    builder.domain_coordinate[domain] = C
+    builder._coefficient(C, "C")
+    builder._coefficient(x0, "x0")
+
+    dim = cell.topological_dimension()
+    point = gem.Variable('X', (dim,))
+    context = tsfc.fem.GemPointContext(
+        interface=builder,
+        ufl_cell=cell,
+        precision=parameters["precision"],
+        point_indices=(),
+        point_expr=point,
+    )
+    translator = tsfc.fem.Translator(context)
+    ir = map_expr_dag(translator, expr)
+
+    # Unroll result
+    ir = [gem.Indexed(ir, alpha) for alpha in numpy.ndindex(ir.shape)]
+
+    # Unroll IndexSums
+    max_extent = parameters["unroll_indexsum"]
+    if max_extent:
+        def predicate(index):
+            return index.extent <= max_extent
+        ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
+
+    # Translate to COFFEE
+    ir = impero_utils.preprocess_gem(ir)
+    return_variable = gem.Variable('dX', (dim,))
+    assignments = [(gem.Indexed(return_variable, (i,)), e)
+                   for i, e in enumerate(ir)]
+    impero_c = impero_utils.compile_gem(assignments, ())
+    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+    body.open_scope = False
+
+    return body
+
+
 def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 
@@ -58,84 +141,6 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _ = tsfc.default_parameters()
         _.update(parameters)
         parameters = _
-
-    def dX_norm_square(topological_dimension):
-        return " + ".join("dX[{0}]*dX[{0}]".format(i)
-                          for i in range(topological_dimension))
-
-    def X_isub_dX(topological_dimension):
-        return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
-                         for i in range(topological_dimension))
-
-    def is_affine(ufl_element):
-        return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
-
-    def inside_check(fiat_cell):
-        dim = fiat_cell.get_spatial_dimension()
-        point = tuple(sympy.Symbol("X[%d]" % i) for i in range(dim))
-
-        return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=contains_eps).args)
-
-    def init_X(fiat_cell):
-        vertices = numpy.array(fiat_cell.get_vertices())
-        X = numpy.average(vertices, axis=0)
-
-        formatter = ArrayInit(X, precision=parameters["precision"])._formatter
-        return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
-
-    def to_reference_coordinates(ufl_coordinate_element):
-        # Set up UFL form
-        cell = ufl_coordinate_element.cell()
-        domain = ufl.Mesh(ufl_coordinate_element)
-        K = ufl.JacobianInverse(domain)
-        x = ufl.SpatialCoordinate(domain)
-        x0_element = ufl.VectorElement("Real", cell, 0)
-        x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
-        expr = ufl.dot(K, x - x0)
-
-        # Translation to GEM
-        C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-        expr = ufl_utils.preprocess_expression(expr)
-        expr = ufl_utils.simplify_abs(expr)
-
-        builder = firedrake_interface.KernelBuilderBase()
-        builder.domain_coordinate[domain] = C
-        builder._coefficient(C, "C")
-        builder._coefficient(x0, "x0")
-
-        dim = cell.topological_dimension()
-        point = gem.Variable('X', (dim,))
-        context = tsfc.fem.GemPointContext(
-            interface=builder,
-            ufl_cell=cell,
-            precision=parameters["precision"],
-            point_indices=(),
-            point_expr=point,
-        )
-        translator = tsfc.fem.Translator(context)
-        ir = map_expr_dag(translator, expr)
-
-        # Unroll result
-        ir = [gem.Indexed(ir, alpha) for alpha in numpy.ndindex(ir.shape)]
-
-        # Unroll IndexSums
-        max_extent = parameters["unroll_indexsum"]
-        if max_extent:
-            def predicate(index):
-                return index.extent <= max_extent
-            ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
-
-        # Translate to COFFEE
-        ir = impero_utils.preprocess_gem(ir)
-        return_variable = gem.Variable('dX', (dim,))
-        assignments = [(gem.Indexed(return_variable, (i,)), e)
-                       for i, e in enumerate(ir)]
-        impero_c = impero_utils.compile_gem(assignments, ())
-        body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
-        body.open_scope = False
-
-        return body
-
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
@@ -145,9 +150,9 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "inside_predicate": inside_check(element.cell),
-        "to_reference_coords": to_reference_coordinates(ufl_coordinate_element),
-        "init_X": init_X(element.cell),
+        "inside_predicate": inside_check(element.cell, eps=contains_eps),
+        "to_reference_coords": to_reference_coordinates(ufl_coordinate_element, parameters),
+        "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),

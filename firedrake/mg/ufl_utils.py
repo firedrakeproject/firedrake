@@ -89,7 +89,9 @@ def coarsen_form(form, coefficient_mapping=None):
         new_itg = it.reconstruct(integrand=integrand,
                                  domain=new_mesh)
         integrals.append(new_itg)
-    return ufl.Form(integrals)
+    form = ufl.Form(integrals)
+    form._cache["coefficient_mapping"] = coefficient_mapping
+    return form
 
 
 @coarsen.register(firedrake.DirichletBC)
@@ -137,7 +139,7 @@ def coarsen_function(expr, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         V = coarsen(expr.function_space())
-        new = firedrake.Function(V)
+        new = firedrake.Function(V, name="coarse_%s" % expr.name())
         firedrake.inject(expr, new)
     return new
 

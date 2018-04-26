@@ -84,10 +84,6 @@ def get_node_set(mesh, nodes_per_entity):
     halo = halo_mod.Halo(mesh._plex, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
-    if extruded:
-        # FIXME! This is a LIE! But these sets should not be extruded
-        # anyway, only the code gen in PyOP2 is busted.
-        node_set = op2.ExtrudedSet(node_set, layers=2)
 
     assert global_numbering.getStorageSize() == node_set.total_size
     if not extruded and node_set.total_size >= (1 << (IntType.itemsize * 8 - 4)):
