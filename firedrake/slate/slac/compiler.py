@@ -19,6 +19,7 @@ from coffee import base as ast
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
+from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 
 from gem.utils import groupby
@@ -48,14 +49,18 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     :arg slate_expr: a :class:'TensorBase' expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
-                          be passed onto TSFC during the compilation of
-                          ufl forms.
+        be passed to TSFC during the compilation of ufl forms.
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
-    Citations().register("Gibson2018")
+
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
+
+    # If the expression has already been symbolically compiled, then
+    # simply reuse the produced kernel.
+    if slate_expr._metakernel_cache is not None:
+        return slate_expr._metakernel_cache
 
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
@@ -64,11 +69,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
-    # If the expression has already been symbolically compiled, then
-    # simply reuse the produced kernel.
-    if slate_expr._metakernel_cache is not None:
-        return slate_expr._metakernel_cache
-
+    Citations().register("Gibson2018")
     # Create a builder for the Slate expression
     builder = LocalKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
@@ -90,10 +91,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         coefficient_temps = coefficient_temporaries(builder, declared_temps)
         statements.extend(coefficient_temps)
 
-    # Create auxiliary temporaries if necessary
-    if builder.aux_exprs:
-        aux_temps = auxiliary_temporaries(builder, declared_temps)
-        statements.extend(aux_temps)
+    # Create auxiliary temporaries/expressions (if necessary)
+    statements.extend(auxiliary_expressions(builder, declared_temps))
 
     # Generate the kernel information with complete AST
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
@@ -111,11 +110,11 @@ def generate_kernel_ast(builder, statements, declared_temps):
     contained in the :class:`LocalKernelBuilder`.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg statements: A list of COFFEE objects containing all
-                     assembly calls and temporary declarations.
+        assembly calls and temporary declarations.
     :arg declared_temps: A `dict` containing all previously
-                         declared temporaries.
+        declared temporaries.
 
     Return: A `KernelInfo` object describing the complete AST.
     """
@@ -216,32 +215,47 @@ def generate_kernel_ast(builder, statements, declared_temps):
     return kinfo
 
 
-def auxiliary_temporaries(builder, declared_temps):
+def auxiliary_expressions(builder, declared_temps):
     """Generates statements for assigning auxiliary temporaries
-    for nodes in an expression with "high" reference count.
-    Expressions which require additional temporaries are provided
-    by the :class:`LocalKernelBuilder`.
+    and declaring factorizations for local matrix inverses
+    (if the matrix is larger than 4 x 4).
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg declared_temps: A `dict` containing all previously
-                         declared temporaries. This dictionary
-                         is updated as auxiliary expressions
-                         are assigned temporaries.
+        declared temporaries. This dictionary is updated as
+        auxiliary expressions are assigned temporaries.
     """
-    statements = [ast.FlatBlock("/* Auxiliary temporaries */\n")]
-    results = [ast.FlatBlock("/* Assign auxiliary temps */\n")]
-    for exp in builder.aux_exprs:
-        if exp not in declared_temps:
-            t = ast.Symbol("auxT%d" % len(declared_temps))
-            result = slate_to_cpp(exp, declared_temps)
-            tensor_type = eigen_matrixbase_type(shape=exp.shape)
-            statements.append(ast.Decl(tensor_type, t))
-            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-            results.append(ast.Assign(t, result))
-            declared_temps[exp] = t
 
-    statements.extend(results)
+    # These are either already declared terminals or expressions
+    # which do not require an extra temporary/expression
+    terminals = (slate.Tensor, slate.AssembledVector,
+                 slate.Negative, slate.Transpose)
+    statements = []
+
+    sorted_exprs = [exp for exp in topological_sort(builder.expression_dag)
+                    if ((builder.ref_counter[exp] > 1 and not isinstance(exp, terminals))
+                        or isinstance(exp, slate.Factorization))]
+
+    for exp in sorted_exprs:
+        if exp not in declared_temps:
+            if isinstance(exp, slate.Factorization):
+                t = ast.Symbol("dec%d" % len(declared_temps))
+                operand, = exp.operands
+                expr = slate_to_cpp(operand, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                stmt = "Eigen::%s<%s > %s(%s);\n" % (exp.decomposition,
+                                                     tensor_type, t, expr)
+                statements.append(stmt)
+            else:
+                t = ast.Symbol("auxT%d" % len(declared_temps))
+                result = slate_to_cpp(exp, declared_temps)
+                tensor_type = eigen_matrixbase_type(shape=exp.shape)
+                stmt = ast.Decl(tensor_type, t)
+                assignment = ast.Assign(t, result)
+                statements.extend([stmt, assignment])
+
+            declared_temps[exp] = t
 
     return statements
 
@@ -251,10 +265,10 @@ def coefficient_temporaries(builder, declared_temps):
     coefficients to vector temporaries.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information.
+        all relevant expression information.
     :arg declared_temps: A `dict` keeping track of all declared
-                         temporaries. This dictionary is updated
-                         as coefficients are assigned temporaries.
+        temporaries. This dictionary is updated as coefficients
+        are assigned temporaries.
 
     'AssembledVector's require creating coefficient temporaries to
     store data. The temporaries are created by inspecting the function
@@ -298,7 +312,6 @@ def coefficient_temporaries(builder, declared_temps):
                 c_type = eigen_matrixbase_type(shape=c_shape)
                 t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
-                statements.append(ast.FlatBlock("%s.setZero();\n" % t))
                 declared_temps[vector] = t
 
             # Assigning coefficient values into temporary
@@ -326,8 +339,7 @@ def tensor_assembly_calls(builder):
     finite element tensors.
 
     :arg builder: The :class:`LocalKernelBuilder` containing
-                  all relevant expression information and
-                  assembly calls.
+        all relevant expression information and assembly calls.
     """
     assembly_calls = builder.assembly_calls
     statements = [ast.FlatBlock("/* Assemble local tensors */\n")]
@@ -474,19 +486,20 @@ def slate_to_cpp(expr, temps, prec=None):
 
     :arg expr: a :class:`slate.TensorBase` expression.
     :arg temps: a `dict` of temporaries which map a given expression to its
-                corresponding representation as a `coffee.Symbol` object.
+        corresponding representation as a `coffee.Symbol` object.
     :arg prec: an argument dictating the order of precedence in the linear
-               algebra operations. This ensures that parentheticals are placed
-               appropriately and the order in which linear algebra operations
-               are performed are correct.
+        algebra operations. This ensures that parentheticals are placed
+        appropriately and the order in which linear algebra operations
+        are performed are correct.
 
-    Returns
-        This function returns a `string` which represents the C/C++ code
-        representation of the `slate.TensorBase` expr.
+    Returns:
+        a `string` which represents the C/C++ code representation of the
+        `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
     # Coefficients defined as AssembledVectors will have been declared
-    # by now, as well as any other nodes with high reference count.
+    # by now, as well as any other nodes with high reference count or
+    # matrix factorizations.
     if expr in temps:
         return temps[expr].gencode()
 
@@ -546,6 +559,13 @@ def slate_to_cpp(expr, temps, prec=None):
 
         return parenthesize(result, expr.prec, prec)
 
+    elif isinstance(expr, slate.Solve):
+        A, B = expr.operands
+        result = "%s.solve(%s)" % (slate_to_cpp(A, temps, expr.prec),
+                                   slate_to_cpp(B, temps, expr.prec))
+
+        return parenthesize(result, expr.prec, prec)
+
     else:
         raise NotImplementedError("Type %s not supported.", type(expr))
 
@@ -554,11 +574,12 @@ def eigen_matrixbase_type(shape):
     """Returns the Eigen::Matrix declaration of the tensor.
 
     :arg shape: a tuple of integers the denote the shape of the
-                :class:`slate.TensorBase` object.
+        :class:`slate.TensorBase` object.
 
-    Returns: Returns a string indicating the appropriate declaration of the
-             `slate.TensorBase` object in the appropriate Eigen C++ template
-             library syntax.
+    Returns:
+        a string indicating the appropriate declaration of the
+        `slate.TensorBase` object in the appropriate Eigen C++ template
+        library syntax.
     """
     if len(shape) == 0:
         rows = 1

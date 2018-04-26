@@ -34,9 +34,9 @@ from ufl.domain import join_domains
 from ufl.form import Form
 
 
-__all__ = ['AssembledVector', 'Block', 'Tensor',
+__all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul']
+           'Add', 'Mul', 'Solve']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -70,7 +70,7 @@ class TensorBase(object, metaclass=ABCMeta):
         self.id = TensorBase.id
         TensorBase.id += 1
 
-    @abstractmethod
+    @abstractproperty
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on. For example, if A is a rank-2 tensor
@@ -88,7 +88,7 @@ class TensorBase(object, metaclass=ABCMeta):
         mixed form.
         """
         shapes = OrderedDict()
-        for i, fs in enumerate(self.arg_function_spaces()):
+        for i, fs in enumerate(self.arg_function_spaces):
             shapes[i] = tuple(V.finat_element.space_dimension() * V.value_size
                               for V in fs)
         return shapes
@@ -135,7 +135,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def is_mixed(self):
         """Returns `True` if the tensor has mixed arguments and `False` otherwise.
         """
-        return any(len(fs) > 1 for fs in self.arg_function_spaces())
+        return any(len(fs) > 1 for fs in self.arg_function_spaces)
 
     @property
     def inv(self):
@@ -145,6 +145,21 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
+    def solve(self, B, decomposition=None):
+        """Solve a system of equations with
+        a specified right-hand side.
+
+        :arg B: a Slate expression. This can be either a
+            vector or a matrix.
+        :arg decomposition: A string describing the type of
+            factorization to use when inverting the local
+            systems. At the moment, these are determined by
+            what is available in Eigen. A complete list of
+            available matrix decompositions are outlined in
+            :class:`Factorization`.
+        """
+        return Solve(self, B, decomposition=decomposition)
+
     def block(self, arg_indices):
         """Returns a block of the tensor defined on the component spaces
         described by indices.
@@ -153,21 +168,20 @@ class TensorBase(object, metaclass=ABCMeta):
 
         .. code-block:: python
 
-            V = FunctionSpace(m, "CG", 1)
-            W = V * V * V
-            u, p, r = TrialFunctions(W)
-            w, q, s = TestFunctions(W)
-            A = Tensor(u*w*dx + p*q*dx + r*s*dx)
+           V = FunctionSpace(m, "CG", 1)
+           W = V * V * V
+           u, p, r = TrialFunctions(W)
+           w, q, s = TestFunctions(W)
+           A = Tensor(u*w*dx + p*q*dx + r*s*dx)
 
         The tensor `A` has 3x3 block structure. Providing argument indices
         (0, 0) will extract the block defined by the form `u*w*dx`:
         `Block(A, (0, 0))` See :class:`Block` for more information.
 
         :arg arg_indices: Indices describing the test and trial spaces to
-                          extract. This should be 0-, 1-, or 2-tuples whose
-                          length is the same as the rank of the tensor. Entries
-                          can be either an integer index or an iterable of
-                          indices.
+            extract. This should be 0-, 1-, or 2-tuples whose length is
+            the same as the rank of the tensor. Entries can be either an
+            integer index or an iterable of indices.
         """
         return Block(tensor=self, indices=arg_indices)
 
@@ -279,6 +293,7 @@ class AssembledVector(TensorBase):
 
         self._function = function
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
@@ -290,7 +305,7 @@ class AssembledVector(TensorBase):
         """Generates a 'test function' associated with this class."""
         from firedrake.ufl_expr import TestFunction
 
-        V, = self.arg_function_spaces()
+        V, = self.arg_function_spaces
         return TestFunction(V)
 
     def arguments(self):
@@ -335,44 +350,44 @@ class Block(TensorBase):
 
     :arg tensor: A (mixed) tensor.
     :arg indices: Indices of the test and trial function
-                  spaces to extract. This should be a 0-,
-                  1-, or 2-tuple (whose length is equal
-                  to the rank of the tensor.) The entries
-                  should be an iterable of integer indices.
+        spaces to extract. This should be a 0-, 1-, or
+        2-tuple (whose length is equal to the rank of the
+        tensor.) The entries should be an iterable of integer
+        indices.
 
     For example, consider the mixed tensor defined by:
 
     .. code-block:: python
 
-        n = FacetNormal(m)
-        U = FunctionSpace(m, "DRT", 1)
-        V = FunctionSpace(m, "DG", 0)
-        M = FunctionSpace(m, "DGT", 0)
-        W = U * V * M
-        u, p, r = TrialFunctions(W)
-        w, q, s = TestFunctions(W)
-        A = Tensor(dot(u, w)*dx + p*div(w)*dx + r*dot(w, n)*dS
-                   + div(u)*q*dx + p*q*dx + r*s*ds)
+       n = FacetNormal(m)
+       U = FunctionSpace(m, "DRT", 1)
+       V = FunctionSpace(m, "DG", 0)
+       M = FunctionSpace(m, "DGT", 0)
+       W = U * V * M
+       u, p, r = TrialFunctions(W)
+       w, q, s = TestFunctions(W)
+       A = Tensor(dot(u, w)*dx + p*div(w)*dx + r*dot(w, n)*dS
+                  + div(u)*q*dx + p*q*dx + r*s*ds)
 
     This describes a block 3x3 mixed tensor of the form:
 
     .. math::
 
-        \begin{bmatrix}
+      \\begin{bmatrix}
             A & B & C \\
             D & E & F \\
             G & H & J
-        \end{bmatrix}
+      \\end{bmatrix}
 
     Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
     corresponding to the upper 2x2 block:
 
     .. math::
 
-        \begin{bmatrix}
+       \\begin{bmatrix}
             A & B \\
             D & E
-        \end{bmatrix}
+       \\end{bmatrix}
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
@@ -427,6 +442,7 @@ class Block(TensorBase):
 
         return tuple(nargs)
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
@@ -473,6 +489,92 @@ class Block(TensorBase):
         return (type(self), tensor, self._indices)
 
 
+class Factorization(TensorBase):
+    """An abstract Slate class for the factorization of matrices. The
+    factorizations available are the following:
+
+        (1) LU with full or partial pivoting ('FullPivLU' and 'PartialPivLU');
+        (2) QR using Householder reflectors ('HouseholderQR') with the option
+            to use column pivoting ('ColPivHouseholderQR') or full pivoting
+            ('FullPivHouseholderQR');
+        (3) standard Cholesky ('LLT') and stabilized Cholesky factorizations
+            with pivoting ('LDLT');
+        (4) a rank-revealing complete orthogonal decomposition using
+            Householder transformations ('CompleteOrthogonalDecomposition');
+            and
+        (5) singular-valued decompositions ('JacobiSVD' and 'BDCSVD'). For
+            larger matrices, 'BDCSVD' is recommended.
+    """
+
+    def __init__(self, tensor, decomposition=None):
+        """Constructor for the Factorization class."""
+
+        decomposition = decomposition or "PartialPivLU"
+
+        if decomposition not in ["PartialPivLU", "FullPivLU",
+                                 "HouseholderQR", "ColPivHouseholderQR",
+                                 "FullPivHouseholderQR", "LLT", "LDLT",
+                                 "CompleteOrthogonalDecomposition",
+                                 "BDCSVD", "JacobiSVD"]:
+            raise ValueError("Decomposition '%s' not supported" % decomposition)
+
+        if tensor.rank != 2:
+            raise ValueError("Can only decompose matrices.")
+
+        super(Factorization, self).__init__()
+
+        self.operands = (tensor,)
+        self.decomposition = decomposition
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        tensor, = self.operands
+        return tensor.arguments()
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        tensor, = self.operands
+        return tensor.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        tensor, = self.operands
+        return tensor.ufl_domains()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        tensor, = self.operands
+        return tensor.subdomain_data()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        tensor, = self.operands
+        return "%s(%s)_%d" % (self.decomposition, tensor, self.id)
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        tensor, = self.operands
+        return "%s(%r, %s)" % (type(self).__name__, tensor, self.decomposition)
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        tensor, = self.operands
+        return (type(self), tensor, self.decomposition)
+
+
 class Tensor(TensorBase):
     """This class is a symbolic representation of a finite element tensor
     derived from a bilinear or linear form. This class implements all
@@ -516,6 +618,7 @@ class Tensor(TensorBase):
 
         self.form = form
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
@@ -561,7 +664,7 @@ class TensorOp(TensorBase):
     existing Slate tensors.
 
     :arg operands: an iterable of operands that are :class:`TensorBase`
-                   objects.
+        objects.
     """
 
     def __init__(self, *operands):
@@ -611,10 +714,10 @@ class UnaryOp(TensorOp):
     Tensor object.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any
-            number of linear algebra operations on `Tensor` objects. For
-            example, another instance of a `UnaryOp` object is an acceptable
-            input, or a `BinaryOp` object.
+        (:class:`Tensor`) or any derived expression resulting from any
+        number of linear algebra operations on `Tensor` objects. For
+        example, another instance of a `UnaryOp` object is an acceptable
+        input, or a `BinaryOp` object.
     """
 
     def __repr__(self):
@@ -637,14 +740,19 @@ class Inverse(UnaryOp):
         assert A.shape[0] == A.shape[1], (
             "The inverse can only be computed on square tensors."
         )
+
+        if A.shape > (4, 4) and not isinstance(A, Factorization):
+            A = Factorization(A, decomposition="PartialPivLU")
+
         super(Inverse, self).__init__(A)
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces()[::-1]
+        return tensor.arg_function_spaces[::-1]
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -662,12 +770,13 @@ class Inverse(UnaryOp):
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces()[::-1]
+        return tensor.arg_function_spaces[::-1]
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -685,12 +794,13 @@ class Transpose(UnaryOp):
 class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces()
+        return tensor.arg_function_spaces
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -717,17 +827,18 @@ class BinaryOp(TensorOp):
     Such operations take two operands and returns a tensor-valued expression.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any
-            number of linear algebra operations on `Tensor` objects. For
-            example, another instance of a `BinaryOp` object is an acceptable
-            input, or a `UnaryOp` object.
+        (:class:`Tensor`) or any derived expression resulting from any
+        number of linear algebra operations on `Tensor` objects. For
+        example, another instance of a `BinaryOp` object is an acceptable
+        input, or a `UnaryOp` object.
     :arg B: a :class:`TensorBase` object.
     """
 
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Mul: '*'}
+               Mul: '*',
+               Solve: '\\'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -760,7 +871,7 @@ class Add(BinaryOp):
                              % (A.shape, B.shape))
 
         assert all([space_equivalence(fsA, fsB) for fsA, fsB in
-                    zip(A.arg_function_spaces(), B.arg_function_spaces())]), (
+                    zip(A.arg_function_spaces, B.arg_function_spaces)]), (
             "Function spaces associated with operands must match."
         )
 
@@ -771,12 +882,13 @@ class Add(BinaryOp):
         # defined on the same function space).
         self._args = A.arguments()
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
         A, _ = self.operands
-        return A.arg_function_spaces()
+        return A.arg_function_spaces
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
@@ -799,8 +911,8 @@ class Mul(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        fsA = A.arg_function_spaces()[-1]
-        fsB = B.arg_function_spaces()[0]
+        fsA = A.arg_function_spaces[-1]
+        fsB = B.arg_function_spaces[0]
 
         assert space_equivalence(fsA, fsB), (
             "Cannot perform argument contraction over middle indices. "
@@ -813,16 +925,82 @@ class Mul(BinaryOp):
         # be 'eliminated'.
         self._args = A.arguments()[:-1] + B.arguments()[1:]
 
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
         A, B = self.operands
-        return A.arg_function_spaces()[:-1] + B.arg_function_spaces()[1:]
+        return A.arg_function_spaces[:-1] + B.arg_function_spaces[1:]
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
         from multiplying two tensors A and B.
+        """
+        return self._args
+
+
+class Solve(BinaryOp):
+    """Abstract Slate class describing a local linear system of equations.
+    This object is a direct solver, utilizing the application of the inverse
+    of matrix in a decomposed form.
+
+    :arg A: The left-hand side operator.
+    :arg B: The right-hand side.
+    :arg decomposition: A string denoting the type of matrix decomposition
+        to used. The factorizations available are detailed in the
+        :class:`Factorization` documentation.
+    """
+
+    def __new__(cls, A, B, decomposition=None):
+        assert A.rank == 2, "Operator must be a matrix."
+
+        # Same rules for performing multiplication on Slate tensors
+        # applies here.
+        if A.shape[1] != B.shape[0]:
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
+                             % (A.shape, B.shape))
+
+        fsA = A.arg_function_spaces[::-1][-1]
+        fsB = B.arg_function_spaces[0]
+
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
+        # For matrices smaller than 5x5, exact formulae can be used
+        # to evaluate the inverse. Otherwise, this class will trigger
+        # a factorization method in the code-generation.
+        if A.shape < (5, 5):
+            return A.inv * B
+
+        return super().__new__(cls)
+
+    def __init__(self, A, B, decomposition=None):
+        """Constructor for the Solve class."""
+
+        # LU with partial pivoting is a stable default.
+        decomposition = decomposition or "PartialPivLU"
+
+        # Create a matrix factorization
+        A_factored = Factorization(A, decomposition=decomposition)
+
+        super(Solve, self).__init__(A_factored, B)
+
+        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+        self._arg_fs = [arg.function_space() for arg in self._args]
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        return tuple(self._arg_fs)
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from applying the inverse of A onto B.
         """
         return self._args
 
@@ -842,10 +1020,10 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Tensor],
+    [AssembledVector, Block, Factorization, Tensor],
     [UnaryOp],
     [Add],
-    [Mul]
+    [Mul, Solve]
 ]
 
 # Here we establish the precedence class attribute for a given
