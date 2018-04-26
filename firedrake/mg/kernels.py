@@ -289,7 +289,7 @@ def inject_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        ncandidate = hierarchy._coarse_to_fine[level].shape[1]
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 

@@ -1,11 +1,6 @@
 # Low-level numbering for multigrid support
-import FIAT
-from tsfc.fiatinterface import create_element
-
 from firedrake.petsc import PETSc
-import firedrake.mg.utils as utils
 from firedrake import dmplex
-from pyop2 import MPI
 from pyop2.datatypes import IntType
 import numpy as np
 cimport numpy as np
@@ -217,31 +212,25 @@ def create_lgmap(PETSc.DM dm):
 #           v coarse_to_fine_cells [coarse_cell = floor(fine_cell / 2**tdim)]
 #           |
 #      DM_orig_fine
-#
-#
-#     DM_orig_coarse
-#           |
-#           v coarse_to_fine_vertices (via DMPlexCreateCoarsePointIS)
-#           |
-#      DM_orig_fine
-#
-# Phew.
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_cells(mc, mf):
+def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     """Return a map from (renumbered) cells in a coarse mesh to those
     in a refined fine mesh.
 
     :arg mc: the coarse mesh to create the map from.
     :arg mf: the fine mesh to map to.
-    :arg parents: a Section mapping original fine cell numbers to
-         their corresponding coarse parent cells"""
+    :arg clgmaps: coarse lgmaps (non-overlapped and overlapped)
+    :arg flgmaps: fine lgmaps (non-overlapped and overlapped)
+    :returns: Two arrays, one mapping coarse to fine cells, the second fine to coarse cells.
+    """
     cdef:
         PETSc.DM cdm, fdm
-        PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
+        PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
+        np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse
         np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
     cdm = mc._plex
@@ -252,45 +241,47 @@ def coarse_to_fine_cells(mc, mf):
     nfine = mf.cell_set.size
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
-    coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
-    coarse_to_fine[:] = -1
-
+    coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
+    fine_to_coarse = np.full(nfine, -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
-    fStart, fEnd = 0, nfine
+    cStart, cEnd = 0, nfine
 
     if mc.comm.size > 1:
+        cno, co = clgmaps
+        fno, fo = flgmaps
         # Compute global numbers of original cell numbers
-        mf._overlapped_lgmap.apply(fn2o, result=fn2o)
+        fo.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
-        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
+        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
         idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
         # LocalToGlobal
-        mc._overlapped_lgmap.apply(idx, result=idx)
+        co.apply(idx, result=idx)
         # GlobalToLocal
         # Drop values that did not exist on non-overlapped mesh
-        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
+        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
         co2n = co2n[idx]
 
-    for c in range(fStart, fEnd):
+    for c in range(cStart, cEnd):
         # get original (overlapped) cell number
         fcell = fn2o[c]
         # The owned cells should map into non-overlapped cell numbers
         # (due to parallel growth strategy)
-        assert 0 <= fcell < fEnd
+        assert 0 <= fcell < cEnd
 
         # Find original coarse cell (fcell / nref) and then map
         # forward to renumbered coarse cell (again non-overlapped
         # cells should map into owned coarse cells)
         ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
+        fine_to_coarse[c] = ccell
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
                 coarse_to_fine[ccell, i] = c
                 break
-    return coarse_to_fine
+    return coarse_to_fine, fine_to_coarse
 
 
 @cython.boundscheck(False)

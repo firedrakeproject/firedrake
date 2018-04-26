@@ -37,7 +37,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
             raise ValueError("Coarse and fine meshes must have same number of layers")
 
-        fine_to_coarse = hierarchy._fine_to_coarse[levelc+1]
+        fine_to_coarse = hierarchy.fine_to_coarse_cells[levelc+1]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
@@ -74,7 +74,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
             raise ValueError("Coarse and fine meshes must have same number of layers")
 
-        coarse_to_fine = hierarchy._coarse_to_fine[levelc]
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
         return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
                                              coarse_to_fine_nodes.shape[1],
@@ -108,7 +108,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
             raise ValueError("Coarse and fine meshes must have same number of layers")
 
-        coarse_to_fine = hierarchy._coarse_to_fine[levelc]
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cell_set
         arity = Vf.finat_element.space_dimension() * ncell
