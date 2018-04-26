@@ -82,7 +82,7 @@ Firedrake. Best practice in computational science also demands that
 you provide the code which you used to conduct your experiments. You
 could attach a tarball as a supplement to your paper, or you could
 also use Zenodo. Using Zenodo in combination with GitHub for this
-purpose is documented `here
+purpose is documented `by github here
 <https://guides.github.com/activities/citable-code/>`_.
 
 Cite your sources

@@ -54,7 +54,7 @@ class DistributedMeshOverlapType(enum.Enum):
      - :attr:`VERTEX`: Add ghost entities in the closure of the star
               of vertices.
 
-    Defaults to :attr:`FACET.
+    Defaults to :attr:`FACET`.
     """
     NONE = 1
     FACET = 2
