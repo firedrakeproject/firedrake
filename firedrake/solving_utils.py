@@ -249,6 +249,7 @@ class _SNESContext(object):
         before Jacobian assembly
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
+    :arg options_prefix: The options prefix of the SNES.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -256,7 +257,9 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problem, mat_type, pmat_type, appctx=None, pre_jacobian_callback=None, pre_function_callback=None):
+    def __init__(self, problem, mat_type, pmat_type, appctx=None,
+                 pre_jacobian_callback=None, pre_function_callback=None,
+                 options_prefix=None):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
@@ -294,7 +297,8 @@ class _SNESContext(object):
         self._jac = allocate_matrix(self.J, bcs=problem.bcs,
                                     form_compiler_parameters=fcp,
                                     mat_type=mat_type,
-                                    appctx=appctx)
+                                    appctx=appctx,
+                                    options_prefix=options_prefix)
         self._assemble_jac = create_assembly_callable(self.J,
                                                       tensor=self._jac,
                                                       bcs=problem.bcs,
@@ -313,7 +317,8 @@ class _SNESContext(object):
             self._pjac = allocate_matrix(self.Jp, bcs=problem.bcs,
                                          form_compiler_parameters=fcp,
                                          mat_type=pmat_type,
-                                         appctx=appctx)
+                                         appctx=appctx,
+                                         options_prefix=options_prefix)
 
             self._assemble_pjac = create_assembly_callable(self.Jp,
                                                            tensor=self._pjac,
@@ -340,9 +345,7 @@ class _SNESContext(object):
         with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
-    def set_jacobian(self, snes, options_prefix):
-        self._pjac.petscmat.setOptionsPrefix(options_prefix)
-        self._jac.petscmat.setOptionsPrefix(options_prefix)
+    def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
 

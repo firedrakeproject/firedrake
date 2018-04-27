@@ -83,25 +83,28 @@ class AssembledPC(PCBase):
 
         _, P = pc.getOperators()
 
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
         opc = pc
         context = P.getPythonContext()
         prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + "assembled_"
 
         # It only makes sense to preconditioner/invert a diagonal
         # block in general.  That's all we're going to allow.
         if not context.on_diag:
             raise ValueError("Only makes sense to invert diagonal block")
 
-        mat_type = PETSc.Options().getString(prefix + "assembled_mat_type", "aij")
+        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
         self.P = allocate_matrix(context.a, bcs=context.row_bcs,
                                  form_compiler_parameters=context.fc_params,
-                                 mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=options_prefix)
         self._assemble_P = create_assembly_callable(context.a, tensor=self.P,
                                                     bcs=context.row_bcs,
                                                     form_compiler_parameters=context.fc_params,
                                                     mat_type=mat_type)
         self._assemble_P()
-        self.mat_type = mat_type
         self.P.force_evaluation()
 
         # Transfer nullspace over
@@ -116,7 +119,7 @@ class AssembledPC(PCBase):
         # a KSP, we can do iterative by -assembled_pc_type ksp.
         pc = PETSc.PC().create()
         pc.incrementTabLevel(1, parent=opc)
-        pc.setOptionsPrefix(prefix+"assembled_")
+        pc.setOptionsPrefix(options_prefix)
         pc.setOperators(Pmat, Pmat)
         pc.setUp()
         pc.setFromOptions()
@@ -154,8 +157,10 @@ class MassInvPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix()
-
+        options_prefix = prefix + "Mp_"
         # we assume P has things stuffed inside of it
         _, P = pc.getOperators()
         context = P.getPythonContext()
@@ -177,10 +182,11 @@ class MassInvPC(PCBase):
         a = inner(1/mu * u, v)*dx
 
         opts = PETSc.Options()
-        mat_type = opts.getString(prefix+"Mp_mat_type", parameters["default_matrix_type"])
+        mat_type = opts.getString(options_prefix + "mat_type",
+                                  parameters["default_matrix_type"])
 
         A = assemble(a, form_compiler_parameters=context.fc_params,
-                     mat_type=mat_type)
+                     mat_type=mat_type, options_prefix=options_prefix)
         A.force_evaluation()
 
         Pmat = A.petscmat
@@ -192,7 +198,7 @@ class MassInvPC(PCBase):
         ksp = PETSc.KSP().create()
         ksp.incrementTabLevel(1, parent=pc)
         ksp.setOperators(Pmat)
-        ksp.setOptionsPrefix(prefix + "Mp_")
+        ksp.setOptionsPrefix(options_prefix)
         ksp.setUp()
         ksp.setFromOptions()
         self.ksp = ksp
@@ -247,6 +253,8 @@ class PCDPC(PCBase):
         from firedrake import TrialFunction, TestFunction, dx, \
             assemble, inner, grad, split, Constant, parameters
         from firedrake.assemble import allocate_matrix, create_assembly_callable
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "pcd_"
 
         # we assume P has things stuffed inside of it
@@ -279,9 +287,11 @@ class PCDPC(PCBase):
         self.Fp_mat_type = opts.getString(prefix+"Fp_mat_type", "matfree")
 
         Mp = assemble(mass, form_compiler_parameters=context.fc_params,
-                      mat_type=Mp_mat_type)
+                      mat_type=Mp_mat_type,
+                      options_prefix=prefix + "Mp_")
         Kp = assemble(stiffness, form_compiler_parameters=context.fc_params,
-                      mat_type=Kp_mat_type)
+                      mat_type=Kp_mat_type,
+                      options_prefix=prefix + "Kp_")
 
         Mp.force_evaluation()
         Kp.force_evaluation()
@@ -315,7 +325,8 @@ class PCDPC(PCBase):
 
         self.Re = Re
         self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
-                                  mat_type=self.Fp_mat_type)
+                                  mat_type=self.Fp_mat_type,
+                                  options_prefix=prefix + "Fp_")
         self._assemble_Fp = create_assembly_callable(fp, tensor=self.Fp,
                                                      form_compiler_parameters=context.fc_params,
                                                      mat_type=self.Fp_mat_type)

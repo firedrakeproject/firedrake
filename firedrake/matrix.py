@@ -147,8 +147,10 @@ class Matrix(MatrixBase):
     def __init__(self, a, bcs, *args, **kwargs):
         # sets self._a and self._bcs
         super(Matrix, self).__init__(a, bcs)
+        options_prefix = kwargs.pop("options_prefix")
         self._M = op2.Mat(*args, **kwargs)
         self.petscmat = self._M.handle
+        self.petscmat.setOptionsPrefix(options_prefix)
         self._thunk = None
         self._assembled = False
 
@@ -271,6 +273,7 @@ class ImplicitMatrix(MatrixBase):
         # sets self._a and self._bcs
         super(ImplicitMatrix, self).__init__(a, bcs)
 
+        options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
 
         from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -284,6 +287,7 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)
         self.petscmat.setPythonContext(ctx)
+        self.petscmat.setOptionsPrefix(options_prefix)
         self.petscmat.setUp()
         self.petscmat.assemble()
 

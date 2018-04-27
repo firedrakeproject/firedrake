@@ -154,7 +154,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                                          pmat_type=pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_j_callback,
-                                         pre_function_callback=pre_f_callback)
+                                         pre_function_callback=pre_f_callback,
+                                         options_prefix=self.options_prefix)
 
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
@@ -173,7 +174,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
-        ctx.set_jacobian(self.snes, self.options_prefix)
+        ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,

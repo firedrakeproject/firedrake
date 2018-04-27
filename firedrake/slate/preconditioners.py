@@ -205,7 +205,8 @@ class HybridizationPC(PCBase):
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
-                                 mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=prefix)
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
