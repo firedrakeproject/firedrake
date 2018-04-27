@@ -110,7 +110,7 @@ def MeshHierarchy(mesh, refinement_levels, reorder=None,
                        for dm in dms]
 
     lgmaps = []
-    for m in meshes:
+    for i, m in enumerate(meshes):
         no = impl.create_lgmap(m._plex)
         m.init()
         o = impl.create_lgmap(m._plex)
