@@ -3,7 +3,6 @@ import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.geometry import SpatialCoordinate
 
 import firedrake
 from firedrake import utils
@@ -139,43 +138,40 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     See also :func:`ufl.derivative`.
     """
     # TODO: What about Constant?
-    notx = not isinstance(u, SpatialCoordinate)
-    if notx and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
+    u_is_x = isinstance(u, ufl.SpatialCoordinate)
+    if not u_is_x and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
-    if du is None:
-        u_is_spatialcoordinate = isinstance(u, ufl.SpatialCoordinate)
-        u_is_mesh_coordinate = u is form.ufl_domain().coordinates
 
-        if u_is_spatialcoordinate or u_is_mesh_coordinate:
-            if u_is_mesh_coordinate:
-                coords = u
-                u = SpatialCoordinate(u.ufl_domain())
-            else:
-                coords = u.ufl_domain().coordinates
+    mesh = form.ufl_domain()
+    is_dX = u_is_x or u is mesh.coordinates
+    args = form.arguments()
+
+    def argument(V):
+        n = max(a.number() for a in args) if args else -1
+        return Argument(V, n + 1)
+
+    if is_dX:
+        coords = mesh.coordinates
+        u = ufl.SpatialCoordinate(mesh)
+        if du is None:
             V = coords.function_space()
-            args = form.arguments()
-            number = max(a.number() for a in args) if args else -1
-            du = Argument(V, number + 1)
-            cds = {coords: du}
-            if coefficient_derivatives is not None:
-                cds.update(coefficient_derivatives)
-            coefficient_derivatives = cds
-        elif isinstance(u, firedrake.Function):
-            V = u.function_space()
-            args = form.arguments()
-            number = max(a.number() for a in args) if args else -1
-            du = Argument(V, number + 1)
-        elif isinstance(u, firedrake.Constant):
-            if u.ufl_shape != ():
-                raise ValueError("Real function space of vector elements not supported")
-            mesh = form.ufl_domain()
-            V = firedrake.FunctionSpace(mesh, "Real", 0)
-            args = form.arguments()
-            number = max(a.number() for a in args) if args else -1
-            du = Argument(V, number + 1)
-        else:
-            raise RuntimeError("Can't compute derivative for form")
+            du = argument(V)
+        cds = {coords: du}
+        if coefficient_derivatives is not None:
+            cds.update(coefficient_derivatives)
+        coefficient_derivatives = cds
+    elif isinstance(u, firedrake.Function):
+        V = u.function_space()
+        du = argument(V)
+    elif isinstance(u, firedrake.Constant):
+        if u.ufl_shape != ():
+            raise ValueError("Real function space of vector elements not supported")
+        V = firedrake.FunctionSpace(mesh, "Real", 0)
+        du = argument(V)
+    else:
+        raise RuntimeError("Can't compute derivative for form")
+
     return ufl.derivative(form, u, du, coefficient_derivatives)
 
 

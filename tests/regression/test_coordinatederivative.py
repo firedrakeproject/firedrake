@@ -103,8 +103,10 @@ def test_coordinate_handling():
 
     computed1 = assemble(derivative(J1, mesh.coordinates)).dat.data
     computed2 = assemble(derivative(J2, mesh.coordinates)).dat.data
-    computed3 = assemble(derivative(J1, X)).dat.data
-    computed4 = assemble(derivative(J2, X)).dat.data
+    computed3 = assemble(derivative(J2, mesh.coordinates, dX)).dat.data
+    computed4 = assemble(derivative(J1, X)).dat.data
+    computed5 = assemble(derivative(J2, X)).dat.data
+    computed6 = assemble(derivative(J2, X, dX)).dat.data
     actual = assemble(div(inner(X, X) * dX) * dx).dat.data
 
     assert np.allclose(actual, computed1, rtol=1e-14)
