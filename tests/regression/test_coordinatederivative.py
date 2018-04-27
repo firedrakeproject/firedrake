@@ -66,6 +66,22 @@ def test_mixed_derivatives():
     assert np.allclose(computed2.T, actual, rtol=1e-14)
 
 
+def test_integral_scaling_edge_case():
+    mesh = UnitSquareMesh(6, 6)
+    X = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+
+    J = u * u * dx
+    with pytest.raises(ValueError):
+        computed = assemble(Constant(2.0) * derivative(J, X))
+    with pytest.raises(ValueError):
+        computed = assemble(derivative(Constant(2.0) * derivative(J, X), X))
+    with pytest.raises(ValueError):
+        computed = assemble(Constant(2.0) * derivative(derivative(J, X), X))
+
+
+
 def test_second_shape_derivative():
     mesh = UnitSquareMesh(6, 6)
     V = FunctionSpace(mesh, "CG", 1)
