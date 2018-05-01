@@ -16,12 +16,17 @@ this templated function library.
 """
 from coffee import base as ast
 
+import time
+from hashlib import md5
+
 from firedrake_citations import Citations
-from firedrake.tsfc_interface import SplitKernel, KernelInfo
+from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
-
+from firedrake.logging import logger
+from firedrake.parameters import parameters
+from ufl.log import GREEN
 from gem.utils import groupby
 
 from itertools import chain
@@ -43,6 +48,19 @@ PETSC_DIR = get_petsc_dir()
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
+class SlateKernel(TSFCKernel):
+    @classmethod
+    def _cache_key(cls, expr, tsfc_parameters):
+        return md5((expr.expression_hash +
+                    str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+
+    def __init__(self, expr, tsfc_parameters):
+        if self._initialized:
+            return
+        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        self._initialized = True
+
+
 def compile_expression(slate_expr, tsfc_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
@@ -53,15 +71,24 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
-
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
-    if slate_expr._metakernel_cache is not None:
-        return slate_expr._metakernel_cache
+    cache = slate_expr._metakernel_cache
+    if tsfc_parameters is None:
+        tsfc_parameters = parameters["form_compiler"]
+    key = str(sorted(tsfc_parameters.items()))
+    try:
+        return cache[key]
+    except KeyError:
+        kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        return cache.setdefault(key, kernel)
 
+
+def generate_kernel(slate_expr, tsfc_parameters=None):
+    cpu_time = time.time()
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
@@ -99,10 +126,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
-    kernel = (SplitKernel(idx, kinfo),)
-    slate_expr._metakernel_cache = kernel
-
-    return kernel
+    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    return (SplitKernel(idx, kinfo),)
 
 
 def generate_kernel_ast(builder, statements, declared_temps):

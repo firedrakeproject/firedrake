@@ -32,6 +32,7 @@ from ufl.algorithms.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
+import hashlib
 
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
@@ -59,13 +60,36 @@ class TensorBase(object, metaclass=ABCMeta):
        the appropriate subclasses.
     """
 
-    _metakernel_cache = None
-
     _id = count()
 
     @cached_property
     def id(self):
         return next(TensorBase._id)
+
+    @cached_property
+    def _metakernel_cache(self):
+        return {}
+
+    @cached_property
+    def expression_hash(self):
+        from firedrake.slate.slac.utils import traverse_dags
+        hashdata = []
+        for op in traverse_dags([self]):
+            if isinstance(op, AssembledVector):
+                data = (type(op).__name__, op.arg_function_spaces[0].ufl_element()._ufl_signature_data_(), )
+            elif isinstance(op, Block):
+                data = (type(op).__name__, op._indices, )
+            elif isinstance(op, Factorization):
+                data = (type(op).__name__, op.decomposition, )
+            elif isinstance(op, Tensor):
+                data = (op.form.signature(), )
+            elif isinstance(op, (UnaryOp, BinaryOp)):
+                data = (type(op).__name__, )
+            else:
+                raise ValueError("Unhandled type %r" % type(op))
+            hashdata.append(data)
+        hashdata = "".join("%s" % (s, ) for s in hashdata)
+        return hashlib.sha512(hashdata.encode("utf-8")).hexdigest()
 
     @abstractproperty
     def arg_function_spaces(self):
