@@ -142,11 +142,14 @@ def _(element, vector_is_mixed):
 
 @convert.register(ufl.EnrichedElement)  # noqa
 def _(element, vector_is_mixed):
-    if len(element._elements) != 2:
-        raise ValueError("Enriched elements with more than two components not handled")
-    A, B = element._elements
-    return FIAT.EnrichedElement(create_element(A, vector_is_mixed),
-                                create_element(B, vector_is_mixed))
+    return FIAT.EnrichedElement(*(create_element(e, vector_is_mixed)
+                                  for e in element._elements))
+
+
+@convert.register(ufl.NodalEnrichedElement)  # noqa
+def _(element, vector_is_mixed):
+    return FIAT.NodalEnrichedElement(*(create_element(e, vector_is_mixed)
+                                       for e in element._elements))
 
 
 @convert.register(ufl.BrokenElement) # noqa
