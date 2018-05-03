@@ -56,6 +56,8 @@ supported_elements = {
     "Q": None,
     "RTCE": None,
     "RTCF": None,
+    "NCE": None,
+    "NCF": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -105,11 +107,15 @@ def convert_finiteelement(element, vector_is_mixed):
         return FIAT.QuadratureElement(cell, quad_rule.get_points())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
-        if element.cell().cellname() != "quadrilateral":
+        if element.cell().cellname() == "quadrilateral":
+            # Handle quadrilateral short names like RTCF and RTCE.
+            element = element.reconstruct(cell=quadrilateral_tpc)
+        elif element.cell().cellname() == "hexahedron":
+            # Handle hexahedron short names like NCF and NCE.
+            element = element.reconstruct(cell=hexahedron_tpc)
+        else:
             raise ValueError("%s is supported, but handled incorrectly" %
                              element.family())
-        # Handle quadrilateral short names like RTCF and RTCE.
-        element = element.reconstruct(cell=quad_tpc)
         return FlattenedDimensions(create_element(element, vector_is_mixed))
 
     kind = element.variant()
@@ -202,7 +208,8 @@ def convert_mixedelement(element, vector_is_mixed):
     return FIAT.MixedElement(fiat_elements)
 
 
-quad_tpc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
+hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
+quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 
