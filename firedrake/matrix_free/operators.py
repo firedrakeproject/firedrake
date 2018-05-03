@@ -1,12 +1,7 @@
-
-from ufl import action
-
-from firedrake.ufl_expr import adjoint
+from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 
 from firedrake.petsc import PETSc
-
-from firedrake.slate import slate
 
 
 __all__ = ("ImplicitMatrixContext", )
@@ -78,7 +73,7 @@ class ImplicitMatrixContext(object):
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
         self.a = a
-        self.aT = a.T if isinstance(self.a, slate.TensorBase) else adjoint(a)
+        self.aT = adjoint(a)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -111,12 +106,8 @@ class ImplicitMatrixContext(object):
 
         self.block_size = (test_vec.getBlockSize(), trial_vec.getBlockSize())
 
-        if isinstance(self.a, slate.TensorBase):
-            self.action = self.a * slate.AssembledVector(self._x)
-            self.actionT = self.aT * slate.AssembledVector(self._y)
-        else:
-            self.action = action(self.a, self._x)
-            self.actionT = action(self.aT, self._y)
+        self.action = action(self.a, self._x)
+        self.actionT = action(self.aT, self._y)
 
         from firedrake.assemble import create_assembly_callable
         self._assemble_action = create_assembly_callable(self.action, tensor=self._y,

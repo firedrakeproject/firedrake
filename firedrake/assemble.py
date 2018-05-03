@@ -22,7 +22,8 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type=None, sub_mat_type=None, appctx={}, **kwargs):
+             inverse=False, mat_type=None, sub_mat_type=None,
+             appctx={}, options_prefix=None, **kwargs):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
@@ -54,6 +55,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
+    :arg options_prefix: PETSc options prefix to apply to matrices.
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -97,7 +99,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                          inverse=inverse, mat_type=mat_type,
                          sub_mat_type=sub_mat_type, appctx=appctx,
                          collect_loops=collect_loops,
-                         allocate_only=allocate_only)
+                         allocate_only=allocate_only,
+                         options_prefix=options_prefix)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -105,7 +108,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
-                    inverse=False, mat_type=None, sub_mat_type=None, appctx={}):
+                    inverse=False, mat_type=None, sub_mat_type=None, appctx={},
+                    options_prefix=None):
     """Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
 
     .. warning::
@@ -114,8 +118,8 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
     """
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                     appctx=appctx,
-                     allocate_only=True)
+                     appctx=appctx, allocate_only=True,
+                     options_prefix=options_prefix)
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
@@ -150,6 +154,7 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
               appctx={},
+              options_prefix=None,
               collect_loops=False,
               allocate_only=False):
     """Assemble the form or Slate expression f and return a Firedrake object
@@ -171,6 +176,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         inside a "nest" matrix.  One of "aij" or "baij".
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
+    :arg options_prefix: An options prefix for the PETSc matrix
+        (ignored if not assembling a bilinear form).
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
@@ -236,7 +243,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if tensor is None:
                 return matrix.ImplicitMatrix(f, bcs,
                                              fc_params=form_compiler_parameters,
-                                             appctx=appctx)
+                                             appctx=appctx,
+                                             options_prefix=options_prefix)
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
@@ -303,7 +311,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
             result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
-                                          "%s_%s_matrix" % fs_names)
+                                          "%s_%s_matrix" % fs_names,
+                                          options_prefix=options_prefix)
             tensor = result_matrix._M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):

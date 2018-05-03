@@ -23,7 +23,7 @@ from ufl import Coefficient
 from firedrake.function import Function
 from firedrake.utils import cached_property
 
-from itertools import chain
+from itertools import chain, count
 
 from pyop2.utils import as_tuple
 
@@ -59,16 +59,13 @@ class TensorBase(object, metaclass=ABCMeta):
        the appropriate subclasses.
     """
 
-    id = 0
+    _metakernel_cache = None
 
-    def __init__(self):
-        """Constructor for the TensorBase abstract class."""
-        # NOTE: This attribute is for caching kernels after
-        # an expression has been compiled.
-        self._metakernel_cache = None
+    _id = count()
 
-        self.id = TensorBase.id
-        TensorBase.id += 1
+    @cached_property
+    def id(self):
+        return next(TensorBase._id)
 
     @abstractproperty
     def arg_function_spaces(self):
@@ -284,14 +281,16 @@ class AssembledVector(TensorBase):
 
     operands = ()
 
-    def __init__(self, function):
-        """Constructor for the AssembledVector class."""
-        if not isinstance(function, Coefficient):
-            raise TypeError("Object must be a ufl Coefficient (typically a Firedrake Function).")
-
-        super(AssembledVector, self).__init__()
-
-        self._function = function
+    def __new__(cls, function):
+        if isinstance(function, AssembledVector):
+            return function
+        elif isinstance(function, Coefficient):
+            self = super().__new__(cls)
+            self._function = function
+            return self
+        else:
+            raise TypeError("Expecting a Coefficient or AssembledVector (not a %r)" %
+                            type(function))
 
     @cached_property
     def arg_function_spaces(self):
