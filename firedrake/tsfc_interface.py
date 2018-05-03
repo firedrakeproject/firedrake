@@ -70,13 +70,12 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        val = pickle.loads(val)
-        cls._cache[key] = val
-        return val
+        return cls._cache.setdefault(key, pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
+        cls._cache[key] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
