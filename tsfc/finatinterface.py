@@ -195,6 +195,11 @@ def convert_restrictedelement(element, **kwargs):
     return fiat_compat(element), set()
 
 
+@convert.register(ufl.NodalEnrichedElement)
+def convert_nodalenrichedelement(element, **kwargs):
+    return fiat_compat(element), set()
+
+
 quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
