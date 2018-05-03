@@ -38,14 +38,15 @@ Key Dates
 Programme
 ---------
 
-Abstract submission is now closed.  The workshop programme will appear
-shortly.
+Abstract submission is now closed.  The workshop programme is
+`available on easychair <https://easychair.org/smart-program/Firedrake'18/>`_.
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 7 June.  Further
-details to follow.
+There will be a workshop dinner in the evening of 7 June at `The
+Candlemaker <https://www.candlemaker.pub/>`_ in Battersea (easily
+accessible from Imperial by bike, or public transport).
 
 Location
 ~~~~~~~~
