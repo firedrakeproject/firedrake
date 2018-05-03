@@ -88,8 +88,8 @@ def convert(element, vector_is_mixed):
 
 
 # Base finite elements first
-@convert.register(ufl.FiniteElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.FiniteElement)
+def convert_finiteelement(element, vector_is_mixed):
     if element.family() == "Real":
         # Real element is just DG0
         cell = element.cell()
@@ -134,32 +134,32 @@ def _(element, vector_is_mixed):
 
 
 # Element modifiers
-@convert.register(ufl.RestrictedElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.RestrictedElement)
+def convert_restrictedelement(element, vector_is_mixed):
     return FIAT.RestrictedElement(create_element(element.sub_element(), vector_is_mixed),
                                   restriction_domain=element.restriction_domain())
 
 
-@convert.register(ufl.EnrichedElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.EnrichedElement)
+def convert_enrichedelement(element, vector_is_mixed):
     return FIAT.EnrichedElement(*(create_element(e, vector_is_mixed)
                                   for e in element._elements))
 
 
-@convert.register(ufl.NodalEnrichedElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.NodalEnrichedElement)
+def convert_nodalenrichedelement(element, vector_is_mixed):
     return FIAT.NodalEnrichedElement(*(create_element(e, vector_is_mixed)
                                        for e in element._elements))
 
 
-@convert.register(ufl.BrokenElement) # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.BrokenElement)
+def convert_brokenelement(element, vector_is_mixed):
     return FIAT.DiscontinuousElement(create_element(element._element, vector_is_mixed))
 
 
 # Now for the TPE-specific stuff
-@convert.register(ufl.TensorProductElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.TensorProductElement)
+def convert_tensorproductelement(element, vector_is_mixed):
     cell = element.cell()
     if type(cell) is not ufl.TensorProductCell:
         raise ValueError("TPE not on TPC?")
@@ -168,19 +168,19 @@ def _(element, vector_is_mixed):
                                      create_element(B, vector_is_mixed))
 
 
-@convert.register(ufl.HDivElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.HDivElement)
+def convert_hdivelement(element, vector_is_mixed):
     return FIAT.Hdiv(create_element(element._element, vector_is_mixed))
 
 
-@convert.register(ufl.HCurlElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.HCurlElement)
+def convert_hcurlelement(element, vector_is_mixed):
     return FIAT.Hcurl(create_element(element._element, vector_is_mixed))
 
 
 # Finally the MixedElement case
-@convert.register(ufl.MixedElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.MixedElement)
+def convert_mixedelement(element, vector_is_mixed):
     # If we're just trying to get the scalar part of a vector element?
     if not vector_is_mixed:
         assert isinstance(element, (ufl.VectorElement,
