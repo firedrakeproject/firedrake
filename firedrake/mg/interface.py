@@ -1,5 +1,6 @@
 from pyop2 import op2
 
+import firedrake
 from . import utils
 from . import kernels
 
@@ -32,26 +33,46 @@ def prolong(coarse, fine):
         for in_, out in zip(coarse.split(), fine.split()):
             prolong(in_, out)
         return
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    _, fine_level = utils.get_level(fine.ufl_domain())
+    refinements_per_level = hierarchy.refinements_per_level
+    repeat = (fine_level - coarse_level)*refinements_per_level
+    next_level = coarse_level * refinements_per_level
 
-    coarse_coords = Vc.ufl_domain().coordinates
-    fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
-    fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-    kernel = kernels.prolong_kernel(coarse)
+    element = Vc.ufl_element()
+    meshes = hierarchy._meshes
+    for j in range(repeat):
+        next_level += 1
+        if j == repeat - 1:
+            next = fine
+            Vf = fine.function_space()
+        else:
+            Vf = firedrake.FunctionSpace(meshes[next_level], element)
+            next = firedrake.Function(Vf)
 
-    # XXX: Should be able to figure out locations by pushing forward
-    # reference cell node locations to physical space.
-    # x = \sum_i c_i \phi_i(x_hat)
-    node_locations = utils.physical_node_locations(Vf)
-    # Have to do this, because the node set core size is not right for
-    # this expanded stencil
-    for d in [coarse, coarse_coords]:
-        d.dat.global_to_local_begin(op2.READ)
-        d.dat.global_to_local_end(op2.READ)
-    op2.par_loop(kernel, fine.node_set,
-                 fine.dat(op2.WRITE),
-                 coarse.dat(op2.READ, fine_to_coarse[op2.i[0]]),
-                 node_locations.dat(op2.READ),
-                 coarse_coords.dat(op2.READ, fine_to_coarse_coords[op2.i[0]]))
+        coarse_coords = Vc.ufl_domain().coordinates
+        fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
+        fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
+        kernel = kernels.prolong_kernel(coarse)
+
+        # XXX: Should be able to figure out locations by pushing forward
+        # reference cell node locations to physical space.
+        # x = \sum_i c_i \phi_i(x_hat)
+        node_locations = utils.physical_node_locations(Vf)
+        # Have to do this, because the node set core size is not right for
+        # this expanded stencil
+        for d in [coarse, coarse_coords]:
+            d.dat._force_evaluation(read=True, write=False)
+            d.dat.global_to_local_begin(op2.READ)
+            d.dat.global_to_local_end(op2.READ)
+        op2.par_loop(kernel, next.node_set,
+                     next.dat(op2.WRITE),
+                     coarse.dat(op2.READ, fine_to_coarse[op2.i[0]]),
+                     node_locations.dat(op2.READ),
+                     coarse_coords.dat(op2.READ, fine_to_coarse_coords[op2.i[0]]))
+        coarse = next
+        Vc = Vf
+    return fine
 
 
 def restrict(fine_dual, coarse_dual):
@@ -64,26 +85,47 @@ def restrict(fine_dual, coarse_dual):
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
             restrict(in_, out)
         return
-    coarse_dual.dat.zero()
-    # XXX: Should be able to figure out locations by pushing forward
-    # reference cell node locations to physical space.
-    # x = \sum_i c_i \phi_i(x_hat)
-    node_locations = utils.physical_node_locations(Vf)
+    hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
+    _, fine_level = utils.get_level(fine_dual.ufl_domain())
+    refinements_per_level = hierarchy.refinements_per_level
+    repeat = (fine_level - coarse_level)*refinements_per_level
+    next_level = fine_level * refinements_per_level
 
-    coarse_coords = Vc.ufl_domain().coordinates
-    fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
-    fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-    # Have to do this, because the node set core size is not right for
-    # this expanded stencil
-    for d in [coarse_coords]:
-        d.dat.global_to_local_begin(op2.READ)
-        d.dat.global_to_local_end(op2.READ)
-    kernel = kernels.restrict_kernel(Vf, Vc)
-    op2.par_loop(kernel, fine_dual.node_set,
-                 coarse_dual.dat(op2.INC, fine_to_coarse[op2.i[0]]),
-                 fine_dual.dat(op2.READ),
-                 node_locations.dat(op2.READ),
-                 coarse_coords.dat(op2.READ, fine_to_coarse_coords[op2.i[0]]))
+    element = Vc.ufl_element()
+    meshes = hierarchy._meshes
+
+    for j in range(repeat):
+        next_level -= 1
+        if j == repeat - 1:
+            coarse_dual.dat.zero()
+            next = coarse_dual
+            Vc = next.function_space()
+        else:
+            Vc = firedrake.FunctionSpace(meshes[next_level], element)
+            next = firedrake.Function(Vc)
+        # XXX: Should be able to figure out locations by pushing forward
+        # reference cell node locations to physical space.
+        # x = \sum_i c_i \phi_i(x_hat)
+        node_locations = utils.physical_node_locations(Vf)
+
+        coarse_coords = Vc.ufl_domain().coordinates
+        fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
+        fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
+        # Have to do this, because the node set core size is not right for
+        # this expanded stencil
+        for d in [coarse_coords]:
+            d.dat._force_evaluation(read=True, write=False)
+            d.dat.global_to_local_begin(op2.READ)
+            d.dat.global_to_local_end(op2.READ)
+        kernel = kernels.restrict_kernel(Vf, Vc)
+        op2.par_loop(kernel, fine_dual.node_set,
+                     next.dat(op2.INC, fine_to_coarse[op2.i[0]]),
+                     fine_dual.dat(op2.READ),
+                     node_locations.dat(op2.READ),
+                     coarse_coords.dat(op2.READ, fine_to_coarse_coords[op2.i[0]]))
+        fine_dual = next
+        Vf = Vc
+    return coarse_dual
 
 
 def inject(fine, coarse):
@@ -108,37 +150,58 @@ def inject(fine, coarse):
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
-    if not dg:
-        node_locations = utils.physical_node_locations(Vc)
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    _, fine_level = utils.get_level(fine.ufl_domain())
+    refinements_per_level = hierarchy.refinements_per_level
+    repeat = (fine_level - coarse_level)*refinements_per_level
+    next_level = fine_level * refinements_per_level
 
-        fine_coords = Vf.ufl_domain().coordinates
-        coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
-        coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
+    element = Vc.ufl_element()
+    meshes = hierarchy._meshes
 
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [fine, fine_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        coarse.dat.zero()
-        op2.par_loop(kernel, coarse.node_set,
-                     coarse.dat(op2.INC),
-                     node_locations.dat(op2.READ),
-                     fine.dat(op2.READ, coarse_node_to_fine_nodes[op2.i[0]]),
-                     fine_coords.dat(op2.READ, coarse_node_to_fine_coords[op2.i[0]]))
-    else:
-        coarse.dat.zero()
-        coarse_coords = Vc.mesh().coordinates
-        fine_coords = Vf.mesh().coordinates
-        coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
-        coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [fine, fine_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, Vc.mesh().cell_set,
-                     coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-                     fine.dat(op2.READ, coarse_cell_to_fine_nodes[op2.i[0]]),
-                     fine_coords.dat(op2.READ, coarse_cell_to_fine_coords[op2.i[0]]),
-                     coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()[op2.i[0]]))
+    for j in range(repeat):
+        next_level -= 1
+        if j == repeat - 1:
+            coarse.dat.zero()
+            next = coarse
+            Vc = next.function_space()
+        else:
+            Vc = firedrake.FunctionSpace(meshes[next_level], element)
+            next = firedrake.Function(Vc)
+        if not dg:
+            node_locations = utils.physical_node_locations(Vc)
+
+            fine_coords = Vf.ufl_domain().coordinates
+            coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
+            coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
+
+            # Have to do this, because the node set core size is not right for
+            # this expanded stencil
+            for d in [fine, fine_coords]:
+                d.dat._force_evaluation(read=True, write=False)
+                d.dat.global_to_local_begin(op2.READ)
+                d.dat.global_to_local_end(op2.READ)
+            op2.par_loop(kernel, next.node_set,
+                         next.dat(op2.INC),
+                         node_locations.dat(op2.READ),
+                         fine.dat(op2.READ, coarse_node_to_fine_nodes[op2.i[0]]),
+                         fine_coords.dat(op2.READ, coarse_node_to_fine_coords[op2.i[0]]))
+        else:
+            coarse_coords = Vc.mesh().coordinates
+            fine_coords = Vf.mesh().coordinates
+            coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
+            coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
+            # Have to do this, because the node set core size is not right for
+            # this expanded stencil
+            for d in [fine, fine_coords]:
+                d.dat._force_evaluation(read=True, write=False)
+                d.dat.global_to_local_begin(op2.READ)
+                d.dat.global_to_local_end(op2.READ)
+            op2.par_loop(kernel, Vc.mesh().cell_set,
+                         next.dat(op2.INC, next.cell_node_map()[op2.i[0]]),
+                         fine.dat(op2.READ, coarse_cell_to_fine_nodes[op2.i[0]]),
+                         fine_coords.dat(op2.READ, coarse_cell_to_fine_coords[op2.i[0]]),
+                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()[op2.i[0]]))
+        fine = next
+        Vf = Vc
+    return coarse

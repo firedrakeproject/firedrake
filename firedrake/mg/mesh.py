@@ -1,4 +1,5 @@
 import numpy as np
+from fractions import Fraction
 from collections import defaultdict
 
 import firedrake
@@ -11,12 +12,17 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy"]
 
 
 class HierarchyBase(object):
-    def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells):
+    def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                 refinements_per_level=1):
         from firedrake_citations import Citations
         Citations().register("Mitchell2016")
-        self.meshes = tuple(meshes)
-        self.coarse_to_fine_cells = tuple(coarse_to_fine_cells)
-        self.fine_to_coarse_cells = tuple(fine_to_coarse_cells)
+        self._meshes = tuple(meshes)
+        self.meshes = tuple(meshes[::refinements_per_level])
+        self.coarse_to_fine_cells = coarse_to_fine_cells
+        self.fine_to_coarse_cells = fine_to_coarse_cells
+        self.refinements_per_level = refinements_per_level
+        for level, m in enumerate(meshes):
+            set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
             set_level(m, self, level)
         self._shared_data_cache = defaultdict(dict)
@@ -44,12 +50,16 @@ class HierarchyBase(object):
         return self.meshes[idx]
 
 
-def MeshHierarchy(mesh, refinement_levels, reorder=None,
+def MeshHierarchy(mesh, refinement_levels,
+                  refinements_per_level=1,
+                  reorder=None,
                   distribution_parameters=None, callbacks=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     :arg mesh: the coarse :func:`~.Mesh` to refine
     :arg refinement_levels: the number of levels of refinement
+    :arg refinements_per_level: the number of refinements for each
+        level in the hierarchy.
     :arg distribution_parameters: options controlling mesh
         distribution, see :func:`~.Mesh` for details.
     :arg reorder: optional flag indicating whether to reorder the
@@ -77,10 +87,12 @@ def MeshHierarchy(mesh, refinement_levels, reorder=None,
     else:
         before = after = lambda dm, i: None
 
-    for i in range(refinement_levels):
-        before(cdm, i)
+    for i in range(refinement_levels*refinements_per_level):
+        if i % refinements_per_level == 0:
+            before(cdm, i)
         rdm = cdm.refine()
-        after(rdm, i)
+        if i % refinements_per_level == 0:
+            after(rdm, i)
         # Remove interior facet label (re-construct from
         # complement of exterior facets).  Necessary because the
         # refinement just marks points "underneath" the refined
@@ -128,7 +140,12 @@ def MeshHierarchy(mesh, refinement_levels, reorder=None,
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells)
+    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
+                                for i, c2f in enumerate(coarse_to_fine_cells))
+    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
+                                for i, f2c in enumerate(fine_to_coarse_cells))
+    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                         refinements_per_level)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None,
@@ -148,11 +165,12 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
                                      layer_height=layer_height,
                                      extrusion_type=extrusion_type,
                                      gdim=gdim)
-              for m in base_hierarchy]
+              for m in base_hierarchy._meshes]
 
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
-                         base_hierarchy.fine_to_coarse_cells)
+                         base_hierarchy.fine_to_coarse_cells,
+                         refinements_per_level=base_hierarchy.refinements_per_level)
 
 
 def NonNestedHierarchy(*meshes):
