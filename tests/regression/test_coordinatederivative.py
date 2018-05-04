@@ -74,12 +74,11 @@ def test_integral_scaling_edge_case():
 
     J = u * u * dx
     with pytest.raises(ValueError):
-        computed = assemble(Constant(2.0) * derivative(J, X))
+        assemble(Constant(2.0) * derivative(J, X))
     with pytest.raises(ValueError):
-        computed = assemble(derivative(Constant(2.0) * derivative(J, X), X))
+        assemble(derivative(Constant(2.0) * derivative(J, X), X))
     with pytest.raises(ValueError):
-        computed = assemble(Constant(2.0) * derivative(derivative(J, X), X))
-
+        assemble(Constant(2.0) * derivative(derivative(J, X), X))
 
 
 def test_second_shape_derivative():
