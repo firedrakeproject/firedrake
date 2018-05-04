@@ -38,6 +38,7 @@ supported_elements = {
     "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
     "Bubble": FIAT.Bubble,
+    "FacetBubble": FIAT.FacetBubble,
     "Crouzeix-Raviart": FIAT.CrouzeixRaviart,
     "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
     "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
