@@ -94,6 +94,20 @@ class DirichletBC(object):
                 self._original_arg = self.function_arg
         return self._function_arg
 
+    def reconstruct(self, *, V=None, g=None, sub_domain=None, method=None):
+        if V is None:
+            V = self.function_space()
+        if g is None:
+            g = self._original_arg
+        if sub_domain is None:
+            sub_domain = self.sub_domain
+        if method is None:
+            method = self.method
+        if V == self.function_space() and g == self._original_arg and \
+           sub_domain == self.sub_domain and method == self.method:
+            return self
+        return type(self)(V, g, sub_domain, method=method)
+
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
