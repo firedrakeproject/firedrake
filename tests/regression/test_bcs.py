@@ -242,13 +242,14 @@ def test_update_bc_constant(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-def test_preassembly_change_bcs(V, f):
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+def test_preassembly_change_bcs(V, f, mat_type):
     v = TestFunction(V)
     u = TrialFunction(V)
     a = dot(u, v)*dx
     bc = DirichletBC(V, f, 1)
 
-    A = assemble(a, bcs=[bc])
+    A = assemble(a, bcs=[bc], mat_type=mat_type)
     L = dot(v, f)*dx
     b = assemble(L)
 
