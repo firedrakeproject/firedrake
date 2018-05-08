@@ -148,15 +148,17 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     args = form.arguments()
 
     def argument(V):
-        n = max(a.number() for a in args) if args else -1
-        return Argument(V, n + 1)
+        if du is None:
+            n = max(a.number() for a in args) if args else -1
+            return Argument(V, n + 1)
+        else:
+            return du
 
     if is_dX:
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
-        if du is None:
-            V = coords.function_space()
-            du = argument(V)
+        V = coords.function_space()
+        du = argument(V)
         cds = {coords: du}
         if coefficient_derivatives is not None:
             cds.update(coefficient_derivatives)
