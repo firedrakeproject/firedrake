@@ -18,7 +18,7 @@ from tsfc import compile_form as tsfc_compile_form
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD
 
 from coffee.base import Invert
 
@@ -224,22 +224,18 @@ def _real_mangle(form):
 
 def clear_cache(comm=None):
     """Clear the Firedrake TSFC kernel cache."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if path.exists(TSFCKernel._cachedir):
-            import shutil
-            shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
-            _ensure_cachedir(comm=comm)
-    free_comm(comm)
+        import shutil
+        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+        _ensure_cachedir(comm=comm)
 
 
 def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if not path.exists(TSFCKernel._cachedir):
-            makedirs(TSFCKernel._cachedir)
-    free_comm(comm)
+        makedirs(TSFCKernel._cachedir, exist_ok=True)
 
 
 def _inverse(kernel):
