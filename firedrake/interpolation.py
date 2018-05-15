@@ -161,7 +161,7 @@ def _interpolator(V, dat, expr, subset):
     coords = mesh.coordinates
 
     parameters = {}
-    parameters['scalar_type'] = utlis.ScalarType_c
+    parameters['scalar_type'] = utils.ScalarType_c
 
     if not isinstance(expr, (firedrake.Expression, SubExpression)):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
