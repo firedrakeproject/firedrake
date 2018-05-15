@@ -43,9 +43,9 @@ def test_assembled_solve(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v) *dx
 
-    L = v*dx
+    L = conj(v) * dx
 
     if bcs:
         bcs = DirichletBC(V, 0, 1)
@@ -69,9 +69,9 @@ def test_linearvariationalsolver(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v) *dx
 
-    L = v*dx
+    L = conj(v) * dx
 
     if bcs:
         bcs = DirichletBC(V, 0, 1)
@@ -95,7 +95,7 @@ def test_nonlinearvariationalsolver(bcs, benchmark):
     u = Function(V)
     v = TestFunction(V)
 
-    F = u*v*dx - v*dx
+    F = inner(u, v) * dx - conj(v) * dx
     if bcs:
         bcs = DirichletBC(V, 0, 1)
     else:
@@ -141,7 +141,7 @@ def test_nonlinear_solve(bcs, benchmark):
     u = Function(V)
     v = TestFunction(V)
 
-    F = u*v*dx - v*dx
+    F = inner(u, v) * dx - conj(v) * dx
     if bcs:
         bcs = DirichletBC(V, 0, 1)
     else:
