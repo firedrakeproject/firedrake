@@ -15,14 +15,14 @@ def fs():
 def mass(fs):
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    return u * v * dx
+    return inner(u, v) * dx
 
 
 @pytest.fixture
 def mixed_mass(fs):
     u, r = TrialFunctions(fs*fs)
     v, s = TestFunctions(fs*fs)
-    return (u*v + r*s) * dx
+    return (inner(u, v) + inner(r, s)) * dx
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def laplace(fs):
 def rhs(fs):
     v = TestFunction(fs)
     g = Function(fs)
-    return g * v * ds
+    return inner(g, v) * ds
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def rhs2(fs):
     v = TestFunction(fs)
     f = Function(fs)
     g = Function(fs)
-    return f * v * dx + g * v * ds
+    return inner(f, v) * dx + inner(g, v) * ds
 
 
 @pytest.fixture
