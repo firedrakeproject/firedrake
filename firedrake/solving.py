@@ -24,7 +24,7 @@ import ufl
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 
-from firedrake_configuration import get_config
+from firedrake.utils import ScalarType_c
 
 
 def solve(*args, **kwargs):
@@ -135,10 +135,9 @@ def _solve_varproblem(*args, **kwargs):
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
 
-    if get_config()['options']['complex']:
-        if form_compiler_parameters is None:
-            form_compiler_parameters = {}
-        form_compiler_parameters['scalar_type'] = 'double complex'
+    if form_compiler_parameters is None:
+        form_compiler_parameters = {}
+    form_compiler_parameters['scalar_type'] = ScalarType_c
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem

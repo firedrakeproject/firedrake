@@ -26,8 +26,6 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
-from firedrake_configuration import get_config
-
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType']
@@ -1102,8 +1100,7 @@ values from f.)"""
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
 
-        type_ = np.complex128 if get_config()["options"]["complex"] else np.float
-        x = np.asarray(x, dtype=type_)
+        x = np.asarray(x, dtype=utils.ScalarType)
 
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))

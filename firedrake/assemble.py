@@ -6,7 +6,6 @@ from itertools import chain
 from pyop2 import op2
 from pyop2.base import collecting_loops
 from pyop2.exceptions import MapValueError, SparsityFormatError
-from pyop2.datatypes import ScalarType
 
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
@@ -17,8 +16,7 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
-
-from firedrake_configuration import get_config
+from firedrake.utils import ScalarType, ScalarType_c
 
 
 __all__ = ["assemble"]
@@ -96,11 +94,6 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    if get_config()['options']['complex']:
-        if form_compiler_parameters is None:
-            form_compiler_parameters = {}
-        form_compiler_parameters['scalar_type'] = 'double complex'
-
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
@@ -124,10 +117,6 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    if get_config()['options']['complex']:
-        if form_compiler_parameters is None:
-            form_compiler_parameters = {}
-        form_compiler_parameters['scalar_type'] = 'double complex'
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                      appctx=appctx, allocate_only=True,
@@ -150,10 +139,6 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    if get_config()['options']['complex']:
-        if form_compiler_parameters is None:
-            form_compiler_parameters = {}
-        form_compiler_parameters['scalar_type'] = 'double complex'
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
@@ -209,6 +194,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     else:
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
+    form_compiler_parameters['scalar_type'] = ScalarType_c
 
     topology = f.ufl_domains()[0].topology
     for m in f.ufl_domains():

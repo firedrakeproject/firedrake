@@ -6,13 +6,8 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate
-from firedrake import mesh
-from firedrake import dmplex
-from firedrake import function
-from firedrake import functionspace
-
-from firedrake_configuration import get_config
+    par_loop, dx, WRITE, READ, interpolate, mesh, dmplex, function, \
+    functionspace, utils
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -111,8 +106,7 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
-    absfunc = 'cabs' if get_config()["options"]["complex"] else 'fabs'
+    absfunc = 'cabs' if utils.complex_mode else 'fabs'
 
     periodic_kernel = """
     const {0} pi = 3.141592653589793;
@@ -142,7 +136,7 @@ cells are not currently supported")
     }}
     new_coords[0][0] = a * L[0];
     new_coords[1][0] = b * L[0];
-    """.format(floattype, absfunc)
+    """.format(utils.ScalarType, absfunc)
 
     print(periodic_kernel)
 
@@ -502,10 +496,8 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
-    absfunc = 'cabs' if get_config()["options"]["complex"] else 'fabs'
-    sinfunc = 'csin' if get_config()["options"]["complex"] else 'sin'
-    cosfunc = 'ccos' if get_config()["options"]["complex"] else 'cos'
+    absfunc, sinfunc, cosfunc = 'cabs', 'csin', 'ccos' if utils.complex_mode \
+                                else 'fabs', 'sin', 'cos'
 
     periodic_kernel = """
 {0} pi = 3.141592653589793;
@@ -546,7 +538,7 @@ for(int i=0; i<creal(new_coords.dofs); i++) {{
     new_coords[i][0] *= Lx[0];
     new_coords[i][1] *= Ly[0];
 }}
-""".format(floattype, absfunc, sinfunc, cosfunc)
+""".format(utils.ScalarType_c, absfunc, sinfunc, cosfunc)
 
     cLx = Constant(Lx)
     cLy = Constant(Ly)
@@ -1369,8 +1361,6 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
-
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
@@ -1387,7 +1377,7 @@ cells in each direction are not currently supported")
             if(creal(new_coords[i][0])==creal(0) && creal(Y)<creal(0.)) new_coords[i][0] = 1.0;
             new_coords[i][0] *= Lx[0];
             new_coords[i][1] = old_coords[i][2]*Ly[0];
-            }}""".format(floattype)
+            }}""".format(utils.ScalarType_c)
 
     print(periodic_kernel)
 

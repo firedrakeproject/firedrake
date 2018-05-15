@@ -25,8 +25,7 @@ from coffee.base import Invert, ComplexInvert
 from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
-
-from firedrake_configuration import get_config
+from firedrake import utils
 
 
 KernelInfo = collections.namedtuple("KernelInfo",
@@ -172,9 +171,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True):
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
 
-    # See if we're in complex mode:
-    if get_config()['options']['complex']:
-        parameters['scalar_type'] = 'double complex'
+    parameters['scalar_type'] = utils.ScalarType_c
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
@@ -260,7 +257,7 @@ def _inverse(kernel):
     name = local_tensor.sym.symbol
     size = local_tensor.size[0]
 
-    if get_config()["options"]["complex"]:
+    if utils.complex_mode:
         kernel.children[0].children.append(ComplexInvert(name, size))
     else:
         kernel.children[0].children.append(Invert(name, size))

@@ -12,7 +12,6 @@ from tsfc import compile_expression_at_points as compile_ufl_kernel
 
 import firedrake
 from firedrake import utils
-from firedrake_configuration import get_config
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -162,8 +161,7 @@ def _interpolator(V, dat, expr, subset):
     coords = mesh.coordinates
 
     parameters = {}
-    if get_config()['options']['complex']:
-        parameters['scalar_type'] = 'double complex'
+    parameters['scalar_type'] = utlis.ScalarType_c
 
     if not isinstance(expr, (firedrake.Expression, SubExpression)):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
@@ -289,7 +287,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     xndof = coords_element.space_dimension()
     nfdof = to_element.space_dimension() * numpy.prod(fs.value_size, dtype=int)
 
-    num_type = 'double complex' if get_config()['options']['complex'] else 'double'
+    num_type = utils.ScalarType_c
 
     init_X = ast.Decl(typ=num_type, sym=ast.Symbol(X, rank=(ndof, xndof)),
                       qualifiers=["const"], init=X_str)
