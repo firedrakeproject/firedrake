@@ -20,7 +20,7 @@ import tsfc
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
+from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import lower_integral_type
 from tsfc.parameters import default_parameters
@@ -28,6 +28,7 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
+from firedrake.utils import ScalarType_c
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -130,7 +131,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('X', rank=(dim,)))
+    point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
