@@ -4,6 +4,8 @@ import coffee.base as coffee
 
 import gem
 
+from gem.utils import cached_property
+
 from tsfc.kernel_interface import KernelInterface
 
 
@@ -27,6 +29,10 @@ class KernelBuilderBase(KernelInterface):
 
         # Coefficients
         self.coefficient_map = {}
+
+    @cached_property
+    def unsummed_coefficient_indices(self):
+        return frozenset()
 
     def coordinate(self, domain):
         return self.domain_coordinate[domain]

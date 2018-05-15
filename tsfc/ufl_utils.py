@@ -8,6 +8,7 @@ import ufl
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.algorithms.analysis import extract_arguments
 from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
@@ -81,6 +82,25 @@ def one_times(measure):
     return integrand, degree
 
 
+def entity_avg(integrand, measure, argument_multiindices):
+    arguments = extract_arguments(integrand)
+    if len(arguments) == 1:
+        a, = arguments
+        integrand = ufl.replace(integrand, {a: ufl.Argument(a.function_space(),
+                                                            number=0,
+                                                            part=a.part())})
+        argument_multiindices = (argument_multiindices[a.number()], )
+
+    degree = estimate_total_polynomial_degree(integrand)
+    form = integrand * measure
+    fd = compute_form_data(form, do_estimate_degrees=False,
+                           do_apply_function_pullbacks=False)
+    itg_data, = fd.integral_data
+    integral, = itg_data.integrals
+    integrand = integral.integrand()
+    return integrand, degree, argument_multiindices
+
+
 def preprocess_expression(expression, complex_mode=False):
     """Imitates the compute_form_data processing pipeline.
 
@@ -128,9 +148,6 @@ class ModifiedTerminalMixin(object):
 
     positive_restricted = _modified_terminal
     negative_restricted = _modified_terminal
-
-    cell_avg = _modified_terminal
-    facet_avg = _modified_terminal
 
     reference_grad = _modified_terminal
     reference_value = _modified_terminal

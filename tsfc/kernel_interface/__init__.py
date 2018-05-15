@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 from gem.utils import make_proxy_class
 
@@ -29,6 +29,11 @@ class KernelInterface(metaclass=ABCMeta):
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
+
+    @abstractproperty
+    def unsummed_coefficient_indices(self):
+        """A set of indices that coefficient evaluation should not sum over.
+        Used for macro-cell integration."""
 
 
 ProxyKernelInterface = make_proxy_class('ProxyKernelInterface', KernelInterface)

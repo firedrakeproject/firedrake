@@ -39,6 +39,7 @@ supported_elements = {
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
+    "FacetBubble": finat.FacetBubble,
     "Crouzeix-Raviart": finat.CrouzeixRaviart,
     "Discontinuous Lagrange": finat.DiscontinuousLagrange,
     "Discontinuous Raviart-Thomas": lambda c, d: finat.DiscontinuousElement(finat.RaviartThomas(c, d)),
@@ -57,6 +58,8 @@ supported_elements = {
     "Q": None,
     "RTCE": None,
     "RTCF": None,
+    "NCE": None,
+    "NCF": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -98,13 +101,17 @@ def convert_finiteelement(element, **kwargs):
         return finat.QuadratureElement(cell, degree, scheme), set()
     lmbda = supported_elements[element.family()]
     if lmbda is None:
-        if element.cell().cellname() != "quadrilateral":
+        if element.cell().cellname() == "quadrilateral":
+            # Handle quadrilateral short names like RTCF and RTCE.
+            element = element.reconstruct(cell=quadrilateral_tpc)
+        elif element.cell().cellname() == "hexahedron":
+            # Handle hexahedron short names like NCF and NCE.
+            element = element.reconstruct(cell=hexahedron_tpc)
+        else:
             raise ValueError("%s is supported, but handled incorrectly" %
                              element.family())
-        # Handle quadrilateral short names like RTCF and RTCE.
-        element = element.reconstruct(cell=quad_tpc)
         finat_elem, deps = _create_element(element, **kwargs)
-        return finat.QuadrilateralElement(finat_elem), deps
+        return finat.FlattenedDimensions(finat_elem), deps
 
     kind = element.variant()
     if kind is None:
@@ -195,7 +202,13 @@ def convert_restrictedelement(element, **kwargs):
     return fiat_compat(element), set()
 
 
-quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
+@convert.register(ufl.NodalEnrichedElement)
+def convert_nodalenrichedelement(element, **kwargs):
+    return fiat_compat(element), set()
+
+
+hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
+quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 

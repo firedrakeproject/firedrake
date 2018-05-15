@@ -22,7 +22,7 @@
 
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
-                         Restricted, FacetAvg, CellAvg, ConstantValue,
+                         Restricted, ConstantValue,
                          Jacobian, SpatialCoordinate, Zero)
 from ufl.checks import is_cellwise_constant
 
@@ -38,11 +38,10 @@ class ModifiedTerminal(object):
         terminal           - the underlying Terminal object
         local_derivatives  - tuple of ints, each meaning derivative in that local direction
         reference_value    - bool, whether this is represented in reference frame
-        averaged           - None, 'facet' or 'cell'
         restriction        - None, '+' or '-'
     """
 
-    def __init__(self, expr, terminal, local_derivatives, averaged, restriction, reference_value):
+    def __init__(self, expr, terminal, local_derivatives, restriction, reference_value):
         # The original expression
         self.expr = expr
 
@@ -56,16 +55,12 @@ class ModifiedTerminal(object):
         # Derivatives
         self.local_derivatives = local_derivatives
 
-        # Evaluation method (alternative: { None, 'facet_midpoint', 'cell_midpoint', 'facet_avg', 'cell_avg' })
-        self.averaged = averaged
-
     def as_tuple(self):
         t = self.terminal
         rv = self.reference_value
         ld = self.local_derivatives
-        a = self.averaged
         r = self.restriction
-        return (t, rv, ld, a, r)
+        return (t, rv, ld, r)
 
     def __hash__(self):
         return hash(self.as_tuple())
@@ -80,7 +75,6 @@ class ModifiedTerminal(object):
         s = []
         s += ["terminal:           {0}".format(self.terminal)]
         s += ["local_derivatives:  {0}".format(self.local_derivatives)]
-        s += ["averaged:           {0}".format(self.averaged)]
         s += ["restriction:        {0}".format(self.restriction)]
         return '\n'.join(s)
 
@@ -111,13 +105,12 @@ def analyse_modified_terminal(expr):
     A modified terminal expression is an object of a Terminal subtype, wrapped in terminal modifier types.
 
     The wrapper types can include 0-* Grad or ReferenceGrad objects,
-    and 0-1 ReferenceValue, 0-1 Restricted, 0-1 Indexed, and 0-1 FacetAvg or CellAvg objects.
+    and 0-1 ReferenceValue, 0-1 Restricted, and 0-1 Indexed objects.
     """
     # Data to determine
     local_derivatives = 0
     reference_value = None
     restriction = None
-    averaged = None
 
     # Start with expr and strip away layers of modifiers
     t = expr
@@ -134,16 +127,6 @@ def analyse_modified_terminal(expr):
         elif isinstance(t, Restricted):
             assert restriction is None, "Got twice restricted terminal!"
             restriction = t._side
-            t, = t.ufl_operands
-
-        elif isinstance(t, CellAvg):
-            assert averaged is None, "Got twice averaged terminal!"
-            averaged = "cell"
-            t, = t.ufl_operands
-
-        elif isinstance(t, FacetAvg):
-            assert averaged is None, "Got twice averaged terminal!"
-            averaged = "facet"
             t, = t.ufl_operands
 
         elif t._ufl_terminal_modifiers_:
@@ -163,7 +146,7 @@ def analyse_modified_terminal(expr):
         if local_derivatives and not reference_value:
             raise ValueError("Local derivatives of non-local value?")
 
-    return ModifiedTerminal(expr, t, local_derivatives, averaged, restriction, reference_value)
+    return ModifiedTerminal(expr, t, local_derivatives, restriction, reference_value)
 
 
 def construct_modified_terminal(mt, terminal):
@@ -184,11 +167,6 @@ def construct_modified_terminal(mt, terminal):
                         expr.ufl_index_dimensions)
         else:
             expr = ReferenceGrad(expr)
-
-    if mt.averaged == "cell":
-        expr = CellAvg(expr)
-    elif mt.averaged == "facet":
-        expr = FacetAvg(expr)
 
     # No need to apply restrictions to ConstantValue terminals
     if not isinstance(expr, ConstantValue):
