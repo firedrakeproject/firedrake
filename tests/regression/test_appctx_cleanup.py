@@ -32,8 +32,8 @@ def test_appctx_cleanup():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
-    L = v*dx
+    a = inner(u, v) * dx
+    L = conj(v) * dx
 
     uh = Function(V)
 

@@ -27,10 +27,10 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
 
     diffusivity = 0.1
 
-    adv = p * q * dx
-    adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
+    adv = inner(p, q) * dx
+    adv_rhs = (inner(t, q) + dt * dot(u, grad(q)) * t) * dx
 
-    d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
+    d = -dt * diffusivity * dot(grad(p), grad(q)) * dx
 
     diff = adv - 0.5 * d
     diff_rhs = action(adv + 0.5 * d, t)

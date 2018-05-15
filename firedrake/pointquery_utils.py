@@ -3,7 +3,7 @@ import numpy
 import sympy
 
 from pyop2 import op2
-from pyop2.datatypes import IntType, ScalarType, as_cstr
+from pyop2.datatypes import IntType, as_cstr
 from pyop2.sequential import generate_cell_wrapper
 
 import ufl
@@ -18,6 +18,7 @@ import tsfc.parameters as tsfc_parameters
 import tsfc.ufl_utils as ufl_utils
 
 from firedrake_configuration import get_config
+from firedrake.utils import ScalarType, ScalarType_c
 
 from coffee.base import ArrayInit
 
@@ -90,10 +91,10 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
 
     # Translation to GEM
     C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-    expr = ufl_utils.preprocess_expression(expr, complex=ScalarType.kind=='c')
+    expr = ufl_utils.preprocess_expression(expr, complex_mode=ScalarType.kind=='c')
     expr = ufl_utils.simplify_abs(expr)
 
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
@@ -126,7 +127,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
     body.open_scope = False
 
     return body

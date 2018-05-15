@@ -25,8 +25,8 @@ def adv_diff(x, quadrilateral=False):
 
     diffusivity = 0.1
 
-    M = p * q * dx
-    d = dt * (diffusivity * dot(grad(q), grad(p)) - dot(grad(q), u) * p) * dx
+    M = inner(p, q) * dx
+    d = dt * (diffusivity * dot(grad(p), grad(q)) - dot(u, grad(q)) * p) * dx
     a = M + 0.5 * d
     L = action(M - 0.5 * d, t)
 
