@@ -18,6 +18,11 @@ def a(V):
     return u*v*dx
 
 
+@pytest.fixture(params=["nest", "aij", "matfree"])
+def mat_type(request):
+    return request.param
+
+
 def test_assemble_returns_matrix(a):
     A = assemble(a)
 
@@ -72,9 +77,9 @@ def test_adding_bcs(a, V):
     assert set(A.bcs) == set([bc2, bc3])
 
 
-def test_assemble_with_bcs(a, V):
+def test_assemble_with_bcs(a, V, mat_type):
     bc1 = DirichletBC(V, 0, 1)
-    A = assemble(a, bcs=[bc1])
+    A = assemble(a, bcs=[bc1], mat_type=mat_type)
 
     A.assemble()
     assert A.assembled
@@ -121,9 +126,9 @@ def test_assemble_with_bcs_then_not(a, V):
     assert (Anobcs != Abcs).any()
 
 
-def test_assemble_with_bcs_multiple_subdomains(a, V):
+def test_assemble_with_bcs_multiple_subdomains(a, V, mat_type):
     bc1 = DirichletBC(V, 0, [1, 2])
-    A = assemble(a, bcs=[bc1])
+    A = assemble(a, bcs=[bc1], mat_type=mat_type)
     assert not A.assembled
     assert A._needs_reassembly
     A.assemble()

@@ -1,7 +1,4 @@
-
-from ufl import action
-
-from firedrake.ufl_expr import adjoint
+from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 
 from firedrake.petsc import PETSc

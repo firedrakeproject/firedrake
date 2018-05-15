@@ -1,3 +1,15 @@
+import firedrake_configuration
+import os
+import sys
+config = firedrake_configuration.get_config()
+if "PETSC_DIR" in os.environ and not config["options"]["honour_petsc_dir"]:
+    raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
+                      "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
+    raise ImportError("Firedrake was installed with --honour-petsc-dir, but PETSC_DIR is not set.\n"
+                      "Please set PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+del os, sys, config
+
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
@@ -23,7 +35,6 @@ except AttributeError:
 del ufl
 from ufl import *
 # Set up the cache directories before importing PyOP2.
-import firedrake_configuration
 firedrake_configuration.setup_cache_dirs()
 
 from firedrake_citations import Citations    # noqa: F401

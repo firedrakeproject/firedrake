@@ -83,24 +83,28 @@ class AssembledPC(PCBase):
 
         _, P = pc.getOperators()
 
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+        opc = pc
         context = P.getPythonContext()
         prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + "assembled_"
 
         # It only makes sense to preconditioner/invert a diagonal
         # block in general.  That's all we're going to allow.
         if not context.on_diag:
             raise ValueError("Only makes sense to invert diagonal block")
 
-        mat_type = PETSc.Options().getString(prefix + "assembled_mat_type", "aij")
+        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
         self.P = allocate_matrix(context.a, bcs=context.row_bcs,
                                  form_compiler_parameters=context.fc_params,
-                                 mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=options_prefix)
         self._assemble_P = create_assembly_callable(context.a, tensor=self.P,
                                                     bcs=context.row_bcs,
                                                     form_compiler_parameters=context.fc_params,
                                                     mat_type=mat_type)
         self._assemble_P()
-        self.mat_type = mat_type
         self.P.force_evaluation()
 
         # Transfer nullspace over
@@ -114,7 +118,8 @@ class AssembledPC(PCBase):
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -assembled_pc_type ksp.
         pc = PETSc.PC().create()
-        pc.setOptionsPrefix(prefix+"assembled_")
+        pc.incrementTabLevel(1, parent=opc)
+        pc.setOptionsPrefix(options_prefix)
         pc.setOperators(Pmat, Pmat)
         pc.setUp()
         pc.setFromOptions()
@@ -132,11 +137,9 @@ class AssembledPC(PCBase):
 
     def view(self, pc, viewer=None):
         super(AssembledPC, self).view(pc, viewer)
-        viewer.pushASCIITab()
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
-        viewer.popASCIITab()
 
 
 class MassInvPC(PCBase):
@@ -154,8 +157,10 @@ class MassInvPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix()
-
+        options_prefix = prefix + "Mp_"
         # we assume P has things stuffed inside of it
         _, P = pc.getOperators()
         context = P.getPythonContext()
@@ -177,10 +182,11 @@ class MassInvPC(PCBase):
         a = inner(1/mu * u, v)*dx
 
         opts = PETSc.Options()
-        mat_type = opts.getString(prefix+"Mp_mat_type", parameters["default_matrix_type"])
+        mat_type = opts.getString(options_prefix + "mat_type",
+                                  parameters["default_matrix_type"])
 
         A = assemble(a, form_compiler_parameters=context.fc_params,
-                     mat_type=mat_type)
+                     mat_type=mat_type, options_prefix=options_prefix)
         A.force_evaluation()
 
         Pmat = A.petscmat
@@ -190,8 +196,9 @@ class MassInvPC(PCBase):
             Pmat.setTransposeNullSpace(tnullsp)
 
         ksp = PETSc.KSP().create()
+        ksp.incrementTabLevel(1, parent=pc)
         ksp.setOperators(Pmat)
-        ksp.setOptionsPrefix(prefix + "Mp_")
+        ksp.setOptionsPrefix(options_prefix)
         ksp.setUp()
         ksp.setFromOptions()
         self.ksp = ksp
@@ -208,9 +215,7 @@ class MassInvPC(PCBase):
     def view(self, pc, viewer=None):
         super(MassInvPC, self).view(pc, viewer)
         viewer.printfASCII("KSP solver for M^-1\n")
-        viewer.pushASCIITab()
         self.ksp.view(viewer)
-        viewer.popASCIITab()
 
 
 class PCDPC(PCBase):
@@ -248,6 +253,8 @@ class PCDPC(PCBase):
         from firedrake import TrialFunction, TestFunction, dx, \
             assemble, inner, grad, split, Constant, parameters
         from firedrake.assemble import allocate_matrix, create_assembly_callable
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "pcd_"
 
         # we assume P has things stuffed inside of it
@@ -280,9 +287,11 @@ class PCDPC(PCBase):
         self.Fp_mat_type = opts.getString(prefix+"Fp_mat_type", "matfree")
 
         Mp = assemble(mass, form_compiler_parameters=context.fc_params,
-                      mat_type=Mp_mat_type)
+                      mat_type=Mp_mat_type,
+                      options_prefix=prefix + "Mp_")
         Kp = assemble(stiffness, form_compiler_parameters=context.fc_params,
-                      mat_type=Kp_mat_type)
+                      mat_type=Kp_mat_type,
+                      options_prefix=prefix + "Kp_")
 
         Mp.force_evaluation()
         Kp.force_evaluation()
@@ -290,6 +299,7 @@ class PCDPC(PCBase):
         # FIXME: Should we transfer nullspaces over.  I think not.
 
         Mksp = PETSc.KSP().create()
+        Mksp.incrementTabLevel(1, parent=pc)
         Mksp.setOptionsPrefix(prefix + "Mp_")
         Mksp.setOperators(Mp.petscmat)
         Mksp.setUp()
@@ -297,6 +307,7 @@ class PCDPC(PCBase):
         self.Mksp = Mksp
 
         Kksp = PETSc.KSP().create()
+        Kksp.incrementTabLevel(1, parent=pc)
         Kksp.setOptionsPrefix(prefix + "Kp_")
         Kksp.setOperators(Kp.petscmat)
         Kksp.setUp()
@@ -314,7 +325,8 @@ class PCDPC(PCBase):
 
         self.Re = Re
         self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
-                                  mat_type=self.Fp_mat_type)
+                                  mat_type=self.Fp_mat_type,
+                                  options_prefix=prefix + "Fp_")
         self._assemble_Fp = create_assembly_callable(fp, tensor=self.Fp,
                                                      form_compiler_parameters=context.fc_params,
                                                      mat_type=self.Fp_mat_type)
@@ -342,15 +354,9 @@ class PCDPC(PCBase):
     def view(self, pc, viewer=None):
         super(PCDPC, self).view(pc, viewer)
         viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
-        viewer.pushASCIITab()
         viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %s\n" %
                            str(self.Re))
         viewer.printfASCII("KSP solver for K^-1:\n")
-        viewer.pushASCIITab()
         self.Kksp.view(viewer)
-        viewer.popASCIITab()
         viewer.printfASCII("KSP solver for M^-1:\n")
-        viewer.pushASCIITab()
         self.Mksp.view(viewer)
-        viewer.popASCIITab()
-        viewer.popASCIITab()

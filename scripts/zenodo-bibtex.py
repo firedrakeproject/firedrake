@@ -6,63 +6,63 @@ import cgitb
 cgitb.enable()
 import urllib2
 import json
-from HTMLParser import HTMLParser
 import sys
 
 
 def fail(code, reason):
-
     sys.stdout.write('Status: %s\r\n\r\n%s\r\n\r\n' % (code, reason))
     sys.exit(1)
 
 
-def find_ids(response, firedrake_tag):
-
-    ids = []
+def find_entries(response, firedrake_tag):
+    entries = []
     for record in response:
         try:
             for id in record['metadata']['related_identifiers']:
                 if id['identifier'].endswith(firedrake_tag):
-                    ids.append(record['record_id'])
+                    entries.append(record)
         except KeyError:
             pass
-
-    return ids
-
-
-class BibtexFinder(HTMLParser):
-    """The BibTeX data is kept inside tag <pre id="clipboard_text">."""
-    def __init__(self):
-        HTMLParser.__init__(self)
-
-        self.in_bibtex = False
-        self.bibtexdata = None
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "pre":
-            a = dict(attrs)
-            if a.get("style") == "white-space: pre-wrap;":
-                self.in_bibtex = True
-
-    def handle_data(self, data):
-        if self.in_bibtex:
-            self.bibtexdata = data
-
-    def handle_endtag(self, tag):
-        self.in_bibtex = False
+    return entries
 
 
-def get_bibtex(ids):
-
+def get_bibtex(entries):
     bibtex = []
-    for id in ids:
-        html = urllib2.urlopen("https://zenodo.org/record/%s/export/hx" % id)
-        parser = BibtexFinder()
-        charset = html.headers.getparam("charset")
-        parser.feed(html.read().decode(charset))
-        if parser.bibtexdata:
-            bibtex.append(parser.bibtexdata)
-
+    months = {"01": "jan",
+              "02": "feb",
+              "03": "mar",
+              "04": "apr",
+              "05": "may",
+              "06": "jun",
+              "07": "jul",
+              "08": "aug",
+              "09": "sep",
+              "10": "oct",
+              "11": "nov",
+              "12": "dec"}
+    for entry in entries:
+        bib = """@misc{%(key)s,
+  author = {%(author)s},
+  title = {%(title)s},
+  year  = {%(year)s},
+  month = {%(month)s},
+  doi  = {%(doi)s},
+  url = {https://doi.org/%(doi)s},
+}"""
+        vals = {}
+        title = entry["title"]
+        title = title[title.find("/")+1:]
+        vals["title"] = title
+        vals["doi"] = entry["doi"]
+        time = entry["created"]
+        year = time[:4]
+        month = months[time[5:7]]
+        vals["year"] = year
+        vals["month"] = month
+        key = "zenodo/%s" % title[:title.find(":")]
+        vals["key"] = "%s:%s" % (key, year)
+        vals["author"] = key
+        bibtex.append(bib % vals)
     return "\n\n".join(bibtex)
 
 
@@ -77,15 +77,25 @@ try:
     assert firedrake_tag[18] == "."
     digits = map(str, range(10))
     assert all([a in digits for a in (firedrake_tag[10:18] + firedrake_tag[19:])])
-except:                    # noqa: E722
-    # We really want to swallow everything here
+except:                         # noqa: E722
     fail("400 Bad Request", "%s is not a legal Firedrake release tag" % firedrake_tag)
 
 # Use sed to insert OAUTH token on next line before uploading to web server.
-response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions/?access_token=ZENODO_OAUTH&size=9999")
+try:
+    response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions?access_token=ZENODO_OAUTH&size=9999")
+except:                         # noqa: E722
+    fail("400 Bad Request", "Unable to open deposit records")
 
-ids = find_ids(json.load(response), firedrake_tag)
+try:
+    entries = find_entries(json.load(response), firedrake_tag)
+except:                         # noqa: E722
+    fail("400 Bad Request", "Unable to create entries")
+
+try:
+    bibtex = get_bibtex(entries)
+except:                         # noqa: E722
+    fail("400 Bad Request", "Unable to generate bibtex")
 
 print("Content-Type: text/plain; charset=utf-8")
 print()
-print(get_bibtex(ids).encode("utf-8"))
+print(bibtex.encode("utf-8"))

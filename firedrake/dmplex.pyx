@@ -2158,10 +2158,10 @@ def prune_sf(PETSc.SF sf):
     cdef:
         PetscInt nroots, nleaves, new_nleaves, i, j
         PetscInt rank
-        PetscInt *ilocal
-        PetscInt *new_ilocal
-        PetscSFNode *iremote
-        PetscSFNode *new_iremote
+        PetscInt *ilocal = NULL
+        PetscInt *new_ilocal = NULL
+        PetscSFNode *iremote = NULL
+        PetscSFNode *new_iremote = NULL
         PETSc.SF pruned_sf
 
     CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
@@ -2177,7 +2177,10 @@ def prune_sf(PETSc.SF sf):
     j = 0
     for i in range(nleaves):
         if iremote[i].rank != rank:
-            new_ilocal[j] = ilocal[i]
+            if ilocal != NULL:
+                new_ilocal[j] = ilocal[i]
+            else:
+                new_ilocal[j] = i
             new_iremote[j].rank = iremote[i].rank
             new_iremote[j].index = iremote[i].index
             j += 1

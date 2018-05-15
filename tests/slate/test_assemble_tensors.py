@@ -160,7 +160,6 @@ def test_nested_coefficients_matrix(mesh):
     assert np.allclose(M.M.values, assemble(form).M.values, rtol=1e-14)
 
 
-@pytest.mark.xfail(raises=NotImplementedError)
 def test_mixed_argument_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
@@ -168,7 +167,8 @@ def test_mixed_argument_tensor(mesh):
     sigma, _ = TrialFunctions(W)
     tau, _ = TestFunctions(W)
     T = Tensor(sigma * tau * dx)
-    assemble(T)
+    with pytest.raises(NotImplementedError):
+        assemble(T)
 
 
 def test_vector_subblocks(mesh):

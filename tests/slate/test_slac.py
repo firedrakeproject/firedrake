@@ -70,14 +70,14 @@ def test_determinism_and_caching(tensor):
     kernel2 = compile_slate(B)
 
     # Checking equivalence of kernels
-    assert kernel1[0].kinfo.kernel._ast == kernel2[0].kinfo.kernel._ast
+    assert kernel1 is kernel2
 
-    # Checking cached kernels (they should be identical to previous one)
-    kernel_1a = compile_slate(B)  # Should be the same as A
-    _kernels = A._metakernel_cache
+    # Changing TSFC parameters should change kernel
+    kernel3 = compile_slate(B, {"mode": "vanilla"})
+    assert kernel3 is not kernel2
 
-    assert kernel_1a[0].kinfo.kernel._ast == kernel1[0].kinfo.kernel._ast
-    assert _kernels[0].kinfo.kernel._ast == kernel1[0].kinfo.kernel._ast
+    for k1, k2 in zip(kernel1, kernel3):
+        assert k1 is not k2
 
 
 if __name__ == '__main__':

@@ -13,9 +13,9 @@ Creating a geometric hierarchy
 ------------------------------
 
 Geometric multigrid requires a geometric hierarchy of meshes on which
-the equations will be discretised.  To create a hierarchy, we will create
-a :class:`~.MeshHierarchy` object that encapsulates the hierarchy of
-meshes and remembers the relationships between them.  Currently, these
+the equations will be discretised.  To create a hierarchy, we use
+:func:`~.MeshHierarchy` to create a hierarchy of meshes, the resulting
+object remembers the relationships between them.  Currently, these
 hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh. ::
 
@@ -29,12 +29,6 @@ refinements, going from 128 cells on the coarse mesh to 32768 cells on
 the finest. ::
 
   hierarchy = MeshHierarchy(mesh, 4)
-
-.. note::
-
-   Currently, the implementation of mesh refinement only supports the
-   refinement of interval meshes and triangular meshes.  Support for
-   quadrilateral and tetrahedral meshes is currently missing.
 
 Defining the problem: the Poisson equation
 ------------------------------------------
@@ -131,44 +125,41 @@ other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
 with specified velocity inflow and outflow conditions. ::
 
-  def create_problem():
-      mesh = RectangleMesh(15, 10, 1.5, 1)
+  mesh = RectangleMesh(15, 10, 1.5, 1)
 
-      hierarchy = MeshHierarchy(mesh, 3)
+  hierarchy = MeshHierarchy(mesh, 3)
 
-      mesh = hierarchy[-1]
+  mesh = hierarchy[-1]
 
-      V = VectorFunctionSpace(mesh, "CG", 2)
-      W = FunctionSpace(mesh, "CG", 1)
-      Z = V * W
+  V = VectorFunctionSpace(mesh, "CG", 2)
+  W = FunctionSpace(mesh, "CG", 1)
+  Z = V * W
 
-      u, p = TrialFunctions(Z)
-      v, q = TestFunctions(Z)
+  u, p = TrialFunctions(Z)
+  v, q = TestFunctions(Z)
 
-      a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
+  a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
 
-      L = inner(Constant((0, 0)), v) * dx
+  L = inner(Constant((0, 0)), v) * dx
 
-      x, y = SpatialCoordinate(mesh)
+  x, y = SpatialCoordinate(mesh)
 
-      t = conditional(y < 0.5, y - 0.25, y - 0.75)
-      l = 1.0/6.0
-      gbar = conditional(Or(And(0.25 - l/2 < y,
-                                y < 0.25 + l/2),
-                            And(0.75 - l/2 < y,
-                                y < 0.75 + l/2)),
-                            Constant(1.0), Constant(0.0))
+  t = conditional(y < 0.5, y - 0.25, y - 0.75)
+  l = 1.0/6.0
+  gbar = conditional(Or(And(0.25 - l/2 < y,
+  y < 0.25 + l/2),
+  And(0.75 - l/2 < y,
+  y < 0.75 + l/2)),
+  Constant(1.0), Constant(0.0))
 
-      value = gbar*(1 - (2*t/l)**2)
-      inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
-      bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
-             DirichletBC(Z.sub(0), zero(2), (3, 4))]
-      return a, L, bcs, Z
+  value = gbar*(1 - (2*t/l)**2)
+  inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
+  bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
+  DirichletBC(Z.sub(0), zero(2), (3, 4))]
 
 First up, we'll use an algebraic preconditioner, with a direct solve,
 remembering to tell PETSc to use pivoting in the factorisation. ::
 
-  a, L, bcs, Z = create_problem()
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                "pc_type": "lu",
@@ -195,9 +186,6 @@ invert the velocity block. ::
 We provide an auxiliary operator so that we can precondition the schur
 complement inverse with a pressure mass matrix. ::
 
-  a, L, bcs, Z = create_problem()
-  _, p = TrialFunctions(Z)
-  _, q = TestFunctions(Z)
   Jp = a + p*q*dx
   u = Function(Z)
   solve(a == L, u, bcs=bcs, Jp=Jp, solver_parameters=parameters)
@@ -247,7 +235,6 @@ block.
         "mg_levels_fieldsplit_1_pc_type": "none",
   }
 
-  a, L, bcs, Z = create_problem()
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters=parameters)
 
