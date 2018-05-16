@@ -102,6 +102,7 @@ element systems.
 .. toctree::
    :maxdepth: 1
 
+   Printing in parallel.<demos/parprint.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
    Computing eigenmodes of the Quasi-Geostrophic equations using SLEPc.<demos/qgbasinmodes.py>
