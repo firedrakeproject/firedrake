@@ -7,7 +7,7 @@ from . import impl
 from .utils import set_level
 
 
-__all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
+__all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy"]
 
 
 class HierarchyBase(object):
@@ -150,3 +150,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
                          base_hierarchy.fine_to_coarse_cells)
+
+
+def NonNestedHierarchy(*meshes):
+    return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes])
