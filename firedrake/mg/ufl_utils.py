@@ -23,39 +23,40 @@ class CoarsenIntegrand(MultiFunction):
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
 
-    def __init__(self, coefficient_mapping):
+    def __init__(self, coarsen, coefficient_mapping):
         self.coefficient_mapping = coefficient_mapping or {}
+        self.coarsen = coarsen
         super(CoarsenIntegrand, self).__init__()
 
     expr = MultiFunction.reuse_if_untouched
 
     def argument(self, o):
-        V = coarsen(o.function_space())
+        V = self.coarsen(o.function_space(), self.coarsen)
         return o.reconstruct(V)
 
     def coefficient(self, o):
-        return coarsen(o, coefficient_mapping=self.coefficient_mapping)
+        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
 
     def geometric_quantity(self, o):
-        return type(o)(coarsen(o.ufl_domain()))
+        return type(o)(self.coarsen(o.ufl_domain(), self.coarsen))
 
     def circumradius(self, o):
-        mesh = coarsen(o.ufl_domain())
+        mesh = self.coarsen(o.ufl_domain(), self.coarsen)
         return firedrake.Circumradius(mesh)
 
     def facet_normal(self, o):
-        mesh = coarsen(o.ufl_domain())
+        mesh = self.coarsen(o.ufl_domain(), self.coarsen)
         return firedrake.FacetNormal(mesh)
 
 
 @singledispatch
-def coarsen(expr, coefficient_mapping=None):
+def coarsen(expr, self, coefficient_mapping=None):
     # Default, just send it back
     return expr
 
 
 @coarsen.register(ufl.Mesh)
-def coarsen_mesh(mesh, coefficient_mapping=None):
+def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
         raise CoarseningError("No mesh hierarchy available")
@@ -63,7 +64,7 @@ def coarsen_mesh(mesh, coefficient_mapping=None):
 
 
 @coarsen.register(ufl.Form)
-def coarsen_form(form, coefficient_mapping=None):
+def coarsen_form(form, self, coefficient_mapping=None):
     """Return a coarse mesh version of a form
 
     :arg form: The :class:`~ufl.classes.Form` to coarsen.
@@ -75,7 +76,7 @@ def coarsen_form(form, coefficient_mapping=None):
     if form is None:
         return None
 
-    mapper = CoarsenIntegrand(coefficient_mapping)
+    mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
@@ -95,9 +96,9 @@ def coarsen_form(form, coefficient_mapping=None):
 
 
 @coarsen.register(firedrake.DirichletBC)
-def coarsen_bc(bc, coefficient_mapping=None):
-    V = coarsen(bc.function_space(), coefficient_mapping=coefficient_mapping)
-    val = coarsen(bc._original_val, coefficient_mapping=coefficient_mapping)
+def coarsen_bc(bc, self, coefficient_mapping=None):
+    V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
+    val = self(bc._original_val, self, coefficient_mapping=coefficient_mapping)
     zeroed = bc._currently_zeroed
     subdomain = bc.sub_domain
     method = bc.method
@@ -112,7 +113,7 @@ def coarsen_bc(bc, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
-def coarsen_function_space(V, coefficient_mapping=None):
+def coarsen_function_space(V, self, coefficient_mapping=None):
     indices = []
     while True:
         if V.index is not None:
@@ -124,7 +125,7 @@ def coarsen_function_space(V, coefficient_mapping=None):
         else:
             break
 
-    mesh = coarsen(V.mesh())
+    mesh = self(V.mesh(), self)
 
     V = firedrake.FunctionSpace(mesh, V.ufl_element())
     for i in reversed(indices):
@@ -133,24 +134,24 @@ def coarsen_function_space(V, coefficient_mapping=None):
 
 
 @coarsen.register(firedrake.Function)
-def coarsen_function(expr, coefficient_mapping=None):
+def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        V = coarsen(expr.function_space())
+        V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
         firedrake.inject(expr, new)
     return new
 
 
 @coarsen.register(firedrake.Constant)
-def coarsen_constant(expr, coefficient_mapping=None):
+def coarsen_constant(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        mesh = coarsen(expr.ufl_domain())
+        mesh = self(expr.ufl_domain(), self)
         new = firedrake.Constant(numpy.zeros(expr.ufl_shape,
                                              dtype=expr.dat.dtype),
                                  domain=mesh)
@@ -160,7 +161,7 @@ def coarsen_constant(expr, coefficient_mapping=None):
 
 
 @coarsen.register(firedrake.NonlinearVariationalProblem)
-def coarsen_nlvp(problem, coefficient_mapping=None):
+def coarsen_nlvp(problem, self, coefficient_mapping=None):
     # Build set of coefficients we need to coarsen
     seen = set()
     coefficients = problem.F.coefficients() + problem.J.coefficients()
@@ -172,15 +173,15 @@ def coarsen_nlvp(problem, coefficient_mapping=None):
         coefficient_mapping = {}
     for c in coefficients:
         if c not in seen:
-            coefficient_mapping[c] = coarsen(c, coefficient_mapping=coefficient_mapping)
+            coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
             seen.add(c)
 
     u = coefficient_mapping[problem.u]
 
-    bcs = [coarsen(bc) for bc in problem.bcs]
-    J = coarsen(problem.J, coefficient_mapping=coefficient_mapping)
-    Jp = coarsen(problem.Jp, coefficient_mapping=coefficient_mapping)
-    F = coarsen(problem.F, coefficient_mapping=coefficient_mapping)
+    bcs = [self(bc, self) for bc in problem.bcs]
+    J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
+    Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
+    F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
 
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp,
                                                     form_compiler_parameters=problem.form_compiler_parameters)
@@ -188,7 +189,7 @@ def coarsen_nlvp(problem, coefficient_mapping=None):
 
 
 @coarsen.register(firedrake.solving_utils._SNESContext)
-def coarsen_snescontext(context, coefficient_mapping=None):
+def coarsen_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
@@ -197,7 +198,7 @@ def coarsen_snescontext(context, coefficient_mapping=None):
     if coarse is not None:
         return coarse
 
-    problem = coarsen(context._problem, coefficient_mapping=coefficient_mapping)
+    problem = self(context._problem, self, coefficient_mapping=coefficient_mapping)
     appctx = context.appctx
     new_appctx = {}
     for k in sorted(appctx.keys()):
@@ -205,7 +206,7 @@ def coarsen_snescontext(context, coefficient_mapping=None):
         if k != "state":
             # Constructor makes this one.
             try:
-                new_appctx[k] = coarsen(v)
+                new_appctx[k] = self(v, self, coefficient_mapping=coefficient_mapping)
             except CoarseningError:
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
