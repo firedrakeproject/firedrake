@@ -396,7 +396,7 @@ def coarsen(dm, comm):
         cdm = V._coarse.dm
     else:
         coarsen = get_ctx_coarsener(dm)
-        V._coarse = coarsen(V)
+        V._coarse = coarsen(V, coarsen)
         cdm = V._coarse.dm
 
     transfer = get_transfer_operators(dm)
@@ -405,7 +405,7 @@ def coarsen(dm, comm):
     push_ctx_coarsener(cdm, coarsen)
     ctx = get_appctx(dm)
     if ctx is not None:
-        push_appctx(cdm, coarsen(ctx))
+        push_appctx(cdm, coarsen(ctx, coarsen))
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     V._coarse._fine = V
