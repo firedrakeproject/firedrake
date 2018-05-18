@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from ufl.log import UFLException
 
 
 def test_first_shape_derivative():
@@ -13,30 +14,32 @@ def test_first_shape_derivative():
     u.interpolate(x*x+y*x+y*y+sin(x)+cos(x))
     dX = TestFunction(mesh.coordinates.function_space())
 
-    J = u * u * dx
-    computed = assemble(derivative(J, X)).dat.data
-    actual = assemble(u * u * div(dX) * dx).dat.data
-    assert np.allclose(computed, actual, rtol=1e-14)
+    def test_first(J, dJ):
+        computed = assemble(derivative(J, X)).dat.data
+        actual = assemble(dJ).dat.data
+        assert np.allclose(computed, actual, rtol=1e-14)
 
-    J = inner(grad(u), grad(u)) * dx
-    computed = assemble(derivative(J, X)).dat.data
-    dJdX = -2*inner(dot(grad(dX), grad(u)), grad(u)) * dx + inner(grad(u), grad(u)) * div(dX) * dx
-    actual = assemble(dJdX).dat.data
-    assert np.allclose(computed, actual, rtol=1e-14)
+    Ja = u * u * dx
+    dJa = u * u * div(dX) * dx
+    test_first(Ja, dJa)
+
+    Jb = inner(grad(u), grad(u)) * dx
+    dJb = -2*inner(dot(grad(dX), grad(u)), grad(u)) * dx + inner(grad(u), grad(u)) * div(dX) * dx
+    test_first(Jb, dJb)
 
     f = x * y * sin(x) * cos(y)
-    J = f * dx
-    computed = assemble(derivative(J, X)).dat.data
-    dJdX = div(f*dX) * dx
-    actual = assemble(dJdX).dat.data
-    assert np.allclose(computed, actual, rtol=1e-14)
+    Jc = f * dx
+    dJc = div(f*dX) * dx
+    test_first(Jc, dJc)
 
-    J = f * ds
-    computed = assemble(derivative(J, X)).dat.data
-    dJdX = inner(grad(f), dX) * ds \
+    Jd = f * ds
+    dJd = inner(grad(f), dX) * ds \
         + f * (div(dX) - inner(dot(grad(dX), n), n)) * ds
-    actual = assemble(dJdX).dat.data
-    assert np.allclose(computed, actual, rtol=1e-14)
+    test_first(Jd, dJd)
+
+    J = Ja + Jb + Jc + Jd
+    dJ = dJa + dJb + dJc + dJd
+    test_first(J, dJ)
 
 
 def test_mixed_derivatives():
@@ -49,21 +52,26 @@ def test_mixed_derivatives():
     v = TrialFunction(V)
     dX = TestFunction(mesh.coordinates.function_space())
 
-    J = u * u * dx
-    computed1 = assemble(derivative(derivative(J, X), u)).M.values
-    computed2 = assemble(derivative(derivative(J, u), X)).M.values
-    actual = assemble(2 * u * v * div(dX) * dx).M.values
-    assert np.allclose(computed1, actual, rtol=1e-14)
-    assert np.allclose(computed2.T, actual, rtol=1e-14)
+    def test_mixed(J, dJ_manual):
+        computed1 = assemble(derivative(derivative(J, X), u)).M.values
+        computed2 = assemble(derivative(derivative(J, u), X)).M.values
+        actuala = assemble(dJ_manual).M.values
+        assert np.allclose(computed1, actuala, rtol=1e-14)
+        assert np.allclose(computed2.T, actuala, rtol=1e-14)
 
-    J = inner(grad(u), grad(u)) * dx
-    computed1 = assemble(derivative(derivative(J, X), u)).M.values
-    computed2 = assemble(derivative(derivative(J, u), X)).M.values
-    actual = assemble(2*inner(grad(u), grad(v)) * div(dX) * dx
-                      - 2*inner(dot(grad(dX), grad(u)), grad(v)) * dx
-                      - 2*inner(grad(u), dot(grad(dX), grad(v))) * dx).M.values
-    assert np.allclose(computed1, actual, rtol=1e-14)
-    assert np.allclose(computed2.T, actual, rtol=1e-14)
+    Ja = u * u * dx
+    dJa = 2 * u * v * div(dX) * dx
+    test_mixed(Ja, dJa)
+
+    Jb = inner(grad(u), grad(u)) * dx
+    dJb = 2*inner(grad(u), grad(v)) * div(dX) * dx \
+        - 2*inner(dot(nabla_grad(dX), grad(u)), grad(v)) * dx \
+        - 2*inner(grad(u), dot(nabla_grad(dX), grad(v))) * dx
+    test_mixed(Jb, dJb)
+
+    J = Ja+Jb
+    dJ = dJa + dJb
+    test_mixed(J, dJ)
 
 
 def test_integral_scaling_edge_case():
@@ -73,11 +81,11 @@ def test_integral_scaling_edge_case():
     u = Function(V)
 
     J = u * u * dx
-    with pytest.raises(ValueError):
+    with pytest.raises(UFLException):
         assemble(Constant(2.0) * derivative(J, X))
-    with pytest.raises(ValueError):
+    with pytest.raises(UFLException):
         assemble(derivative(Constant(2.0) * derivative(J, X), X))
-    with pytest.raises(ValueError):
+    with pytest.raises(UFLException):
         assemble(Constant(2.0) * derivative(derivative(J, X), X))
 
 
@@ -91,10 +99,26 @@ def test_second_shape_derivative():
     dX1 = TestFunction(mesh.coordinates.function_space())
     dX2 = TrialFunction(mesh.coordinates.function_space())
 
-    J = u * u * dx
-    computed = assemble(derivative(derivative(J, X, dX1), X, dX2)).M.values
-    actual = assemble(u * u * div(dX1) * div(dX2) * dx - u * u * tr(grad(dX1)*grad(dX2)) * dx).M.values
-    assert np.allclose(computed, actual, rtol=1e-14)
+    def test_second(J, ddJ):
+        computed = assemble(derivative(derivative(J, X, dX1), X, dX2)).M.values
+        actual = assemble(ddJ).M.values
+        assert np.allclose(computed, actual, rtol=1e-14)
+
+    Ja = u * u * dx
+    ddJa = u * u * div(dX1) * div(dX2) * dx - u * u * tr(grad(dX1)*grad(dX2)) * dx
+    test_second(Ja, ddJa)
+
+    Jb = inner(grad(u), grad(u)) * dx
+    ddJb = 2*inner(dot(dot(nabla_grad(dX2), nabla_grad(dX1)), grad(u)), grad(u)) * dx \
+        + 2*inner(dot(nabla_grad(dX1), dot(nabla_grad(dX2), grad(u))), grad(u)) * dx \
+        + 2*inner(dot(nabla_grad(dX1), grad(u)), dot(nabla_grad(dX2), grad(u))) * dx \
+        - 2*inner(dot(nabla_grad(dX2), grad(u)), grad(u)) * div(dX1) * dx \
+        - inner(grad(u), grad(u)) * tr(nabla_grad(dX1)*nabla_grad(dX2)) * dx \
+        - 2*inner(dot(nabla_grad(dX1), grad(u)), grad(u)) * div(dX2) * dx \
+        + inner(grad(u), grad(u)) * div(dX1) * div(dX2) * dx
+    test_second(Jb, ddJb)
+
+    test_second(Ja+Jb, ddJa + ddJb)
 
 
 def test_coordinate_handling():
