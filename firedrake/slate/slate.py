@@ -87,7 +87,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (type(op).__name__, )
             else:
                 raise ValueError("Unhandled type %r" % type(op))
-            hashdata.append(data)
+            hashdata.append(data + (op.prec, ))
         hashdata = "".join("%s" % (s, ) for s in hashdata)
         return hashlib.sha512(hashdata.encode("utf-8")).hexdigest()
 
@@ -1044,9 +1044,9 @@ def space_equivalence(A, B):
 # Establishes levels of precedence for Slate tensors
 precedences = [
     [AssembledVector, Block, Factorization, Tensor],
-    [UnaryOp],
     [Add],
-    [Mul, Solve]
+    [Mul, Solve],
+    [UnaryOp],
 ]
 
 # Here we establish the precedence class attribute for a given
