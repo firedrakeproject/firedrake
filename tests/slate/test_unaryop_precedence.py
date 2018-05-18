@@ -1,9 +1,7 @@
-import pytest
 from firedrake import *
 import numpy
 
 
-@pytest.mark.xfail(reason="Unary minus has wrong precedence")
 def test_unary_minus():
     mesh = UnitSquareMesh(1, 1)
 
