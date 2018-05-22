@@ -41,7 +41,7 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            one_times, simplify_abs,
+                            entity_avg, one_times, simplify_abs,
                             preprocess_expression)
 
 
@@ -200,6 +200,43 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         # Need context during translation!
         self.context = context
 
+    # We just use the provided quadrature rule to
+    # perform the integration.
+    # Can't put these in the ufl2gem mixin, since they (unlike
+    # everything else) want access to the translation context.
+    def cell_avg(self, o):
+        if self.context.integral_type != "cell":
+            # Need to create a cell-based quadrature rule and
+            # translate the expression using that (c.f. CellVolume
+            # below).
+            raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
+        integrand, = o.ufl_operands
+        domain = o.ufl_domain()
+        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
+
+        config = {name: getattr(self.context, name)
+                  for name in ["ufl_cell", "precision", "index_cache"]}
+        config.update(quadrature_degree=degree, interface=self.context,
+                      argument_multiindices=argument_multiindices)
+        expr, = compile_ufl(integrand, point_sum=True, **config)
+        return expr
+
+    def facet_avg(self, o):
+        if self.context.integral_type == "cell":
+            raise ValueError("Can't take FacetAvg in cell integral")
+        integrand, = o.ufl_operands
+        domain = o.ufl_domain()
+        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
+
+        config = {name: getattr(self.context, name)
+                  for name in ["ufl_cell", "precision", "index_cache"]},
+        config.update(quadrature_degree=degree, interface=self.context,
+                      argument_multiindices=argument_multiindices)
+        expr, = compile_ufl(integrand, point_sum=True, **config)
+        return expr
+
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from
         :class:`ModifiedTerminalMixin`."""
@@ -241,10 +278,10 @@ def translate_reference_cell_volume(terminal, mt, ctx):
 
 @translate.register(ReferenceFacetVolume)
 def translate_reference_facet_volume(terminal, mt, ctx):
-    # FIXME: simplex only code path
-    dim = ctx.fiat_cell.get_spatial_dimension()
-    facet_cell = ctx.fiat_cell.construct_subelement(dim - 1)
-    return gem.Literal(facet_cell.volume())
+    assert ctx.integral_type != "cell"
+    # Sum of quadrature weights is entity volume
+    return gem.optimise.aggressive_unroll(gem.index_sum(ctx.weight_expr,
+                                                        ctx.point_indices))
 
 
 @translate.register(CellFacetJacobian)
@@ -517,7 +554,8 @@ def translate_coefficient(terminal, mt, ctx):
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
-            value = gem.IndexSum(gem.Product(expr, var), var.index_ordering())
+            indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
+            value = gem.IndexSum(gem.Product(expr, var), indices)
             summands.append(gem.optimise.contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
@@ -525,7 +563,7 @@ def translate_coefficient(terminal, mt, ctx):
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    assert set(result.free_indices) <= set(ctx.point_indices)
+    assert set(result.free_indices) - ctx.unsummed_coefficient_indices <= set(ctx.point_indices)
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
