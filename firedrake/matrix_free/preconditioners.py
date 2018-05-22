@@ -121,8 +121,8 @@ class AssembledPC(PCBase):
         pc.incrementTabLevel(1, parent=opc)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(Pmat, Pmat)
-        pc.setUp()
         pc.setFromOptions()
+        pc.setUp()
         self.pc = pc
 
     def update(self, pc):
