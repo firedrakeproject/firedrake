@@ -101,9 +101,17 @@ cdef get_preallocation(PETSc.Mat preallocator, PetscInt nrow):
         _p_Mat *A = <_p_Mat *>(preallocator.mat)
         Mat_Preallocator *p = <Mat_Preallocator *>(A.data)
 
-    dnz = <PetscInt[:nrow]>p.dnz
-    onz = <PetscInt[:nrow]>p.onz
-    return np.asarray(dnz).copy(), np.asarray(onz).copy()
+    if p.dnz != NULL:
+        dnz = <PetscInt[:nrow]>p.dnz
+        dnz = np.asarray(dnz).copy()
+    else:
+        dnz = np.zeros(0, dtype=IntType)
+    if p.onz != NULL:
+        onz = <PetscInt[:nrow]>p.onz
+        onz = np.asarray(onz).copy()
+    else:
+        onz = np.zeros(0, dtype=IntType)
+    return dnz, onz
 
 
 def build_sparsity(sparsity):
