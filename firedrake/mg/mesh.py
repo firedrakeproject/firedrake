@@ -65,9 +65,12 @@ def MeshHierarchy(mesh, refinement_levels, reorder=None,
     if mesh.comm.size > 1 and mesh._grown_halos:
         raise RuntimeError("Cannot refine parallel overlapped meshes "
                            "(make sure the MeshHierarchy is built immediately after the Mesh)")
-    if distribution_parameters is None:
-        distribution_parameters = {}
-    distribution_parameters.update({"partition": False})
+    parameters = {}
+    if distribution_parameters is not None:
+        parameters.update(distribution_parameters)
+
+    parameters["partition"] = False
+    distribution_parameters = parameters
 
     if callbacks is not None:
         before, after = callbacks
