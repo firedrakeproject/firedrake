@@ -17,8 +17,13 @@ def space(request, cell):
         return request.param
 
 
+@pytest.fixture(params=[1, 2], scope="module")
+def refinements_per_level(request):
+    return request.param
+
+
 @pytest.fixture(scope="module")
-def hierarchy(cell):
+def hierarchy(cell, refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
         return MeshHierarchy(mesh, 2)
@@ -29,7 +34,8 @@ def hierarchy(cell):
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
 
-    hierarchy = MeshHierarchy(mesh, 2)
+    nref = {2: 1, 1: 2}[refinements_per_level]
+    hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
 
     if cell in {"prism", "hexahedron"}:
         hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=3)
@@ -37,7 +43,8 @@ def hierarchy(cell):
     return hierarchy
 
 
-@pytest.fixture(params=["scalar", "vector"])
+@pytest.fixture(params=[False, True],
+                ids=["scalar", "vector"])
 def vector(request):
     return request.param
 
@@ -142,6 +149,7 @@ def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
 def test_grid_transfer_parallel(hierarchy, transfer_type):
     space = "CG"
     degs = degrees(space)
+    vector = False
     if transfer_type == "injection":
         run_injection(hierarchy, vector, space, degs)
     elif transfer_type == "restriction":
