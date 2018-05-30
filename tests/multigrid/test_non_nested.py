@@ -32,8 +32,8 @@ def test_coarsen_callback():
     lvp = LinearVariationalProblem(a, L, uh)
     lvs = LinearVariationalSolver(lvp, solver_parameters={"ksp_type": "cg",
                                                           "pc_type": "mg"})
-    with dmhooks.ctx_coarsener(V, coarsen):
-        lvs.solve()
+    lvs.set_coarsen_callback(coarsen)
+    lvs.solve()
 
     Ac, _ = lvs.snes.ksp.pc.getMGCoarseSolve().getOperators()
 

@@ -208,25 +208,31 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self._coarsen_callback = empty_manager
         self._setup = False
 
-    def set_transfer_operators(self, contextmanager):
+    def set_transfer_operators(self, V, restrict=None, prolong=None, inject=None):
         """Set a context manager which manages which grid transfer operators should be used.
-
-        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :arg V: which function space to attach the transfer operators to.
+        :arg restrict: Restriction operator
+        :arg prolong: Prolongation operator
+        :arg inject: Injection operator
         :raises RuntimeError: if called after calling solve.
         """
         if self._setup:
             raise RuntimeError("Cannot set transfer operators after solve")
-        self._transfer_operators = contextmanager
+        self._transfer_operators = dmhooks.transfer_operators(V,
+                                                              restrict=restrict,
+                                                              prolong=prolong,
+                                                              inject=inject)
 
-    def set_coarsen_callback(self, contextmanager):
+    def set_coarsen_callback(self, coarsen):
         """Set a context manager which manages which coarsening function should be used to build coarse grid objects.
 
-        :arg contextmanager: an instance of :class:`~.dmhooks.ctx_coarsener`
+        :arg coarsen: callback function for coarsening.
         :raises RuntimeError: if called after calling solve.
         """
         if self._setup:
             raise RuntimeError("Cannot set coarsen callback after solve")
-        self._coarsen_callback = contextmanager
+        V = self._problem.u.function_space()
+        self._coarsen_callback = dmhooks.coarsen_callback(V, coarsen)
 
     def solve(self, bounds=None):
         """Solve the variational problem.
