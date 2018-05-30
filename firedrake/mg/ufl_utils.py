@@ -51,6 +51,13 @@ class CoarsenIntegrand(MultiFunction):
 
 @singledispatch
 def coarsen(expr, self, coefficient_mapping=None):
+    """Coarsen some object.
+
+    :arg expr: The expression to coarsen.
+    :arg self: The callback to use.
+    :arg coefficient_mapping: a dict mapping fine coefficients to coarse ones.
+    :returns: The coarsened object.
+    """
     # Default, just send it back
     return expr
 
@@ -63,6 +70,13 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level - 1]
 
 
+@coarsen.register(ufl.classes.Expr)
+def coarsen_expr(expr, self, coefficient_mapping=None):
+    """Coarsen a UFL expression of some kind."""
+    mapper = CoarsenIntegrand(self, coefficient_mapping)
+    return map_expr_dag(mapper, expr)
+
+
 @coarsen.register(ufl.Form)
 def coarsen_form(form, self, coefficient_mapping=None):
     """Return a coarse mesh version of a form
@@ -73,9 +87,6 @@ def coarsen_form(form, self, coefficient_mapping=None):
 
     This maps over the form and replaces coefficients and arguments
     with their coarse mesh equivalents."""
-    if form is None:
-        return None
-
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():

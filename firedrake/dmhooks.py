@@ -230,7 +230,7 @@ class transfer_operators(object):
         pop_transfer_operators(self.V.dm, match=self.transfer)
 
 
-def push_ctx_coarsener(dm, coarsen):
+def push_coarsen_callback(dm, coarsen):
     stack = dm.getAttr("__ctx_coarsen__")
     if stack is None:
         stack = []
@@ -238,7 +238,7 @@ def push_ctx_coarsener(dm, coarsen):
     stack.append(coarsen)
 
 
-def pop_ctx_coarsener(dm, match):
+def pop_coarsen_callback(dm, match):
     stack = dm.getAttr("__ctx_coarsen__")
     if stack:
         if match is not None:
@@ -251,7 +251,7 @@ def pop_ctx_coarsener(dm, match):
             stack.pop()
 
 
-def get_ctx_coarsener(dm):
+def get_coarsen_callback(dm):
     from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
     stack = dm.getAttr("__ctx_coarsen__")
     if stack:
@@ -262,8 +262,14 @@ def get_ctx_coarsener(dm):
     return coarsen
 
 
-class ctx_coarsener(object):
+class coarsen_callback(object):
     def __init__(self, V, coarsen=None):
+        """Run a code block with a custom coarsen callback.
+
+        :arg V: the functionspace to attach the callback to (via a DM).
+        :arg coarsen: The coarsen callback.  This must match the
+            calling signature of :func:`~.mg.ufl_utils.coarsen`.
+        """
         from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
         self.V = V
         if coarsen is None:
@@ -271,20 +277,20 @@ class ctx_coarsener(object):
         self.coarsen = coarsen
 
     def __enter__(self):
-        push_ctx_coarsener(self.V.dm, self.coarsen)
+        push_coarsen_callback(self.V.dm, self.coarsen)
         V = self.V
         while hasattr(V, "_coarse"):
             V = V._coarse
-            push_ctx_coarsener(V.dm, self.coarsen)
+            push_coarsen_callback(V.dm, self.coarsen)
 
     def __exit__(self, typ, value, traceback):
         V = self.V
         while hasattr(V, "_coarse"):
             V = V._coarse
         while hasattr(V, "_fine"):
-            pop_ctx_coarsener(V.dm, self.coarsen)
+            pop_coarsen_callback(V.dm, self.coarsen)
             V = V._fine
-        pop_ctx_coarsener(V.dm, self.coarsen)
+        pop_coarsen_callback(V.dm, self.coarsen)
 
 
 def create_matrix(dm):
@@ -325,7 +331,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     names = [s.name for s in W]
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
-    coarsen = get_ctx_coarsener(dm)
+    coarsen = get_coarsen_callback(dm)
     if ctx is not None:
         # DM from a hierarchy, so let's split apart in case we want to use it
         # Inside a solve, ctx to split.  If we're not from a
@@ -335,7 +341,7 @@ def create_field_decomposition(dm, *args, **kwargs):
             ctxs = ctx.split([i for i in range(len(W))])
             for d, c in zip(dms, ctxs):
                 push_appctx(d, c)
-                push_ctx_coarsener(d, coarsen)
+                push_coarsen_callback(d, coarsen)
     return names, W._ises, dms
 
 
@@ -397,14 +403,14 @@ def coarsen(dm, comm):
     if hasattr(V, "_coarse"):
         cdm = V._coarse.dm
     else:
-        coarsen = get_ctx_coarsener(dm)
+        coarsen = get_coarsen_callback(dm)
         V._coarse = coarsen(V, coarsen)
         cdm = V._coarse.dm
 
     transfer = get_transfer_operators(dm)
     push_transfer_operators(cdm, *transfer)
-    coarsen = get_ctx_coarsener(dm)
-    push_ctx_coarsener(cdm, coarsen)
+    coarsen = get_coarsen_callback(dm)
+    push_coarsen_callback(cdm, coarsen)
     ctx = get_appctx(dm)
     if ctx is not None:
         push_appctx(cdm, coarsen(ctx, coarsen))

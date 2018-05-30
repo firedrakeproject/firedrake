@@ -11,7 +11,7 @@ from firedrake import utils
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'CellSize', 'FacetNormal']
+           'action', 'CellSize']
 
 
 class Argument(ufl.argument.Argument):
@@ -238,12 +238,3 @@ def CellSize(mesh):
     """
     mesh.init()
     return 2.0 * ufl.Circumradius(mesh)
-
-
-def FacetNormal(mesh):
-    """A symbolic representation of the facet normal on a cell in a mesh.
-
-    :arg mesh: the mesh over which the normal should be represented.
-    """
-    mesh.init()
-    return ufl.FacetNormal(mesh)

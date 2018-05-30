@@ -13,6 +13,19 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
+class empty_manager(object):
+    @staticmethod
+    def __enter__():
+        pass
+
+    @staticmethod
+    def __exit__(typ, value, traceback):
+        pass
+
+
+empty_manager = empty_manager()
+
+
 class NonlinearVariationalProblem(object):
     """Nonlinear variational problem F(u; v) = 0."""
 
@@ -191,7 +204,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             self.set_from_options(self.snes)
 
         # Used for custom grid transfer.
-        self._transfer_operators = None
+        self._transfer_operators = empty_manager
+        self._coarsen_callback = empty_manager
         self._setup = False
 
     def set_transfer_operators(self, contextmanager):
@@ -203,6 +217,16 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         if self._setup:
             raise RuntimeError("Cannot set transfer operators after solve")
         self._transfer_operators = contextmanager
+
+    def set_coarsen_callback(self, contextmanager):
+        """Set a context manager which manages which coarsening function should be used to build coarse grid objects.
+
+        :arg contextmanager: an instance of :class:`~.dmhooks.ctx_coarsener`
+        :raises RuntimeError: if called after calling solve.
+        """
+        if self._setup:
+            raise RuntimeError("Cannot set coarsen callback after solve")
+        self._coarsen_callback = contextmanager
 
     def solve(self, bounds=None):
         """Solve the variational problem.
@@ -231,10 +255,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
             with self._problem.u.dat.vec as u:
                 u.copy(work)
-                if self._transfer_operators is not None:
-                    with self._transfer_operators:
-                        self.snes.solve(None, work)
-                else:
+                with self._transfer_operators, self._coarsen_callback:
                     self.snes.solve(None, work)
                 work.copy(u)
 
