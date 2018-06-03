@@ -15,8 +15,8 @@ def test_first_shape_derivative():
     dX = TestFunction(mesh.coordinates.function_space())
 
     def test_first(J, dJ):
-        computed = assemble(derivative(J, X)).dat.data
         actual = assemble(dJ).dat.data
+        computed = assemble(derivative(J, X)).dat.data
         assert np.allclose(computed, actual, rtol=1e-14)
 
     Ja = u * u * dx
@@ -37,8 +37,13 @@ def test_first_shape_derivative():
         + f * (div(dX) - inner(dot(grad(dX), n), n)) * ds
     test_first(Jd, dJd)
 
-    J = Ja + Jb + Jc + Jd
-    dJ = dJa + dJb + dJc + dJd
+    sd = SubDomainData(x < 0.5)
+    Je = u * u * dx(subdomain_data=sd)
+    dJe = u * u * div(dX) * dx(subdomain_data=sd)
+    test_first(Je, dJe)
+
+    J = Ja + Jb + Jc + Jd + Je
+    dJ = dJa + dJb + dJc + dJd + dJe
     test_first(J, dJ)
 
 
