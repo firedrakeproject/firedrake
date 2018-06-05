@@ -83,7 +83,7 @@ def test_zero_form(M, f, one):
 def test_assemble_with_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
-    L = v*dx
+    L = conj(v) * dx
     f = Function(V)
     # Assemble a form into f
     f = assemble(L, f)
@@ -95,9 +95,9 @@ def test_assemble_with_tensor(mesh):
 
 def test_assemble_mat_with_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
-    u = TestFunction(V)
-    v = TrialFunction(V)
-    a = u*v*dx
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
     M = assemble(a)
     # Assemble a different form into M
     M = assemble(Constant(2)*a, M)
