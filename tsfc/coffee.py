@@ -324,7 +324,7 @@ def _expression_scalar(expr, parameters):
         r = round(v, 1)
         if r and abs(v - r) < parameters.epsilon:
             v = r  # round to nonzero
-        return coffee.Symbol(("%%.%dg" % parameters.precision) % v)
+        return coffee.Symbol(("(%s)(%%.%dg)" % (SCALAR_TYPE, parameters.precision)) % v)
 
 
 @_expression.register(gem.Variable)
