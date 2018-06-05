@@ -28,9 +28,9 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     diffusivity = 0.1
 
     adv = inner(p, q) * dx
-    adv_rhs = (inner(t, q) + dt * dot(u, grad(q)) * t) * dx
+    adv_rhs = (inner(t, q) + dt * inner(u, grad(q)) * t) * dx
 
-    d = -dt * diffusivity * dot(grad(p), grad(q)) * dx
+    d = -dt * diffusivity * inner(grad(p), grad(q)) * dx
 
     diff = adv - 0.5 * d
     diff_rhs = action(adv + 0.5 * d, t)
@@ -64,7 +64,7 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
 
     # Analytical solution
     a = Function(V).interpolate(Expression(fexpr % {'T': T}))
-    return sqrt(assemble(dot(t - a, t - a) * dx))
+    return sqrt(assemble(inner(t - a, t - a) * dx))
 
 
 def run_adv_diff():

@@ -26,7 +26,7 @@ def adv_diff(x, quadrilateral=False):
     diffusivity = 0.1
 
     M = inner(p, q) * dx
-    d = dt * (diffusivity * dot(grad(p), grad(q)) - dot(u, grad(q)) * p) * dx
+    d = dt * (diffusivity * inner(grad(p), grad(q)) - inner(u, grad(q)) * p) * dx
     a = M + 0.5 * d
     L = action(M - 0.5 * d, t)
 
@@ -47,7 +47,7 @@ def adv_diff(x, quadrilateral=False):
 
     # Analytical solution
     a = Function(V).interpolate(Expression(fexpr % {'T': T}))
-    return sqrt(assemble(dot(t - a, t - a) * dx))
+    return sqrt(assemble(inner(t - a, t - a) * dx))
 
 
 def run_adv_diff():

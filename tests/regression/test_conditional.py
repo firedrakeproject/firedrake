@@ -15,7 +15,7 @@ def test_conditional(ncell):
     bhp = Constant(2)
     u.dat.data[...] = range(ncell)
     cond = conditional(ge(real(u-bhp), 0.0), u-bhp, 0.0)
-    Fc = cond*v*dx
+    Fc = inner(cond, v) * dx
 
     A = assemble(derivative(Fc, u, du)).M.values
     expect = np.zeros_like(A)
@@ -25,7 +25,7 @@ def test_conditional(ncell):
     assert np.allclose(A, expect)
     with pytest.raises(ComplexComparisonError):
         cond = conditional(ge(u-bhp, 0.0), u-bhp, 0.0)
-        Fc = cond*v*dx
+        Fc = inner(cond, v) * dx
 
         A = assemble(derivative(Fc, u, du)).M.values
 

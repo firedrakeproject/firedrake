@@ -55,7 +55,7 @@ def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
     u, v = TrialFunction(V), TestFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
-    A = assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
+    A = assemble(inner(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
     with pytest.raises(RuntimeError):
         A.M.values
 

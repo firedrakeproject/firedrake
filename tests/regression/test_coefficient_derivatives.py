@@ -3,6 +3,7 @@ from firedrake import *
 import numpy as np
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not complex differentiable")
 def test_coefficient_derivatives():
     m = UnitSquareMesh(3, 3)
     V = FunctionSpace(m, "CG", 1)
