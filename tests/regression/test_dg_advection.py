@@ -22,9 +22,9 @@ def run_test(mesh):
 
     un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-    a_mass = phi*D*dx
-    a_int = dot(grad(phi), -u*D)*dx
-    a_flux = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS
+    a_mass = inner(D, phi) * dx
+    a_int = inner(-u*D, grad(phi))*dx
+    a_flux = inner(un('+')*D('+') - un('-')*D('-'), jump(phi))*dS
     arhs = a_mass - dt * (a_int + a_flux)
 
     dD1 = Function(V)
