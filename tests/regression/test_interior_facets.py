@@ -19,7 +19,7 @@ def run_test():
     normal = FacetNormal(mesh)
 
     F = (inner(sol, test)*dx - inner(f, div(test_U))*dx
-         + avg(f)*jump(normal, test_U)*dS + f*inner(normal, test_U)*ds)
+         + inner(avg(f), jump(normal, test_U)) * dS + f * inner(normal, test_U)*ds)
 
     solve(F == 0, sol)
 
@@ -43,7 +43,7 @@ def test_interior_facet_vfs_horiz_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(v, n)*dS).dat.data
+    temp = assemble(jump(conj(v), n)*dS).dat.data
 
     assert np.all(temp[:, 0] == 0.0)
     assert not np.all(temp[:, 1] == 0.0)
@@ -57,7 +57,7 @@ def test_interior_facet_vfs_horiz_lhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(avg(dot(u, n)*dot(v, n))*dS)
+    temp = assemble(avg(inner(dot(u, n), dot(v, n)))*dS)
 
     assert temp.M.values[0, 0] == 0.0
     assert temp.M.values[1, 1] != 0.0
@@ -75,10 +75,10 @@ def test_interior_facet_vfs_horiz_mixed():
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
 
-    pp = assemble(dot(v1('+'), u2('+'))*dS)
-    pm = assemble(dot(v1('+'), u2('-'))*dS)
-    mp = assemble(dot(v1('-'), u2('+'))*dS)
-    mm = assemble(dot(v1('-'), u2('-'))*dS)
+    pp = assemble(inner(u2('+'), v1('+'))*dS)
+    pm = assemble(inner(u2('+'), v1('-'))*dS)
+    mp = assemble(inner(u2('-'), v1('+'))*dS)
+    mm = assemble(inner(u2('-'), v1('-'))*dS)
 
     assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
     assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
@@ -95,7 +95,7 @@ def test_interior_facet_vfs_vert_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(v, n)*dS).dat.data
+    temp = assemble(jump(conj(v), n)*dS).dat.data
 
     assert not np.all(temp[:, 0] == 0.0)
     assert np.all(temp[:, 1] == 0.0)
@@ -109,7 +109,7 @@ def test_interior_facet_vfs_vert_lhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(avg(dot(u, n)*dot(v, n))*dS)
+    temp = assemble(avg(inner(dot(u, n), dot(v, n)))*dS)
 
     assert temp.M.values[0, 0] != 0.0
     assert temp.M.values[1, 1] == 0.0
@@ -127,10 +127,10 @@ def test_interior_facet_vfs_vert_mixed():
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
 
-    pp = assemble(dot(v1('+'), u2('+'))*dS)
-    pm = assemble(dot(v1('+'), u2('-'))*dS)
-    mp = assemble(dot(v1('-'), u2('+'))*dS)
-    mm = assemble(dot(v1('-'), u2('-'))*dS)
+    pp = assemble(inner(u2('+'), v1('+'))*dS)
+    pm = assemble(inner(u2('+'), v1('-'))*dS)
+    mp = assemble(inner(u2('-'), v1('+'))*dS)
+    mm = assemble(inner(u2('-'), v1('-'))*dS)
 
     assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
     assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)

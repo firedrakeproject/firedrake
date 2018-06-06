@@ -14,11 +14,11 @@ def identity(family, degree):
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    a = u * v * dx
+    a = inner(u, v) * dx
 
     f.interpolate(Expression("x[0]"))
 
-    L = f * v * dx
+    L = inner(f, v) * dx
 
     solve(a == L, out)
 
