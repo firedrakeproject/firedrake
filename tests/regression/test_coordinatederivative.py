@@ -3,6 +3,7 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
 def test_first_shape_derivative():
     mesh = UnitSquareMesh(6, 6)
     n = FacetNormal(mesh)
@@ -39,6 +40,7 @@ def test_first_shape_derivative():
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
 def test_mixed_derivatives():
     mesh = UnitSquareMesh(6, 6)
     X = SpatialCoordinate(mesh)
@@ -66,6 +68,7 @@ def test_mixed_derivatives():
     assert np.allclose(computed2.T, actual, rtol=1e-14)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
 def test_integral_scaling_edge_case():
     mesh = UnitSquareMesh(6, 6)
     X = SpatialCoordinate(mesh)
@@ -81,6 +84,7 @@ def test_integral_scaling_edge_case():
         assemble(Constant(2.0) * derivative(derivative(J, X), X))
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
 def test_second_shape_derivative():
     mesh = UnitSquareMesh(6, 6)
     V = FunctionSpace(mesh, "CG", 1)
@@ -97,6 +101,7 @@ def test_second_shape_derivative():
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
 def test_coordinate_handling():
     mesh = UnitSquareMesh(60, 60)
     V = VectorFunctionSpace(mesh, "CG", 1)
