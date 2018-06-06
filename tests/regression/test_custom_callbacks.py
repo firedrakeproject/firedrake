@@ -16,7 +16,7 @@ def test_callbacks():
     alpha = Constant(0.0)
     beta = Constant(0.0)
 
-    F = alpha*u*v*dx - beta*f*v*dx  # we will override alpha and beta later
+    F = inner(alpha*u, v) * dx - inner(beta*f, v) * dx  # we will override alpha and beta later
 
     def update_alpha(current_solution):
         alpha.assign(1.0)
