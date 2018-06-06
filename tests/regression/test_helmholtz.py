@@ -32,8 +32,8 @@ def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
     v = TestFunction(V)
     f = Function(V)
     f.interpolate(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
-    a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     # Compute solution
     assemble(a)
@@ -43,7 +43,7 @@ def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
 
     # Analytical solution
     f.interpolate(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
-    return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
+    return sqrt(assemble(inner(x - f, x - f) * dx)), x, f
 
 
 def run_firedrake_helmholtz():

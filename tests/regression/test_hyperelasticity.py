@@ -3,6 +3,7 @@ from firedrake import *
 import pytest
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not clear this should work in complex")
 @pytest.mark.parametrize("opt_level",
                          ["O0", "O1", "O2", "O3", "O4"])
 def test_hyperelastic_convergence(opt_level):
