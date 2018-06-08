@@ -40,6 +40,12 @@ def hermite_element(cell, degree):
     return CubicHermite(cell)
 
 
+def morley_element(cell, degree):
+    assert degree in {2, None}
+    from finat.morley import Morley
+    return Morley(cell)
+
+
 supported_elements = {
     # These all map directly to FInAT elements
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
@@ -55,6 +61,7 @@ supported_elements = {
     "HDiv Trace": finat.HDivTrace,
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
     "Hermite": hermite_element,
+    "Morley": morley_element,
     "Lagrange": finat.Lagrange,
     "Nedelec 1st kind H(curl)": finat.Nedelec,
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
