@@ -163,7 +163,57 @@ class PointSetContext(ContextBase):
                           for name in ["ufl_cell", "precision", "index_cache"]}
                 config.update(interface=self, point_set=point_set)
                 context = PointSetContext(**config)
-                return context.translator(expr)
+                return map_expr_dag(context.translator, expr)
+
+            def reference_normal(cm, facet):
+                assert 0 <= facet < 3
+                n = self.fiat_cell.compute_normal(facet)
+                return gem.Literal(n)
+
+            def reference_tangent(cm, facet):
+                assert 0 <= facet < 3
+                t = self.fiat_cell.compute_normalized_edge_tangent(facet)
+                return gem.Literal(t)
+
+            def physical_tangent(cm, facet):
+                n = cm.physical_normal(facet)
+                # R = [[0, -1], [1, 0]]
+                # t = R . n
+                return gem.ListTensor([gem.Product(gem.Literal(-1), gem.Indexed(n, (1, ))),
+                                       gem.Indexed(n, (0, ))])
+
+            def physical_normal(cm, facet):
+                assert 0 <= facet < 3
+                expr = ufl.classes.FacetNormal(MT.value.terminal.ufl_domain())
+                if MT.value.restriction is not None:
+                    expr = expr(MT.value.restriction)
+                expr = preprocess_expression(expr)
+
+                def entity_selector(callback, restriction=None):
+                    return callback(facet)
+
+                point_set = PointSingleton([0.5])
+                config = {name: getattr(self, name)
+                          for name in ["ufl_cell", "precision", "index_cache"]}
+                config.update(interface=self, point_set=point_set)
+                context = PointSetContext(**config)
+                context.entity_selector = entity_selector
+                context.integration_dim = 1
+                return map_expr_dag(context.translator, expr)
+
+            def physical_edge_lengths(cm):
+                expr = ufl.classes.CellEdgeVectors(MT.value.terminal.ufl_domain())
+                if MT.value.restriction is not None:
+                    expr = expr(MT.value.restriction)
+
+                expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(3)])
+                expr = preprocess_expression(expr)
+                point_set = PointSingleton([1/3, 1/3])
+                config = {name: getattr(self, name)
+                          for name in ["ufl_cell", "precision", "index_cache"]}
+                config.update(interface=self, point_set=point_set)
+                context = PointSetContext(**config)
+                return map_expr_dag(context.translator, expr)
 
         return finat_element.basis_evaluation(local_derivatives,
                                               self.point_set,
