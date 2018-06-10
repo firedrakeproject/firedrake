@@ -1006,11 +1006,15 @@ class Solve(BinaryOp):
         # LU with partial pivoting is a stable default.
         decomposition = decomposition or "PartialPivLU"
 
-        # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition)
+        # Create a matrix factorization (if not already factored)
+        if not isinstance(A, Factorization):
+            A_factored = Factorization(A, decomposition=decomposition)
+        else:
+            A_factored = A
 
         super(Solve, self).__init__(A_factored, B)
 
+        self.decomposition = decomposition
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
