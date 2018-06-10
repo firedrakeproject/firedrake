@@ -6,6 +6,7 @@ from ufl.algorithms.multifunction import MultiFunction
 from functools import singledispatch
 import firedrake
 from firedrake.petsc import PETSc
+from firedrake.slate import slate
 
 from . import utils
 
@@ -93,6 +94,71 @@ def coarsen_form(form, self, coefficient_mapping=None):
     form = ufl.Form(integrals)
     form._cache["coefficient_mapping"] = coefficient_mapping
     return form
+
+
+@coarsen.register(slate.Tensor)
+def coarsen_tensor(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    return slate.Tensor(self(expr.form, self,
+                             coefficient_mapping=coefficient_mapping))
+
+
+@coarsen.register(slate.Block)
+def coarsen_block(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    indices = expr._indices
+    tensor, = expr.operands
+    coarsened = self(tensor, self, coefficient_mapping=coefficient_mapping)
+    return slate.Block(coarsened, indices=indices)
+
+
+@coarsen.register(slate.Factorization)
+def coarsen_factorization(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    tensor, = expr.operands
+    decomp = expr.decomposition
+    coarsened = self(tensor, self, coefficient_mapping=coefficient_mapping)
+    return slate.Factorization(coarsened, decomposition=decomp)
+
+
+@coarsen.register(slate.AssembledVector)
+def coarsen_assembledvector(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    fct = expr._function
+    return slate.AssembledVector(self(fct, self,
+                                      coefficient_mapping=coefficient_mapping))
+
+
+@coarsen.register(slate.UnaryOp)
+def coarsen_unaryop(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    op, = expr.operands
+    coarsened = self(op, self, coefficient_mapping=coefficient_mapping)
+    if isinstance(expr, slate.Inverse):
+        return coarsened.inv
+    elif isinstance(expr, slate.Transpose):
+        return coarsened.T
+    elif isinstance(expr, slate.Negative):
+        return -coarsened
+    else:
+        raise ValueError("Don't know how to coarsen %s" % type(expr).__name__)
+
+
+@coarsen.register(slate.BinaryOp)
+def coarsen_binaryop(expr, self, coefficient_mapping=None):
+    print("coarsening %s", type(expr.__name__))
+    A, B = expr.operands
+    coarseA = self(A, self, coefficient_mapping=coefficient_mapping)
+    coarseB = self(B, self, coefficient_mapping=coefficient_mapping)
+    if isinstance(expr, slate.Add):
+        return coarseA + coarseB
+    elif isinstance(expr, slate.Mul):
+        return coarseA * coarseB
+    elif isinstance(expr, slate.Solve):
+        decomp = expr.decomposition
+        return coarseA.solve(coarseB, decomposition=decomp)
+    else:
+        raise ValueError("Don't know how to coarsen %s" % type(expr).__name__)
 
 
 @coarsen.register(firedrake.DirichletBC)
