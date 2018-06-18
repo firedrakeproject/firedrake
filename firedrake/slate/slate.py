@@ -57,23 +57,24 @@ class BlockIndexer(object):
 
        This class is not intended for user instatiation.
     """
-    def __init__(self, tensor):
-        self.tensor = tensor
 
     __slots__ = ['tensor']
 
+    def __init__(self, tensor):
+        self.tensor = tensor
+
     def __getitem__(self, key):
 
-       key = list(key)
+        key = list(as_tuple(key))
 
-       # Make indexing with too few indices legal.
-       key += [slice(None) for i in range(self.tensor.rank - len(key))]
+        # Make indexing with too few indices legal.
+        key += [slice(None) for i in range(self.tensor.rank - len(key))]
 
-       # Convert slice indices to lists of indices.
-       blocks =  list(range(n)[k] if isinstance(k, slice) else k
-                      for k, n in zip(key, tensor.shape))
+        # Convert slice indices to tuple of indices.
+        blocks = tuple(range(n)[k] if isinstance(k, slice) else k
+                       for k, n in zip(key, self.tensor.shape))
 
-       return Block(tensor=tensor, indices=blocks)
+        return Block(tensor=self.tensor, indices=blocks)
 
 
 class TensorBase(object, metaclass=ABCMeta):
@@ -207,7 +208,7 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return Solve(self, B, decomposition=decomposition)
 
-    @property
+    @cached_property
     def block(self):
         """Return a block of the tensor defined on the component spaces
         described by indices.
