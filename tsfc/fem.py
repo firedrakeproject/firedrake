@@ -172,34 +172,41 @@ class PointSetContext(ContextBase):
 
             def reference_tangent(cm, facet):
                 assert 0 <= facet < 3
-                t = self.fiat_cell.compute_normalized_edge_tangent(facet)
+                t = self.fiat_cell.compute_tangents(1, facet)[0]
                 return gem.Literal(t)
 
-            def physical_tangent(cm, facet):
-                n = cm.physical_normal(facet)
-                # R = [[0, -1], [1, 0]]
-                # t = R . n
-                return gem.ListTensor([gem.Product(gem.Literal(-1), gem.Indexed(n, (1, ))),
-                                       gem.Indexed(n, (0, ))])
+            def physical_tangents(cm):
+                rts = [self.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
+                # this is gem:
+                jac = cm.jacobian_at([1/3, 1/3])
 
-            def physical_normal(cm, facet):
-                assert 0 <= facet < 3
-                expr = ufl.classes.FacetNormal(MT.value.terminal.ufl_domain())
-                if MT.value.restriction is not None:
-                    expr = expr(MT.value.restriction)
-                expr = preprocess_expression(expr)
+                # this too
+                els = cm.physical_edge_lengths()
 
-                def entity_selector(callback, restriction=None):
-                    return callback(facet)
+                return gem.ListTensor(
+                    [[gem.Division(gem.Sum(
+                        gem.Product(gem.Indexed(jac, (0, 0)),
+                                    gem.Literal(rts[i][0])),
+                        gem.Product(gem.Indexed(jac, (0, 1)),
+                                    gem.Literal(rts[i][1]))
+                        ), gem.Indexed(els, (i,))),
+                      gem.Division(gem.Sum(
+                        gem.Product(gem.Indexed(jac, (1, 0)),
+                                    gem.Literal(rts[i][0])),
+                        gem.Product(gem.Indexed(jac, (1, 1)),
+                                    gem.Literal(rts[i][1]))
+                        ), gem.Indexed(els, (i,)))]
+                     for i in range(3)])
 
-                point_set = PointSingleton([0.5])
-                config = {name: getattr(self, name)
-                          for name in ["ufl_cell", "precision", "index_cache"]}
-                config.update(interface=self, point_set=point_set)
-                context = PointSetContext(**config)
-                context.entity_selector = entity_selector
-                context.integration_dim = 1
-                return map_expr_dag(context.translator, expr)
+            def physical_normals(cm):
+                pts = cm.physical_tangents()
+                return gem.ListTensor(
+                    [[gem.Indexed(pts, (i, 1)),
+                      gem.Product(gem.Literal(-1),
+                                  gem.Indexed(pts, (i, 0)))]
+                     for i in range(3)]
+                    )
+
 
             def physical_edge_lengths(cm):
                 expr = ufl.classes.CellEdgeVectors(MT.value.terminal.ufl_domain())
