@@ -58,10 +58,11 @@ class BlockIndexer(object):
        This class is not intended for user instatiation.
     """
 
-    __slots__ = ['tensor']
+    __slots__ = ['tensor', 'block_cache']
 
     def __init__(self, tensor):
         self.tensor = tensor
+        self.block_cache = {}
 
     def __getitem__(self, key):
 
@@ -78,7 +79,14 @@ class BlockIndexer(object):
         blocks = tuple(range(n)[k] if isinstance(k, slice) else k
                        for k, n in zip(key, self.tensor.shape))
 
-        return Block(tensor=self.tensor, indices=blocks)
+        # Avoid repeated instantiation of an equivalent block
+        try:
+            block = self.block_cache[blocks]
+        except KeyError:
+            block = Block(tensor=self.tensor, indices=blocks)
+            self.block_cache[blocks] = block
+
+        return block
 
 
 class TensorBase(object, metaclass=ABCMeta):
