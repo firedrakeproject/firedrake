@@ -67,12 +67,12 @@ class BlockIndexer(object):
 
         key = list(as_tuple(key))
 
-        if len(key) != self.tensor.rank:
-            raise ValueError("Attempting to index a rank-%s tensor with %s indices."
-                             % (self.tensor.rank, len(key)))
-
         # Make indexing with too few indices legal.
         key += [slice(None) for i in range(self.tensor.rank - len(key))]
+
+        if len(key) > self.tensor.rank:
+            raise ValueError("Attempting to index a rank-%s tensor with %s indices."
+                             % (self.tensor.rank, len(key)))
 
         # Convert slice indices to tuple of indices.
         blocks = tuple(range(n)[k] if isinstance(k, slice) else k
@@ -458,6 +458,9 @@ class Block(TensorBase):
     def __new__(cls, tensor, indices):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only extract blocks of Slate tensors.")
+
+        if len(indices) != tensor.rank:
+            raise ValueError("Length of indices must be equal to the tensor rank.")
 
         if not all(0 <= i < len(arg.function_space())
                    for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
