@@ -46,6 +46,12 @@ def morley_element(cell, degree):
     return Morley(cell)
 
 
+def argyris_element(cell, degree):
+    assert degree in {5, None}
+    from finat.argyris import Argyris
+    return Argyris(cell)
+
+
 supported_elements = {
     # These all map directly to FInAT elements
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
@@ -62,6 +68,7 @@ supported_elements = {
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
     "Hermite": hermite_element,
     "Morley": morley_element,
+    "Argyris": argyris_element,
     "Lagrange": finat.Lagrange,
     "Nedelec 1st kind H(curl)": finat.Nedelec,
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,

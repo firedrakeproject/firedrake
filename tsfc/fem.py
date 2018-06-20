@@ -188,14 +188,15 @@ class PointSetContext(ContextBase):
                         gem.Product(gem.Indexed(jac, (0, 0)),
                                     gem.Literal(rts[i][0])),
                         gem.Product(gem.Indexed(jac, (0, 1)),
-                                    gem.Literal(rts[i][1]))
-                        ), gem.Indexed(els, (i,))),
-                      gem.Division(gem.Sum(
-                        gem.Product(gem.Indexed(jac, (1, 0)),
-                                    gem.Literal(rts[i][0])),
-                        gem.Product(gem.Indexed(jac, (1, 1)),
-                                    gem.Literal(rts[i][1]))
-                        ), gem.Indexed(els, (i,)))]
+                                    gem.Literal(rts[i][1]))),
+                                   gem.Indexed(els, (i,))),
+                      gem.Division(
+                          gem.Sum(
+                              gem.Product(gem.Indexed(jac, (1, 0)),
+                                          gem.Literal(rts[i][0])),
+                              gem.Product(gem.Indexed(jac, (1, 1)),
+                                          gem.Literal(rts[i][1]))
+                          ), gem.Indexed(els, (i,)))]
                      for i in range(3)])
 
             def physical_normals(cm):
@@ -204,9 +205,7 @@ class PointSetContext(ContextBase):
                     [[gem.Indexed(pts, (i, 1)),
                       gem.Product(gem.Literal(-1),
                                   gem.Indexed(pts, (i, 0)))]
-                     for i in range(3)]
-                    )
-
+                     for i in range(3)])
 
             def physical_edge_lengths(cm):
                 expr = ufl.classes.CellEdgeVectors(MT.value.terminal.ufl_domain())
