@@ -50,6 +50,45 @@ class RemoveNegativeRestrictions(MultiFunction):
         return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
 
 
+class BlockIndexer(object):
+    """Container class which only exists to enable smart indexing of :class:`Tensor`
+
+    .. warning::
+
+       This class is not intended for user instatiation.
+    """
+
+    __slots__ = ['tensor', 'block_cache']
+
+    def __init__(self, tensor):
+        self.tensor = tensor
+        self.block_cache = {}
+
+    def __getitem__(self, key):
+
+        key = list(as_tuple(key))
+
+        # Make indexing with too few indices legal.
+        key += [slice(None) for i in range(self.tensor.rank - len(key))]
+
+        if len(key) > self.tensor.rank:
+            raise ValueError("Attempting to index a rank-%s tensor with %s indices."
+                             % (self.tensor.rank, len(key)))
+
+        # Convert slice indices to tuple of indices.
+        blocks = tuple(range(n)[k] if isinstance(k, slice) else k
+                       for k, n in zip(key, self.tensor.shape))
+
+        # Avoid repeated instantiation of an equivalent block
+        try:
+            block = self.block_cache[blocks]
+        except KeyError:
+            block = Block(tensor=self.tensor, indices=blocks)
+            self.block_cache[blocks] = block
+
+        return block
+
+
 class TensorBase(object, metaclass=ABCMeta):
     """An abstract Slate node class.
 
@@ -181,8 +220,9 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return Solve(self, B, decomposition=decomposition)
 
-    def block(self, arg_indices):
-        """Returns a block of the tensor defined on the component spaces
+    @cached_property
+    def block(self):
+        """Return a block of the tensor defined on the component spaces
         described by indices.
 
         For example, consider the rank-2 tensor described by:
@@ -195,16 +235,22 @@ class TensorBase(object, metaclass=ABCMeta):
            w, q, s = TestFunctions(W)
            A = Tensor(u*w*dx + p*q*dx + r*s*dx)
 
-        The tensor `A` has 3x3 block structure. Providing argument indices
-        (0, 0) will extract the block defined by the form `u*w*dx`:
-        `Block(A, (0, 0))` See :class:`Block` for more information.
+        The tensor `A` has 3x3 block structure. The the block defined
+        by the form `u*w*dx` could be extracted with:
 
-        :arg arg_indices: Indices describing the test and trial spaces to
-            extract. This should be 0-, 1-, or 2-tuples whose length is
-            the same as the rank of the tensor. Entries can be either an
-            integer index or an iterable of indices.
+        .. code-block:: python
+
+           A.block[0, 0]
+
+        While the block coupling `p`, `r`, `q`, and `s` could be extracted with:
+
+        .. code-block:: python
+
+           A.block[1:, 1:]
+
+        The usual Python slicing operations apply.
         """
-        return Block(tensor=self, indices=arg_indices)
+        return BlockIndexer(self)
 
     def __add__(self, other):
         if isinstance(other, TensorBase):
