@@ -52,6 +52,12 @@ def argyris_element(cell, degree):
     return Argyris(cell)
 
 
+def bell_element(cell, degree):
+    assert degree in {5, None}
+    from finat.bell import Bell
+    return Bell(cell)
+
+
 supported_elements = {
     # These all map directly to FInAT elements
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
@@ -67,8 +73,9 @@ supported_elements = {
     "HDiv Trace": finat.HDivTrace,
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
     "Hermite": hermite_element,
-    "Morley": morley_element,
     "Argyris": argyris_element,
+    "Morley": morley_element,
+    "Bell": bell_element,
     "Lagrange": finat.Lagrange,
     "Nedelec 1st kind H(curl)": finat.Nedelec,
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
