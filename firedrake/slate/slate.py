@@ -221,9 +221,10 @@ class TensorBase(object, metaclass=ABCMeta):
         return Solve(self, B, decomposition=decomposition)
 
     @cached_property
-    def block(self):
-        """Return a block of the tensor defined on the component spaces
-        described by indices.
+    def blocks(self):
+        """Returns an object containing the blocks of the tensor defined
+        on a mixed space. Indices can then be provided to extract a
+        particular sub-block.
 
         For example, consider the rank-2 tensor described by:
 
@@ -235,14 +236,15 @@ class TensorBase(object, metaclass=ABCMeta):
            w, q, s = TestFunctions(W)
            A = Tensor(u*w*dx + p*q*dx + r*s*dx)
 
-        The tensor `A` has 3x3 block structure. The the block defined
+        The tensor `A` has 3x3 block structure. The block defined
         by the form `u*w*dx` could be extracted with:
 
         .. code-block:: python
 
-           A.block[0, 0]
+           A.blocks[0, 0]
 
-        While the block coupling `p`, `r`, `q`, and `s` could be extracted with:
+        While the block coupling `p`, `r`, `q`, and `s` could be
+        extracted with:
 
         .. code-block:: python
 
