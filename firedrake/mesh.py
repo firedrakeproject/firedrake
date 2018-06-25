@@ -1032,6 +1032,28 @@ values from f.)"""
 
         raise AttributeError(message)
 
+    @utils.cached_property
+    def _cell_size(self):
+        """The :class`.Function` in the P^1 space containing the local mesh size."""
+        from firedrake.ufl_expr import CellSize
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.projection import project
+
+        h = CellSize(self)
+        P1 = FunctionSpace(self, "Lagrange", 1)
+        return project(h, P1)
+
+    @property
+    def cell_size(self):
+        """The :class`.Function` in the P^1 space containing the local mesh size."""
+        return self._cell_size
+
+    @cell_size.setter
+    def cell_size(self, value):
+        msg = """Cannot re-assign the mesh size."""
+
+        raise AttributeError(msg)
+    
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
 
