@@ -10,12 +10,16 @@ from ufl.core.ufl_type import ufl_type as orig_ufl_type
 from ufl import classes
 
 import coffee.base as ast
+import loopy
+import pymbolic.primitives as p
 from pyop2 import op2
 from pyop2.profiling import timed_function
 
 from firedrake import constant
 from firedrake import function
 from firedrake import utils
+
+from functools import singledispatch
 
 
 def ufl_type(*args, **kwargs):
@@ -81,10 +85,13 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def arg(self):
-        argtype = self.function.dat.ctype + "*"
+        # argtype = self.function.dat.ctype + "*"
+        dtype = self.function.dat.dtype
         name = "fn_%r" % self.argnum
+        shape = (self.function.function_space().dof_dset.cdim, )
+        return loopy.GlobalArg(name, dtype=self.function.dat.dtype, shape=shape)
 
-        return ast.Decl(argtype, ast.Symbol(name))
+        # return ast.Decl(argtype, ast.Symbol(name))
 
     @property
     def ast(self):
@@ -506,6 +513,10 @@ class ExpressionWalker(ReuseTransformer):
         return o._ufl_expr_reconstruct_(*operands)
 
 
+class Bag():
+    pass
+
+
 def expression_kernel(expr, args):
     """Produce a :class:`pyop2.Kernel` from the processed UFL expression
     expr and the corresponding args."""
@@ -516,21 +527,31 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
-    d = ast.Symbol("dim")
-    ast_expr = _ast(expr)
-    body = ast.Block(
-        (
-            ast.Decl("int", d),
-            ast.For(ast.Assign(d, ast.Symbol(0)),
-                    ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
-                    ast.Incr(d, ast.Symbol(1)),
-                    ast_expr)
-        )
-    )
+    # d = ast.Symbol("dim")
+    import islpy as isl
+    inames = isl.make_zero_and_vars(["d"])
+    domain = (inames[0].le_set(inames["d"])) & (inames["d"].lt_set(inames[0] + fs.dof_dset.cdim))
 
-    return op2.Kernel(ast.FunDecl("void", "expression",
-                                  [arg.arg for arg in args], body),
-                      "expression")
+    context = Bag()
+    context.within_inames = frozenset(["d"])
+    context.indices = (p.Variable("d"),)
+
+    # ast_expr = _ast(expr)
+    insn = loopy_instructions(expr, context)
+    data = [arg.arg for arg in args]
+
+    knl = loopy.make_kernel([domain], [insn], data, name="expression", lang_version=(2018, 1))
+    # body = ast.Block(
+    #     (
+    #         ast.Decl("int", d),
+    #         ast.For(ast.Assign(d, ast.Symbol(0)),
+    #                 ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
+    #                 ast.Incr(d, ast.Symbol(1)),
+    #                 ast_expr)
+    #     )
+    # )
+
+    return op2.Kernel(knl, "expression")
 
 
 def evaluate_preprocessed_expression(kernel, args, subset=None):
@@ -613,3 +634,31 @@ _ast_map = {
     ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
     ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
 }
+
+
+@singledispatch
+def loopy_instructions(expr, context):
+    raise AssertionError("Unhandled statement type '%s'" % type(expr))
+
+
+@loopy_instructions.register(Assign)
+def loopy_inst_assign(expr, context):
+    lhs, rhs = expr.ufl_operands
+    lhs = loopy_instructions(lhs, context)
+    rhs = loopy_instructions(rhs, context)
+    return loopy.Assignment(lhs, rhs, within_inames=context.within_inames)
+
+
+@loopy_instructions.register(DummyFunction)
+def loopy_inst_func(expr, context):
+    if (isinstance(expr.function, constant.Constant)
+            and  len(expr.function.ufl_element().value_shape()) == 0):
+        # return ast.Symbol("fn_%d" % self.argnum, (0,))
+        assert False
+    return p.Variable("fn_{0}".format(expr.argnum)).index(context.indices)
+    # return ast.Symbol("fn_%d" % self.argnum, ("dim",))
+
+
+@loopy_instructions.register(ufl.constantvalue.Zero)
+def loopy_inst_zero(expr, context):
+    return 0
