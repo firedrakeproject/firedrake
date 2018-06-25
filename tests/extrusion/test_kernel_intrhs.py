@@ -44,7 +44,7 @@ void populate_tracer(double *x[], double *c[])
 def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-    assert integrate_rhs(family, degree) < 1.0e-14
+    assert integrate_rhs(family, degree) < 1.0e-13
 
 
 if __name__ == '__main__':
