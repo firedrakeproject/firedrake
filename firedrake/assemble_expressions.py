@@ -9,7 +9,6 @@ from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
 from ufl import classes
 
-import coffee.base as ast
 import loopy
 import pymbolic.primitives as p
 from pyop2 import op2
@@ -39,18 +38,6 @@ def ufl_type(*args, **kwargs):
             classes.nonterminal_classes.add(cls)
         return cls
     return decorator
-
-
-def _ast(expr):
-    """Convert expr to a COFFEE AST."""
-
-    try:
-        return expr.ast
-    except AttributeError:
-        for t, f in _ast_map.items():
-            if isinstance(expr, t):
-                return f(expr)
-        raise TypeError("No ast handler for %s" % str(type(expr)))
 
 
 class DummyFunction(ufl.Coefficient):
@@ -88,14 +75,6 @@ class DummyFunction(ufl.Coefficient):
     def arg(self):
         return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
 
-    @property
-    def ast(self):
-        # Constant broadcasts across functions if it's a scalar
-        if isinstance(self.function, constant.Constant) and \
-           len(self.function.ufl_element().value_shape()) == 0:
-            return ast.Symbol("fn_%d" % self.argnum, (0, ))
-        return ast.Symbol("fn_%d" % self.argnum, ("dim",))
-
 
 class AssignmentBase(Operator):
 
@@ -123,18 +102,12 @@ class AssignmentBase(Operator):
         return "%s(%s)" % (self.__class__.__name__,
                            ", ".join(repr(o) for o in self.ufl_operands))
 
-    @property
-    def ast(self):
-
-        return self._ast(_ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
-
 
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class Assign(AssignmentBase):
 
     """A UFL assignment operator."""
     _symbol = "="
-    _ast = ast.Assign
     __slots__ = ("ufl_shape",)
 
     def _visit(self, transformer):
@@ -190,7 +163,6 @@ class IAdd(AugmentedAssignment):
 
     """A UFL `+=` operator."""
     _symbol = "+="
-    _ast = ast.Incr
     __slots__ = ()
 
 
@@ -199,7 +171,6 @@ class ISub(AugmentedAssignment):
 
     """A UFL `-=` operator."""
     _symbol = "-="
-    _ast = ast.Decr
     __slots__ = ()
 
 
@@ -208,7 +179,6 @@ class IMul(AugmentedAssignment):
 
     """A UFL `*=` operator."""
     _symbol = "*="
-    _ast = ast.IMul
     _identity = IntValue(1)
     __slots__ = ()
 
@@ -218,35 +188,8 @@ class IDiv(AugmentedAssignment):
 
     """A UFL `/=` operator."""
     _symbol = "/="
-    _ast = ast.IDiv
     _identity = IntValue(1)
     __slots__ = ()
-
-
-class Power(ufl.algebra.Power):
-
-    """Subclass of :class:`ufl.algebra.Power` which prints pow(x,y)
-    instead of x**y."""
-
-    def __str__(self):
-        return "pow(%s, %s)" % self.ufl_operands
-
-    @property
-    def ast(self):
-        return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
-
-
-class Ln(ufl.mathfunctions.Ln):
-
-    """Subclass of :class:`ufl.mathfunctions.Ln` which prints log(x)
-    instead of ln(x)."""
-
-    def __str__(self):
-        return "log(%s)" % str(self.ufl_operands[0])
-
-    @property
-    def ast(self):
-        return ast.FunCall("log", _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
@@ -256,10 +199,6 @@ class ComponentTensor(ufl.tensors.ComponentTensor):
     def __str__(self):
         return str(self.ufl_operands[0])
 
-    @property
-    def ast(self):
-        return _ast(self.ufl_operands[0])
-
 
 class Indexed(ufl.indexed.Indexed):
     """Subclass of :class:`ufl.indexed.Indexed` which only prints the first
@@ -267,10 +206,6 @@ class Indexed(ufl.indexed.Indexed):
 
     def __str__(self):
         return str(self.ufl_operands[0])
-
-    @property
-    def ast(self):
-        return _ast(self.ufl_operands[0])
 
 
 class ExpressionSplitter(ReuseTransformer):
@@ -475,14 +410,6 @@ class ExpressionWalker(ReuseTransformer):
     condition = ReuseTransformer.reuse_if_possible
     math_function = ReuseTransformer.reuse_if_possible
 
-    def power(self, o, *operands):
-        # Need to convert notation to c for exponents.
-        return Power(*operands)
-
-    def ln(self, o, *operands):
-        # Need to convert notation to c.
-        return Ln(*operands)
-
     def component_tensor(self, o, *operands):
         """Override string representation to only print first operand."""
         return ComponentTensor(*operands)
@@ -522,7 +449,6 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
-    # d = ast.Symbol("dim")
     import islpy as isl
     inames = isl.make_zero_and_vars(["d"])
     domain = (inames[0].le_set(inames["d"])) & (inames["d"].lt_set(inames[0] + fs.dof_dset.cdim))
@@ -531,20 +457,9 @@ def expression_kernel(expr, args):
     context.within_inames = frozenset(["d"])
     context.indices = (p.Variable("d"),)
 
-    # ast_expr = _ast(expr)
     insn = loopy_instructions(expr, context)
     data = [arg.arg for arg in args]
-
     knl = loopy.make_kernel([domain], [insn], data, name="expression", lang_version=(2018, 1))
-    # body = ast.Block(
-    #     (
-    #         ast.Decl("int", d),
-    #         ast.For(ast.Assign(d, ast.Symbol(0)),
-    #                 ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
-    #                 ast.Incr(d, ast.Symbol(1)),
-    #                 ast_expr)
-    #     )
-    # )
 
     return op2.Kernel(knl, "expression")
 
@@ -607,30 +522,6 @@ def assemble_expression(expr, subset=None):
     return result
 
 
-_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
-_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
-_to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
-
-_ast_map = {
-    # MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
-    # ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
-    # ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
-    # ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
-    # Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
-    # AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
-    # ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
-    # ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),
-    # ufl.classes.Conditional: (lambda e: ast.Ternary(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.EQ: (lambda e: ast.Eq(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.NE: (lambda e: ast.NEq(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.LT: (lambda e: ast.Less(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.LE: (lambda e: ast.LessEq(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
-    # ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
-}
-
-
 @singledispatch
 def loopy_instructions(expr, context):
     raise AssertionError("Unhandled statement type '%s'" % type(expr))
@@ -665,7 +556,7 @@ def loopy_inst_aug_assign(expr, context):
 @loopy_instructions.register(DummyFunction)
 def loopy_inst_func(expr, context):
     if (isinstance(expr.function, constant.Constant)
-            and  len(expr.function.ufl_element().value_shape()) == 0):
+            and len(expr.function.ufl_element().value_shape()) == 0):
         # Broadcast if constant
         return p.Variable(expr.name).index((0,))
     return p.Variable(expr.name).index(context.indices)
@@ -709,14 +600,14 @@ def loopy_inst_mathfunc(expr, context):
     return p.Variable(name)(*children)
 
 
-@loopy_instructions.register(Power)
+@loopy_instructions.register(ufl.algebra.Power)
 def loopy_inst_power(expr, context):
     children = [loopy_instructions(o, context) for o in expr.ufl_operands]
     return p.Power(*children)
 
 
 @loopy_instructions.register(ufl.algebra.Abs)
-def loopy_inst_power(expr, context):
+def loopy_inst_abs(expr, context):
     child, = [loopy_instructions(o, context) for o in expr.ufl_operands]
     return p.Variable("abs")(child)
 
