@@ -165,47 +165,34 @@ class PointSetContext(ContextBase):
                 context = PointSetContext(**config)
                 return map_expr_dag(context.translator, expr)
 
-            def reference_normal(cm, facet):
-                assert 0 <= facet < 3
-                n = self.fiat_cell.compute_normal(facet)
-                return gem.Literal(n)
-
-            def reference_tangent(cm, facet):
-                assert 0 <= facet < 3
-                t = self.fiat_cell.compute_tangents(1, facet)[0]
-                return gem.Literal(t)
+            def reference_normals(cm):
+                return gem.Literal(numpy.asarray([self.fiat_cell.compute_normal(i) for i in range(3)]))
 
             def physical_tangents(cm):
                 rts = [self.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
                 # this is gem:
                 jac = cm.jacobian_at([1/3, 1/3])
 
-                # this too
                 els = cm.physical_edge_lengths()
 
-                return gem.ListTensor(
-                    [[gem.Division(gem.Sum(
-                        gem.Product(gem.Indexed(jac, (0, 0)),
-                                    gem.Literal(rts[i][0])),
-                        gem.Product(gem.Indexed(jac, (0, 1)),
-                                    gem.Literal(rts[i][1]))),
-                                   gem.Indexed(els, (i,))),
-                      gem.Division(
-                          gem.Sum(
-                              gem.Product(gem.Indexed(jac, (1, 0)),
-                                          gem.Literal(rts[i][0])),
-                              gem.Product(gem.Indexed(jac, (1, 1)),
-                                          gem.Literal(rts[i][1]))
-                          ), gem.Indexed(els, (i,)))]
-                     for i in range(3)])
+                return gem.ListTensor([[gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (0, 0)),
+                                                                         gem.Literal(rts[i][0])),
+                                                             gem.Product(gem.Indexed(jac, (0, 1)),
+                                                                         gem.Literal(rts[i][1]))),
+                                                     gem.Indexed(els, (i,))),
+                                        gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (1, 0)),
+                                                                         gem.Literal(rts[i][0])),
+                                                             gem.Product(gem.Indexed(jac, (1, 1)),
+                                                                         gem.Literal(rts[i][1]))),
+                                                     gem.Indexed(els, (i, )))]
+                                       for i in range(3)])
 
             def physical_normals(cm):
                 pts = cm.physical_tangents()
-                return gem.ListTensor(
-                    [[gem.Indexed(pts, (i, 1)),
-                      gem.Product(gem.Literal(-1),
-                                  gem.Indexed(pts, (i, 0)))]
-                     for i in range(3)])
+                return gem.ListTensor([[gem.Indexed(pts, (i, 1)),
+                                        gem.Product(gem.Literal(-1),
+                                                    gem.Indexed(pts, (i, 0)))]
+                                       for i in range(3)])
 
             def physical_edge_lengths(cm):
                 expr = ufl.classes.CellEdgeVectors(MT.value.terminal.ufl_domain())
