@@ -45,11 +45,9 @@ class DirichletBC(object):
     def __init__(self, V, g, sub_domain, method="topological"):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         import finat
-        if type(V.finat_element) in [finat.CubicHermite, finat.Argyris, finat.Morley]:
-            msg = """Strong BCs not implement for Hermite, Argyris, and Morley elements.\n
-Please consider Nitsche-type boundary enforcement as a work-around until we figure this out."""
-            raise NotImplementedError(msg)
-        
+        if isinstance(V.finat_element, (finat.Hermite, finat.Argyris, finat.Morley)):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
         self._function_space = V
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
