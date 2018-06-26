@@ -1,0 +1,90 @@
+"""This demo program solves Helmholtz's equation
+
+  - div grad u(x, y) + u(x,y) = f(x, y)
+
+on the unit square with source f given by
+
+  f(x, y) = (1.0 + 8.0*pi**2)*cos(x[0]*2*pi)*cos(x[1]*2*pi)
+
+and the analytical solution
+
+  u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
+"""
+
+from os.path import abspath, dirname, join
+import numpy as np
+import pytest
+
+from firedrake import *
+
+cwd = abspath(dirname(__file__))
+
+
+def helmholtz(x, el_type, degree, mesh=None):
+    # Create mesh and define function space
+    if mesh is None:
+        mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    V = FunctionSpace(mesh, el_type, degree)
+
+    # Define variational problem
+    lmbda = 1
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    f = Function(V)
+    f.project(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
+    L = f * v * dx
+
+    # Compute solution
+    assemble(a)
+    assemble(L)
+    x = Function(V)
+    solve(a == L, x, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    # Analytical solution
+    f.project(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
+
+def run_firedrake_helmholtz():
+    diff = np.array([helmholtz(i, "Hermite", 3)[0] for i in range(1, 4)])
+    print("l2 error norms:", diff)
+    conv = np.log2(diff[:-1] / diff[1:])
+    print("convergence order:", conv)
+    assert (np.array(conv) > 3.8).all()
+
+
+@pytest.mark.parametrize(('el', 'deg', 'convrate'),
+                         [('Hermite', 3, 3.8),
+                          ('Bell', 5, 4.8),
+                          ('Argyris', 5, 5)])
+def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate):
+    diff = np.array([helmholtz(i, el, deg)[0] for i in range(1, 4)])
+    print("l2 error norms:", diff)
+    conv = np.log2(diff[:-1] / diff[1:])
+    print("convergence order:", conv)
+    assert (np.array(conv) > convrate).all()
+    
+
+# @pytest.mark.parallel
+# def test_firedrake_helmholtz_parallel():
+#     run_firedrake_helmholtz()
+
+
+# @pytest.mark.parametrize(('testcase', 'convrate'),
+#                          [((1, (4, 6)), 1.9),
+#                           ((2, (3, 6)), 2.9),
+#                           ((3, (2, 4)), 3.9),
+#                           ((4, (2, 4)), 4.7)])
+# def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals(testcase, convrate):
+#     degree, (start, end) = testcase
+#     l2err = np.zeros(end - start)
+#     for ii in [i + start for i in range(len(l2err))]:
+#         l2err[ii - start] = helmholtz(ii, quadrilateral=True, degree=degree)[0]
+#     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
+
+
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
