@@ -28,9 +28,9 @@ import gem
 from gem.node import traversal
 from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
-from gem.utils import DynamicallyScoped, cached_property
+from gem.utils import cached_property
 
-from finat.physical_geometry import PhysicalGeometry
+from finat.physically_mapped import PhysicalGeometry
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
@@ -43,9 +43,6 @@ from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             entity_avg, one_times, simplify_abs,
                             preprocess_expression)
-
-
-MT = DynamicallyScoped()
 
 
 class ContextBase(ProxyKernelInterface):
@@ -115,6 +112,85 @@ class ContextBase(ProxyKernelInterface):
         return Translator(self)
 
 
+class CoordinateMapping(PhysicalGeometry):
+    """Callback class that provides physical geometry to FInAT elements.
+
+    Required for elements whose basis transformation requires physical
+    geometry such as Argyris and Hermite.
+
+    :arg mt: The modified terminal whose element will be tabulated.
+    :arg interface: The interface carrying information (generally a
+        :class:`PointSetContext`).
+    """
+    def __init__(self, mt, interface):
+        super().__init__()
+        self.mt = mt
+        self.interface = interface
+
+    @property
+    def config(self):
+        config = {name: getattr(self.interface, name)
+                  for name in ["ufl_cell", "precision", "index_cache"]}
+        config["interface"] = self.interface
+        return config
+
+    def jacobian_at(self, point):
+        expr = Jacobian(self.mt.terminal.ufl_domain())
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+        expr = preprocess_expression(expr)
+
+        config = {"point_set": PointSingleton(point)}
+        config.update(self.config)
+        context = PointSetContext(**config)
+        return map_expr_dag(context.translator, expr)
+
+    def reference_normals(self):
+        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
+
+    def physical_tangents(self):
+        rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
+        # this is gem:
+        jac = self.jacobian_at([1/3, 1/3])
+
+        els = self.physical_edge_lengths()
+
+        return gem.ListTensor([[gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (0, 0)),
+                                                                 gem.Literal(rts[i][0])),
+                                                     gem.Product(gem.Indexed(jac, (0, 1)),
+                                                                 gem.Literal(rts[i][1]))),
+                                             gem.Indexed(els, (i,))),
+                                gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (1, 0)),
+                                                                 gem.Literal(rts[i][0])),
+                                                     gem.Product(gem.Indexed(jac, (1, 1)),
+                                                                 gem.Literal(rts[i][1]))),
+                                             gem.Indexed(els, (i, )))]
+                               for i in range(3)])
+
+    def physical_normals(self):
+        pts = self.physical_tangents()
+        return gem.ListTensor([[gem.Indexed(pts, (i, 1)),
+                                gem.Product(gem.Literal(-1),
+                                            gem.Indexed(pts, (i, 0)))]
+                               for i in range(3)])
+
+    def physical_edge_lengths(self):
+        expr = ufl.classes.CellEdgeVectors(self.mt.terminal.ufl_domain())
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+
+        expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(3)])
+        expr = preprocess_expression(expr)
+        config = {"point_set": PointSingleton([1/3, 1/3])}
+        config.update(self.config)
+        context = PointSetContext(**config)
+        return map_expr_dag(context.translator, expr)
+
+
 class PointSetContext(ContextBase):
     """Context for compile-time known evaluation points."""
 
@@ -146,72 +222,11 @@ class PointSetContext(ContextBase):
     def weight_expr(self):
         return self.quadrature_rule.weight_expression
 
-    def basis_evaluation(self, finat_element, local_derivatives, entity_id):
-
-        class CoordinateMapping(PhysicalGeometry):
-            def jacobian_at(cm, point):
-                expr = Jacobian(MT.value.terminal.ufl_domain())
-                if MT.value.restriction == '+':
-                    expr = PositiveRestricted(expr)
-                elif MT.value.restriction == '-':
-                    expr = NegativeRestricted(expr)
-                expr = preprocess_expression(expr)
-
-                point_set = PointSingleton(point)
-
-                config = {name: getattr(self, name)
-                          for name in ["ufl_cell", "precision", "index_cache"]}
-                config.update(interface=self, point_set=point_set)
-                context = PointSetContext(**config)
-                return map_expr_dag(context.translator, expr)
-
-            def reference_normals(cm):
-                return gem.Literal(numpy.asarray([self.fiat_cell.compute_normal(i) for i in range(3)]))
-
-            def physical_tangents(cm):
-                rts = [self.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
-                # this is gem:
-                jac = cm.jacobian_at([1/3, 1/3])
-
-                els = cm.physical_edge_lengths()
-
-                return gem.ListTensor([[gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (0, 0)),
-                                                                         gem.Literal(rts[i][0])),
-                                                             gem.Product(gem.Indexed(jac, (0, 1)),
-                                                                         gem.Literal(rts[i][1]))),
-                                                     gem.Indexed(els, (i,))),
-                                        gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (1, 0)),
-                                                                         gem.Literal(rts[i][0])),
-                                                             gem.Product(gem.Indexed(jac, (1, 1)),
-                                                                         gem.Literal(rts[i][1]))),
-                                                     gem.Indexed(els, (i, )))]
-                                       for i in range(3)])
-
-            def physical_normals(cm):
-                pts = cm.physical_tangents()
-                return gem.ListTensor([[gem.Indexed(pts, (i, 1)),
-                                        gem.Product(gem.Literal(-1),
-                                                    gem.Indexed(pts, (i, 0)))]
-                                       for i in range(3)])
-
-            def physical_edge_lengths(cm):
-                expr = ufl.classes.CellEdgeVectors(MT.value.terminal.ufl_domain())
-                if MT.value.restriction is not None:
-                    expr = expr(MT.value.restriction)
-
-                expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(3)])
-                expr = preprocess_expression(expr)
-                point_set = PointSingleton([1/3, 1/3])
-                config = {name: getattr(self, name)
-                          for name in ["ufl_cell", "precision", "index_cache"]}
-                config.update(interface=self, point_set=point_set)
-                context = PointSetContext(**config)
-                return map_expr_dag(context.translator, expr)
-
-        return finat_element.basis_evaluation(local_derivatives,
+    def basis_evaluation(self, finat_element, mt, entity_id):
+        return finat_element.basis_evaluation(mt.local_derivatives,
                                               self.point_set,
                                               (self.integration_dim, entity_id),
-                                              coordinate_mapping=CoordinateMapping())
+                                              coordinate_mapping=CoordinateMapping(mt, self))
 
 
 class GemPointContext(ContextBase):
@@ -223,8 +238,8 @@ class GemPointContext(ContextBase):
         'weight_expr',
     )
 
-    def basis_evaluation(self, finat_element, local_derivatives, entity_id):
-        return finat_element.point_evaluation(local_derivatives,
+    def basis_evaluation(self, finat_element, mt, entity_id):
+        return finat_element.point_evaluation(mt.local_derivatives,
                                               self.point_expr,
                                               (self.integration_dim, entity_id))
 
@@ -533,8 +548,7 @@ def translate_argument(terminal, mt, ctx):
     element = ctx.create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        with MT.let(mt):
-            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         # Filter out irrelevant derivatives
         filtered_dict = {alpha: table
                          for alpha, table in finat_dict.items()
@@ -564,8 +578,7 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-        with MT.let(mt):
-            finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
+        finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
