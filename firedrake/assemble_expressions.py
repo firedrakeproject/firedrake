@@ -19,7 +19,7 @@ from firedrake import constant
 from firedrake import function
 from firedrake import utils
 
-from functools import singledispatch
+from functools import singledispatch, reduce
 
 
 def ufl_type(*args, **kwargs):
@@ -65,6 +65,7 @@ class DummyFunction(ufl.Coefficient):
         ufl.Coefficient.__init__(self, function.ufl_function_space())
 
         self.argnum = argnum
+        self.name = "fn_{0}".format(argnum)
         self.function = function
 
         # All arguments in expressions are read, except those on the
@@ -85,13 +86,7 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def arg(self):
-        # argtype = self.function.dat.ctype + "*"
-        dtype = self.function.dat.dtype
-        name = "fn_%r" % self.argnum
-        shape = (self.function.function_space().dof_dset.cdim, )
-        return loopy.GlobalArg(name, dtype=self.function.dat.dtype, shape=shape)
-
-        # return ast.Decl(argtype, ast.Symbol(name))
+        return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
 
     @property
     def ast(self):
@@ -617,22 +612,22 @@ _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _as
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
 _ast_map = {
-    MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
-    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
-    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
-    ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
-    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
-    Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
-    AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
-    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
-    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),
-    ufl.classes.Conditional: (lambda e: ast.Ternary(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.EQ: (lambda e: ast.Eq(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.NE: (lambda e: ast.NEq(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.LT: (lambda e: ast.Less(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.LE: (lambda e: ast.LessEq(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
-    ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
+    # MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
+    # ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
+    # ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
+    # ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    # Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
+    # AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
+    # ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
+    # ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),
+    # ufl.classes.Conditional: (lambda e: ast.Ternary(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.EQ: (lambda e: ast.Eq(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.NE: (lambda e: ast.NEq(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.LT: (lambda e: ast.Less(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.LE: (lambda e: ast.LessEq(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
+    # ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
 }
 
 
@@ -649,16 +644,113 @@ def loopy_inst_assign(expr, context):
     return loopy.Assignment(lhs, rhs, within_inames=context.within_inames)
 
 
+@loopy_instructions.register(IAdd)
+@loopy_instructions.register(ISub)
+@loopy_instructions.register(IMul)
+@loopy_instructions.register(IDiv)
+def loopy_inst_aug_assign(expr, context):
+    lhs, rhs = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    import operator
+    if isinstance(expr, IAdd):
+        op = operator.add
+    elif isinstance(expr, ISub):
+        op = operator.sub
+    elif isinstance(expr, IMul):
+        op = operator.mul
+    elif isinstance(expr, IDiv):
+        op = operator.truediv
+    return loopy.Assignment(lhs, op(lhs, rhs), within_inames=context.within_inames)
+
+
 @loopy_instructions.register(DummyFunction)
 def loopy_inst_func(expr, context):
     if (isinstance(expr.function, constant.Constant)
             and  len(expr.function.ufl_element().value_shape()) == 0):
-        # return ast.Symbol("fn_%d" % self.argnum, (0,))
-        assert False
-    return p.Variable("fn_{0}".format(expr.argnum)).index(context.indices)
-    # return ast.Symbol("fn_%d" % self.argnum, ("dim",))
+        # Broadcast if constant
+        return p.Variable(expr.name).index((0,))
+    return p.Variable(expr.name).index(context.indices)
 
 
 @loopy_instructions.register(ufl.constantvalue.Zero)
 def loopy_inst_zero(expr, context):
     return 0
+
+
+@loopy_instructions.register(ufl.constantvalue.ScalarValue)
+def loopy_inst_scalar(expr, context):
+    return expr._value
+
+
+@loopy_instructions.register(ufl.algebra.Product)
+@loopy_instructions.register(ufl.algebra.Sum)
+@loopy_instructions.register(ufl.algebra.Division)
+def loopy_inst_binary(expr, context):
+    if len(expr.ufl_operands) > 1:
+        children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+        import operator
+        if isinstance(expr, ufl.algebra.Product):
+            op = operator.mul
+        elif isinstance(expr, ufl.algebra.Sum):
+            op = operator.add
+        elif isinstance(expr, ufl.algebra.Division):
+            assert len(expr.ufl_operands) == 2
+            op = operator.truediv
+        return reduce(op, children)
+    return loopy_instructions(expr.ufl_operands[0], context)
+
+
+@loopy_instructions.register(MathFunction)
+def loopy_inst_mathfunc(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    if expr._name == "ln":
+        name = "log"
+    else:
+        name = expr._name
+    return p.Variable(name)(*children)
+
+
+@loopy_instructions.register(Power)
+def loopy_inst_power(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Power(*children)
+
+
+@loopy_instructions.register(ufl.algebra.Abs)
+def loopy_inst_power(expr, context):
+    child, = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("abs")(child)
+
+
+@loopy_instructions.register(ufl.classes.Conditional)
+def loopy_inst_conditional(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.If(*children)
+
+
+@loopy_instructions.register(ufl.classes.EQ)
+@loopy_instructions.register(ufl.classes.NE)
+@loopy_instructions.register(ufl.classes.LT)
+@loopy_instructions.register(ufl.classes.LE)
+@loopy_instructions.register(ufl.classes.GT)
+@loopy_instructions.register(ufl.classes.GE)
+def loopy_inst_compare(expr, context):
+    left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    if isinstance(expr, ufl.classes.EQ):
+        op = "=="
+    elif isinstance(expr, ufl.classes.NE):
+        op = "!="
+    elif isinstance(expr, ufl.classes.LT):
+        op = "<"
+    elif isinstance(expr, ufl.classes.LE):
+        op = "<="
+    elif isinstance(expr, ufl.classes.GT):
+        op = ">"
+    elif isinstance(expr, ufl.classes.GE):
+        op = ">="
+    return p.Comparison(left, op, right)
+
+
+@loopy_instructions.register(ComponentTensor)
+@loopy_instructions.register(Indexed)
+def loopy_inst_component_tensor(expr, context):
+    return loopy_instructions(expr.ufl_operands[0], context)
