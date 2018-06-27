@@ -35,7 +35,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "domain_number",
                                      "coefficient_map",
                                      "needs_cell_facets",
-                                     "pass_layer_arg"])
+                                     "pass_layer_arg",
+                                     "needs_cell_sizes"])
 
 
 class TSFCKernel(Cached):
@@ -125,7 +126,8 @@ class TSFCKernel(Cached):
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
                                       needs_cell_facets=False,
-                                      pass_layer_arg=False))
+                                      pass_layer_arg=False,
+                                      needs_cell_sizes=kernel.needs_cell_sizes))
         self.kernels = tuple(kernels)
         self._initialized = True
 

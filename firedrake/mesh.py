@@ -1033,7 +1033,7 @@ values from f.)"""
         raise AttributeError(message)
 
     @utils.cached_property
-    def cell_size(self):
+    def cell_sizes(self):
         """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
@@ -1042,6 +1042,16 @@ values from f.)"""
         from firedrake.projection import project
         P1 = FunctionSpace(self, "Lagrange", 1)
         return project(CellSize(self), P1)
+
+    def clear_cell_sizes(self):
+        """Reset the :attr:`cell_sizes` field on this mesh geometry.
+
+        Use this if you move the mesh.
+        """
+        try:
+            del self.cell_size
+        except AttributeError:
+            pass
 
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.

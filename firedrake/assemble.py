@@ -393,7 +393,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             loops.append(zero_tensor)
         else:
             zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets, pass_layer_arg) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets, pass_layer_arg, needs_cell_sizes) in kernels:
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
@@ -499,6 +499,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     coords.dat(op2.READ, get_map(coords)[op2.i[0]])]
             if needs_orientations:
                 o = m.cell_orientations()
+                args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
+            if needs_cell_sizes:
+                o = m.cell_sizes
                 args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
             for n in coeff_map:
                 c = coefficients[n]
