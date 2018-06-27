@@ -4,7 +4,6 @@ from functools import partial
 import FIAT
 import ufl
 
-from coffee import base as ast
 from pyop2 import op2
 import loopy
 
@@ -296,7 +295,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     for cmp, code in enumerate(expression.code):
         # A[k, c] = expression
         code = '{0}[{1}, {2}]'.format(A.name, k.name, cmp) + " = " + code
-        (insn, ) , _, _ = parse_instructions(code, {})
+        (insn, ), _, _ = parse_instructions(code, {})
         insn = insn.copy(within_inames=frozenset([k.name]), depends_on=frozenset(["insn1"]))
         instructions.append(insn)
 
