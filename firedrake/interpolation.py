@@ -6,6 +6,7 @@ import ufl
 
 from coffee import base as ast
 from pyop2 import op2
+import loopy
 
 from tsfc.fiatinterface import create_element
 from tsfc import compile_expression_at_points as compile_ufl_kernel
@@ -263,64 +264,60 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
 
     names = {v[0] for v in expression._user_args}
 
-    X = list(coords_element.tabulate(0, to_pts).values())[0]
+    X_data = list(coords_element.tabulate(0, to_pts).values())[0].T
 
-    # Produce C array notation of X.
-    X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
+    import pymbolic.primitives as p
 
-    A = utils.unique_name("A", names)
-    X = utils.unique_name("X", names)
-    x_ = utils.unique_name("x_", names)
-    k = utils.unique_name("k", names)
-    d = utils.unique_name("d", names)
-    i_ = utils.unique_name("i", names)
+    A = p.Variable(utils.unique_name("A", names))
+    X = p.Variable(utils.unique_name("X", names))
+    crd = p.Variable(utils.unique_name("coords", names))
+    k = p.Variable(utils.unique_name("k", names))
+    d = p.Variable(utils.unique_name("d", names))
+    i = p.Variable(utils.unique_name("i", names))
     # x is a reserved name.
-    x = "x"
+    x = p.Variable("x")
     if "x" in names:
         raise ValueError("cannot use 'x' as a user-defined Expression variable")
-    ass_exp = [ast.Assign(ast.Symbol(A, (k,), ((len(expression.code), i),)),
-                          ast.FlatBlock("%s" % code))
-               for i, code in enumerate(expression.code)]
 
     dim = coords_space.value_size
     ndof = to_element.space_dimension()
     xndof = coords_element.space_dimension()
-    nfdof = to_element.space_dimension() * numpy.prod(fs.value_size, dtype=int)
 
-    init_X = ast.Decl(typ="double", sym=ast.Symbol(X, rank=(ndof, xndof)),
-                      qualifiers=["const"], init=X_str)
-    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.value_size,)))
-    init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
-                       init="3.141592653589793")
-    init = ast.Block([init_X, init_x, init_pi])
-    incr_x = ast.Incr(ast.Symbol(x, rank=(d,)),
-                      ast.Prod(ast.Symbol(X, rank=(k, i_)),
-                               ast.Symbol(x_, rank=(ast.Sum(ast.Prod(i_, dim), d),))))
-    assign_x = ast.Assign(ast.Symbol(x, rank=(d,)), 0)
-    loop_x = ast.For(init=ast.Decl("unsigned int", i_, 0),
-                     cond=ast.Less(i_, xndof),
-                     incr=ast.Incr(i_, 1), body=[incr_x])
+    # x[d] = 0
+    insn0 = loopy.Assignment(x.index(d), 0, id="insn0", within_inames=frozenset([k.name, d.name]))
+    # x[d] += X[k, i] * coord[i,d]
+    insn1 = loopy.Assignment(
+        x.index(d), x.index(d) + X.index((k, i)) * crd.index((i, d)), id="insn1",
+        within_inames=frozenset([k.name, d.name, i.name]), depends_on=frozenset(["insn0"])
+    )
+    instructions = [insn0, insn1]
 
-    block = ast.For(init=ast.Decl("unsigned int", d, 0),
-                    cond=ast.Less(d, dim),
-                    incr=ast.Incr(d, 1), body=[assign_x, loop_x])
-    loop = ast.c_for(k, ndof,
-                     ast.Block([block] + ass_exp, open_scope=True))
-    user_args = []
-    user_init = []
-    for _, arg in expression._user_args:
-        if arg.shape == (1, ):
-            user_args.append(ast.Decl("double *", "%s_" % arg.name))
-            user_init.append(ast.FlatBlock("const double %s = *%s_;" %
-                                           (arg.name, arg.name)))
-        else:
-            user_args.append(ast.Decl("double *", arg.name))
-    kernel_code = ast.FunDecl("void", "expression_kernel",
-                              [ast.Decl("double", ast.Symbol(A, (nfdof,))),
-                               ast.Decl("double*", x_)] + user_args,
-                              ast.Block(user_init + [init, loop],
-                                        open_scope=False))
+    from loopy.kernel.creation import parse_instructions
+    for cmp, code in enumerate(expression.code):
+        # A[k, c] = expression
+        code = '{0}[{1}, {2}]'.format(A.name, k.name, cmp) + " = " + code
+        (insn, ) , _, _ = parse_instructions(code, {})
+        insn = insn.copy(within_inames=frozenset([k.name]), depends_on=frozenset(["insn1"]))
+        instructions.append(insn)
+
+    import islpy as isl
+
+    inames = isl.make_zero_and_vars([k.name, d.name, i.name])
+    domain = (inames[0].le_set(inames[k.name])) & (inames[k.name].lt_set(inames[0] + ndof))
+    domain = domain & (inames[0].le_set(inames[d.name])) & (inames[d.name].lt_set(inames[0] + dim))
+    domain = domain & (inames[0].le_set(inames[i.name])) & (inames[i.name].lt_set(inames[0] + xndof))
+
+    data = [loopy.GlobalArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code)))]
+    data.append(loopy.GlobalArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)))
+    data.append(loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape, read_only=True, scope=loopy.temp_var_scope.LOCAL))
+    data.append(loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.temp_var_scope.LOCAL))
+
+    if any("pi" in _c for _c in expression.code):
+        data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi), read_only=True, scope=loopy.temp_var_scope.LOCAL))
+
+    knl = loopy.make_kernel([domain], instructions, data, name="expression_kernel", lang_version=(2018, 1))
+
     coefficients = [coords]
     for _, arg in expression._user_args:
         coefficients.append(GlobalWrapper(arg))
-    return op2.Kernel(kernel_code, kernel_code.name), False, False, tuple(coefficients)
+    return op2.Kernel(knl, knl.name), False, False, tuple(coefficients)
