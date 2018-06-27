@@ -306,17 +306,28 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     domain = domain & (inames[0].le_set(inames[d.name])) & (inames[d.name].lt_set(inames[0] + dim))
     domain = domain & (inames[0].le_set(inames[i.name])) & (inames[i.name].lt_set(inames[0] + xndof))
 
-    data = [loopy.GlobalArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code)))]
-    data.append(loopy.GlobalArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)))
-    data.append(loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape, read_only=True, scope=loopy.temp_var_scope.LOCAL))
-    data.append(loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.temp_var_scope.LOCAL))
+    data = [loopy.GlobalArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code))),
+            loopy.GlobalArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)),
+            loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape,
+                                    read_only=True, scope=loopy.temp_var_scope.LOCAL),
+            loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.temp_var_scope.LOCAL)]
+
+    coefficients = [coords]
+    for _i, (name, arg) in enumerate(expression._user_args):
+        coefficients.append(GlobalWrapper(arg))
+        if arg.shape == (1, ):
+            name += "_"
+            # arg = arg_[0]
+            user_arg_insn = loopy.Assignment(p.Variable(arg.name), p.Variable(name).index(0), id="user_arg_{0}".format(_i))
+            instructions.insert(0, user_arg_insn)
+            insn0 = insn0.copy(depends_on=insn0.depends_on | frozenset([user_arg_insn.id]))
+            data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), scope=loopy.temp_var_scope.LOCAL))
+        data.append(loopy.GlobalArg(name, dtype=arg.dtype, shape=arg.shape))
 
     if any("pi" in _c for _c in expression.code):
-        data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi), read_only=True, scope=loopy.temp_var_scope.LOCAL))
+        data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
+                                            read_only=True, scope=loopy.temp_var_scope.LOCAL))
 
     knl = loopy.make_kernel([domain], instructions, data, name="expression_kernel", lang_version=(2018, 1))
 
-    coefficients = [coords]
-    for _, arg in expression._user_args:
-        coefficients.append(GlobalWrapper(arg))
     return op2.Kernel(knl, knl.name), False, False, tuple(coefficients)
