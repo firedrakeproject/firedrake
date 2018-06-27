@@ -134,6 +134,9 @@ class CoordinateMapping(PhysicalGeometry):
         config["interface"] = self.interface
         return config
 
+    def cell_size(self):
+        return self.interface.cell_size(self.mt.restriction)
+
     def jacobian_at(self, point):
         expr = Jacobian(self.mt.terminal.ufl_domain())
         if self.mt.restriction == '+':

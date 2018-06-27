@@ -105,6 +105,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     return_variables = builder.set_arguments(arguments, argument_multiindices)
 
     builder.set_coordinates(mesh)
+    builder.set_cell_sizes(mesh)
 
     builder.set_coefficients(integral_data, form_data)
 
@@ -202,6 +203,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # Look for cell orientations in the IR
     if builder.needs_cell_orientations(expressions):
         builder.require_cell_orientations()
+
+    if builder.needs_cell_sizes(expressions):
+        builder.require_cell_sizes()
 
     # Construct ImperoC
     split_argument_indices = tuple(chain(*[var.index_ordering()

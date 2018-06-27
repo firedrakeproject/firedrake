@@ -22,6 +22,10 @@ class KernelInterface(metaclass=ABCMeta):
         """Cell orientation as a GEM expression."""
 
     @abstractmethod
+    def cell_size(self, restriction):
+        """Mesh cell size as a GEM expression.  Shape (nvertex, ) in FIAT vertex ordering."""
+
+    @abstractmethod
     def entity_number(self, restriction):
         """Facet or vertex number as a GEM index."""
 
