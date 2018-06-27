@@ -105,8 +105,10 @@ def par_loop(kernel_domains, instructions, measure, args, **kwargs):
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel_domains:
-    :arg instructions: is a string containing the C code to be executed.
+    :arg kernel_domains: the iteration domain for the kernel, in Integer Set
+        Libarary (ISL) syntax. function_name.dofs can be used as a magic word.
+    :arg instructions: is a string containing the instruction for the kernel
+        in loo.py syntax.
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
@@ -124,8 +126,13 @@ def par_loop(kernel_domains, instructions, measure, args, **kwargs):
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
-          {'A' : (A, RW), 'B': (B, READ)})
+      domain = '{[i]: 0 <= i < A.dofs}'
+      instructions = '''
+      for i
+          A[i] = fmax(A[i], B[0])
+      end
+      '''
+      par_loop(domain, instructions, dx, {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
