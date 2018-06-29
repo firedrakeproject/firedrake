@@ -64,7 +64,6 @@ _maps = {
 def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     kargs = []
-    lkernel = instructions
 
     for var, (func, intent) in args.items():
         if isinstance(func, constant.Constant):
@@ -73,29 +72,31 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=loopy.auto))
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].finat_element.space_dimension()
+                cdim = c.dat[idx].cdim
                 dtype = c.dat[idx].dtype
             else:
                 if len(func.function_space()) > 1:
                     raise NotImplementedError("Must index mixed function in par_loop.")
                 ndof = func.function_space().finat_element.space_dimension()
+                cdim = func.dat.cdim
                 dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof,)))
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
-        lkernel = lkernel.replace(var+".dofs", str(ndof))
 
     if kernel_domains is "":
         kernel_domains = "[] -> {[]}"
-    knl = loopy.make_kernel(kernel_domains, instructions, kargs, name="par_loop_kernel", lang_version=(2018, 1))
+    kargs.append(...)
+    knl = loopy.make_kernel(kernel_domains, instructions, kargs, seq_dependencies=True, name="par_loop_kernel", lang_version=(2018, 1))
 
     return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
 
