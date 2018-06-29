@@ -31,10 +31,14 @@ def test_consistent_facet_orientation(mesh_thunk):
     g = Function(W).interpolate(expression)
 
     q = Function(Q).interpolate(Expression("0.0"))
-    par_loop('''
-        for (int i = 0; i < C.dofs; i++)
-             R[0][0] = fmax(R[0][0], fabs(C[i][0] - D[i][0]));
-        ''', dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
+
+    domain = "{[i]: 0 <= i < C.dofs}"
+    instructions = """
+    for i
+        R[0, 0] = fmax(R[0, 0], fabs(C[i, 0] - D[i, 0]))
+    end
+    """
+    par_loop(domain, instructions, dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
 
     assert np.allclose(q.dat.data, 0.0)
 

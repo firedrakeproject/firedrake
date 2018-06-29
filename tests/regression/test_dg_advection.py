@@ -30,7 +30,7 @@ def run_test(mesh):
     dD1 = Function(V)
     D1 = Function(V)
 
-    D0 = Expression("x[0] < 0 ? 1: 0")
+    D0 = Expression("if(x[0] < 0, 1, 0)")
     D = Function(V).interpolate(D0)
 
     t = 0.0
