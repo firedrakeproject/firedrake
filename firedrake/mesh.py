@@ -1086,24 +1086,20 @@ values from f.)"""
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
 
-        kernel = """
-    for (int d = 0; d < gdim; d++) {
-        for (int i = 0; i < nodes_per_cell; i++) {
-            f_min[0][d] = fmin(f_min[0][d], f[i][d]);
-            f_max[0][d] = fmax(f_max[0][d], f[i][d]);
-        }
-    }
-"""
-
         cell_node_list = self.coordinates.function_space().cell_node_list
         nodes_per_cell = len(cell_node_list[0])
 
-        kernel = kernel.replace("gdim", str(gdim))
-        kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
-
-        par_loop(kernel, ufl.dx, {'f': (self.coordinates, READ),
-                                  'f_min': (coords_min, RW),
-                                  'f_max': (coords_max, RW)})
+        domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
+        instructions = """
+        for d, i
+            f_min[0, d] = fmin(f_min[0, d], f[i, d])
+            f_max[0, d] = fmax(f_max[0, d], f[i, d])
+        end
+        """
+        par_loop(domain, instructions, ufl.dx,
+                 {'f': (self.coordinates, READ),
+                  'f_min': (coords_min, RW),
+                  'f_max': (coords_max, RW)})
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
