@@ -109,39 +109,28 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    periodic_kernel = """
-    const double pi = 3.141592653589793;
-    const double eps = 1e-12;
-    double a = atan2(old_coords[0][1], old_coords[0][0]) / (2*pi);
-    double b = atan2(old_coords[1][1], old_coords[1][0]) / (2*pi);
-    int swap = 0;
-    if ( a >= b ) {
-        const double tmp = b;
-        b = a;
-        a = tmp;
-        swap = 1;
-    }
-    if ( fabs(b) < eps && a < -eps ) {
-        b = 1.0;
-    }
-    if ( a < -eps ) {
-        a += 1;
-    }
-    if ( b < -eps ) {
-        b += 1;
-    }
-    if ( swap ) {
-        const double tmp = b;
-        b = a;
-        a = tmp;
-    }
-    new_coords[0][0] = a * L[0];
-    new_coords[1][0] = b * L[0];
+    domain = ""
+    instructions = """
+    <float64> eps = 1e-12
+    <float64> pi = 3.141592653589793
+    <float64> a = atan2(old_coords[0, 1], old_coords[0, 0]) / (2*pi)
+    <float64> b = atan2(old_coords[1, 1], old_coords[1, 0]) / (2*pi)
+    <int32> swap = if(a >= b, 1, 0)
+    <float64> aa = fmin(a, b)
+    <float64> bb = fmax(a, b)
+    <float64> bb_abs = fabs(bb)
+    bb = if(bb_abs < eps, if(aa < -eps, 1.0, bb), bb)
+    aa = if(aa < -eps, aa + 1, aa)
+    bb = if(bb < -eps, bb + 1, bb)
+    a = if(swap == 1, bb, aa)
+    b = if(swap == 1, aa, bb)
+    new_coords[0] = a * L[0]
+    new_coords[1] = b * L[0]
     """
 
     cL = Constant(length)
 
-    par_loop(periodic_kernel, dx,
+    par_loop(domain, instructions, dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "L": (cL, READ)})

@@ -50,7 +50,7 @@ def test_direct_par_loop(f):
 
     domain = ""
     instructions = """
-    c[0] = 1
+    c[0, 0] = 1
     """
     par_loop(domain, instructions, direct, {'c': (c, WRITE)})
 
@@ -61,7 +61,7 @@ def test_mixed_direct_par_loop(f_mixed):
     with pytest.raises(NotImplementedError):
         domain = ""
         instructions = """
-        c[0] = 1
+        c[0, 0] = 1
         """
         par_loop(domain, instructions, direct, {'c': (f_mixed, WRITE)})
         assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.split())
@@ -71,7 +71,7 @@ def test_mixed_direct_par_loop(f_mixed):
 def test_mixed_direct_par_loop_components(f_mixed, idx):
     domain = ""
     instructions = """
-    c[0] = 1
+    c[0, 0] = 1
     """
     par_loop(domain, instructions, direct, {'c': (f_mixed[idx], WRITE)})
 
@@ -84,7 +84,7 @@ def test_direct_par_loop_read_const(f, const):
 
     domain = ""
     instructions = """
-    c[0] = constant[0]
+    c[0, 0] = constant[0]
     """
     par_loop(domain, instructions, direct, {'c': (c, WRITE), 'constant': (const, READ)})
 
@@ -98,7 +98,7 @@ def test_indirect_par_loop_read_const(f, const):
     domain = "{[i]: 0 <= i < d.dofs}"
     instructions = """
     for i
-        d[i] = constant[0]
+        d[i, 0] = constant[0]
     end
     """
     par_loop(domain, instructions, dx, {'d': (d, WRITE), 'constant': (const, READ)})
@@ -113,7 +113,7 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
         domain = "{[i]: 0 <= i < d.dofs}"
         instructions = """
         for i
-            d[i] = constant[0]
+            d[i, 0] = constant[0]
         end
         """
         par_loop(domain, instructions, dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
@@ -143,7 +143,7 @@ def test_dict_order_parallel():
     domain = "{[i]: 0 <= i < d.dofs}"
     instructions = """
     for i
-        d[i] = c10[0]
+        d[i, 0] = c10[0]
     end
     """
     par_loop(domain, instructions, dx, arg)
@@ -158,7 +158,7 @@ def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     domain = "{[i]: 0 <= i < d.dofs}"
     instructions = """
     for i
-        d[i] = constant[0]
+        d[i, 0] = constant[0]
     end
     """
     par_loop(domain, instructions, dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
@@ -171,7 +171,7 @@ def test_par_loop_const_write_error(f, const):
     with pytest.raises(RuntimeError):
         domain = ""
         instructions = """
-        c[0] = d[0]
+        c[0] = d[0, 0]
         """
         par_loop(domain, instructions, direct, {'c': (const, WRITE), 'd': (d, READ)})
 
@@ -183,7 +183,7 @@ def test_cg_max_field(f):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i] = fmax(c[i], d[0])
+        c[i, 0] = fmax(c[i, 0], d[0, 0])
     end
     """
     par_loop(domain, instructions, dx, {'c': (c, RW), 'd': (d, READ)})
@@ -198,7 +198,7 @@ def test_cg_max_field_extruded(f_extruded):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i] = if(c[i] > d[0], c[i], d[0])
+        c[i, 0] = if(c[i, 0] > d[0, 0], c[i, 0], d[0, 0])
     end
     """
 
@@ -223,7 +223,7 @@ def test_cell_subdomain(subdomain):
     domain = "{[i]: 0 <= i < f.dofs}"
     instructions = """
     for i
-        f[i] = 1.0
+        f[i, 0] = 1.0
     end
     """
     par_loop(domain, instructions, dx(subdomain), {'f': (f, WRITE)})
@@ -243,7 +243,7 @@ def test_walk_facets_rt():
     domain = "{[i]: 0 <= i < f1.dofs}"
     instructions = """
     for i
-        f2[i] = f1[i]
+        f2[i, 0] = f1[i, 0]
     end
     """
     par_loop(domain, instructions, dS, {'f1': (f1, READ), 'f2': (f2, WRITE)})
