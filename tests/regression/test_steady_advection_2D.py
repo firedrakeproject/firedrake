@@ -36,7 +36,7 @@ def run_left_to_right(mesh, DG0, W):
     velocity = Expression(("1.0", "0.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[1] > 0.25 && x[1] < 0.75 ? 1.0 : 0.5")
+    inflowexpr = Expression("if(x[1] > 0.25 and x[1] < 0.75, 1, 0.5)")
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
