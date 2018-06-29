@@ -294,7 +294,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     from loopy.kernel.creation import parse_instructions
     for cmp, code in enumerate(expression.code):
         # A[k, c] = expression
-        code = '{0}[{1}, {2}]'.format(A.name, k.name, cmp) + " = " + code
+        code = '{0}[{1}, {2}]'.format(A.name, k.name, cmp) + " = " + str(code)
         (insn, ), _, _ = parse_instructions(code, {})
         insn = insn.copy(within_inames=frozenset([k.name]), depends_on=frozenset(["insn1"]))
         instructions.append(insn)
@@ -324,7 +324,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
             data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), scope=loopy.temp_var_scope.LOCAL))
         data.append(loopy.GlobalArg(name, dtype=arg.dtype, shape=arg.shape))
 
-    if any("pi" in _c for _c in expression.code):
+    if any("pi" in str(_c) for _c in expression.code):
         data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
                                             read_only=True, scope=loopy.temp_var_scope.LOCAL))
 
