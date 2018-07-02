@@ -385,6 +385,7 @@ class MeshTopology(object):
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
         dmplex.validate_mesh(plex)
+        plex.setFromOptions()
         utils._init()
 
         self._plex = plex
