@@ -45,7 +45,7 @@ class DirichletBC(object):
     def __init__(self, V, g, sub_domain, method="topological"):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         import finat
-        if isinstance(V.finat_element, (finat.Hermite, finat.Argyris, finat.Morley)):
+        if isinstance(V.finat_element, (finat.Hermite, finat.Argyris, finat.Morley, finat.Bell)):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         self._function_space = V

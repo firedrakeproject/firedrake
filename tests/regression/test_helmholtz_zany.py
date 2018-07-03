@@ -43,6 +43,10 @@ def helmholtz(x, el_type, degree, mesh=None):
     return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
 
 
+# Test convergence on Hermite, Bell, and Argyris
+# Morley is omitted since it only can be used on 4th-order problems.
+# It is, somewhat oddly, a suitable C^1 nonconforming element but
+# not a suitable C^0 nonconforming one.
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Hermite', 3, 3.8),
                           ('Bell', 5, 4.8),
