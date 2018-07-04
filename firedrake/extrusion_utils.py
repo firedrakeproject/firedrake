@@ -47,10 +47,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         pass
     elif extrusion_type == 'uniform':
         kernel = op2.Kernel("""
-inline void uniform_extrusion_kernel(double *ext_coords,
-                                     const double *base_coords,
-                                     const double *layer_height,
-                                     int layer) {
+inline void pyop2_kernel_uniform_extrusion(double *ext_coords,
+                                           const double *base_coords,
+                                           const double *layer_height,
+                                           int layer) {
     for ( int d = 0; d < %(base_map_arity)d; d++ ) {
         for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
             ext_coords[2*d*(%(base_coord_dim)d+1)+c] = base_coords[d*%(base_coord_dim)d+c];
@@ -60,13 +60,13 @@ inline void uniform_extrusion_kernel(double *ext_coords,
         ext_coords[(2*d+1)*(%(base_coord_dim)d+1)+%(base_coord_dim)d] = *layer_height * (layer + 1);
     }
 }""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "uniform_extrusion_kernel")
+            "pyop2_kernel_uniform_extrusion")
     elif extrusion_type == 'radial':
         kernel = op2.Kernel("""
-void radial_extrusion_kernel(double *ext_coords,
-                             const double *base_coords,,
-                             const double *layer_height,
-                             int layer) {
+inline void pyop2_kernel_radial_extrusion(double *ext_coords,
+                                          const double *base_coords,
+                                          const double *layer_height,
+                                          int layer) {
     for ( int d = 0; d < %(base_map_arity)d; d++ ) {
         double norm = 0.0;
         for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
@@ -79,17 +79,17 @@ void radial_extrusion_kernel(double *ext_coords,
         }
     }
 }""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "radial_extrusion_kernel")
+            "pyop2_kernel_radial_extrusion")
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
         if base_coords.ufl_domain().ufl_cell().topological_dimension() not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
         kernel = op2.Kernel("""
-inline void radial_hedgehog_extrusion_kernel(double *ext_coords,
-                                             const double *base_coords,
-                                             const double *layer_height,
-                                             int layer) {
+inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
+                                                   const double *base_coords,
+                                                   const double *layer_height,
+                                                   int layer) {
     double v0[%(base_coord_dim)d];
     double v1[%(base_coord_dim)d];
     double n[%(base_coord_dim)d];
@@ -145,7 +145,7 @@ inline void radial_hedgehog_extrusion_kernel(double *ext_coords,
         }
     }
 }""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "radial_hedgehog_extrusion_kernel")
+            "pyop2_kernel_radial_hedgehog_extrusion")
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
