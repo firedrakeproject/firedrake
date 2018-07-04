@@ -569,7 +569,6 @@ def translate_argument(terminal, mt, ctx):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
-    # import ipdb; ipdb.set_trace()
     vec = ctx.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
