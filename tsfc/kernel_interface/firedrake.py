@@ -247,6 +247,15 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.needs_cell_sizes = True
 
     def set_cell_sizes(self, domain):
+        """Setup a fake coefficient for "cell sizes".
+
+        :arg domain: The domain of the integral.
+
+        This is required for scaling of derivative basis functions on
+        physically mapped elements (Argyris, Bell, etc...).  We need a
+        measure of the mesh size around each vertex (hence this lives
+        in P1).
+        """
         f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
         funarg, expression = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
         self.cell_sizes_arg = funarg
