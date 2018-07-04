@@ -7,7 +7,7 @@ from itertools import chain
 
 from numpy import asarray
 
-# import ufl
+import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
@@ -138,8 +138,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         mode = pick_mode(params["mode"])
         mode_irs.setdefault(mode, collections.OrderedDict())
 
-        # integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand = integral.integrand()
+        integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
 
         # Check if the integral has a quad degree attached, otherwise use
