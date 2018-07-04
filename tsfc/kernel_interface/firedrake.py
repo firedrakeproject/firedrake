@@ -92,8 +92,7 @@ class KernelBuilderBase(_KernelBuilderBase):
 
     @staticmethod
     def needs_cell_sizes(ir):
-        """Does a multi-root GEM expression DAG references cell
-        orientations?"""
+        """Does a multi-root GEM expression DAG reference cell sizes?"""
         for node in traversal(ir):
             if isinstance(node, gem.Variable) and node.name == "cell_sizes":
                 return True
