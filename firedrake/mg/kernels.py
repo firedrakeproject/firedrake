@@ -491,7 +491,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, parameters["precision"], argument_indices=argument_multiindices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"])
 
     retarg = ast.Decl(SCALAR_TYPE, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor

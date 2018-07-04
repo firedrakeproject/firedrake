@@ -47,40 +47,38 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         pass
     elif extrusion_type == 'uniform':
         kernel = op2.Kernel("""
-        void uniform_extrusion_kernel(double **base_coords,
-                    double **ext_coords,
-                    double *layer_height,
-                    int layer) {
-            for ( int d = 0; d < %(base_map_arity)d; d++ ) {
-                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-                    ext_coords[2*d][c] = base_coords[d][c];
-                    ext_coords[2*d+1][c] = base_coords[d][c];
-                }
-                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer);
-                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer + 1);
-            }
-        }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().value_size},
+inline void uniform_extrusion_kernel(double *ext_coords,
+                                     const double *base_coords,
+                                     const double *layer_height,
+                                     int layer) {
+    for ( int d = 0; d < %(base_map_arity)d; d++ ) {
+        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+            ext_coords[2*d*(%(base_coord_dim)d+1)+c] = base_coords[d*%(base_coord_dim)d+c];
+            ext_coords[(2*d+1)*(%(base_coord_dim)d+1)+c] = base_coords[d*%(base_coord_dim)d+c];
+        }
+        ext_coords[2*d*(%(base_coord_dim)d+1)+%(base_coord_dim)d] = *layer_height * (layer);
+        ext_coords[(2*d+1)*(%(base_coord_dim)d+1)+%(base_coord_dim)d] = *layer_height * (layer + 1);
+    }
+}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
             "uniform_extrusion_kernel")
     elif extrusion_type == 'radial':
         kernel = op2.Kernel("""
-        void radial_extrusion_kernel(double **base_coords,
-                   double **ext_coords,
-                   double *layer_height,
-                   int layer) {
-            for ( int d = 0; d < %(base_map_arity)d; d++ ) {
-                double norm = 0.0;
-                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-                    norm += base_coords[d][c] * base_coords[d][c];
-                }
-                norm = sqrt(norm);
-                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer)/norm);
-                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer+1))/norm);
-                }
-            }
-        }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().value_size},
+void radial_extrusion_kernel(double *ext_coords,
+                             const double *base_coords,,
+                             const double *layer_height,
+                             int layer) {
+    for ( int d = 0; d < %(base_map_arity)d; d++ ) {
+        double norm = 0.0;
+        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+            norm += base_coords[d*%(base_coord_dim)d+c] * base_coords[d*%(base_coord_dim)d+c];
+        }
+        norm = sqrt(norm);
+        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+            ext_coords[2*d*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] * (1 + (*layer_height * layer)/norm);
+            ext_coords[(2*d+1)*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] * (1 + (*layer_height * (layer+1))/norm);
+        }
+    }
+}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
             "radial_extrusion_kernel")
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
@@ -88,66 +86,65 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         if base_coords.ufl_domain().ufl_cell().topological_dimension() not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
         kernel = op2.Kernel("""
-        void radial_hedgehog_extrusion_kernel(double **base_coords,
-                                              double **ext_coords,
-                                              double *layer_height,
-                                              int layer) {
-            double v0[%(base_coord_dim)d];
-            double v1[%(base_coord_dim)d];
-            double n[%(base_coord_dim)d];
-            double x[%(base_coord_dim)d] = {0};
-            double dot = 0.0;
-            double norm = 0.0;
-            int i, c, d;
-            if (%(base_coord_dim)d == 2) {
-                /*
-                 * normal is:
-                 * (0 -1) (x2 - x1)
-                 * (1  0) (y2 - y1)
-                 */
-                n[0] = -(base_coords[1][1] - base_coords[0][1]);
-                n[1] = base_coords[1][0] - base_coords[0][0];
-            } else if (%(base_coord_dim)d == 3) {
-                /*
-                 * normal is
-                 * v0 x v1
-                 *
-                 *    /\\
-                 * v0/  \\
-                 *  /    \\
-                 * /------\\
-                 *    v1
-                 */
-                for (i = 0; i < 3; ++i) {
-                    v0[i] = base_coords[1][i] - base_coords[0][i];
-                    v1[i] = base_coords[2][i] - base_coords[0][i];
-                }
-                n[0] = v0[1] * v1[2] - v0[2] * v1[1];
-                n[1] = v0[2] * v1[0] - v0[0] * v1[2];
-                n[2] = v0[0] * v1[1] - v0[1] * v1[0];
-            }
-            for (i = 0; i < %(base_map_arity)d; ++i) {
-                for (c = 0; c < %(base_coord_dim)d; ++c) {
-                    x[c] += base_coords[i][c];
-                }
-            }
-            for (i = 0; i < %(base_coord_dim)d; ++i) {
-                dot += x[i] * n[i];
-                norm += n[i] * n[i];
-            }
-            /*
-             * Make inward-pointing normals point out
-             */
-            norm = sqrt(norm);
-            norm *= (dot < 0 ? -1 : 1);
-            for (d = 0; d < %(base_map_arity)d; ++d) {
-                for (c = 0; c < %(base_coord_dim)d; ++c ) {
-                    ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer / norm;
-                    ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer + 1)/ norm;
-                }
-            }
-        }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().value_size},
+inline void radial_hedgehog_extrusion_kernel(double *ext_coords,
+                                             const double *base_coords,
+                                             const double *layer_height,
+                                             int layer) {
+    double v0[%(base_coord_dim)d];
+    double v1[%(base_coord_dim)d];
+    double n[%(base_coord_dim)d];
+    double x[%(base_coord_dim)d] = {0};
+    double dot = 0.0;
+    double norm = 0.0;
+    int i, c, d;
+    if (%(base_coord_dim)d == 2) {
+        /*
+         * normal is:
+         * (0 -1) (x2 - x1)
+         * (1  0) (y2 - y1)
+         */
+        n[0] = -(base_coords[%(base_coord_dim)d+1] - base_coords[1]);
+        n[1] = base_coords[%(base_coord_dim)d] - base_coords[0];
+    } else if (%(base_coord_dim)d == 3) {
+        /*
+         * normal is
+         * v0 x v1
+         *
+         *    /\\
+         * v0/  \\
+         *  /    \\
+         * /------\\
+         *    v1
+         */
+        for (i = 0; i < 3; ++i) {
+            v0[i] = base_coords[%(base_coord_dim)d+i] - base_coords[i];
+            v1[i] = base_coords[2*%(base_coord_dim)d+i] - base_coords[i];
+        }
+        n[0] = v0[1] * v1[2] - v0[2] * v1[1];
+        n[1] = v0[2] * v1[0] - v0[0] * v1[2];
+        n[2] = v0[0] * v1[1] - v0[1] * v1[0];
+    }
+    for (i = 0; i < %(base_map_arity)d; ++i) {
+        for (c = 0; c < %(base_coord_dim)d; ++c) {
+            x[c] += base_coords[i*%(base_coord_dim)d+c];
+        }
+    }
+    for (i = 0; i < %(base_coord_dim)d; ++i) {
+        dot += x[i] * n[i];
+        norm += n[i] * n[i];
+    }
+    /*
+     * Make inward-pointing normals point out
+     */
+    norm = sqrt(norm);
+    norm *= (dot < 0 ? -1 : 1);
+    for (d = 0; d < %(base_map_arity)d; ++d) {
+        for (c = 0; c < %(base_coord_dim)d; ++c ) {
+            ext_coords[2*d*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] + n[c] * layer_height[0] * layer / norm;
+            ext_coords[(2*d+1)*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] + n[c] * layer_height[0] * (layer + 1)/ norm;
+        }
+    }
+}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
             "radial_hedgehog_extrusion_kernel")
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
