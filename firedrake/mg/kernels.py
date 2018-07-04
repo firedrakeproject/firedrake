@@ -85,7 +85,7 @@ static inline void to_reference_coords_kernel(double *X, const double *x0, const
 
 
 def compile_element(expression, dual_space=None, parameters=None,
-                    name="evaluate_kernel"):
+                    name="evaluate"):
     """Generate code for point evaluations.
 
     :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
@@ -191,7 +191,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     body = generate_coffee(impero_c, {}, parameters["precision"])
 
     # Build kernel tuple
-    kernel_code = builder.construct_kernel(name, [result_arg] + b_arg + f_arg + [point_arg], body)
+    kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
 
     return kernel_code
 
@@ -218,14 +218,14 @@ def prolong_kernel(expression):
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
-        void prolong_kernel(%(args)s, const double *X, const double *Xc)
+        void pyop2_kernel_prolong(%(args)s, const double *X, const double *Xc)
         {
             double Xref[%(tdim)d];
             to_reference_coords_kernel(Xref, X, Xc);
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 %(R)s[i] = 0;
             }
-            evaluate_kernel(%(arg_names)s, Xref);
+            pyop2_kernel_evaluate(%(arg_names)s, Xref);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
@@ -235,7 +235,7 @@ def prolong_kernel(expression):
                "arg_names": arg_names,
                "tdim": mesh.topological_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="prolong_kernel"))
+        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
 
 
 def restrict_kernel(Vf, Vc):
@@ -261,11 +261,11 @@ def restrict_kernel(Vf, Vc):
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
-        void restrict_kernel(%(args)s, const double *X, const double *Xc)
+        void pyop2_kernel_restrict(%(args)s, const double *X, const double *Xc)
         {
             double Xref[%(tdim)d];
             to_reference_coords_kernel(Xref, X, Xc);
-            evaluate_kernel(%(arg_names)s, Xref);
+            pyop2_kernel_evaluate(%(arg_names)s, Xref);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
@@ -273,7 +273,7 @@ def restrict_kernel(Vf, Vc):
                "arg_names": arg_names,
                "tdim": mesh.topological_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="restrict_kernel"))
+        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
 
 def inject_kernel(Vf, Vc):
@@ -302,7 +302,7 @@ def inject_kernel(Vf, Vc):
         %(to_reference)s
         %(evaluate)s
 
-        void inject_kernel(double *R, const double *X, const double *f, const double *Xf)
+        void pyop2_kernel_inject(double *R, const double *X, const double *f, const double *Xf)
         {
             double Xref[%(tdim)d];
             int cell = -1;
@@ -321,7 +321,7 @@ def inject_kernel(Vf, Vc):
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
-            evaluate_kernel(R, fi, Xref);
+            pyop2_kernel_evaluate(R, fi, Xref);
         }
         """ % {
             "to_reference": str(to_reference_kernel),
@@ -333,7 +333,7 @@ def inject_kernel(Vf, Vc):
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
-        return cache.setdefault(key, (op2.Kernel(kernel, name="inject_kernel"), False))
+        return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
 
 
 class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
@@ -512,9 +512,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     R = ast.Symbol("R")
     body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
     return op2.Kernel(ast.Node([Ainv._ast,
-                                ast.FunDecl("void", "injection_dg", args, body,
+                                ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
                                             pred=["static", "inline"])]),
-                      name="injection_dg",
+                      name="pyop2_kernel_injection_dg",
                       cpp=True,
                       include_dirs=Ainv._include_dirs,
                       headers=Ainv._headers)
