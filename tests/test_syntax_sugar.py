@@ -1,12 +1,11 @@
 import pytest
-from gem import gem
+import gem
 
 
 def test_expressions():
     x = gem.Variable("x", (3, 4))
     y = gem.Variable("y", (4, ))
-    i = gem.Index()
-    j = gem.Index()
+    i, j = gem.indices(2)
 
     xij = x[i, j]
     yj = y[j]
@@ -19,8 +18,18 @@ def test_expressions():
     assert xij - yj == gem.Sum(xij, gem.Product(gem.Literal(-1), yj))
     assert xij / yj == gem.Division(xij, yj)
 
-    with pytest.raises(AssertionError):
-        xij + 1
+    assert xij + 1 == gem.Sum(xij, gem.Literal(1))
+    assert 1 + xij == gem.Sum(gem.Literal(1), xij)
 
     with pytest.raises(AssertionError):
         xij + y
+
+    with pytest.raises(ValueError):
+        xij + "foo"
+
+
+def test_as_gem():
+    with pytest.raises(ValueError):
+        gem.as_gem([1, 2])
+
+    assert gem.as_gem(1) == gem.Literal(1)
