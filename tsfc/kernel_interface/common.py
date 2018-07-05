@@ -58,6 +58,11 @@ class KernelBuilderBase(KernelInterface):
                                                gem.Literal(1),
                                                gem.Literal(numpy.nan)))
 
+    def cell_size(self, restriction):
+        f = {None: (), '+': (0, ), '-': (1, )}[restriction]
+        # cell_sizes expression must have been set up by now.
+        return gem.partial_indexed(self._cell_sizes, f)
+
     def entity_number(self, restriction):
         """Facet or vertex number as a GEM index."""
         # Assume self._entity_number dict is set up at this point.
