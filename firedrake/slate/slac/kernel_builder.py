@@ -142,6 +142,7 @@ class LocalKernelBuilder(object):
         subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         oriented = False
+        needs_cell_sizes = False
 
         # Maps integral type to subdomain key
         subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
@@ -204,6 +205,7 @@ class LocalKernelBuilder(object):
                 templated_subkernels.append(kast)
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
+                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
         # Add subdomain call to assembly dict
         assembly_calls.update(subdomain_calls)
@@ -212,6 +214,7 @@ class LocalKernelBuilder(object):
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented
+        self.needs_cell_sizes = needs_cell_sizes
 
     @cached_property
     def coefficient_map(self):
