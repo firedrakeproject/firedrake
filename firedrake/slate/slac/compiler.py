@@ -156,7 +156,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    # result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
                                                              SCALAR_TYPE,
@@ -207,7 +208,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
         args.append(ast.Decl("int", builder.mesh_layer_sym))
 
     # Macro kernel
-    macro_kernel_name = "compile_slate"
+    macro_kernel_name = "pyop2_kernel_compile_slate"
     stmts = ast.Block(statements)
     macro_kernel = ast.FunDecl("void", macro_kernel_name, args,
                                stmts, pred=["static", "inline"])

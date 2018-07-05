@@ -98,19 +98,21 @@ class HybridizationPC(PCBase):
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
                   np.prod(V[self.vidx].shape))
-        weight_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        w[i][j] += 1.0;
-        }}""" % shapes
-
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
         self.weight = Function(V[self.vidx])
-        par_loop(weight_kernel, ufl.dx, {"w": (self.weight, INC)})
-        self.average_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        vec_out[i][j] += vec_in[i][j]/w[i][j];
-        }}""" % shapes
+        par_loop(domain, instructions, ufl.dx, {"w": (self.weight, INC)})
+
+        instructions = """
+        for i, j
+            vec_out[i,j] = vec_out[i,j] + vec_in[i,j]/w[i,j]
+        end
+        """
+        self.average_kernel = (domain, instructions)
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -334,7 +336,7 @@ class HybridizationPC(PCBase):
             unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
             broken_res_hdiv = self.broken_residual.split()[self.vidx]
             broken_res_hdiv.assign(0)
-            par_loop(self.average_kernel, ufl.dx,
+            par_loop(*self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
                       "vec_out": (broken_res_hdiv, INC)})
@@ -366,7 +368,7 @@ class HybridizationPC(PCBase):
             unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
             unbroken_hdiv.assign(0)
 
-            par_loop(self.average_kernel, ufl.dx,
+            par_loop(*self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
                       "vec_out": (unbroken_hdiv, INC)})
