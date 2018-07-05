@@ -626,18 +626,7 @@ def loopy_inst_conditional(expr, context):
 @loopy_instructions.register(ufl.classes.GE)
 def loopy_inst_compare(expr, context):
     left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    if isinstance(expr, ufl.classes.EQ):
-        op = "=="
-    elif isinstance(expr, ufl.classes.NE):
-        op = "!="
-    elif isinstance(expr, ufl.classes.LT):
-        op = "<"
-    elif isinstance(expr, ufl.classes.LE):
-        op = "<="
-    elif isinstance(expr, ufl.classes.GT):
-        op = ">"
-    elif isinstance(expr, ufl.classes.GE):
-        op = ">="
+    op = expr._name
     return p.Comparison(left, op, right)
 
 
