@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-import pyop2 as op2
 import ufl
 
 
@@ -21,20 +20,16 @@ def integrate_rhs(family, degree):
     prod = ufl.TensorProductElement(horiz, vert)
 
     fs = FunctionSpace(mesh, prod, name="fs")
-
     f = Function(fs)
-
-    populate_p0 = op2.Kernel("""
-void populate_tracer(double *x[], double *c[])
-{
-  x[0][0] = ((c[1][2] + c[0][2]) / 2);
-}""", "populate_tracer")
 
     coords = f.function_space().mesh().coordinates
 
-    op2.par_loop(populate_p0, f.cell_set,
-                 f.dat(op2.INC, f.cell_node_map()),
-                 coords.dat(op2.READ, coords.cell_node_map()))
+    domain = ""
+    instructions = """
+    x[0,0] = (c[1,2] + c[0,2]) / 2
+    """
+
+    par_loop(domain, instructions, dx, {'x': (f, INC), 'c': (coords, READ)})
 
     g = assemble(f * dx)
 

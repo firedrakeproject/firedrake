@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-import pyop2 as op2
 
 
 def integrate_unit_square(family, degree):
@@ -16,29 +15,20 @@ def integrate_unit_square(family, degree):
     mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
     fs = FunctionSpace(mesh, family, degree, name="fs")
-
     f = Function(fs)
-
-    area = op2.Kernel("""
-void comp_area(double A[1], double *x[], double *y[])
-{
-  double area = (x[1][1]-x[0][1])*(x[2][0]-x[0][0]);
-  if (area < 0)
-    area = area * (-1.0);
-  A[0] += area;
-}""", "comp_area")
-
-    g = op2.Global(1, data=0.0, name='g')
+    gs = FunctionSpace(mesh, "Real", 0)
+    g = Function(gs)
 
     coords = f.function_space().mesh().coordinates
 
-    op2.par_loop(area, f.cell_set,
-                 g(op2.INC),
-                 coords.dat(op2.READ, coords.cell_node_map()),
-                 f.dat(op2.READ, f.cell_node_map())
-                 )
+    domain = ""
+    instructions = """
+    <float64> area = (x[1,1]-x[0,1])*(x[2,0]-x[0,0])
+    A[0] = A[0] + fabs(area)
+    """
+    par_loop(domain, instructions, dx, {'A': (g, INC), 'x': (coords, READ)})
 
-    return np.abs(g.data[0] - 1.0)
+    return np.abs(g.dat.data[0] - 1.0)
 
 
 def test_firedrake_extrusion_unit_square():

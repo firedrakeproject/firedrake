@@ -73,6 +73,9 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # indirection
             ndof = func.dat.cdim
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+        elif func.function_space().ufl_element().family() == "Real":
+            ndof = func.function_space().dim  # == 1
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
