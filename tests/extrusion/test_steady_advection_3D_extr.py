@@ -79,7 +79,8 @@ def test_right_to_left(mesh, DG0, W):
     velocity = Expression(("-1.0", "0.0", "0.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[1] > 0.25 && x[1] < 0.75 ? 1.0 : 0.5")
+    # inflowexpr = Expression("x[1] > 0.25 && x[1] < 0.75 ? 1.0 : 0.5")
+    inflowexpr = Expression("if(x[1] > 0.25 and x[1] < 0.75, 1, 0.5)")
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -133,7 +134,7 @@ def test_far_to_near(mesh, DG0, W):
     velocity = Expression(("0.0", "-1.0", "0.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[2] > 0.25 && x[2] < 0.75 ? 1.0 : 0.5")
+    inflowexpr = Expression("if(x[2] > 0.25 and x[2] < 0.75, 1, 0.5)")
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -187,7 +188,7 @@ def test_top_to_bottom(mesh, DG0, W):
     velocity = Expression(("0.0", "0.0", "-1.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[0] > 0.25 && x[0] < 0.75 ? 1.0 : 0.5")
+    inflowexpr = Expression("if(x[0] > 0.25 and x[0] < 0.75, 1, 0.5)")
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
