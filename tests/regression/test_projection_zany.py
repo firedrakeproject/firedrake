@@ -13,10 +13,10 @@ import pytest
 from firedrake import *
 
 
-def do_projection(x, el_type, degree, mesh=None):
+def do_projection(n, el_type, degree):
     # Create mesh and define function space
-    if mesh is None:
-        mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    mesh = UnitSquareMesh(2**n, 2**n)
+
     V = FunctionSpace(mesh, el_type, degree)
 
     # Define variational problem
@@ -31,7 +31,7 @@ def do_projection(x, el_type, degree, mesh=None):
     x = Function(V)
     solve(a == L, x, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
-    return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
+    return sqrt(assemble(dot(x - f, x - f) * dx))
 
 
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
@@ -40,11 +40,6 @@ def do_projection(x, el_type, degree, mesh=None):
                           ('Bell', 5, 4),
                           ('Argyris', 5, 4.9)])
 def test_firedrake_projection_scalar_convergence(el, deg, convrate):
-    diff = np.array([do_projection(i, el, deg)[0] for i in range(1, 4)])
+    diff = np.array([do_projection(i, el, deg) for i in range(1, 4)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

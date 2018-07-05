@@ -17,10 +17,17 @@ import pytest
 from firedrake import *
 
 
-def helmholtz(x, el_type, degree, mesh=None):
-    # Create mesh and define function space
-    if mesh is None:
-        mesh = UnitSquareMesh(2 ** x, 2 ** x)
+def helmholtz(n, el_type, degree, perturb):
+    mesh = UnitSquareMesh(2**n, 2**n)
+    if perturb:
+        V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+        eps = Constant(1 / 2**(n+1))
+
+        x, y = SpatialCoordinate(mesh)
+        new = Function(V).interpolate(as_vector([x + eps*sin(8*pi*x)*sin(8*pi*y),
+                                                 y - eps*sin(8*pi*x)*sin(8*pi*y)]))
+        mesh = Mesh(new)
+
     V = FunctionSpace(mesh, el_type, degree)
 
     # Define variational problem
@@ -40,7 +47,7 @@ def helmholtz(x, el_type, degree, mesh=None):
 
     # Analytical solution
     f.project(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
-    return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
+    return sqrt(assemble(dot(x - f, x - f) * dx))
 
 
 # Test convergence on Hermite, Bell, and Argyris
@@ -51,12 +58,8 @@ def helmholtz(x, el_type, degree, mesh=None):
                          [('Hermite', 3, 3.8),
                           ('Bell', 5, 4.8),
                           ('Argyris', 5, 5)])
-def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate):
-    diff = np.array([helmholtz(i, el, deg)[0] for i in range(1, 4)])
+@pytest.mark.parametrize("perturb", [False, True], ids=["Regular", "Perturbed"])
+def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate, perturb):
+    diff = np.array([helmholtz(i, el, deg, perturb) for i in range(1, 4)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
