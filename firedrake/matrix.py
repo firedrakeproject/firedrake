@@ -157,13 +157,16 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, mat_type, *args, **kwargs):
+    def __init__(self, a, bcs, *, mat_type=None,
+                 dsets=None, map_pairs=None,
+                 sub_mat_type=None, dtype=None, options_prefix=None):
         # sets self._a, self._bcs, and self._mat_type
         super(Matrix, self).__init__(a, bcs, mat_type)
-        options_prefix = kwargs.pop("options_prefix")
-        self._M = op2.Mat(*args, **kwargs)
+        self._M = op2.Mat(dsets, map_pairs, mat_type=mat_type,
+                          sub_mat_type=sub_mat_type, dtype=dtype)
         self.petscmat = self._M.handle
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
         self._thunk = None
         self.assembled = False
         self.mat_type = mat_type

@@ -80,14 +80,6 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
     """
-
-    if "nest" in kwargs:
-        nest = kwargs.pop("nest")
-        from firedrake.logging import warning, RED
-        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' instead")
-        if nest is not None:
-            mat_type = "nest" if nest else "aij"
-
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
     if len(kwargs) > 0:
@@ -150,6 +142,10 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     return thunk
 
 
+valid_mat_types = frozenset(["aij", "baij", "is", "matfree", "nest"])
+valid_sub_mat_types = frozenset(["aij", "baij", "is"])
+
+
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
@@ -181,12 +177,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-    if mat_type not in ["matfree", "aij", "baij", "nest"]:
-        raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
+    if mat_type not in valid_mat_types:
+        raise ValueError("Invalid matrix type, '%s', not in '%s'" %
+                         (mat_type, valid_mat_types))
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in ["aij", "baij"]:
-        raise ValueError("Invalid submatrix type, '%s' (not 'aij' or 'baij')", sub_mat_type)
+    if sub_mat_type not in valid_sub_mat_types:
+        raise ValueError("Invalid submatrix type, '%s' not in '%s'" %
+                         (sub_mat_type, valid_sub_mat_types))
 
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
@@ -230,11 +228,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     if is_mat:
         matfree = mat_type == "matfree"
-        nest = mat_type == "nest"
-        if nest:
-            baij = sub_mat_type == "baij"
-        else:
-            baij = mat_type == "baij"
         if matfree:  # intercept matrix-free matrices here
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
@@ -297,22 +290,18 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                   op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
 
             map_pairs = tuple(map_pairs)
-            # Construct OP2 Mat to assemble into
-            fs_names = (test.function_space().name, trial.function_space().name)
-
+            dsets = (test.function_space().dof_dset,
+                     trial.function_space().dof_dset)
             try:
-                sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                         trial.function_space().dof_dset),
-                                        map_pairs,
-                                        "%s_%s_sparsity" % fs_names,
-                                        nest=nest,
-                                        block_sparse=baij)
+                result_matrix = matrix.Matrix(f, bcs,
+                                              dsets=dsets,
+                                              map_pairs=map_pairs,
+                                              mat_type=mat_type,
+                                              sub_mat_type=sub_mat_type,
+                                              dtype=numpy.float64,
+                                              options_prefix=options_prefix)
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
-
-            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, numpy.float64,
-                                          "%s_%s_matrix" % fs_names,
-                                          options_prefix=options_prefix)
             tensor = result_matrix._M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
