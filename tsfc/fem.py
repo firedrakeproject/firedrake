@@ -155,29 +155,17 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_tangents(self):
         rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
-        # this is gem:
         jac = self.jacobian_at([1/3, 1/3])
 
         els = self.physical_edge_lengths()
 
-        return gem.ListTensor([[gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (0, 0)),
-                                                                 gem.Literal(rts[i][0])),
-                                                     gem.Product(gem.Indexed(jac, (0, 1)),
-                                                                 gem.Literal(rts[i][1]))),
-                                             gem.Indexed(els, (i,))),
-                                gem.Division(gem.Sum(gem.Product(gem.Indexed(jac, (1, 0)),
-                                                                 gem.Literal(rts[i][0])),
-                                                     gem.Product(gem.Indexed(jac, (1, 1)),
-                                                                 gem.Literal(rts[i][1]))),
-                                             gem.Indexed(els, (i, )))]
+        return gem.ListTensor([[(jac[0, 0]*rts[i][0] + jac[0, 1]*rts[i][1]) / els[i],
+                                (jac[1, 0]*rts[i][0] + jac[1, 1]*rts[i][1]) / els[i]]
                                for i in range(3)])
 
     def physical_normals(self):
         pts = self.physical_tangents()
-        return gem.ListTensor([[gem.Indexed(pts, (i, 1)),
-                                gem.Product(gem.Literal(-1),
-                                            gem.Indexed(pts, (i, 0)))]
-                               for i in range(3)])
+        return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(3)])
 
     def physical_edge_lengths(self):
         expr = ufl.classes.CellEdgeVectors(self.mt.terminal.ufl_domain())
