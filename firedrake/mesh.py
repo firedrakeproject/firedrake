@@ -8,7 +8,7 @@ from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 import enum
 
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, ScalarType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
@@ -1233,7 +1233,8 @@ def make_mesh_from_coordinates(coordinates):
 
 
 @timed_function("CreateMesh")
-def Mesh(meshfile, **kwargs):
+def Mesh(meshfile, *, dim=None, reorder=None, distribution_parameters=None, comm=None,
+         coordinate_element=None):
     """Construct a mesh object.
 
     Meshes may either be created by reading from a mesh file, or by
@@ -1298,12 +1299,9 @@ def Mesh(meshfile, **kwargs):
 
     utils._init()
 
-    geometric_dim = kwargs.get("dim", None)
-    reorder = kwargs.get("reorder", None)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
 
-    distribution_parameters = kwargs.get("distribution_parameters", None)
     if distribution_parameters is None:
         distribution_parameters = {}
 
@@ -1311,7 +1309,7 @@ def Mesh(meshfile, **kwargs):
         name = "plexmesh"
         plex = meshfile
     else:
-        comm = kwargs.get("comm", COMM_WORLD)
+        comm = comm or COMM_WORLD
         name = meshfile
         basename, ext = os.path.splitext(meshfile)
 
@@ -1322,7 +1320,7 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.msh':
             plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, geometric_dim, comm)
+            plex = _from_triangle(meshfile, dim, comm)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
@@ -1332,13 +1330,19 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters)
 
     tcell = topology.ufl_cell()
-    if geometric_dim is None:
-        geometric_dim = tcell.topological_dimension()
-    cell = tcell.reconstruct(geometric_dimension=geometric_dim)
 
-    element = ufl.VectorElement("Lagrange", cell, 1)
+    gdim = plex.getCoordinateDim()
+    if coordinate_element is None:
+        cell = tcell.reconstruct(geometric_dimension=gdim)
+        coordinate_element = ufl.VectorElement("Lagrange", cell, 1)
+    else:
+        if coordinate_element.cell().geometric_dimension() != gdim:
+            raise ValueError("Provided coordinate element has incorrect geometric dimension")
+        if coordinate_element.cell().topological_dimension() != tcell.topological_dimension():
+            raise ValueError("Provided coordinate element has incorrect topological dimension")
+
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, coordinate_element)
     mesh._topology = topology
 
     def callback(self):
@@ -1346,16 +1350,11 @@ def Mesh(meshfile, **kwargs):
         del self._callback
         # Finish the initialisation of mesh topology
         self.topology.init()
-
-        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                           dim=geometric_dim)
-
-        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
-                                                   (self.num_vertices(), geometric_dim))
-
-        coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                      val=coordinates_data,
-                                                      name="Coordinates")
+        # Build coordinate field
+        V = functionspace.FunctionSpace(self.topology, coordinate_element)
+        shape = (V.dof_dset.total_size, V.value_size)
+        data = dmplex.reordered_coords(plex, V.dm.getDefaultSection(), shape)
+        coordinates = function.CoordinatelessFunction(V, val=data, name="Coordinates")
 
         self.__init__(coordinates)
 
