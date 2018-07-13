@@ -73,9 +73,6 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # indirection
             ndof = func.dat.cdim
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
-        elif func.function_space().ufl_element().family() == "Real":
-            ndof = func.function_space().dim  # == 1
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -85,11 +82,15 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
                 cdim = c.dat[idx].cdim
                 dtype = c.dat[idx].dtype
             else:
-                if len(func.function_space()) > 1:
-                    raise NotImplementedError("Must index mixed function in par_loop.")
-                ndof = func.function_space().finat_element.space_dimension()
-                cdim = func.dat.cdim
-                dtype = func.dat.dtype
+                if func.function_space().ufl_element().family() == "Real":
+                    ndof = func.function_space().dim  # == 1
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                else:
+                    if len(func.function_space()) > 1:
+                        raise NotImplementedError("Must index mixed function in par_loop.")
+                    ndof = func.function_space().finat_element.space_dimension()
+                    cdim = func.dat.cdim
+                    dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?

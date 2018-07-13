@@ -152,8 +152,8 @@ inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
     height = op2.Global(1, layer_height, dtype=float)
     op2.par_loop(kernel,
                  ext_coords.cell_set,
-                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
                  ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
                  height(op2.READ),
                  pass_layer_arg=True)
 
