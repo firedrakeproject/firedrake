@@ -72,6 +72,13 @@ class KernelBuilder(KernelBuilderBase):
             f, "coordinate_dofs", self.scalar_type, interior_facet=self.interior_facet)
         self.coefficient_map[f] = expression
 
+    def set_cell_sizes(self, domain):
+        """Prepare cell sizes field.
+
+        :arg domain: :class:`ufl.Domain`
+        """
+        pass
+
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
 
@@ -147,6 +154,15 @@ class KernelBuilder(KernelBuilderBase):
     def needs_cell_orientations(ir):
         # UFC tabulate_tensor always have cell orientations
         return True
+
+    @staticmethod
+    def require_cell_sizes():
+        pass
+
+    @staticmethod
+    def needs_cell_sizes(ir):
+        # Not hooked up right now.
+        return False
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given

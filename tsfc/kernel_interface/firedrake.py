@@ -2,7 +2,7 @@ import numpy
 from collections import namedtuple
 from itertools import chain, product
 
-from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
+from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import coffee.base as coffee
 
@@ -20,7 +20,7 @@ ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'coefficie
 
 class Kernel(object):
     __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "domain_number",
+                 "domain_number", "needs_cell_sizes",
                  "coefficient_numbers", "__weakref__")
     """A compiled Kernel object.
 
@@ -33,10 +33,12 @@ class Kernel(object):
         original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
+    :kwarg needs_cell_sizes: Does the kernel require cell sizes.
     """
     def __init__(self, ast=None, integral_type=None, oriented=False,
                  subdomain_id=None, domain_number=None,
-                 coefficient_numbers=()):
+                 coefficient_numbers=(),
+                 needs_cell_sizes=False):
         # Defaults
         self.ast = ast
         self.integral_type = integral_type
@@ -44,6 +46,7 @@ class Kernel(object):
         self.domain_number = domain_number
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
+        self.needs_cell_sizes = needs_cell_sizes
         super(Kernel, self).__init__()
 
 
@@ -87,6 +90,14 @@ class KernelBuilderBase(_KernelBuilderBase):
                 return True
         return False
 
+    @staticmethod
+    def needs_cell_sizes(ir):
+        """Does a multi-root GEM expression DAG reference cell sizes?"""
+        for node in traversal(ir):
+            if isinstance(node, gem.Variable) and node.name == "cell_sizes":
+                return True
+        return False
+
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
@@ -123,6 +134,15 @@ class ExpressionKernelBuilder(KernelBuilderBase):
     def require_cell_orientations(self):
         """Set that the kernel requires cell orientations."""
         self.oriented = True
+
+    @staticmethod
+    def needs_cell_sizes(ir):
+        # Not hooked up
+        return False
+
+    @staticmethod
+    def require_cell_sizes():
+        pass
 
     def construct_kernel(self, return_arg, body):
         """Constructs an :class:`ExpressionKernel`.
@@ -221,6 +241,25 @@ class KernelBuilder(KernelBuilderBase):
         """Set that the kernel requires cell orientations."""
         self.kernel.oriented = True
 
+    def require_cell_sizes(self):
+        """Set that the kernel requires cell sizes."""
+        self.kernel.needs_cell_sizes = True
+
+    def set_cell_sizes(self, domain):
+        """Setup a fake coefficient for "cell sizes".
+
+        :arg domain: The domain of the integral.
+
+        This is required for scaling of derivative basis functions on
+        physically mapped elements (Argyris, Bell, etc...).  We need a
+        measure of the mesh size around each vertex (hence this lives
+        in P1).
+        """
+        f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
+        funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+        self.cell_sizes_arg = funarg
+        self._cell_sizes = expression
+
     def construct_kernel(self, name, body):
         """Construct a fully built :class:`Kernel`.
 
@@ -234,6 +273,8 @@ class KernelBuilder(KernelBuilderBase):
         args = [self.local_tensor, self.coordinates_arg]
         if self.kernel.oriented:
             args.append(cell_orientations_coffee_arg)
+        if self.kernel.needs_cell_sizes:
+            args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             args.append(coffee.Decl("unsigned int",
