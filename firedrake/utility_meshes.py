@@ -295,13 +295,11 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
             mcoords
 
     local_facet_dat = mash.topology.interior_facets.local_facet_dat
-    local_facet_number = mash.topology.interior_facets.local_facet_number
 
-    lfd_ro = local_facet_dat.data_ro
-    for i in range(lfd_ro.shape[0]):
-        if all(lfd_ro[i, :] == np.array([3, 3])):
-            local_facet_dat.data[i, :] = [2, 3]
-            local_facet_number[i, :] = [2, 3]
+    lfd = local_facet_dat.data
+    for i in range(lfd.shape[0]):
+        if all(lfd[i, :] == np.array([3, 3])):
+            lfd[i, :] = [2, 3]
 
     return mash
 
