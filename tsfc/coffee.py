@@ -3,9 +3,8 @@
 This is the final stage of code generation in TSFC."""
 
 from collections import defaultdict
-from functools import singledispatch, reduce
 from cmath import isnan
-
+from functools import singledispatch, reduce
 import itertools
 
 import numpy
@@ -335,19 +334,19 @@ def _expression_scalar(expr, parameters):
         return coffee.Symbol("NAN")
     else:
         vr = expr.value.real
-        rr = round(1)
+        rr = round(vr, 1)
         if rr and abs(vr - rr) < parameters.epsilon:
             vr = rr  # round to nonzero
 
         vi = expr.value.imag  # also checks if v is purely real
         if vi == 0.0:
             return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
-        ri = round(1)
+        ri = round(vi, 1)
 
         if ri and abs(vi - ri) < parameters.epsilon:
             vi = ri
-        return coffee.Symbol(("%%.%dg" % parameters.precision) % vr + " + " +
-                             ("%%.%dg" % parameters.precision) % vi + " * I")
+        return coffee.Symbol("({real:.{prec}g} + {imag:.{prec}g} * I)".format(
+            real=vr, imag=vi, prec=parameters.precision))
 
 
 @_expression.register(gem.Variable)
