@@ -84,7 +84,16 @@ class _Facets(object):
 
         self.facet_cell = facet_cell
 
-        self.local_facet_number = local_facet_number
+        if isinstance(self.set, op2.ExtrudedSet):
+            dset = op2.DataSet(self.set.parent, self._rank)
+        else:
+            dset = op2.DataSet(self.set, self._rank)
+
+        # Dat indicating which local facet of each adjacent cell corresponds
+        # to the current facet.
+        self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
+                                       "%s_%s_local_facet_number" %
+                                       (self.mesh.name, self.kind))
 
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
@@ -110,12 +119,6 @@ class _Facets(object):
                                    masks=masks)
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
-
-    @utils.cached_property
-    def dataset(self):
-        if isinstance(self.set, op2.ExtrudedSet):
-            return self.set.parent
-        return self.set
 
     @utils.cached_property
     def _null_subset(self):
@@ -193,13 +196,6 @@ class _Facets(object):
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
             return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
-
-    @utils.cached_property
-    def local_facet_dat(self):
-        """Dat indicating which local facet of each adjacent
-        cell corresponds to the current facet."""
-        return op2.Dat(op2.DataSet(self.dataset, self._rank), self.local_facet_number,
-                       np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
     @utils.cached_property
     def facet_cell_map(self):
@@ -854,7 +850,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return _Facets(self, base.classes,
                        kind,
                        base.facet_cell,
-                       base.local_facet_number,
+                       base.local_facet_dat.data,
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
