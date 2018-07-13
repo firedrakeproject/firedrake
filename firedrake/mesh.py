@@ -850,7 +850,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return _Facets(self, base.classes,
                        kind,
                        base.facet_cell,
-                       base.local_facet_dat.data,
+                       base.local_facet_dat.data_ro_with_halos,
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
