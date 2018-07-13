@@ -112,6 +112,12 @@ class _Facets(object):
                        comm=self.mesh.comm)
 
     @utils.cached_property
+    def dataset(self):
+        if isinstance(self.set, op2.ExtrudedSet):
+            return self.set.parent
+        return self.set
+
+    @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
         a given marker value. This is required because not all
@@ -192,8 +198,7 @@ class _Facets(object):
     def local_facet_dat(self):
         """Dat indicating which local facet of each adjacent
         cell corresponds to the current facet."""
-
-        return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
+        return op2.Dat(op2.DataSet(self.dataset, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
     @utils.cached_property
@@ -1141,7 +1146,7 @@ values from f.)"""
     int locator(struct Function *f, double *x)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
