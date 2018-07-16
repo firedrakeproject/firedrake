@@ -511,7 +511,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")
     body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
-    return op2.Kernel(ast.Node([Ainv._ast,
+    from coffee.base import Node
+    assert isinstance(Ainv._code, Node)
+    return op2.Kernel(ast.Node([Ainv._code,
                                 ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
                                             pred=["static", "inline"])]),
                       name="pyop2_kernel_injection_dg",
