@@ -5,7 +5,7 @@ from firedrake import slate
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -69,7 +69,7 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(solving_utils.ParametersMixin):
+class NonlinearVariationalSolver(OptionsManager):
     """Solves a :class:`NonlinearVariationalProblem`."""
 
     def __init__(self, problem, **kwargs):
