@@ -292,7 +292,9 @@ class LocalKernelBuilder(object):
                     assembly_calls[it_type].append(call)
 
                 # Subkernels for local assembly (Eigen templated functions)
-                kast = transformer.visit(kinfo.kernel._ast)
+                from coffee.base import Node
+                assert isinstance(kinfo.kernel._code, Node)
+                kast = transformer.visit(kinfo.kernel._code)
                 templated_subkernels.append(kast)
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
