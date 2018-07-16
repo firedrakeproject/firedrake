@@ -189,19 +189,19 @@ def _interpolator(V, dat, expr, subset):
         dat = op2.Dat(dat.dataset)
         copy_back = True
     if indexed:
-        args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
+        args.append(dat(op2.WRITE, V.cell_node_map()))
     else:
         args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map()[op2.i[0]]))
+        args.append(co.dat(op2.READ, co.cell_node_map()))
     if needs_cell_sizes:
         cs = mesh.cell_sizes
-        args.append(cs.dat(op2.READ, cs.cell_node_map()[op2.i[0]]))
+        args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         m_ = coefficient.cell_node_map()
         if indexed:
-            args.append(coefficient.dat(op2.READ, m_ and m_[op2.i[0]]))
+            args.append(coefficient.dat(op2.READ, m_))
         else:
             args.append(coefficient.dat(op2.READ, m_))
 
