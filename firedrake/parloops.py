@@ -85,6 +85,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim  # == 1
                     kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    continue
                 else:
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
