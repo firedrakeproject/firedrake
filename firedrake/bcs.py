@@ -43,6 +43,11 @@ class DirichletBC(object):
     '''
 
     def __init__(self, V, g, sub_domain, method="topological"):
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        import finat
+        if isinstance(V.finat_element, (finat.Hermite, finat.Argyris, finat.Morley, finat.Bell)):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
         self._function_space = V
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
@@ -93,6 +98,20 @@ class DirichletBC(object):
                 # Remember "new" value of original arg, to work with zero/restore pair.
                 self._original_arg = self.function_arg
         return self._function_arg
+
+    def reconstruct(self, *, V=None, g=None, sub_domain=None, method=None):
+        if V is None:
+            V = self.function_space()
+        if g is None:
+            g = self._original_arg
+        if sub_domain is None:
+            sub_domain = self.sub_domain
+        if method is None:
+            method = self.method
+        if V == self.function_space() and g == self._original_arg and \
+           sub_domain == self.sub_domain and method == self.method:
+            return self
+        return type(self)(V, g, sub_domain, method=method)
 
     @function_arg.setter
     def function_arg(self, g):

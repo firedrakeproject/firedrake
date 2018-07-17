@@ -1,506 +1,147 @@
-from itertools import permutations
-import numpy as np
-
-import FIAT
-import ufl
-import coffee.base as ast
-
+import numpy
+from fractions import Fraction
 from pyop2 import op2
-from tsfc.fiatinterface import create_element
-
-import firedrake
+from pyop2.datatypes import IntType
 from firedrake.functionspacedata import entity_dofs_key
-from firedrake.petsc import PETSc
-from firedrake.parameters import parameters
+import ufl
+import firedrake
+from . import impl
 
 
-def coarse_to_fine_node_map(coarse, fine):
-    if len(coarse) > 1:
-        assert len(fine) == len(coarse)
-        return op2.MixedMap(coarse_to_fine_node_map(c, f) for c, f in zip(coarse, fine))
-    mesh = coarse.mesh()
+def fine_node_to_coarse_node_map(Vf, Vc):
+    if len(Vf) > 1:
+        assert len(Vf) == len(Vc)
+        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+    mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    if not (coarse.ufl_element() == fine.ufl_element()):
-        raise ValueError("Can't transfer between different spaces")
-    ch, level = get_level(mesh)
-    fh, fine_level = get_level(fine.mesh())
-    if ch is not fh:
-        raise ValueError("Can't map between different hierarchies")
-    refinements_per_level = ch.refinements_per_level
-    if refinements_per_level*level + 1 != refinements_per_level*fine_level:
-        raise ValueError("Can't map between level %s and level %s" % (level, fine_level))
-    c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
 
-    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (level, )
-    cache = mesh._shared_data_cache["hierarchy_cell_node_map"]
+    if hierarchyc != hierarchyf:
+        raise ValueError("Can't map across hierarchies")
+
+    hierarchy = hierarchyf
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
+        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+
+    key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
+           entity_dofs_key(Vf.finat_element.entity_dofs()) +
+           (levelc, levelf))
+
+    cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
         return cache[key]
     except KeyError:
-        from .impl import create_cell_node_map
-        map_vals, offset = create_cell_node_map(coarse, fine, c2f, vperm)
-        return cache.setdefault(key, op2.Map(mesh.cell_set,
-                                             fine.node_set,
-                                             map_vals.shape[1],
-                                             map_vals, offset=offset))
+        assert Vc.extruded == Vf.extruded
+        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
+            raise NotImplementedError("Not implemented for variable layers, sorry")
+        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
+            raise ValueError("Coarse and fine meshes must have same number of layers")
+
+        fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
+        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
+                                             fine_to_coarse_nodes.shape[1],
+                                             values=fine_to_coarse_nodes))
 
 
-def get_transfer_kernel(coarse, fine, typ=None):
-    ch, level = get_level(coarse.mesh())
-    mesh = ch[0]
+def coarse_node_to_fine_node_map(Vc, Vf):
+    if len(Vf) > 1:
+        assert len(Vf) == len(Vc)
+        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+    mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (typ, coarse.value_size)
-    cache = mesh._shared_data_cache["hierarchy_transfer_kernel"]
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
+
+    if hierarchyc != hierarchyf:
+        raise ValueError("Can't map across hierarchies")
+
+    hierarchy = hierarchyf
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
+        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+
+    key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
+           entity_dofs_key(Vf.finat_element.entity_dofs()) +
+           (levelc, levelf))
+
+    cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
-        if not (coarse.ufl_element() == fine.ufl_element()):
-            raise ValueError("Can't transfer between different spaces")
-        ch, level = get_level(coarse.mesh())
-        fh, fine_level = get_level(fine.mesh())
-        refinements_per_level = ch.refinements_per_level
-        assert ch is fh
-        assert refinements_per_level*level + 1 == refinements_per_level*fine_level
-        dim = coarse.value_size
-        element = create_element(coarse.ufl_element(), vector_is_mixed=False)
-        omap = fine.cell_node_map().values
-        c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
-        indices, _ = get_unique_indices(element,
-                                        omap[c2f[0, :], ...].reshape(-1),
-                                        vperm[0, :],
-                                        offset=None)
-        if typ == "prolong":
-            kernel = get_prolongation_kernel(element, indices, dim)
-        elif typ == "inject":
-            kernel = get_injection_kernel(element, indices, dim)
-        elif typ == "restrict":
-            discontinuous = element.entity_dofs() == element.entity_closure_dofs()
-            kernel = get_restriction_kernel(element, indices, dim, no_weights=discontinuous)
-        else:
-            raise ValueError("Unknown transfer type '%s'" % typ)
-        return cache.setdefault(key, kernel)
+        assert Vc.extruded == Vf.extruded
+        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
+            raise NotImplementedError("Not implemented for variable layers, sorry")
+        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
+            raise ValueError("Coarse and fine meshes must have same number of layers")
+
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
+        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
+                                             coarse_to_fine_nodes.shape[1],
+                                             values=coarse_to_fine_nodes))
 
 
-def get_restriction_weights(coarse, fine):
-    mesh = coarse.mesh()
+def coarse_cell_to_fine_node_map(Vc, Vf):
+    if len(Vf) > 1:
+        assert len(Vf) == len(Vc)
+        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+    mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    cache = mesh._shared_data_cache["hierarchy_restriction_weights"]
-    key = entity_dofs_key(coarse.finat_element.entity_dofs())
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
+
+    if hierarchyc != hierarchyf:
+        raise ValueError("Can't map across hierarchies")
+
+    hierarchy = hierarchyf
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
+        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+
+    key = (entity_dofs_key(Vf.finat_element.entity_dofs()) + (levelc, levelf))
+    cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
-        # We hit each fine dof more than once since we loop
-        # elementwise over the coarse cells.  So we need a count of
-        # how many times we did this to weight the final contribution
-        # appropriately.
-        if not (coarse.ufl_element() == fine.ufl_element()):
-            raise ValueError("Can't transfer between different spaces")
-        if coarse.finat_element.entity_dofs() == coarse.finat_element.entity_closure_dofs():
-            return cache.setdefault(key, None)
-        ele = coarse.ufl_element()
-        if isinstance(ele, ufl.VectorElement):
-            ele = ele.sub_elements()[0]
-            weights = firedrake.Function(firedrake.FunctionSpace(fine.mesh(), ele))
-        else:
-            weights = firedrake.Function(fine)
-        c2f_map = coarse_to_fine_node_map(coarse, fine)
-        kernel = get_count_kernel(c2f_map.arity)
-        op2.par_loop(kernel, c2f_map.iterset,
-                     weights.dat(op2.INC, c2f_map[op2.i[0]]))
-        weights.assign(1/weights)
-        return cache.setdefault(key, weights)
+        assert Vc.extruded == Vf.extruded
+        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
+            raise NotImplementedError("Not implemented for variable layers, sorry")
+        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
+            raise ValueError("Coarse and fine meshes must have same number of layers")
 
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        _, ncell = coarse_to_fine.shape
+        iterset = Vc.mesh().cell_set
+        arity = Vf.finat_element.space_dimension() * ncell
+        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity), -1, dtype=IntType)
+        values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
 
-def get_transformations(fiat_cell):
-    """Compute affine transformations to the reference cell from a
-    cell with permuted vertices
-
-    :arg fiat_cell: The cell to compute the transformations on
-
-    Returns a dict keyed by the permutation whose values are a tuple
-    (A, v): a transformation matrix A plus a vector shift v.
-
-    The permutation (1, 0, 2) indicates that if the reference cell is
-    numbered:
-
-    2
-    |\
-    0-1
-
-    Then the transformation is to the cell:
-
-    2
-    |\
-    1-0
-
-    """
-    if isinstance(fiat_cell, FIAT.reference_element.TensorProductCell):
-        extruded = True
-        cell, _ = fiat_cell.cells
-    else:
-        extruded = False
-        cell = fiat_cell
-
-    tdim = cell.get_spatial_dimension()
-    nvtx = len(cell.get_vertices())
-    if not ((tdim == 2 and nvtx == 3) or (tdim == 1 and nvtx == 2)):
-        raise RuntimeError("Only implemented on (possibly extruded) intervals and triangles")
-    perms = permutations(range(nvtx))
-    vertices = np.asarray(cell.get_vertices()).reshape(-1, tdim)
-    result = {}
-    ndof = len(vertices.reshape(-1))
-    # Transformation is
-    # A x + b = x1
-    # x is original coords, x1 the permuted coords.  So solve for
-    # values in A (a matrix) and b (a vector).
-    A = np.zeros((ndof, ndof))
-    for i, vtx in enumerate(vertices):
-        for j in range(len(vtx)):
-            A[i*len(vtx) + j, len(vtx)*j:len(vtx)*(j+1)] = vtx
-            A[i*len(vtx) + j, len(vtx)*tdim + j] = 1
-    for perm in perms:
-        p = np.asarray(perm)
-        new_coords = vertices[p]
-        transform = np.linalg.solve(A, new_coords.reshape(-1))
-        Ap = transform[:tdim*tdim].reshape(-1, tdim)
-        b = transform[tdim*tdim:]
-        if extruded:
-            # Extruded cell only permutes in "horizontal" plane, so
-            # extra coordinate is mapped by the identity.
-            tmp = np.eye(tdim+1, dtype=float)
-            tmp[:tdim, :tdim] = Ap
-            Ap = tmp
-            b = np.hstack((b, np.asarray([0], dtype=float)))
-        result[perm] = (Ap, b)
-    return result
-
-
-def get_node_permutations(fiat_element):
-    """Compute permutations of the nodes in a fiat_element if the
-    vertices are permuted.
-
-    :arg fiat_element: the element to inspect
-
-    Returns a dict mapping a vertex permutation to a permutation of
-    the nodes."""
-    def apply_transform(T, v):
-        return np.dot(T[0], v) + T[1]
-    functionals = fiat_element.dual_basis()
-    transforms = get_transformations(fiat_element.get_reference_element())
-    result = {}
-    nodes = []
-    for node in functionals:
-        pt = node.get_point_dict()
-        assert len(pt.keys()) == 1
-        nodes.append(np.asarray(next(iter(pt.keys())), dtype=float))
-    for perm, transform in transforms.items():
-        p = -np.ones(len(functionals), dtype=PETSc.IntType)
-        new_nodes = [apply_transform(transform, node) for node in nodes]
-        for i, node in enumerate(new_nodes):
-            for j, old_node in enumerate(nodes):
-                if np.allclose(node, old_node):
-                    p[j] = i
-        result[perm] = p
-    return result
-
-
-def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
-    """Given a non-unique map permute to a consistent order and return
-    an array of unique indices, if offset is supplied and not None,
-    also return the extruded "offset" array for the new map."""
-    perms = get_node_permutations(fiat_element)
-    order = -np.ones_like(nonunique_map)
-    cell = fiat_element.get_reference_element()
-    if isinstance(cell, FIAT.reference_element.TensorProductCell):
-        cell, _ = cell.cells
-    tdim = cell.get_spatial_dimension()
-    nvtx = len(cell.get_vertices())
-    ncell = 2**tdim
-    ndof = len(order)//ncell
-    if offset is not None:
-        new_offset = -np.ones(ncell * offset.shape[0], dtype=offset.dtype)
-    for i in range(ncell):
-        p = perms[tuple(vperm[i*nvtx:(i+1)*nvtx])]
-        order[i*ndof:(i+1)*ndof] = nonunique_map[i*ndof:(i+1)*ndof][p]
+        coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
+        offset = Vf.offset
         if offset is not None:
-            new_offset[i*ndof:(i+1)*ndof] = offset[p]
-
-    indices = np.empty(len(np.unique(order)), dtype=PETSc.IntType)
-    seen = set()
-    i = 0
-    for j, n in enumerate(order):
-        if n not in seen:
-            indices[i] = j
-            i += 1
-            seen.add(n)
-    if offset is not None:
-        return indices, new_offset[indices]
-    return indices, None
+            offset = numpy.tile(offset, ncell)
+        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
+                                             arity=arity, values=coarse_to_fine_nodes,
+                                             offset=offset))
 
 
-def get_transforms_to_fine(cell):
-    if isinstance(cell, FIAT.reference_element.TensorProductCell):
-        extruded = True
-        cell, _ = cell.cells
-    else:
-        extruded = False
-
-    tdim = cell.get_spatial_dimension()
-
-    def extend(A, b):
-        # Vertical coordinate is unaffected by transforms.
-        A = np.asarray(A, dtype=float)
-        b = np.asarray(b, dtype=float)
-        if not extruded:
-            return A, b
-        tmp = np.eye(tdim+1, dtype=float)
-        tmp[:tdim, :tdim] = A
-        b = np.hstack((b, np.asarray([0], dtype=float)))
-        return tmp, b
-    if tdim == 1:
-        return [extend([[0.5]], [0.0]),
-                extend([[-0.5]], [1.0])]
-    elif tdim == 2:
-        return [extend([[0.5, 0.0],
-                        [0.0, 0.5]], [0.0, 0.0]),
-                extend([[-0.5, -0.5],
-                        [0.5, 0.0]], [1.0, 0.0]),
-                extend([[0.0, 0.5],
-                        [-0.5, -0.5]], [0.0, 1.0]),
-                extend([[-0.5, 0],
-                        [0, -0.5]], [0.5, 0.5])]
-    raise NotImplementedError("Not implemented for tdim %d", tdim)
-
-
-def restriction_weights(fiat_element):
-    """Get the restriction weights for an element
-
-    Returns a 2D array of weights where weights[i, j] is the weighting
-    of the ith fine cell basis function to the jth coarse cell basis function"""
-    # Node points on coarse cell
-    points = np.asarray([next(iter(node.get_point_dict().keys())) for node in fiat_element.dual_basis()])
-
-    # Create node points on fine cells
-
-    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
-
-    values = []
-    for T in transforms:
-        pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        tabulation = fiat_element.tabulate(0, pts)
-        keys = list(tabulation.keys())
-        if len(keys) != 1:
-            raise RuntimeError("Expected 1 key, found %d", len(keys))
-        vals = tabulation[keys[0]]
-        values.append(np.round(vals.T, decimals=14))
-
-    return np.concatenate(values)
-
-
-def injection_weights(fiat_element):
-    """Get the injection weights for an element
-
-    Returns a 2D array of weights where weights[i, j] is the weighting
-    of the ith fine cell basis function to the jth coarse cell basis
-    function.
-
-    Fine cell dofs that live on coarse cell nodes are weighted with 1,
-    all others are weighted with 0.  Effectively, this aliases high
-    frequency components and exactly represents low frequency
-    components on the coarse grid.
-
-    unique_indices is an array of the unique values in the concatenated array"""
-    points = np.asarray([next(iter(node.get_point_dict().keys())) for node in fiat_element.dual_basis()])
-
-    # Create node points on fine cells
-
-    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
-
-    values = []
-    for T in transforms:
-        pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        tabulation = fiat_element.tabulate(0, pts)
-        keys = list(tabulation.keys())
-        if len(keys) != 1:
-            raise RuntimeError("Expected 1 key, found %d", len(keys))
-        vals = np.where(np.isclose(tabulation[keys[0]], 1.0), 1.0, 0.0)
-        values.append(np.round(vals.T, decimals=14))
-
-    return np.concatenate(values)
-
-
-def format_array_literal(arr):
-    return "{{"+"},\n{".join([",".join(map(lambda x: "%g" % x, x)) for x in arr])+"}}"
-
-
-def get_injection_kernel(fiat_element, unique_indices, dim=1):
-    weights = injection_weights(fiat_element)[unique_indices].T
-    ncdof = weights.shape[0]
-    nfdof = weights.shape[1]
-    # What if we have multiple nodes in same location (DG)?  Divide by
-    # rowsum.
-    weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
-
-    all_same = np.allclose(weights, weights[0, 0])
-
-    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
-                        qualifiers=["const"])]
-    if all_same:
-        w_sym = ast.Symbol("weights", ())
-        w = [ast.Decl("double", w_sym, weights[0, 0],
-                      qualifiers=["const"])]
-    else:
-        init = ast.ArrayInit(format_array_literal(weights))
-        w_sym = ast.Symbol("weights", (ncdof, nfdof))
-        w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["const"])]
-
-    i = ast.Symbol("i", ())
-    j = ast.Symbol("j", ())
-    k = ast.Symbol("k", ())
-    if all_same:
-        assign = ast.Prod(ast.Symbol("fine", (j, k)),
-                          w_sym)
-    else:
-        assign = ast.Prod(ast.Symbol("fine", (j, k)),
-                          ast.Symbol("weights", (i, j)))
-    assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          assign)
-    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
-                     ast.Less(k, ast.c_sym(dim)),
-                     ast.Incr(k, ast.c_sym(1)),
-                     ast.Block([assignment], open_scope=True))
-    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
-                     ast.Less(j, ast.c_sym(nfdof)),
-                     ast.Incr(j, ast.c_sym(1)),
-                     ast.Block([k_loop], open_scope=True))
-    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
-                     ast.Less(i, ast.c_sym(ncdof)),
-                     ast.Incr(i, ast.c_sym(1)),
-                     ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "injection", arglist, ast.Block(w + [i_loop]),
-                    pred=["static", "inline"])
-
-    return op2.Kernel(k, "injection", opts=parameters["coffee"])
-
-
-def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
-    weights = restriction_weights(fiat_element)[unique_indices]
-    nfdof = weights.shape[0]
-    ncdof = weights.shape[1]
-    arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
-               ast.Decl("double *restrict *restrict ", ast.Symbol("coarse", ()),
-                        qualifiers=["const"])]
-    all_same = np.allclose(weights, weights[0, 0])
-
-    if all_same:
-        w_sym = ast.Symbol("weights", ())
-        w = [ast.Decl("double", w_sym, weights[0, 0],
-                      qualifiers=["const"])]
-    else:
-        w_sym = ast.Symbol("weights", (nfdof, ncdof))
-        init = ast.ArrayInit(format_array_literal(weights))
-        w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["const"])]
-    i = ast.Symbol("i", ())
-    j = ast.Symbol("j", ())
-    k = ast.Symbol("k", ())
-    if all_same:
-        assign = ast.Prod(ast.Symbol("coarse", (j, k)),
-                          w_sym)
-    else:
-        assign = ast.Prod(ast.Symbol("coarse", (j, k)),
-                          ast.Symbol("weights", (i, j)))
-
-    assignment = ast.Incr(ast.Symbol("fine", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          assign)
-    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
-                     ast.Less(k, ast.c_sym(dim)),
-                     ast.Incr(k, ast.c_sym(1)),
-                     ast.Block([assignment], open_scope=True))
-    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
-                     ast.Less(j, ast.c_sym(ncdof)),
-                     ast.Incr(j, ast.c_sym(1)),
-                     ast.Block([k_loop], open_scope=True))
-    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
-                     ast.Less(i, ast.c_sym(nfdof)),
-                     ast.Incr(i, ast.c_sym(1)),
-                     ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "prolongation", arglist, ast.Block(w + [i_loop]),
-                    pred=["static", "inline"])
-
-    return op2.Kernel(k, "prolongation", opts=parameters["coffee"])
-
-
-def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False):
-    weights = restriction_weights(fiat_element)[unique_indices].T
-    ncdof = weights.shape[0]
-    nfdof = weights.shape[1]
-    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
-                        qualifiers=["const"])]
-    if not no_weights:
-        arglist.append(ast.Decl("double *restrict *restrict", ast.Symbol("count_weights", ()),
-                                qualifiers=["const"]))
-
-    all_ones = np.allclose(weights, 1.0)
-
-    if all_ones:
-        w = []
-    else:
-        w_sym = ast.Symbol("weights", (ncdof, nfdof))
-        init = ast.ArrayInit(format_array_literal(weights))
-        w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["const"])]
-
-    i = ast.Symbol("i", ())
-    j = ast.Symbol("j", ())
-    k = ast.Symbol("k", ())
-    fine = ast.Symbol("fine", (j, k))
-    if no_weights:
-        if all_ones:
-            assign = fine
-        else:
-            assign = ast.Prod(fine, ast.Symbol("weights", (i, j)))
-    else:
-        if all_ones:
-            assign = ast.Prod(fine, ast.Symbol("count_weights", (j, 0)))
-        else:
-            assign = ast.Prod(fine,
-                              ast.Prod(ast.Symbol("weights", (i, j)),
-                                       ast.Symbol("count_weights", (j, 0))))
-    assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          assign)
-    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
-                     ast.Less(k, ast.c_sym(dim)),
-                     ast.Incr(k, ast.c_sym(1)),
-                     ast.Block([assignment], open_scope=True))
-    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
-                     ast.Less(j, ast.c_sym(nfdof)),
-                     ast.Incr(j, ast.c_sym(1)),
-                     ast.Block([k_loop], open_scope=True))
-    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
-                     ast.Less(i, ast.c_sym(ncdof)),
-                     ast.Incr(i, ast.c_sym(1)),
-                     ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "restriction", arglist, ast.Block(w + [i_loop]),
-                    pred=["static", "inline"])
-
-    return op2.Kernel(k, "restriction", opts=parameters["coffee"])
-
-
-def get_count_kernel(arity):
-    arglist = [ast.Decl("double", ast.Symbol("weight", (arity, )))]
-    i = ast.Symbol("i", ())
-    assignment = ast.Incr(ast.Symbol("weight", (i, )), ast.c_sym(1.0))
-    loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
-                   ast.Less(i, ast.c_sym(arity)),
-                   ast.Incr(i, ast.c_sym(1)),
-                   ast.Block([assignment], open_scope=True))
-    k = ast.FunDecl("void", "count_weights", arglist,
-                    ast.Block([loop]),
-                    pred=["static", "inline"])
-    return op2.Kernel(k, "count_weights", opts=parameters["coffee"])
+def physical_node_locations(V):
+    element = V.ufl_element()
+    if element.value_shape():
+        assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
+        element = element.sub_elements()[0]
+    mesh = V.mesh()
+    cache = mesh._shared_data_cache["hierarchy_physical_node_locations"]
+    key = element
+    try:
+        return cache[key]
+    except KeyError:
+        Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+        locations = firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        return cache.setdefault(key, locations)
 
 
 def set_level(obj, hierarchy, level):

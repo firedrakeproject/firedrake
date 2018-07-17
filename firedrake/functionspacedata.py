@@ -84,10 +84,6 @@ def get_node_set(mesh, nodes_per_entity):
     halo = halo_mod.Halo(mesh._plex, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
-    if extruded:
-        # FIXME! This is a LIE! But these sets should not be extruded
-        # anyway, only the code gen in PyOP2 is busted.
-        node_set = op2.ExtrudedSet(node_set, layers=2)
 
     assert global_numbering.getStorageSize() == node_set.total_size
     if not extruded and node_set.total_size >= (1 << (IntType.itemsize * 8 - 4)):
@@ -463,16 +459,19 @@ class FunctionSpaceData(object):
         entity_node_list = self.entity_node_lists[entity_set]
 
         if bcs is not None:
+            for bc in bcs:
+                fs = bc.function_space()
+                # Unwind proxies for ComponentFunctionSpace, but not
+                # IndexedFunctionSpace.
+                while fs.component is not None and fs.parent is not None:
+                    fs = fs.parent
+                if fs.topological != V:
+                    raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
             # Separate explicit bcs (we just place negative entries in
             # the appropriate map values) from implicit ones (extruded
             # top and bottom) that require PyOP2 code gen.
-            explicit_bcs = [bc for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
-            implicit_bcs = [(bc.sub_domain, bc.method) for bc in bcs if bc.sub_domain in ['top', 'bottom']]
-            if len(explicit_bcs) == 0:
-                # Implicit bcs are not part of the cache key for the
-                # map (they only change the generated PyOP2 code),
-                # hence rewrite bcs here.
-                bcs = ()
+            explicit_bcs = tuple(bc for bc in bcs if bc.sub_domain not in ['top', 'bottom'])
+            implicit_bcs = tuple((bc.sub_domain, bc.method) for bc in bcs if bc.sub_domain in ['top', 'bottom'])
             if len(implicit_bcs) == 0:
                 implicit_bcs = None
         else:
@@ -480,24 +479,20 @@ class FunctionSpaceData(object):
             # assembly, which uses a set to keep track of the bcs
             # applied to matrix hits the cache when that set is
             # empty.  tuple(set([])) == tuple().
-            bcs = ()
             implicit_bcs = None
+            explicit_bcs = ()
 
-        for bc in bcs:
-            fs = bc.function_space()
-            # Unwind proxies for ComponentFunctionSpace, but not
-            # IndexedFunctionSpace.
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != V:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-        # Ensure bcs is a tuple in a canonical order for the hash key.
-        lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
+        # Boundary condition list *must* be collectively ordered already.
+        # Key is a sorted list of bc subdomain, bc method, bc component.
+        bc_key = []
+        for bc in explicit_bcs:
+            bc_key.append(bc.domain_args + (bc.method, ) + (bc.function_space().component, ))
+        bc_key = tuple(sorted(bc_key))
 
         cache = self.map_caches[entity_set]
         try:
             # Cache hit
-            val = cache[lbcs]
+            val = cache[bc_key]
             # In the implicit bc case, we decorate the cached map with
             # the list of implicit boundary conditions so PyOP2 knows
             # what to do.
@@ -507,15 +502,13 @@ class FunctionSpaceData(object):
         except KeyError:
             # Cache miss.
             # Any top and bottom bcs (for the extruded case) are handled elsewhere.
-            nodes = [bc.nodes for bc in lbcs if bc.sub_domain not in ['top', 'bottom']]
+            nodes = [bc.nodes for bc in explicit_bcs]
             decorate = any(bc.function_space().component is not None for
-                           bc in lbcs)
+                           bc in explicit_bcs)
             if nodes:
                 bcids = reduce(numpy.union1d, nodes)
                 negids = numpy.copy(bcids)
-                for bc in lbcs:
-                    if bc.sub_domain in ["top", "bottom"]:
-                        continue
+                for bc in explicit_bcs:
                     nbits = IntType.itemsize * 8 - 2
                     if decorate and bc.function_space().component is None:
                         # Some of the other entries will be marked
@@ -572,7 +565,7 @@ class FunctionSpaceData(object):
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)
-            cache[lbcs] = val
+            cache[bc_key] = val
             if implicit_bcs:
                 return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
             return val

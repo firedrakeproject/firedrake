@@ -1,7 +1,7 @@
-
 import ufl
 
 from firedrake import dmhooks
+from firedrake import slate
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
@@ -40,8 +40,8 @@ class NonlinearVariationalProblem(object):
         self.bcs = solving._extract_bcs(bcs)
 
         # Argument checking
-        if not isinstance(self.F, ufl.Form):
-            raise TypeError("Provided residual is a '%s', not a Form" % type(self.F).__name__)
+        if not isinstance(self.F, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(self.F).__name__)
         if len(self.F.arguments()) != 1:
             raise ValueError("Provided residual is not a linear form")
         if not isinstance(self.u, function.Function):
@@ -51,12 +51,12 @@ class NonlinearVariationalProblem(object):
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
 
-        if not isinstance(self.J, ufl.Form):
-            raise TypeError("Provided Jacobian is a '%s', not a Form" % type(self.J).__name__)
+        if not isinstance(self.J, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(self.J).__name__)
         if len(self.J.arguments()) != 2:
             raise ValueError("Provided Jacobian is not a bilinear form")
-        if self.Jp is not None and not isinstance(self.Jp, ufl.Form):
-            raise TypeError("Provided preconditioner is a '%s', not a Form" % type(self.Jp).__name__)
+        if self.Jp is not None and not isinstance(self.Jp, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(self.Jp).__name__)
         if self.Jp is not None and len(self.Jp.arguments()) != 2:
             raise ValueError("Provided preconditioner is not a bilinear form")
 
@@ -154,7 +154,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                                          pmat_type=pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_j_callback,
-                                         pre_function_callback=pre_f_callback)
+                                         pre_function_callback=pre_f_callback,
+                                         options_prefix=self.options_prefix)
 
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
@@ -186,8 +187,22 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         # DM with an app context in place so that if the DM is active
         # on a subKSP the context is available.
         dm = self.snes.getDM()
-        dmhooks.set_appctx(dm, self._ctx)
-        self.set_from_options(self.snes)
+        with dmhooks.appctx(dm, self._ctx):
+            self.set_from_options(self.snes)
+
+        # Used for custom grid transfer.
+        self._transfer_operators = None
+        self._setup = False
+
+    def set_transfer_operators(self, contextmanager):
+        """Set a context manager which manages which grid transfer operators should be used.
+
+        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :raises RuntimeError: if called after calling solve.
+        """
+        if self._setup:
+            raise RuntimeError("Cannot set transfer operators after solve")
+        self._transfer_operators = contextmanager
 
     def solve(self, bounds=None):
         """Solve the variational problem.
@@ -203,7 +218,6 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         """
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
-        dmhooks.set_appctx(dm, self._ctx)
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
@@ -214,12 +228,17 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
         # Ensure options database has full set of options (so monitors work right)
-        with self.inserted_options():
+        with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
             with self._problem.u.dat.vec as u:
                 u.copy(work)
-                self.snes.solve(None, work)
+                if self._transfer_operators is not None:
+                    with self._transfer_operators:
+                        self.snes.solve(None, work)
+                else:
+                    self.snes.solve(None, work)
                 work.copy(u)
 
+        self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
 
@@ -247,12 +266,12 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, ufl.Form):
-            raise TypeError("Provided RHS is a '%s', not a Form" % type(L).__name__)
+        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
         if len(L.arguments()) != 1:
             raise ValueError("Provided RHS is not a linear form")
 
-        F = ufl.action(J, u) - L
+        F = ufl_expr.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters)

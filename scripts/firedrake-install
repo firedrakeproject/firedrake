@@ -27,6 +27,8 @@ firedrake_apps = {
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "pyadjoint": ("""New generation adjoint. https://bitbucket.org/dolfin-adjoint/pyadjoint""",
                   "git+ssh://bitbucket.org/dolfin-adjoint/pyadjoint.git#egg=pyadjoint"),
+    "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
+                "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
 }
 
 
@@ -54,7 +56,8 @@ class FiredrakeConfiguration(dict):
                     self["options"][o] = args.__dict__[o]
 
     _persistent_options = ["package_manager",
-                           "minimal_petsc", "mpicc", "disable_ssh",
+                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
+                           "honour_petsc_dir",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir"]
@@ -156,6 +159,12 @@ honoured.""",
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
+    parser.add_argument("--mpicxx", type=str,
+                        action="store", default="mpicxx",
+                        help="C++ compiler to use when building with MPI (default is 'mpicxx')")
+    parser.add_argument("--mpif90", type=str,
+                        action="store", default="mpif90",
+                        help="Fortran compiler to use when building with MPI (default is 'mpif90')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
     parser.add_argument("--venv-name", default="firedrake",
@@ -200,6 +209,7 @@ else:
                         help="Install SLEPc along with PETSc")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
+                       default=config["options"].get("honour_petsc_dir", False),
                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     group.add_argument("--petsc-int-type", choices=["int32", "int64"],
                        default="int32", type=str,
@@ -228,6 +238,10 @@ else:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
+    if "mpicxx" not in config["options"]:
+        config["options"]["mpicxx"] = "mpicxx"
+    if "mpif90" not in config["options"]:
+        config["options"]["mpif90"] = "mpif90"
 
 if args.install_help:
     help_string = """
@@ -321,6 +335,8 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
+petsc_opts += "--with-fortran-bindings=0 "
+
 if options["minimal_petsc"]:
     if options["petsc_int_type"] == "int64":
         petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
@@ -328,9 +344,9 @@ if options["minimal_petsc"]:
         petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
     else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-pnetcdf --download-exodusii"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -638,6 +654,9 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
+    os.environ["MPICC"] = options["mpicc"] or "mpicc"
+    os.environ["MPICXX"] = options["mpicxx"] or "mpicxx"
+    os.environ["MPIF90"] = options["mpif90"] or "mpif90"
     run_pip_install(["--ignore-installed", "petsc/"])
 
 

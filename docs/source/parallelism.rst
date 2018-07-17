@@ -17,6 +17,17 @@ called ``mpiexec``.  For example, to run a simulation in a file named
 
    mpiexec -n 16 python simulation.py
 
+Printing in parallel
+--------------------
+
+The MPI_ execution model is that of `single program, multiple data
+<https://en.wikipedia.org/wiki/SPMD>`__.  As a result, printing output
+requires a little bit of care: just using :func:`~.print` will result
+in every process producing output.  A sensible approach is to use
+PETSc's printing facilities to handle this, as :doc:`covered in this
+short demo <demos/parprint.py>`.
+
+
 Expected performance improvements
 =================================
 

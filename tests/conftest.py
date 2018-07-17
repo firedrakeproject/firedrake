@@ -1,6 +1,5 @@
 """Global test configuration."""
 
-import pytest
 from subprocess import check_call
 from mpi4py import MPI
 
@@ -27,25 +26,14 @@ def parallel(item):
     check_call(call)
 
 
-def pytest_addoption(parser):
-    parser.addoption("--short", action="store_true", default=False,
-                     help="Skip long tests")
-
-
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
         "markers",
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
-    config.addinivalue_line(
-        "markers",
-        "longtest: mark that the test is 'long' (skipped if --short is passed)")
 
 
 def pytest_runtest_setup(item):
-    if item.get_marker("longtest") is not None:
-        if item.config.getoption("--short"):
-            pytest.skip("Skipping long test")
     if item.get_marker("parallel"):
         if MPI.COMM_WORLD.size > 1:
             # Turn on source hash checking

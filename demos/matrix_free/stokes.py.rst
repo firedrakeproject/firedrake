@@ -56,7 +56,7 @@ a ``mat_type`` of ``aij`` to the solve call.::
             solver_parameters={"ksp_type": "gmres",
                                "mat_type": "aij",
                                "pc_type": "lu",
-                               "pc_factor_mat_solver_package": "mumps"})
+                               "pc_factor_mat_solver_type": "mumps"})
   except PETSc.Error as e:
       if e.ierr == 92:
           warning("MUMPS not installed, skipping direct solve")

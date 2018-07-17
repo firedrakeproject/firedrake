@@ -18,7 +18,7 @@ from tsfc import compile_form as tsfc_compile_form
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD
 
 from coffee.base import Invert
 
@@ -35,7 +35,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "domain_number",
                                      "coefficient_map",
                                      "needs_cell_facets",
-                                     "pass_layer_arg"])
+                                     "pass_layer_arg",
+                                     "needs_cell_sizes"])
 
 
 class TSFCKernel(Cached):
@@ -70,13 +71,12 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        val = pickle.loads(val)
-        cls._cache[key] = val
-        return val
+        return cls._cache.setdefault(key, pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
+        cls._cache[key] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
@@ -126,7 +126,8 @@ class TSFCKernel(Cached):
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
                                       needs_cell_facets=False,
-                                      pass_layer_arg=False))
+                                      pass_layer_arg=False,
+                                      needs_cell_sizes=kernel.needs_cell_sizes))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -135,7 +136,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, inverse=False):
+def compile_form(form, name, parameters=None, inverse=False, split=True):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -145,6 +146,7 @@ def compile_form(form, name, parameters=None, inverse=False):
          ``form_compiler`` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
     :arg inverse: If True then assemble the inverse of the local tensor.
+    :arg split: If ``False``, then don't split mixed forms.
 
     Returns a tuple of tuples of
     (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
@@ -172,20 +174,26 @@ def compile_form(form, name, parameters=None, inverse=False):
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
-    if "firedrake_kernels" in form._cache:
-        # Save both kernels and TSFC params so we can tell if this
-        # cached version is valid (the TSFC parameters might have changed)
-        kernels, coffee_params, old_name, params = form._cache["firedrake_kernels"]
-        if coffee_params == default_parameters["coffee"] and \
-           name == old_name and \
-           params == parameters:
-            return kernels
+    cache = form._cache.setdefault("firedrake_kernels", {})
+
+    def tuplify(params):
+        return tuple((k, params[k]) for k in sorted(params))
+
+    key = (tuplify(default_parameters["coffee"]), name, tuplify(parameters), split)
+    try:
+        return cache[key]
+    except KeyError:
+        pass
 
     kernels = []
     # A map from all form coefficients to their number.
     coefficient_numbers = dict((c, n)
                                for (n, c) in enumerate(form.coefficients()))
-    for idx, f in split_form(form):
+    if split:
+        iterable = split_form(form)
+    else:
+        iterable = ([(0, )*len(form.arguments()), form], )
+    for idx, f in iterable:
         f = _real_mangle(f)
         # Map local coefficient numbers (as seen inside the
         # compiler) to the global coefficient numbers
@@ -196,9 +204,7 @@ def compile_form(form, name, parameters=None, inverse=False):
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)
-    form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
-                                        name, parameters)
-    return kernels
+    return cache.setdefault(key, kernels)
 
 
 def _real_mangle(form):
@@ -220,22 +226,18 @@ def _real_mangle(form):
 
 def clear_cache(comm=None):
     """Clear the Firedrake TSFC kernel cache."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if path.exists(TSFCKernel._cachedir):
-            import shutil
-            shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
-            _ensure_cachedir(comm=comm)
-    free_comm(comm)
+        import shutil
+        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+        _ensure_cachedir(comm=comm)
 
 
 def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if not path.exists(TSFCKernel._cachedir):
-            makedirs(TSFCKernel._cachedir)
-    free_comm(comm)
+        makedirs(TSFCKernel._cachedir, exist_ok=True)
 
 
 def _inverse(kernel):

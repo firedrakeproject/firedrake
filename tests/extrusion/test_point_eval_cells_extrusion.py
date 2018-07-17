@@ -20,10 +20,10 @@ def mesh2d(request):
 @pytest.fixture(params=[('cg', False),
                         ('cg', True),
                         ('dg', False),
-                        pytest.mark.xfail(('dg', True)),
+                        ('dg', True),
                         # TODO: generate mesh from .geo file
-                        pytest.mark.longtest(('file', 't11_tria.msh')),
-                        pytest.mark.longtest(('file', 't11_quad.msh'))])
+                        ('file', 't11_tria.msh'),
+                        ('file', 't11_quad.msh')])
 def mesh3d(request):
     if request.param[0] == 'cg':
         m = UnitSquareMesh(12, 12, quadrilateral=request.param[1])
@@ -60,7 +60,7 @@ def func2d(mesh2d):
 @pytest.fixture
 def func3d(mesh3d):
     V = FunctionSpace(mesh3d, "CG", 2)
-    f = Function(V).interpolate(Expression("x[2]*(x[0] - 0.5*x[1])"))
+    f = Function(V).interpolate(Expression("sin(pi*x[2])*(cos(pi*(x[0] - 0.5)) - sin(pi*x[1]))"))
     return f
 
 
@@ -71,24 +71,26 @@ def test_2d(func2d):
 
 
 def test_3d(func3d):
-    assert np.allclose(0.00000, func3d([0.10, 0.20, 0.00]))
-    assert np.allclose(0.48450, func3d([0.96, 0.02, 0.51]))
-    assert np.allclose(0.05145, func3d([0.39, 0.57, 0.49]))
+    expr = lambda x, y, z: sin(pi*z)*(cos(pi*(x - 0.5)) - sin(pi*y))
+    assert np.allclose(expr(0.10, 0.20, 0.00), func3d([0.10, 0.20, 0.00]), rtol=1e-2)
+    assert np.allclose(expr(0.96, 0.02, 0.51), func3d([0.96, 0.02, 0.51]), rtol=1e-2)
+    assert np.allclose(expr(0.39, 0.57, 0.49), func3d([0.39, 0.57, 0.49]), rtol=1e-2)
 
 
-@pytest.mark.xfail(run=False)
 def test_cylinder(cylinder_mesh):
     f = func3d(cylinder_mesh)
-    assert np.allclose(0.00, f([0.70710678118, +0.70710678118, 0.0]))
-    assert np.allclose(0.25, f([0.00000000000, -1.00000000000, 0.5]))
-    assert np.allclose(0.68, f([0.36000000000, -0.64000000000, 1.0]))
+    with pytest.raises(NotImplementedError):
+        # Manifold point location not implemented
+        f([0.70710678118, +0.70710678118, 0.0])
 
 
 def test_spherical_shell(spherical_shell_mesh):
     f = func3d(spherical_shell_mesh)
-    assert np.allclose(+0.2400000000, f([+0.69282032302, 0.69282032302, +0.69282032302]))
-    assert np.allclose(-1.5780834474, f([-0.72000000000, 1.06489436096, +1.26000000000]))
-    assert np.allclose(+0.5184000000, f([-0.54000000000, 0.00000000000, -0.96000000000]))
+    expr = lambda x, y, z: sin(pi*z)*(cos(pi*(x - 0.5)) - sin(pi*y))
+    for pt in [[+0.69282032302, 0.69282032302, +0.69282032302],
+               [-0.72000000000, 1.06489436096, +1.26000000000],
+               [-0.54000000000, 0.00000000000, -0.96000000000]]:
+        assert np.allclose(expr(*pt), f(pt), rtol=5e-2)
 
 
 if __name__ == '__main__':

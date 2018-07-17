@@ -243,7 +243,7 @@ fd = gh.repository("firedrakeproject", "firedrake")
 tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
 index = -1
 
-for r in fd.iter_releases():
+for r in fd.releases():
     if r.tag_name.startswith(tag):
         newindex = int(r.tag_name.split(".")[1])
         index = max(index, newindex)

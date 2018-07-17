@@ -456,7 +456,8 @@ def test_layer_extents_parallel():
         sizes = None
         points = None
 
-    mesh = UnitSquareMesh(2, 1, reorder=False, distribute=(sizes, points))
+    mesh = UnitSquareMesh(2, 1, reorder=False, distribution_parameters={"partition":
+                                                                        (sizes, points)})
     V = FunctionSpace(mesh, "DG", 0)
 
     x, _ = SpatialCoordinate(mesh)
@@ -603,7 +604,8 @@ def test_layer_extents_parallel_vertex_owners():
         sizes = None
         points = None
 
-    mesh = Mesh(dm, reorder=False, distribute=(sizes, points))
+    mesh = Mesh(dm, reorder=False, distribution_parameters={"partition":
+                                                            (sizes, points)})
     V = FunctionSpace(mesh, "DG", 0)
 
     x, _ = SpatialCoordinate(mesh)

@@ -11,7 +11,7 @@ from firedrake import utils
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'CellSize', 'FacetNormal']
+           'action', 'CellSize', 'FacetNormal']
 
 
 class Argument(ufl.argument.Argument):
@@ -138,51 +138,97 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     See also :func:`ufl.derivative`.
     """
     # TODO: What about Constant?
-    if len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
+    u_is_x = isinstance(u, ufl.SpatialCoordinate)
+    if not u_is_x and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
-    if du is None:
-        if isinstance(u, firedrake.Function):
-            V = u.function_space()
-            args = form.arguments()
-            number = max(a.number() for a in args) if args else -1
-            du = Argument(V, number + 1)
-        elif isinstance(u, firedrake.Constant):
-            if u.ufl_shape != ():
-                raise ValueError("Real function space of vector elements not supported")
-            mesh = form.ufl_domain()
-            V = firedrake.FunctionSpace(mesh, "Real", 0)
-            args = form.arguments()
-            number = max(a.number() for a in args) if args else -1
-            du = Argument(V, number + 1)
+
+    mesh = form.ufl_domain()
+    is_dX = u_is_x or u is mesh.coordinates
+    args = form.arguments()
+
+    def argument(V):
+        if du is None:
+            n = max(a.number() for a in args) if args else -1
+            return Argument(V, n + 1)
         else:
-            raise RuntimeError("Can't compute derivative for form")
+            return du
+
+    if is_dX:
+        coords = mesh.coordinates
+        u = ufl.SpatialCoordinate(mesh)
+        V = coords.function_space()
+        du = argument(V)
+        cds = {coords: du}
+        if coefficient_derivatives is not None:
+            cds.update(coefficient_derivatives)
+        coefficient_derivatives = cds
+    elif isinstance(u, firedrake.Function):
+        V = u.function_space()
+        du = argument(V)
+    elif isinstance(u, firedrake.Constant):
+        if u.ufl_shape != ():
+            raise ValueError("Real function space of vector elements not supported")
+        V = firedrake.FunctionSpace(mesh, "Real", 0)
+        du = argument(V)
+    else:
+        raise RuntimeError("Can't compute derivative for form")
+
     return ufl.derivative(form, u, du, coefficient_derivatives)
 
 
+def action(form, coefficient):
+    """Compute the action of a form on a coefficient.
+
+    :arg form: A UFL form, or a Slate tensor.
+    :arg coefficient: The :class:`~.Function` to act on.
+    :returns: a symbolic expression for the action.
+    """
+    if isinstance(form, firedrake.slate.TensorBase):
+        if form.rank == 0:
+            raise ValueError("Can't take action of rank-0 tensor")
+        return form * firedrake.AssembledVector(coefficient)
+    else:
+        return ufl.action(form, coefficient)
+
+
 def adjoint(form, reordered_arguments=None):
-    """UFL form operator:
-    Given a combined bilinear form, compute the adjoint form by
+    """Compute the adjoint of a form.
+
+    :arg form: A UFL form, or a Slate tensor.
+    :arg reordered_arguments: arguments to use when creating the
+       adjoint.  Ignored if form is a Slate tensor.
+
+    If the form is a slate tensor, this just returns its transpose.
+    Otherwise, given a bilinear form, compute the adjoint form by
     changing the ordering (number) of the test and trial functions.
 
-    By default, new Argument objects will be created with
-    opposite ordering. However, if the adjoint form is to
-    be added to other forms later, their arguments must match.
-    In that case, the user must provide a tuple reordered_arguments=(u2,v2).
+    By default, new Argument objects will be created with opposite
+    ordering. However, if the adjoint form is to be added to other
+    forms later, their arguments must match.  In that case, the user
+    must provide a tuple reordered_arguments=(u2,v2).
     """
-
-    # ufl.adjoint creates new Arguments if no reordered_arguments is
-    # given.  To avoid that, always pass reordered_arguments with
-    # firedrake.Argument objects.
-    if reordered_arguments is None:
-        v, u = extract_arguments(form)
-        reordered_arguments = (Argument(u.function_space(),
-                                        number=v.number(),
-                                        part=v.part()),
-                               Argument(v.function_space(),
-                                        number=u.number(),
-                                        part=u.part()))
-    return ufl.adjoint(form, reordered_arguments)
+    if isinstance(form, firedrake.slate.TensorBase):
+        if reordered_arguments is not None:
+            firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
+        if form.rank != 2:
+            raise ValueError("Expecting rank-2 tensor")
+        return form.T
+    else:
+        if len(form.arguments()) != 2:
+            raise ValueError("Expecting bilinear form")
+        # ufl.adjoint creates new Arguments if no reordered_arguments is
+        # given.  To avoid that, always pass reordered_arguments with
+        # firedrake.Argument objects.
+        if reordered_arguments is None:
+            v, u = extract_arguments(form)
+            reordered_arguments = (Argument(u.function_space(),
+                                            number=v.number(),
+                                            part=v.part()),
+                                   Argument(v.function_space(),
+                                            number=u.number(),
+                                            part=u.part()))
+        return ufl.adjoint(form, reordered_arguments)
 
 
 def CellSize(mesh):

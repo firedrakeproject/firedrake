@@ -18,7 +18,7 @@ set the environment variable ``PETSC_CONFIGURE_OPTIONS`` before
 running ``firedrake-install``.  You can see the set of options passed
 to PETSc by providing the flag ``--show-petsc-configure-options``.
 
-You will need to activate the virtualenv in each shell from which you
+You will need to activate the venv in each shell from which you
 use Firedrake::
 
   source firedrake/bin/activate
@@ -44,7 +44,7 @@ Testing the installation
 
 It is recommended to run the test suite after installation to check
 that the Firedrake installation is fully functional.  Activate the
-virtualenv_ as above and then run::
+venv_ as above and then run::
 
   cd firedrake/src/firedrake
   make alltest

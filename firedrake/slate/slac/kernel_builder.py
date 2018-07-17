@@ -2,12 +2,10 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 
-from firedrake.slate.slac.utils import (topological_sort, traverse_dags,
-                                        eigen_tensor, Transformer)
+from firedrake.slate.slac.utils import (traverse_dags, eigen_tensor, Transformer)
 from firedrake.utils import cached_property
 
-from functools import reduce
-
+from tsfc.finatinterface import create_element
 from ufl import MixedElement
 
 import firedrake.slate.slate as slate
@@ -77,8 +75,7 @@ class LocalKernelBuilder(object):
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
-                              TSFC when constructing subkernels associated
-                              with the expression.
+            TSFC when constructing subkernels associated with the expression.
         """
         assert isinstance(expression, slate.TensorBase)
 
@@ -91,7 +88,6 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
@@ -103,33 +99,32 @@ class LocalKernelBuilder(object):
             if isinstance(tensor, slate.AssembledVector):
                 function = tensor._function
 
+                def dimension(e):
+                    return create_element(e).space_dimension()
+
                 # Ensure coefficient temporaries aren't duplicated
                 if function not in seen_coeff:
-                    shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in function.function_space().split()]
-                    c_shape = (sum(n * d for (n, d) in shapes),)
+                    if type(function.ufl_element()) == MixedElement:
+                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
+                    else:
+                        shapes = [dimension(function.ufl_element())]
 
                     offset = 0
-                    for fs_i, fs_shape in enumerate(shapes):
-                        cinfo = CoefficientInfo(space_index=fs_i,
+                    for i, shape in enumerate(shapes):
+                        cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=c_shape,
+                                                shape=(sum(shapes), ),
                                                 vector=tensor)
-                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
-                        offset += reduce(lambda x, y: x*y, fs_shape)
+                        coeff_vecs.setdefault(shape, []).append(cinfo)
+                        offset += shape
 
                     seen_coeff.add(function)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-
-        # Terminal tensors do not need additional temps created for them
-        # and neither do Negative nodes.
-        self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
-                          if counter[tensor] > 1
-                          and not isinstance(tensor, (slate.Tensor,
-                                                      slate.Negative))]
+        self.ref_counter = counter
+        self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self._setup()
 
@@ -147,6 +142,7 @@ class LocalKernelBuilder(object):
         subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         oriented = False
+        needs_cell_sizes = False
 
         # Maps integral type to subdomain key
         subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
@@ -209,6 +205,7 @@ class LocalKernelBuilder(object):
                 templated_subkernels.append(kast)
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
+                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
         # Add subdomain call to assembly dict
         assembly_calls.update(subdomain_calls)
@@ -217,6 +214,7 @@ class LocalKernelBuilder(object):
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented
+        self.needs_cell_sizes = needs_cell_sizes
 
     @cached_property
     def coefficient_map(self):

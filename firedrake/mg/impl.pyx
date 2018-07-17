@@ -1,11 +1,7 @@
 # Low-level numbering for multigrid support
-import FIAT
-from tsfc.fiatinterface import create_element
-
 from firedrake.petsc import PETSc
-import firedrake.mg.utils as utils
 from firedrake import dmplex
-from pyop2 import MPI
+from pyop2.datatypes import IntType
 import numpy as np
 cimport numpy as np
 import cython
@@ -54,6 +50,99 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
             old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine_cells):
+    cdef:
+        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, coarse_to_fine_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        PetscInt i, j, k, l, m, node, fine, layer
+        PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
+        PetscInt layers
+        bint extruded
+
+    fine_map = Vf.cell_node_map().values
+    coarse_map = Vc.cell_node_map().values
+
+    fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
+    extruded = Vc.extruded
+
+    if extruded:
+        coarse_offset = Vc.offset
+        fine_offset = Vf.offset
+        layers = Vc.mesh().layers - 1
+    coarse_cells = coarse_map.shape[0]
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
+    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
+                                  fine_per_cell * fine_cell_per_coarse_cell),
+                                 -1,
+                                 dtype=IntType)
+    for i in range(coarse_cells):
+        for j in range(coarse_per_cell):
+            node = coarse_map[i, j]
+            if extruded:
+                for layer in range(layers):
+                    k = 0
+                    for l in range(fine_cell_per_coarse_cell):
+                        fine = coarse_to_fine_cells[i, l]
+                        for m in range(fine_per_cell):
+                            coarse_to_fine_map[node + coarse_offset[j]*layer, k] = (fine_map[fine, m] +
+                                                                                    fine_offset[m]*layer)
+                            k += 1
+            else:
+                k = 0
+                for l in range(fine_cell_per_coarse_cell):
+                    fine = coarse_to_fine_cells[i, l]
+                    for m in range(fine_per_cell):
+                        coarse_to_fine_map[node, k] = fine_map[fine, m]
+                        k += 1
+
+    return coarse_to_fine_map
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse_cells):
+    cdef:
+        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        PetscInt i, j, k, node, layer, layers
+        PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
+        bint extruded
+
+    fine_map = Vf.cell_node_map().values
+    coarse_map = Vc.cell_node_map().values
+
+    extruded = Vc.extruded
+
+    if extruded:
+        coarse_offset = Vc.offset
+        fine_offset = Vf.offset
+        layers = Vc.mesh().layers - 1
+    fine_cells = fine_map.shape[0]
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
+    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+                                  coarse_per_cell),
+                                 -1,
+                                 dtype=IntType)
+    for i in range(fine_cells):
+        coarse_cell = fine_to_coarse_cells[i]
+        for j in range(fine_per_cell):
+            node = fine_map[i, j]
+            if extruded:
+                for layer in range(layers):
+                    for k in range(coarse_per_cell):
+                        fine_to_coarse_map[node + fine_offset[j]*layer, k] = (coarse_map[coarse_cell, k] +
+                                                                              coarse_offset[k]*layer)
+            else:
+                for k in range(coarse_per_cell):
+                    fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
+
+    return fine_to_coarse_map
 
 
 def create_lgmap(PETSc.DM dm):
@@ -123,31 +212,25 @@ def create_lgmap(PETSc.DM dm):
 #           v coarse_to_fine_cells [coarse_cell = floor(fine_cell / 2**tdim)]
 #           |
 #      DM_orig_fine
-#
-#
-#     DM_orig_coarse
-#           |
-#           v coarse_to_fine_vertices (via DMPlexCreateCoarsePointIS)
-#           |
-#      DM_orig_fine
-#
-# Phew.
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_cells(mc, mf):
+def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     """Return a map from (renumbered) cells in a coarse mesh to those
     in a refined fine mesh.
 
     :arg mc: the coarse mesh to create the map from.
     :arg mf: the fine mesh to map to.
-    :arg parents: a Section mapping original fine cell numbers to
-         their corresponding coarse parent cells"""
+    :arg clgmaps: coarse lgmaps (non-overlapped and overlapped)
+    :arg flgmaps: fine lgmaps (non-overlapped and overlapped)
+    :returns: Two arrays, one mapping coarse to fine cells, the second fine to coarse cells.
+    """
     cdef:
         PETSc.DM cdm, fdm
-        PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
+        PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
+        np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse
         np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
     cdm = mc._plex
@@ -158,352 +241,47 @@ def coarse_to_fine_cells(mc, mf):
     nfine = mf.cell_set.size
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
-    coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
-    coarse_to_fine[:] = -1
-
+    coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
+    fine_to_coarse = np.full(nfine, -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
-    fStart, fEnd = 0, nfine
+    cStart, cEnd = 0, nfine
 
     if mc.comm.size > 1:
+        cno, co = clgmaps
+        fno, fo = flgmaps
         # Compute global numbers of original cell numbers
-        mf._overlapped_lgmap.apply(fn2o, result=fn2o)
+        fo.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
-        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
+        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
         idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
         # LocalToGlobal
-        mc._overlapped_lgmap.apply(idx, result=idx)
+        co.apply(idx, result=idx)
         # GlobalToLocal
         # Drop values that did not exist on non-overlapped mesh
-        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
+        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
         co2n = co2n[idx]
 
-    for c in range(fStart, fEnd):
+    for c in range(cStart, cEnd):
         # get original (overlapped) cell number
         fcell = fn2o[c]
         # The owned cells should map into non-overlapped cell numbers
         # (due to parallel growth strategy)
-        assert 0 <= fcell < fEnd
+        assert 0 <= fcell < cEnd
 
         # Find original coarse cell (fcell / nref) and then map
         # forward to renumbered coarse cell (again non-overlapped
         # cells should map into owned coarse cells)
         ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
+        fine_to_coarse[c] = ccell
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
                 coarse_to_fine[ccell, i] = c
                 break
-    return coarse_to_fine
-
-
-@cython.wraparound(False)
-@cython.boundscheck(False)
-def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
-    """Compute consistent orientations for refined cells
-
-    :arg P1c: A P1 function space on the coarse mesh
-    :arg P1f: A P1 function space on the fine mesh
-    :arg c2f: A map from coarse to fine cells
-
-    Returns a reordered map from coarse to fine cells (such that
-    traversing the fine cells on a coarse cell always happens in a
-    consistent order) and a permutation of the vertices of each fine
-    cell such that the dofs on the each fine cell can also be
-    traversed in a consistent order."""
-    cdef:
-        PetscInt vcStart_orig, vcEnd_orig, vfStart_orig, vfEnd_orig
-        PetscInt vcStart_new, vcEnd_new, vfStart_new, vfEnd_new
-        PetscInt ncoarse, nfine, ccell, fcell, i, j, k, vtx, ovtx, fcvtx, cvtx
-        PetscInt nvertex, ofcell
-        bint found
-        np.ndarray[PetscInt, ndim=2, mode="c"] new_c2f = -np.ones_like(c2f)
-        np.ndarray[PetscInt, ndim=1, mode="c"] cn2o, fo2n, indices
-        np.ndarray[PetscInt, ndim=2, mode="c"] cvertices, fvertices
-        np.ndarray[PetscInt, ndim=2, mode="c"] vertex_perm
-    coarse = P1c.mesh()
-    fine = P1f.mesh()
-
-    if coarse.ufl_cell().cellname() not in ["interval", "triangle"]:
-        raise NotImplementedError("Only implemented for intervals and triangles, sorry")
-    ncoarse = coarse.cell_set.size
-    nfine = fine.cell_set.size
-
-    vcStart_new, vcEnd_new = coarse._plex.getDepthStratum(0)
-    vfStart_new, vfEnd_new = fine._plex.getDepthStratum(0)
-    vcStart_orig, vcEnd_orig = coarse._non_overlapped_nent[0]
-    vfStart_orig, vfEnd_orig = fine._non_overlapped_nent[0]
-
-    # Get renumbering to original (plex) vertex numbers
-    _, cn2o = get_entity_renumbering(coarse._plex,
-                                     coarse._vertex_numbering, "vertex")
-    fo2n, _ = get_entity_renumbering(fine._plex,
-                                     fine._vertex_numbering, "vertex")
-
-    # Get map from coarse points into corresponding fine mesh points.
-    # Note this is only valid for "owned" entities (non-overlapped)
-    indices = coarse._fpointIS.indices[vcStart_orig:vcEnd_orig]
-
-    cvertices = P1c.cell_node_map().values
-    fvertices = P1f.cell_node_map().values
-    if coarse.comm.size > 1:
-        # Convert values in indices to points in the overlapped
-        # (rather than non-overlapped) mesh.
-        # Convert to global numbers
-        fine._non_overlapped_lgmap.apply(indices, result=indices)
-        # Send back to local numbers on the overlapped mesh
-        indices = fine._overlapped_lgmap.applyInverse(indices,
-                                                      PETSc.LGMap.MapMode.MASK)
-        indices -= vfStart_new
-
-        # Need to map the new-to-old map back onto the original
-        # (non-overlapped) plex points
-        # Convert from vertex numbers to plex point numbers
-        cn2o += vcStart_new
-        # Go to global numbers
-        coarse._overlapped_lgmap.apply(cn2o, result=cn2o)
-        # Back to local numbers on the original (non-overlapped) mesh
-        cn2o = coarse._non_overlapped_lgmap.applyInverse(cn2o,
-                                                         PETSc.LGMap.MapMode.MASK)
-        # Go from point numbers back to vertex numbers
-        cn2o -= vcStart_orig
-        # Note that unlike in coarse_to_fine_cells, we don't need to
-        # permute fo2n because we always access it using overlapped
-        # plex point indices, rather than non-overlapped indices.
-    else:
-        indices = indices - vfStart_new
-
-    nvertex = P1c.cell_node_map().arity
-    dim = coarse._plex.getDimension()
-    vertex_perm = -np.ones((ncoarse, nvertex*(2 ** dim)), dtype=PETSc.IntType)
-
-    # Intervals
-    if dim == 1:
-        # Cell order (given coarse reference cell numbering) is:
-        # 0---0---*---1---1
-        for ccell in range(ncoarse):
-            for fcell in range(2):
-                found = False
-                for j in range(nvertex):
-                    if found:
-                        break
-                    vtx = fvertices[c2f[ccell, fcell], j]
-                    for i in range(nvertex):
-                        cvtx = cvertices[ccell, i]
-                        fcvtx = fo2n[indices[cn2o[cvtx]]]
-                        if vtx == fcvtx:
-                            new_c2f[ccell, i] = c2f[ccell, fcell]
-                            found = True
-                            break
-            # Having computed the fine cell ordering on this coarse cell,
-            # we derive the permutation of each fine cell vertex.
-            # Vertex order on each fine cell is given by:
-            #
-            # 0---0---a---1---1
-            # 0_f => [0, a]
-            # 1_f => [1, a]
-            #
-            for fcell in range(2):
-                for i in range(nvertex):
-                    vtx = fvertices[new_c2f[ccell, fcell], i]
-                    found = False
-                    for j in range(nvertex):
-                        cvtx = cvertices[ccell, j]
-                        fcvtx = fo2n[indices[cn2o[cvtx]]]
-                        if vtx == fcvtx:
-                            found = True
-                            break
-                    vertex_perm[ccell, fcell*nvertex + i] = 0 if found else 1
-        return new_c2f, vertex_perm
-
-    # Now triangles
-    for ccell in range(ncoarse):
-        for fcell in range(4):
-            # Cell order (given coarse reference cell numbering) is as below:
-            # 2
-            # |\
-            # | \
-            # |  \
-            # | 2 \
-            # *----*
-            # |\ 3 |\
-            # | \  | \
-            # |  \ |  \
-            # | 0 \| 1 \
-            # 0----*----1
-            #
-            found = False
-            # Check if this cell shares a vertex with the coarse cell
-            # In which case, if it shares coarse vertex i it is in position i.
-            for j in range(nvertex):
-                if found:
-                    break
-                vtx = fvertices[c2f[ccell, fcell], j]
-                for i in range(nvertex):
-                    cvtx = cvertices[ccell, i]
-                    fcvtx = fo2n[indices[cn2o[cvtx]]]
-                    if vtx == fcvtx:
-                        new_c2f[ccell, i] = c2f[ccell, fcell]
-                        found = True
-                        break
-            # Doesn't share any vertices, must be central cell, which comes last.
-            if not found:
-                new_c2f[ccell, 3] = c2f[ccell, fcell]
-        # Having computed the fine cell ordering on this coarse cell,
-        # we derive the permutation of each fine cell vertex.
-        # Vertex order on each fine cell is given by:
-        # 2
-        # |\
-        # | \
-        # |  \
-        # | 2 \
-        # b----a
-        # |\ 3 |\
-        # | \  | \
-        # |  \ |  \
-        # | 0 \| 1 \
-        # 0----c----1
-        #
-        # 0_f => [0, c, b]
-        # 1_f => [1, a, c]
-        # 2_f => [2, b, a]
-        # 3_f => [a, b, c]
-        #
-        for fcell in range(3):
-            # "Other" cell, vertex neither shared with coarse cell
-            # vertex nor this cell is vertex 1, (the shared vertex is
-            # vertex 2).
-            ofcell = (fcell + 2) % 3
-            for i in range(nvertex):
-                vtx = fvertices[new_c2f[ccell, fcell], i]
-                # Is this vertex shared with the coarse grid?
-                found = False
-                for j in range(nvertex):
-                    cvtx = cvertices[ccell, j]
-                    fcvtx = fo2n[indices[cn2o[cvtx]]]
-                    if vtx == fcvtx:
-                        found = True
-                        break
-                if found:
-                    # Yes, this is vertex 0.
-                    vertex_perm[ccell, fcell*nvertex + i] = 0
-                    continue
-
-                # Is this vertex shared with "other" cell
-                found = False
-                for j in range(nvertex):
-                    ovtx = fvertices[new_c2f[ccell, ofcell], j]
-                    if vtx == ovtx:
-                        found = True
-                        break
-                if found:
-                    # Yes, this is vertex 2.
-                    vertex_perm[ccell, fcell*nvertex + i] = 2
-                    # Find vertex in cell 3 that matches this one.
-                    # It is numbered by the other cell's other
-                    # cell.
-                    for j in range(nvertex):
-                        ovtx = fvertices[new_c2f[ccell, 3], j]
-                        if vtx == ovtx:
-                            vertex_perm[ccell, 3*nvertex + j] = (fcell + 4) % 3
-                            break
-                if not found:
-                    # No, this is vertex 1
-                    vertex_perm[ccell, fcell*nvertex + i] = 1
-                    # Find vertex in cell 3 that matches this one.
-                    # It is numbered by the "other" cell
-                    for j in range(nvertex):
-                        ovtx = fvertices[new_c2f[ccell, 3], j]
-                        if vtx == ovtx:
-                            vertex_perm[ccell, 3*nvertex + j] = ofcell
-                            break
-    return new_c2f, vertex_perm
-
-
-cdef inline PetscInt hash_perm(PetscInt p0, PetscInt p1):
-    if p0 == 0:
-        if p1 == 1:
-            return 0
-        return 1
-    if p0 == 1:
-        if p1 == 0:
-            return 2
-        return 3
-    if p0 == 2:
-        if p1 == 0:
-            return 4
-        return 5
-
-
-@cython.wraparound(False)
-@cython.boundscheck(False)
-def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2f,
-                         np.ndarray[PetscInt, ndim=2, mode="c"] vertex_perm):
-    """Compute a map from coarse cells to fine nodes (dofs) in a consistent order
-
-    :arg coarse: The coarse function space
-    :arg fine: The fine function space
-    :arg c2f: A map from coarse to fine cells
-    :arg vertex_perm: A permutation of each of the fine cell vertices
-        into a consistent order.
-    """
-    cdef:
-        np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
-        np.ndarray[np.int32_t, ndim=2, mode="c"] permutations
-        np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
-        PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
-
-    cell = coarse.finat_element.cell
-    if isinstance(cell, FIAT.reference_element.TensorProductCell):
-        basecell, _ = cell.cells
-        tdim = basecell.get_spatial_dimension()
-    else:
-        tdim = cell.get_spatial_dimension()
-
-    ncoarse = coarse.mesh().cell_set.size
-    ndof = coarse.cell_node_map().arity
-
-    fiat_element = create_element(coarse.ufl_element(), vector_is_mixed=False)
-    perms = utils.get_node_permutations(fiat_element)
-    permutations = np.empty((len(perms), len(next(iter(perms.values())))), dtype=np.int32)
-    for k, v in perms.iteritems():
-        if tdim == 1:
-            permutations[k[0], :] = v[:]
-        else:
-            p0, p1 = np.asarray(k, dtype=PETSc.IntType)[0:2]
-            permutations[hash_perm(p0, p1), :] = v[:]
-
-    old_cell_map = fine.cell_node_map().values[c2f, ...].reshape(ncoarse, -1)
-
-    # We're going to uniquify the maps we get out, so the first step
-    # is to apply the permutation to one entry to find out which
-    # indices we need to keep.
-    indices, offset = utils.get_unique_indices(fiat_element,
-                                               old_cell_map[0, :],
-                                               vertex_perm[0, :],
-                                               offset=fine.cell_node_map().offset)
-
-    nfdof = indices.shape[0]
-    nfcell = 2**tdim
-    new_cell_map = np.full((coarse.mesh().cell_set.total_size, nfdof), -1, dtype=PETSc.IntType)
-
-    cell_map = np.empty(nfcell*ndof, dtype=PETSc.IntType)
-    for ccell in range(ncoarse):
-        # 2**tdim fine cells per coarse
-        for fcell in range(nfcell):
-            if tdim == 1:
-                perm = vertex_perm[ccell, fcell*2]
-            else:
-                perm = hash_perm(vertex_perm[ccell, fcell*3],
-                                 vertex_perm[ccell, fcell*3 + 1])
-            for j in range(ndof):
-                cell_map[fcell*ndof + j] = old_cell_map[ccell, fcell*ndof +
-                                                        permutations[perm, j]]
-        for j in range(nfdof):
-            new_cell_map[ccell, j] = cell_map[indices[j]]
-    return new_cell_map, offset
+    return coarse_to_fine, fine_to_coarse
 
 
 @cython.boundscheck(False)

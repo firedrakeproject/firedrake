@@ -28,7 +28,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'TorusMesh', 'CylinderMesh']
 
 
-def IntervalMesh(ncells, length_or_left, right=None, distribute=None, comm=COMM_WORLD):
+def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of an interval.
 
@@ -73,10 +73,10 @@ def IntervalMesh(ncells, length_or_left, right=None, distribute=None, comm=COMM_
         if vcoord[0] == coords[-1]:
             plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 2)
 
-    return mesh.Mesh(plex, reorder=False, distribute=distribute)
+    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
 
 
-def UnitIntervalMesh(ncells, distribute=None, comm=COMM_WORLD):
+def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of the interval [0,1].
 
@@ -88,10 +88,10 @@ def UnitIntervalMesh(ncells, distribute=None, comm=COMM_WORLD):
     while the right hand (:math:`x=1`) point has marker 2.
     """
 
-    return IntervalMesh(ncells, length_or_left=1.0, distribute=distribute, comm=comm)
+    return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
-def PeriodicIntervalMesh(ncells, length, distribute=None, comm=COMM_WORLD):
+def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of an interval.
 
     :arg ncells: The number of cells over the interval.
@@ -104,7 +104,7 @@ def PeriodicIntervalMesh(ncells, length, distribute=None, comm=COMM_WORLD):
         raise ValueError("1D periodic meshes with fewer than 3 \
 cells are not currently supported")
 
-    m = CircleManifoldMesh(ncells, distribute=distribute, comm=comm)
+    m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
@@ -149,17 +149,17 @@ cells are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
-def PeriodicUnitIntervalMesh(ncells, distribute=None, comm=COMM_WORLD):
+def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of the unit interval
 
     :arg ncells: The number of cells in the interval.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
-    return PeriodicIntervalMesh(ncells, length=1.0, distribute=distribute, comm=comm)
+    return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
-def OneElementThickMesh(ncells, Lx, Ly, distribute=None, comm=COMM_WORLD):
+def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
     and [Lx, Ly] with ncells, that is periodic in the x-direction.
@@ -181,7 +181,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribute=None, comm=COMM_WORLD):
 
     # a line of coordinates, with a looped topology
     plex = mesh._from_cell_list(2, cells, coords, comm)
-    mesh1 = mesh.Mesh(plex, distribute=distribute)
+    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters)
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
@@ -330,7 +330,7 @@ def UnitTriangleMesh(comm=COMM_WORLD):
 
 
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
-                  diagonal="left", distribute=None, comm=COMM_WORLD):
+                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -397,10 +397,10 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
 
-    return mesh.Mesh(plex, reorder=reorder, distribute=distribute)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribute=None, comm=COMM_WORLD):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -420,11 +420,11 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribute=None, co
     """
     return RectangleMesh(nx, ny, L, L, reorder=reorder,
                          quadrilateral=quadrilateral,
-                         distribute=distribute,
+                         distribution_parameters=distribution_parameters,
                          comm=comm)
 
 
-def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribute=None, comm=COMM_WORLD):
+def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -443,13 +443,13 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribute=None, c
     """
     return SquareMesh(nx, ny, 1, reorder=reorder,
                       quadrilateral=quadrilateral,
-                      distribute=distribute,
+                      distribution_parameters=distribution_parameters,
                       comm=comm)
 
 
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
-                          distribute=None, comm=COMM_WORLD):
+                          distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -475,7 +475,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     """
 
     if direction == "both" and ny == 1 and quadrilateral:
-        return OneElementThickMesh(nx, Lx, Ly, distribute=distribute)
+        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
@@ -483,13 +483,13 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
         return PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction=direction,
                                               quadrilateral=quadrilateral,
                                               reorder=reorder,
-                                              distribute=distribute,
+                                              distribution_parameters=distribution_parameters,
                                               comm=comm)
     if nx < 3 or ny < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribute=distribute, comm=comm)
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
     coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
@@ -549,7 +549,7 @@ for(int i=0; i<new_coords.dofs; i++) {
 
 
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       distribute=None, comm=COMM_WORLD):
+                       distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -574,12 +574,12 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     """
     return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
                                  quadrilateral=quadrilateral, reorder=reorder,
-                                 distribute=distribute,
+                                 distribution_parameters=distribution_parameters,
                                  comm=comm)
 
 
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
-                           quadrilateral=False, distribute=None, comm=COMM_WORLD):
+                           quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -603,11 +603,11 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     """
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral,
-                              distribute=distribute,
+                              distribution_parameters=distribution_parameters,
                               comm=comm)
 
 
-def CircleManifoldMesh(ncells, radius=1, distribute=None, comm=COMM_WORLD):
+def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
@@ -627,7 +627,7 @@ def CircleManifoldMesh(ncells, radius=1, distribute=None, comm=COMM_WORLD):
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
     plex = mesh._from_cell_list(1, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribute=distribute)
+    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
     m._radius = radius
     return m
 
@@ -644,7 +644,7 @@ def UnitTetrahedronMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribute=None, comm=COMM_WORLD):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -722,10 +722,10 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribute=None, comm=COMM_WOR
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 6)
 
-    return mesh.Mesh(plex, reorder=reorder, distribute=distribute)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
-def CubeMesh(nx, ny, nz, L, reorder=None, distribute=None, comm=COMM_WORLD):
+def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a cube
 
     :arg nx: The number of cells in the x direction
@@ -745,11 +745,11 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribute=None, comm=COMM_WORLD):
     * 5: plane z == 0
     * 6: plane z == L
     """
-    return BoxMesh(nx, ny, nz, L, L, L, reorder=reorder, distribute=distribute,
+    return BoxMesh(nx, ny, nz, L, L, L, reorder=reorder, distribution_parameters=distribution_parameters,
                    comm=comm)
 
 
-def UnitCubeMesh(nx, ny, nz, reorder=None, distribute=None, comm=COMM_WORLD):
+def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -768,12 +768,12 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribute=None, comm=COMM_WORLD):
     * 5: plane z == 0
     * 6: plane z == 1
     """
-    return CubeMesh(nx, ny, nz, 1, reorder=reorder, distribute=distribute,
+    return CubeMesh(nx, ny, nz, 1, reorder=reorder, distribution_parameters=distribution_parameters,
                     comm=comm)
 
 
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
-                          distribute=None, comm=COMM_WORLD):
+                          distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -844,7 +844,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
@@ -856,7 +856,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
 
 
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
-                              distribute=None, comm=COMM_WORLD):
+                              distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -875,7 +875,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
                          z0=0.8,
                          reorder=None,
-                         distribute=None,
+                         distribution_parameters=None,
                          comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
@@ -932,7 +932,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         plex = plex.refine()
 
     # build the initial mesh
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
         # use it to build a higher-order mesh
         m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
@@ -986,7 +986,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                              hemisphere="both", z0=0.8, reorder=None,
-                             distribute=None, comm=COMM_WORLD):
+                             distribution_parameters=None, comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -1006,7 +1006,7 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                                 degree=degree, hemisphere=hemisphere,
                                 z0=z0,
                                 reorder=reorder,
-                                distribute=distribute, comm=comm)
+                                distribution_parameters=distribution_parameters, comm=comm)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -1137,7 +1137,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
-                    reorder=None, distribute=None, comm=COMM_WORLD):
+                    reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -1158,7 +1158,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
@@ -1171,7 +1171,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
 
 
 def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
-                        distribute=None, comm=COMM_WORLD):
+                        distribution_parameters=None, comm=COMM_WORLD):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
@@ -1186,7 +1186,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
-              distribute=None, comm=COMM_WORLD):
+              distribution_parameters=None, comm=COMM_WORLD):
     """Generate a toroidal mesh
 
     :arg nR: The number of cells in the major direction (min 3)
@@ -1226,13 +1226,13 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribute=None, comm=COMM_WORLD):
+                 distribution_parameters=None, comm=COMM_WORLD):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1308,12 +1308,12 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 # top of cylinder
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribute=distribute)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
-                                   reorder=None, distribute=None, comm=COMM_WORLD):
+                                   reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
@@ -1351,7 +1351,7 @@ cells in each direction are not currently supported")
 
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder,
-                     distribute=distribute, comm=comm)
+                     distribution_parameters=distribution_parameters, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
     coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates

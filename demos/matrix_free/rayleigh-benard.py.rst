@@ -82,7 +82,7 @@ errors if it is not available. ::
                               "snes_monitor": True,
                               "ksp_type": "gmres",
                               "pc_type": "lu",
-                              "pc_factor_mat_solver_package": "mumps"})
+                              "pc_factor_mat_solver_type": "mumps"})
   except PETSc.Error as e:
       if e.ierr == 92:
           warning("MUMPS not installed, skipping direct solve")
@@ -114,7 +114,7 @@ We'll invert the Navier-Stokes block with MUMPS::
                 "fieldsplit_0_pc_type": "python",
                 "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
                 "fieldsplit_0_assembled_pc_type": "lu",
-                "fieldsplit_0_assembled_pc_factor_mat_solver_package": "mumps",
+                "fieldsplit_0_assembled_pc_factor_mat_solver_type": "mumps",
 
 the temperature block will also be inverted directly, but with plain
 LU.::
