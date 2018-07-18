@@ -1,6 +1,8 @@
+import numpy as np
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
+from functools import singledispatch
 
 from firedrake.slate.slac.utils import (traverse_dags, eigen_tensor, Transformer)
 from firedrake.utils import cached_property
@@ -127,6 +129,84 @@ class LocalKernelBuilder(object):
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self._setup()
+
+    @cached_property
+    def terminal_flops(self):
+        flops = 0
+        nfacets = self.expression.ufl_domain().ufl_cell().num_facets()
+        for ctx in self.context_kernels:
+            itype = ctx.original_integral_type
+            for k in ctx.tsfc_kernels:
+                kinfo = k.kinfo
+                if itype == "cell":
+                    flops += kinfo.kernel.num_flops
+                elif itype.startswith("interior_facet"):
+                    # Executed once per facet (approximation)
+                    flops += kinfo.kernel.num_flops * nfacets
+                else:
+                    # Exterior facets basically contribute zero flops
+                    pass
+        return int(flops)
+
+    @cached_property
+    def expression_flops(self):
+        @singledispatch
+        def _flops(expr):
+            raise AssertionError("Unhandled type %r" % type(expr))
+
+        @_flops.register(slate.AssembledVector)
+        @_flops.register(slate.Block)
+        @_flops.register(slate.Tensor)
+        @_flops.register(slate.Transpose)
+        @_flops.register(slate.Negative)
+        def _flops_none(expr):
+            return 0
+
+        @_flops.register(slate.Factorization)
+        def _flops_factorization(expr):
+            m, n = expr.shape
+            decomposition = expr.decomposition
+            # Extracted from Golub & Van Loan
+            # These all ignore lower-order terms...
+            if decomposition in {"PartialPivLU", "FullPivLU"}:
+                return 2/3 * n**3
+            elif decomposition in {"LLT", "LDLT"}:
+                return (1/3)*n**3
+            elif decomposition in {"HouseholderQR", "ColPivHouseholderQR", "FullPivHouseholderQR"}:
+                return 4/3 * n**3
+            elif decomposition in {"BDCSVD", "JacobiSVD"}:
+                return 12 * n**3
+            else:
+                # Don't know, but don't barf just because of it.
+                return 0
+
+        @_flops.register(slate.Inverse)
+        def _flops_inverse(expr):
+            m, n = expr.shape
+            assert m == n
+            # Assume LU factorisation
+            return (2/3)*n**3
+
+        @_flops.register(slate.Add)
+        def _flops_add(expr):
+            return int(np.prod(expr.shape))
+
+        @_flops.register(slate.Mul)
+        def _flops_mul(expr):
+            A, B = expr.operands
+            *rest_a, col = A.shape
+            _, *rest_b = B.shape
+            return 2*col*int(np.prod(rest_a))*int(np.prod(rest_b))
+
+        @_flops.register(slate.Solve)
+        def _flops_solve(expr):
+            Afac, B = expr.operands
+            _, *rest = B.shape
+            m, n = Afac.shape
+            # Forward elimination + back sub on factorised matrix
+            return (m*n + n**2)*int(np.prod(rest))
+
+        return int(sum(map(_flops, traverse_dags([self.expression]))))
 
     def _setup(self):
         """A setup method to initialize all the local assembly
