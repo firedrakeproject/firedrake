@@ -82,7 +82,7 @@ except:                         # noqa: E722
 
 # Use sed to insert OAUTH token on next line before uploading to web server.
 try:
-    response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions?access_token=ZENODO_OAUTH&size=9999")
+    response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions?access_token=ZENODO_OAUTH&size=9999&all_versions=True")
 except:                         # noqa: E722
     fail("400 Bad Request", "Unable to open deposit records")
 
