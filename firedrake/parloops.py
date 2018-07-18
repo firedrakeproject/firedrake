@@ -101,7 +101,8 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
     if kernel_domains is "":
         kernel_domains = "[] -> {[]}"
     kargs.append(...)
-    knl = loopy.make_kernel(kernel_domains, instructions, kargs, seq_dependencies=True, name="par_loop_kernel", lang_version=(2018, 1))
+    knl = loopy.make_kernel(kernel_domains, instructions, kargs, seq_dependencies=True, name="par_loop_kernel",
+                            lang_version=(2018, 2), silenced_warnings=["summing_if_branches_ops"])
 
     return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
 
