@@ -1,6 +1,5 @@
 from firedrake import *
-from firedrake.solving_utils import ParametersMixin
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 import pytest
 
 
@@ -25,13 +24,13 @@ def opts(request, prefix, global_parameters):
         opts[prefix + k] = v
 
     # Pretend these came from the commandline
-    ParametersMixin.commandline_options = frozenset(opts.getAll())
+    OptionsManager.commandline_options = frozenset(opts.getAll())
 
     def finalize():
         for k in global_parameters.keys():
             del opts[prefix + k]
         # And remove again
-        ParametersMixin.commandline_options = frozenset(opts.getAll())
+        OptionsManager.commandline_options = frozenset(opts.getAll())
 
     request.addfinalizer(finalize)
 
