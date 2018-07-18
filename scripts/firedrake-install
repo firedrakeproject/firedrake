@@ -8,13 +8,7 @@ import shutil
 from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
-from distutils import dir_util
 import atexit
-
-adjoint_deps = {
-    "libadjoint": "git+ssh://bitbucket.org/dolfin-adjoint/libadjoint.git",
-    "dolfin-adjoint": "git+ssh://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
-}
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py"]
@@ -58,7 +52,7 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
                            "honour_petsc_dir",
-                           "show_petsc_configure_options", "adjoint",
+                           "show_petsc_configure_options",
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir"]
 
@@ -130,8 +124,6 @@ in the PETSC_CONFIGURE_OPTIONS environment variable will be
 honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
-    parser.add_argument("--adjoint", action='store_true',
-                        help="Also install firedrake-adjoint.")
     parser.add_argument("--slope", action='store_true',
                         help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true",
@@ -201,8 +193,6 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--rebuild-script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
-    parser.add_argument("--adjoint", action='store_true', dest="adjoint", default=config["options"]["adjoint"],
-                        help="Also install firedrake-adjoint.")
     parser.add_argument("--slope", action='store_true', dest="slope", default=config["options"]["slope"],
                         help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
@@ -306,7 +296,7 @@ options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["pac
 
 
 # Record of obsolete packages which --clean should remove from old installs.
-old_git_packages = []
+old_git_packages = ["dolfin-adjoint", "libadjoint"]
 
 if mode == "install":
     firedrake_env = os.path.abspath(args.venv_name)
@@ -802,38 +792,6 @@ def build_and_install_slepc():
         log.info("No need to rebuild slepc4py")
 
 
-def build_and_install_adjoint():
-
-    for package in adjoint_deps:
-        try:
-            git_update(package, adjoint_deps[package])
-        except OSError as e:
-            if e.errno == 2:
-                log.warn("%s missing, cloning anew.\n" % package)
-                git_clone(adjoint_deps[package])
-            else:
-                raise
-
-    env = dict(os.environ)
-    petsc_dir, petsc_arch = get_petsc_dir()
-    env["PETSC_ARCH"] = petsc_arch
-    env["PETSC_DIR"] = petsc_dir
-    if options["slepc"]:
-        slepc_dir, _ = get_slepc_dir()
-        env["SLEPC_DIR"] = slepc_dir
-
-    with directory("libadjoint"):
-        dir_util.mkpath("build")
-        with directory("build"):
-            log.info("Configuring libadjoint for venv installation in %s" % os.environ["VIRTUAL_ENV"])
-            check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"],
-                        "-DPYTHON_EXECUTABLE=%s/bin/python3" % os.environ["VIRTUAL_ENV"], ".."], env=env)
-            log.info("Installing libadjoint.")
-            check_call(["make", "install"])
-
-    install("dolfin-adjoint/")
-
-
 def build_and_install_slope():
     log.info("Installing SLOPE")
     if os.path.exists("SLOPE"):
@@ -1178,8 +1136,6 @@ else:
 
 if options["slepc"]:
     build_and_install_slepc()
-if options["adjoint"]:
-    build_and_install_adjoint()
 if options["slope"]:
     build_and_install_slope()
 
