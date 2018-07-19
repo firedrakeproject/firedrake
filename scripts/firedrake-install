@@ -915,7 +915,7 @@ if mode == "install" or not args.update_script:
             brew_install("cmake")
             brew_install("libtool")
             brew_install("mercurial")
-
+            brew_install("boost")
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
 
@@ -942,7 +942,8 @@ if mode == "install" or not args.update_script:
                             "python3-pip",
                             "python3-tk",
                             "python3-venv",
-                            "zlib1g-dev"]
+                            "zlib1g-dev",
+                            "libboost-dev"]  # For ROL in pyadjoint
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:
