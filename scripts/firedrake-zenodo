@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import re
 import logging
 import sys
 import os
@@ -7,8 +8,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 import json
 import time
-from urllib.request import urlopen
-from urllib.error import HTTPError
+import requests
 
 
 descriptions = OrderedDict([
@@ -43,10 +43,13 @@ parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions 
 
 If you are a Firedrake user, this script creates a JSON file encoding
 the precise versions of all the Firedrake components you are using,
-and a documentation string. You should create an issue on the
-Firedrake github page and attach this file. The Firedrake core
-developers will generate DOIs for your packages and report the
-corresponding release tag.
+and a documentation string.  You can optionally provide an additional
+(free-form) file containing extra information that will be uploaded as
+part of the Zenodo release.
+
+You should create an issue on the Firedrake github page and attach
+this file. The Firedrake core developers will generate DOIs for your
+packages and report the corresponding release tag.
 
 If you have a release tag from a Firedrake Zenodo release, then
 
@@ -55,7 +58,23 @@ If you have a release tag from a Firedrake Zenodo release, then
 will download the corresponding bibliography entries in BibTeX format.
 
 If you are a Firedrake core developer, this script enables you to
-create DOIs directly, or to create them from a user-supplied JSON file.""",
+create DOIs directly, or to create them from a user-supplied JSON file.
+
+The release process is two-stage.  First, create a new release with
+
+   firedrake-zenodo --release
+
+or
+
+   firedrake-zenodo --input FILE
+
+Once this is done, we must create a "meta" release that links to
+all the individual components.  This is achieved with:
+
+   firedrake-zenodo --create-meta-release FILE
+
+Using the FILE created by the previous release step.
+""",
                         epilog="""""",
                         formatter_class=RawDescriptionHelpFormatter)
 group = parser.add_mutually_exclusive_group()
@@ -66,13 +85,21 @@ group.add_argument("--input", "-i", action="store", nargs=1,
 group.add_argument("--release", action="store_true",
                    help="Release based on the current checked out versions.")
 group.add_argument("--bibtex", action="store", nargs=1,
-                   help="Retrieve the BibTex entries corresponding to the release tag provided.", dest="release_tag")
-group.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
-                   help="Output to the named bibtex file rather than firedrake-zenodo.bib")
-parser.add_argument("--message", "-m", action="store", nargs=1,
-                    help="Short description of the reason for this release. E.g. Version of Firedrake used in <paper name>.")
+                   help="Retrieve the BibTeX entries corresponding to the release tag provided.", dest="release_tag")
+group.add_argument("--create-meta-release", action="store", nargs=1, default=["firedrake-meta.json"],
+                   help="Create meta-record with data from specified file.", dest="meta_release")
+parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
+                    help="Output to the named bibtex file rather than firedrake-zenodo.bib")
+parser.add_argument("--title", "-t", action="store", nargs=1,
+                    help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
+parser.add_argument("--info-file", action="store", nargs=1,
+                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code).  Will be uploaded to Zenodo using the provided name.""")
 parser.add_argument("--honour-petsc-dir", action="store_true",
                     help="Does your firedrake use a self-built PETSc?")
+
+parser.add_argument("--skip-missing", action="store_true",
+                    help="When creating Zenodo meta-record, skip missing components?")
+
 
 for component in components:
     parser.add_argument("--%s" % component, action="store", nargs=1,
@@ -80,7 +107,7 @@ for component in components:
                         % component)
 
 parser.add_argument("--log", action='store_true',
-                    help="Produce a verbose log of the installation process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
+                    help="Produce a verbose log of the release process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
 
 args = parser.parse_args()
 
@@ -156,41 +183,323 @@ def collect_repo_shas():
     return shas
 
 
-if args.release_tag:
-    tag = args.release_tag[0]
-    log.info("Retrieving BibTeX data for Firedrake release %s." % tag)
-    log.info("This may take a few seconds.")
-    try:
-        request = urlopen("http://firedrakeproject.org/zenodo-bibtex.cgi?tag=%s" % tag)
-    except HTTPError as e:
-        if e.code == 400:
-            log.error("%s is not a legal Firedrake Zenodo release tag" % tag)
+def check_tag(tag):
+    if re.match("Firedrake_20[0-9]{6,6}\.[0-9]+", tag) is None:
+        log.error("Provided tag '{}' is not a legal Firedrake Zenodo release tag".format(tag))
+        sys.exit(1)
+
+
+def resolve_tag(tag):
+    """Match a tag in component repositories.
+
+    :arg tag: The tag to match.
+
+    :returns: a list of (repository, [matching-tags, ...]) pairs.
+
+    repository is a github3 Repository instance for the component, the
+    list of matching tags are possible tags that match the commit of
+    the requested tag (for zenodo searching).
+
+    :raises ValueError: if a non-optional component doesn't have the
+        necessary tag.
+    """
+    import github3
+    # Shut up the github module
+    github3.session.__logs__.setLevel(logging.WARNING)
+    if os.getenv("FIREDRAKE_OAUTH"):
+        gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+    else:
+        log.error("""Need to provide FIREDRAKE_OAUTH for github to resolve tags.
+
+If you are a Firedrake core developer, please set the environment
+variable FIREDRAKE_OAUTH to a github OAUTH token with repository
+access.""")
+        sys.exit(1)
+    result = []
+    for component in components:
+        repo = gh.repository(projects[component], component)
+        tags = list(repo.tags())
+        try:
+            found, = [t for t in tags if t.name == tag]
+        except ValueError:
+            if component in optional_components:
+                continue
+            if args.skip_missing:
+                log.warning("Tag '{tag}' does not exit in repository '{repo}'. Continuing".format(tag=tag, repo=repo))
+            else:
+                raise ValueError("Tag '{tag}' does not exist in repository '{repo}'".format(tag=tag, repo=repo))
+        matching = [t for t in tags if t.commit == found.commit]
+        result.append((repo, matching))
+    return result
+
+
+def zenodo_records():
+    """Grab all zenodo records of tagged Firedrake component releases.
+
+    :returns: An iterable of zenodo records.
+    :raises LookupError: if we were not able find any records."""
+    result = None
+    i = 1
+    while True:
+        if i > 20:
+            raise RuntimeError("More than 8000 uploads on zenodo?")
+        response = requests.get("https://zenodo.org/api/records", params={"q": 'owners:19586',
+                                                                          "all_versions": True,
+                                                                          "size": 400,
+                                                                          "sort": "mostrecent",
+                                                                          "page": i})
+        if response.status_code == 200:
+            if result is None:
+                result = response.json()
+            else:
+                tmp = response.json()
+                result["hits"]["hits"].extend(tmp["hits"]["hits"])
+            n = len(result["hits"]["hits"])
+            expect = result["hits"]["total"]
+            if expect == n:
+                return result["hits"]["hits"]
+            elif expect < n:
+                raise LookupError("Have more hits than Zenodo reports in total")
+            i += 1
+        else:
+            raise LookupError("Unable to get zenodo records: %s" % response.json())
+
+
+def match(records, possible_tags):
+    """Find zenodo records corresponding to tagged component releases.
+
+    :arg records: The list of zenodo records to search.
+    :arg possible_tags: list of (repo, [tags-to-try, ...]) pairs.
+    :returns: A list of (repo, (tag, record)) for each found record.
+    """
+    results = {}
+    for record in records:
+        try:
+            idents = record["metadata"]["related_identifiers"]
+            for ident in idents:
+                url = ident["identifier"]
+                for repo, tags in possible_tags:
+                    for tag in tags:
+                        if url == "{base}/tree/{tag}".format(base=repo.html_url, tag=tag):
+                            results[repo] = (tag, record)
+                            break
+        except KeyError:
+            pass
+    return list(sorted(results.items(), key=lambda x: x[0].full_name.lower()))
+
+
+def create_json(records, title):
+    """Create a JSON string describing a meta-record.
+
+    :arg records: The (repo, (tag, record)) list to encode.
+    :arg title: The title of the meta-record.
+    :returns: a JSON representation suitable for upload."""
+    data = {"components": [{"component": repo.full_name,
+                            "tag": tag.name,
+                            "commit": tag.commit.sha,
+                            "zenodo-record": record}
+                           for repo, (tag, record) in records],
+            "title": title}
+    return json.dumps(data)
+
+
+def create_description(records, title):
+    """Create a description of a meta-record.
+
+    :arg records: the (repo, (tag, record)) list to encode.
+    :arg title: The title of the meta-record.
+    :returns: A HTML string suitable for zenodo upload."""
+    links = "\n".join("<li>{name} ({desc}): https://doi.org/{doi}</li>".format(
+        name=repo.name,
+        desc=descriptions[repo.name],
+        doi=record["doi"]) for repo, (_, record) in records)
+    data = """<p>This records collates DOIs for the software components used in '{title}'.</p>
+
+<p>
+The Firedrake components and dependencies used were:
+
+<ul>
+{links}
+</ul>
+</p>""".format(title=title, links=links)
+    return data
+
+
+def create_metarecord(tag, title, info_file=None):
+    """Create meta-record.
+
+    :arg tag: The tag to create the record for.
+    :arg title: The title of the record.
+    :arg info_file: optional (filename, contents) pair of any additional
+        (user-provided) information, will be uploaded using the provided filename."""
+    # First check that we don't have a matching tag already.
+    response = requests.get("https://zenodo.org/api/records",
+                            params={"q": "creators.name:firedrake-zenodo AND version:{}".format(tag)})
+    if response.status_code < 400:
+        if response.json()["hits"]["total"] > 0:
+            log.error("\nThere is already a meta-record with tag '{}'".format(tag))
+            log.error("This should not happen, perhaps you've already created it?\n")
             sys.exit(1)
 
-    bibtex = request.read()
-    if not bibtex.strip():
+    possible_tags = resolve_tag(tag)
+    all_records = zenodo_records()
+    matching_records = match(all_records, possible_tags)
+    if len(matching_records) != len(possible_tags):
+        missing = set(repo for repo, _ in possible_tags).difference(repo for repo, _ in matching_records)
+        if args.skip_missing:
+            log.warning("Did not find a Zenodo record for repositories: '{}'. Continuing.".format(
+                ", ".join(repo.full_name for repo in missing)))
+        else:
+            raise LookupError("Did not find a Zenodo record for repositories: '{}'".format(
+                ", ".join(repo.full_name for repo in missing)))
+    metadata = {
+        "metadata": {
+            "title": "Software used in '{}'".format(title),
+            "upload_type": "software",
+            "creators": [{"name": "firedrake-zenodo"}],
+            "version": "{}".format(tag),
+            "access_right": "open",
+            "license": "cc-by",
+            "related_identifiers": [{"relation": "cites", "identifier": record["doi"]}
+                                    for _, (_, record) in matching_records],
+            "description": create_description(matching_records, title),
+        }
+    }
+    base_url = "https://zenodo.org/api/deposit/depositions"
+    if os.getenv("FIREDRAKE_ZENODO_AUTH"):
+        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_AUTH")}
+    else:
+        log.error("Need to set FIREDRAKE_ZENODO_AUTH to create meta-release")
+        sys.exit(1)
+    depo = requests.post(base_url, params=authentication_params, headers={"Content-Type": "application/json"},
+                         data=json.dumps(metadata))
+    if depo.status_code >= 400:
+        raise ValueError("Unable to create deposition {}".format(depo.json()))
+
+    upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
+                           files={"file": ("components.json",
+                                           create_json(matching_records, title),
+                                           "application/json")},
+                           params=authentication_params)
+    if upload.status_code >= 400:
+        raise ValueError("Unable to upload file {}".format(upload.json()))
+
+    if info_file is not None:
+        filename, contents = info_file
+        if filename == "components.json":
+            filename = "user-components.json"
+        upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
+                               files={"file": (filename, contents, "text/plain")},
+                               params=authentication_params)
+        if upload.status_code >= 400:
+            raise ValueError("Unable to upload user file {}".format(upload.json()))
+    publish = requests.post("{url}/{id}/actions/publish".format(url=base_url, id=depo.json()["id"]),
+                            params=authentication_params)
+    if publish.status_code >= 400:
+        raise ValueError("Unable to publish deposition {}".format(publish.json()))
+    return publish
+
+
+if args.release_tag:
+    tag = args.release_tag[0]
+    check_tag(tag)
+    log.info("Retrieving BibTeX data for Firedrake release %s." % tag)
+    log.info("This may take a few seconds.")
+    # XXX: Switch to live once we're done testing.
+    response = requests.get("https://zenodo.org/api/records",
+                            params={"q": "creators.name:firedrake-zenodo AND version:%s" % tag})
+    if response.status_code >= 400:
+        log.error("Unable to obtain Zenodo data for release tag %s" % tag)
+        sys.exit(1)
+
+    result = response.json()
+    if result["hits"]["total"] < 1:
         log.error("""No data returned. Please check that the release tag is correct.
 
 If the release has only just been created, then the information may not yet have propagated to Zenodo yet. Please try again later.""")
         sys.exit(1)
-    open(args.bibtex_file[0], "wb").write(bibtex)
+
+    if result["hits"]["total"] > 1:
+        log.error("More than one release for this tag found, please check bibtex carefully.")
+
+    def format_bibtex(record):
+        metadata = record["metadata"]
+        template = """@misc{{{key},
+ author = {{{key}}},
+ title  = {{{{{title}}}}},
+ year   = {{{year}}},
+ month  = {{{month}}},
+ doi    = {{{doi}}},
+ url    = {{https://doi.org/{doi}}},
+}}
+"""
+        months = {"01": "jan",
+                  "02": "feb",
+                  "03": "mar",
+                  "04": "apr",
+                  "05": "may",
+                  "06": "jun",
+                  "07": "jul",
+                  "08": "aug",
+                  "09": "sep",
+                  "10": "oct",
+                  "11": "nov",
+                  "12": "dec"}
+        title = metadata["title"]
+        doi = metadata["doi"]
+        key = "zenodo/{}".format(tag)
+        date = metadata["publication_date"]
+        year = date[:4]
+        month = months[date[5:7]]
+        return template.format(key=key, title=title, doi=doi, year=year, month=month)
+
+    bibtex = "\n".join(map(format_bibtex, result["hits"]["hits"]))
+    with open(args.bibtex_file[0], "w") as f:
+        f.write(bibtex)
     log.info("Bibliography written to %s" % args.bibtex_file[0])
     sys.exit(0)
 
+
+if args.meta_release:
+    with open(args.meta_release[0], "r") as f:
+        data = json.loads(f.read())
+    tag = data["tag"]
+    check_tag(tag)
+    title = data["title"]
+    info_file = data["info_file"]
+    record = create_metarecord(tag, title, info_file)
+    record = record.json()
+    log.info("Created Zenodo meta-release.")
+    log.info("DOI is {}".format(record["doi"]))
+    log.info("Zenodo URL is {}".format(record["links"]["record_html"]))
+    sys.exit(0)
+
+
 if args.release or not args.input_file:
-    if not args.message:
-        log.error("You must provide a message using the -m option")
+    if not args.title:
+        log.error("You must provide a title using the --title option")
         sys.exit(1)
 
     # Collect hashes from the current repo.
     shas = collect_repo_shas()
+    if args.info_file:
+        with open(args.info_file[0], "r") as f:
+            shas["metarelease_info_file"] = (os.path.basename(args.info_file[0]),
+                                             f.read())
+    else:
+        shas["metarelease_info_file"] = None
 else:
     # Read hashes from file.
     infile = open(os.path.abspath(args.input_file[0]), "r")
     shas = json.loads(infile.read())
 
-if args.message:
-    shas["message"] = args.message[0]
+if args.title:
+    shas["title"] = args.title[0]
+
+if args.info_file:
+    with open(args.info_file[0], "r") as f:
+        shas["metarelease_info_file"] = (os.path.basename(args.info_file[0]),
+                                         f.read())
 
 # Override hashes with any read from the command line.
 for component in components:
@@ -208,18 +517,11 @@ if not (args.release or args.input_file):
 
 try:
     import github3
+    # Shut up the github module
+    github3.session.__logs__.setLevel(logging.WARNING)
 except ImportError:
     log.error("Publishing releases requires the github3 module. Please pip install github3.py")
     sys.exit(1)
-
-message = shas["message"] + """
-
-This release is specifically created to document the version of
-Firedrake used in a particular set of experiments. Please do not cite
-this as a general source for Firedrake or any of its
-dependencies. Instead, refer to
-http://www.firedrakeproject.org/publications.html"""
-
 
 # Github authentication.
 if os.getenv("FIREDRAKE_OAUTH"):
@@ -265,6 +567,13 @@ for component in components:
         log.warn("No commit specified for %s. No release will be created for this component." % component)
 
 # Now create releases.
+message = """This release is specifically created to document the version of
+{component} used in a particular set of experiments using
+Firedrake. Please do not cite this as a general source for Firedrake
+or any of its dependencies. Instead, refer to
+http://www.firedrakeproject.org/publications.html"""
+
+
 for component in (set(shas) & set(components)):
     log.info("Releasing %s" % component)
     repo = gh.repository(projects[component], component)
@@ -273,8 +582,18 @@ for component in (set(shas) & set(components)):
         tag_name=tag,
         target_commitish=shas[component],
         name=descriptions[component],
-        body=message,
+        body=message.format(component=component),
         draft=False,
         prerelease=True)
 
+meta_file = "firedrake-meta-release.json"
+with open(meta_file, "w") as f:
+    data = {"tag": tag,
+            "title": shas["title"],
+            "info_file": shas["metarelease_info_file"]}
+    meta_file.write(json.dumps(data))
+
 log.info("Releases complete. The release tag is %s" % tag)
+log.info("Now, you need to create the meta-release")
+log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % meta_file)
+log.info("It is best to wait a short while to ensure that Zenodo is up to date")
