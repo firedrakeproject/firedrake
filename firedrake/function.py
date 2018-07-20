@@ -635,7 +635,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
                                             forward_args=["double*", "double*"],
                                             kernel_name="evaluate_kernel",
-                                            wrapper_name="wrap_evaluate"))
+                                            wrapper_name="wrap_evaluate",
+                                            restart_counter=False))
 
     src = "\n".join(src)
 
