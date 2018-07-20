@@ -710,11 +710,14 @@ class Set(object):
 
 class GlobalSet(Set):
 
+    _extruded = False
+
     """A proxy set allowing a :class:`Global` to be used in place of a
     :class:`Dat` where appropriate."""
 
     def __init__(self, comm=None):
         self.comm = dup_comm(comm)
+        self._cache = {}
 
     @cached_property
     def core_size(self):
@@ -1800,7 +1803,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
                % (self._dataset, self.dtype, self._name)
 
     def _check_shape(self, other):
-        if other.dataset != self.dataset:
+        if other.dataset.dim != self.dataset.dim:
             raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
@@ -2134,11 +2137,17 @@ class MixedDat(Dat):
     """
 
     def __init__(self, mdset_or_dats):
+        def what(x):
+            if isinstance(x, (Global, GlobalDataSet, GlobalSet)):
+                return "Global",
+            elif isinstance(x, (Dat, DataSet, Set)):
+                return "Dat"
+            else:
+                raise DataSetTypeError("Huh?!")
         if isinstance(mdset_or_dats, MixedDat):
-            self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
+            self._dats = tuple(_make_object(what(d), d) for d in mdset_or_dats)
         else:
-            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object('Dat', d)
-                               for d in mdset_or_dats)
+            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object(what(d), d) for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
@@ -2561,7 +2570,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         pass
 
     def _op(self, other, op):
-        ret = type(self)(self.dim, dtype=self.dtype, name=self.name)
+        ret = type(self)(self.dim, dtype=self.dtype, name=self.name, comm=self.comm)
         if isinstance(other, Global):
             ret.data[:] = op(self.data_ro, other.data_ro)
         else:
