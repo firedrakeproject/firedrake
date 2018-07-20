@@ -710,6 +710,8 @@ class Set(object):
 
 class GlobalSet(Set):
 
+    _extruded = False
+
     """A proxy set allowing a :class:`Global` to be used in place of a
     :class:`Dat` where appropriate."""
 
