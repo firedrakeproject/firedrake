@@ -1800,7 +1800,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
                % (self._dataset, self.dtype, self._name)
 
     def _check_shape(self, other):
-        if other.dataset != self.dataset:
+        if other.dataset.dim != self.dataset.dim:
             raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
