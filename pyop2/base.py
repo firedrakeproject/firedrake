@@ -717,6 +717,7 @@ class GlobalSet(Set):
 
     def __init__(self, comm=None):
         self.comm = dup_comm(comm)
+        self._cache = {}
 
     @cached_property
     def core_size(self):
