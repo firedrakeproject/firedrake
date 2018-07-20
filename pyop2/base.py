@@ -2561,7 +2561,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         pass
 
     def _op(self, other, op):
-        ret = type(self)(self.dim, dtype=self.dtype, name=self.name)
+        ret = type(self)(self.dim, dtype=self.dtype, name=self.name, comm=self.comm)
         if isinstance(other, Global):
             ret.data[:] = op(self.data_ro, other.data_ro)
         else:

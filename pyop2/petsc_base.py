@@ -1092,15 +1092,15 @@ def _GlobalMat(global_=None, comm=None):
     """A :class:`PETSc.Mat` with global size 1x1 implemented as a
     :class:`.Global`"""
     A = PETSc.Mat().createPython(((None, 1), (None, 1)), comm=comm)
-    A.setPythonContext(_GlobalMatPayload(global_))
+    A.setPythonContext(_GlobalMatPayload(global_, comm))
     A.setUp()
     return A
 
 
 class _GlobalMatPayload(object):
 
-    def __init__(self, global_=None):
-        self.global_ = global_ or _make_object("Global", 1)
+    def __init__(self, global_=None, comm=None):
+        self.global_ = global_ or _make_object("Global", 1, comm=comm)
 
     def __getitem__(self, key):
         return self.global_.data_ro.reshape(1, 1)[key]
