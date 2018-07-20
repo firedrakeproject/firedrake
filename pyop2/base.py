@@ -3021,7 +3021,13 @@ class MixedMap(Map, ObjectCached):
         if not all(m is None or m.iterset == self.iterset for m in self._maps):
             raise MapTypeError("All maps in a MixedMap need to share the same iterset")
         # TODO: Think about different communicators on maps (c.f. MixedSet)
-        self.comm = maps[0].comm
+        # TODO: What if all maps are None?
+        comms = tuple(m.comm for m in self._maps if m is not None)
+        if not all(c == comms[0] for c in comms):
+            raise MapTypeError("All maps needs to share a communicator")
+        if len(comms) == 0:
+            raise MapTypeError("Don't know how to make communicator")
+        self.comm = comms[0]
         self._initialized = True
 
     @classmethod
@@ -3047,7 +3053,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
-        return MixedSet(tuple(GlobalSet() if m is None else
+        return MixedSet(tuple(GlobalSet(comm=self.comm) if m is None else
                               m.toset for m in self._maps))
 
     @cached_property
