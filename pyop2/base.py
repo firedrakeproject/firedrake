@@ -2134,11 +2134,17 @@ class MixedDat(Dat):
     """
 
     def __init__(self, mdset_or_dats):
+        def what(x):
+            if isinstance(x, Dat):
+                return "Dat"
+            elif isinstance(x, Global):
+                return "Global"
+            else:
+                raise DataValueError("Huh?!")
         if isinstance(mdset_or_dats, MixedDat):
-            self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
+            self._dats = tuple(_make_object(what(d), d) for d in mdset_or_dats)
         else:
-            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object('Dat', d)
-                               for d in mdset_or_dats)
+            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object(what(d), d) for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
