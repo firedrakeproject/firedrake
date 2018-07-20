@@ -2138,12 +2138,12 @@ class MixedDat(Dat):
 
     def __init__(self, mdset_or_dats):
         def what(x):
-            if isinstance(x, Dat):
+            if isinstance(x, (Global, GlobalDataSet, GlobalSet)):
+                return "Global",
+            elif isinstance(x, (Dat, DataSet, Set)):
                 return "Dat"
-            elif isinstance(x, Global):
-                return "Global"
             else:
-                raise DataValueError("Huh?!")
+                raise DataSetTypeError("Huh?!")
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(_make_object(what(d), d) for d in mdset_or_dats)
         else:
