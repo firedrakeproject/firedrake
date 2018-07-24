@@ -74,7 +74,6 @@ Example usage::
   #  [ 3.  0.]]
 """
 
-from __future__ import absolute_import, print_function, division
 import numpy as np
 from pyop2 import base
 
@@ -107,40 +106,39 @@ class ParLoop(base.ParLoop):
     def _compute(self, part, *arglist):
         if part.set._extruded:
             raise NotImplementedError
-        subset = isinstance(self._it_space._iterset, base.Subset)
+        subset = isinstance(self.iterset, base.Subset)
 
-        for arg in self.args:
-            if arg._is_dat and arg.data._is_allocated:
-                for d in arg.data:
-                    d._data.setflags(write=True)
+        def arrayview(array, access):
+            array = array.view()
+            array.setflags(write=(access is not base.READ))
+            return array
+
         # Just walk over the iteration set
         for e in range(part.offset, part.offset + part.size):
             args = []
             if subset:
-                idx = self._it_space._iterset._indices[e]
+                idx = self.iterset._indices[e]
             else:
                 idx = e
             for arg in self.args:
                 if arg._is_global:
-                    args.append(arg.data._data)
+                    args.append(arrayview(arg.data._data, arg.access))
                 elif arg._is_direct:
-                    args.append(arg.data._data[idx, ...])
+                    args.append(arrayview(arg.data._data[idx, ...], arg.access))
                 elif arg._is_indirect:
                     if isinstance(arg.idx, base.IterationIndex):
                         raise NotImplementedError
                     if arg._is_vec_map:
-                        args.append(arg.data._data[arg.map.values_with_halo[idx], ...])
+                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
                     else:
-                        args.append(arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1],
-                                                   ...])
+                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1],
+                                                             ...]), arg.access)
                 elif arg._is_mat:
                     if arg.access not in [base.INC, base.WRITE]:
                         raise NotImplementedError
                     if arg._is_mixed_mat:
                         raise ValueError("Mixed Mats must be split before assembly")
                     args.append(np.zeros(arg._block_shape[0][0], dtype=arg.data.dtype))
-                if arg.access is base.READ:
-                    args[-1].setflags(write=False)
                 if args[-1].shape == ():
                     args[-1] = args[-1].reshape(1)
             self._kernel(*args)
@@ -167,9 +165,6 @@ class ParLoop(base.ParLoop):
                                             tmp)
 
         for arg in self.args:
-            if arg._is_dat and arg.data._is_allocated:
-                for d in arg.data:
-                    d._data.setflags(write=False)
             if arg._is_mat and arg.access is not base.READ:
                 # Queue up assembly of matrix
                 arg.data.assemble()

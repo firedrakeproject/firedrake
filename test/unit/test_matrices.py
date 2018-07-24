@@ -31,8 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
 
 import pytest
 import numpy as np
@@ -43,7 +41,7 @@ from pyop2.exceptions import MapValueError, ModeValueError
 
 from coffee.base import *
 
-from petsc4py.PETSc import ScalarType 
+from petsc4py.PETSc import ScalarType
 
 # Data type
 valuetype = ScalarType
@@ -543,42 +541,6 @@ class TestSparsity:
     """
     Sparsity tests
     """
-
-    def test_build_sparsity(self):
-        """Building a sparsity from a pair of maps should give the expected
-        rowptr and colidx."""
-        elements = op2.Set(4)
-        nodes = op2.Set(5)
-        elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
-                                                 1, 2, 4, 2, 3, 4])
-        sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node))
-        assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
-        assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
-                                        3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
-
-    def test_build_mixed_sparsity(self, msparsity):
-        """Building a sparsity from a pair of mixed maps should give the
-        expected rowptr and colidx for each block."""
-        assert all(msparsity._rowptr[0] == [0, 1, 2, 3])
-        assert all(msparsity._rowptr[1] == [0, 2, 4, 6])
-        assert all(msparsity._rowptr[2] == [0, 1, 3, 5, 6])
-        assert all(msparsity._rowptr[3] == [0, 2, 5, 8, 10])
-        assert all(msparsity._colidx[0] == [0, 1, 2])
-        assert all(msparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
-        assert all(msparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
-        assert all(msparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
-
-    def test_build_mixed_sparsity_vector(self, mvsparsity):
-        """Building a sparsity from a pair of mixed maps and a vector DataSet
-        should give the expected rowptr and colidx for each block."""
-        assert all(mvsparsity._rowptr[0] == [0, 1, 2, 3])
-        assert all(mvsparsity._rowptr[1] == [0, 2, 4, 6])
-        assert all(mvsparsity._rowptr[2] == [0, 1, 3, 5, 6])
-        assert all(mvsparsity._rowptr[3] == [0, 2, 5, 8, 10])
-        assert all(mvsparsity._colidx[0] == [0, 1, 2])
-        assert all(mvsparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
-        assert all(mvsparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
-        assert all(mvsparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
 
     def test_sparsity_null_maps(self):
         """Building sparsity from a pair of non-initialized maps should fail."""

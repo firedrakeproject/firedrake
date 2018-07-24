@@ -32,7 +32,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """The PyOP2 logger, based on the Python standard library logging module."""
-from __future__ import absolute_import, print_function, division
 
 from contextlib import contextmanager
 import logging

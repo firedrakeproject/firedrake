@@ -33,7 +33,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
 try:
     from setuptools import setup, Extension
 except ImportError:
@@ -85,7 +84,7 @@ try:
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
-    sparsity_sources = ['pyop2/sparsity.cpp']
+    sparsity_sources = ['pyop2/sparsity.c']
     computeind_sources = ['pyop2/computeind.c']
     sources = sparsity_sources + computeind_sources
     from os.path import exists
@@ -124,7 +123,7 @@ class sdist(_sdist):
     def run(self):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
-        cythonize(sparsity_sources, language="c++", include_path=includes)
+        cythonize(sparsity_sources, language="c", include_path=includes)
         cythonize(computeind_sources)
         _sdist.run(self)
 
@@ -157,7 +156,7 @@ setup(name='PyOP2',
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.sparsity', sparsity_sources,
-                             include_dirs=['pyop2'] + includes, language="c++",
+                             include_dirs=['pyop2'] + includes, language="c",
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),

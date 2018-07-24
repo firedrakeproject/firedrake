@@ -31,9 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
-import six
-from six.moves import input
 
 import os
 import subprocess
@@ -45,6 +42,7 @@ from distutils import version
 
 
 from pyop2.mpi import MPI, collective, COMM_WORLD
+from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -77,19 +75,71 @@ def sniff_compiler_version(cc):
     elif ver.startswith("Apple LLVM"):
         compiler = "clang"
     elif ver.startswith("icc"):
-        compiler = "intel"
+        compiler = "icc"
     else:
         compiler = "unknown"
 
     ver = version.LooseVersion("unknown")
     if compiler in ["gcc", "icc"]:
         try:
-            ver = subprocess.check_output([cc, "-dumpversion"]).decode("utf-8")
+            # gcc-7 series only spits out patch level on dumpfullversion.
+            ver = subprocess.check_output([cc, "-dumpfullversion"],
+                                          stderr=subprocess.DEVNULL).decode("utf-8")
             ver = version.StrictVersion(ver.strip())
-        except (subprocess.CalledProcessError, UnicodeDecodeError):
+        except subprocess.CalledProcessError:
+            try:
+                ver = subprocess.check_output([cc, "-dumpversion"],
+                                              stderr=subprocess.DEVNULL).decode("utf-8")
+                ver = version.StrictVersion(ver.strip())
+            except (subprocess.CalledProcessError, UnicodeDecodeError):
+                pass
+        except UnicodeDecodeError:
             pass
 
     return CompilerInfo(compiler, ver)
+
+
+@collective
+def compilation_comm(comm):
+    """Get a communicator for compilation.
+
+    :arg comm: The input communicator.
+    :returns: A communicator used for compilation (may be smaller)
+    """
+    # Should we try and do node-local compilation?
+    if not configuration["node_local_compilation"]:
+        return comm
+    retcomm = get_compilation_comm(comm)
+    if retcomm is not None:
+        debug("Found existing compilation communicator")
+        return retcomm
+    if MPI.VERSION >= 3:
+        debug("Creating compilation communicator using MPI_Split_type")
+        retcomm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+        set_compilation_comm(comm, retcomm)
+        return retcomm
+    debug("Creating compilation communicator using MPI_Split + filesystem")
+    import tempfile
+    if comm.rank == 0:
+        if not os.path.exists(configuration["cache_dir"]):
+            os.makedirs(configuration["cache_dir"])
+        tmpname = tempfile.mkdtemp(prefix="rank-determination-",
+                                   dir=configuration["cache_dir"])
+    else:
+        tmpname = None
+    tmpname = comm.bcast(tmpname, root=0)
+    if tmpname is None:
+        raise CompilationError("Cannot determine sharedness of filesystem")
+    # Touch file
+    with open(os.path.join(tmpname, str(comm.rank)), "wb"):
+        pass
+    comm.barrier()
+    import glob
+    ranks = sorted(int(os.path.basename(name))
+                   for name in glob.glob("%s/[0-9]*" % tmpname))
+    retcomm = comm.Split(color=min(ranks), key=comm.rank)
+    set_compilation_comm(comm, retcomm)
+    return retcomm
 
 
 class Compiler(object):
@@ -109,8 +159,8 @@ class Compiler(object):
         flags specified as the ldflags configuration option).
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
-    :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to COMM_WORLD).
+    :kwarg comm: Optional communicator to compile the code on
+        (defaults to COMM_WORLD).
     """
     def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
                  cpp=False, comm=None):
@@ -119,7 +169,9 @@ class Compiler(object):
         self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs + configuration['cflags'].split() + self.workaround_cflags
         self._ldargs = ldargs + configuration['ldflags'].split()
-        self.comm = comm or COMM_WORLD
+        # Ensure that this is an internal communicator.
+        comm = dup_comm(comm or COMM_WORLD)
+        self.comm = compilation_comm(comm)
 
     @property
     def compiler_version(self):
@@ -140,6 +192,9 @@ class Compiler(object):
             if version.StrictVersion("6.0.0") <= ver < version.StrictVersion("7.0.1"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
                 return ["-fno-tree-loop-vectorize"]
+            if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
+                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
+                return ["-fno-tree-loop-vectorize"]
         return []
 
     @collective
@@ -153,12 +208,12 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(six.b(src))
-        hsh.update(six.b(self._cc))
+        hsh = md5(src.encode())
+        hsh.update(self._cc.encode())
         if self._ld:
-            hsh.update(six.b(self._ld))
-        hsh.update(six.b("".join(self._cppargs)))
-        hsh.update(six.b("".join(self._ldargs)))
+            hsh.update(self._ld.encode())
+        hsh.update("".join(self._cppargs).encode())
+        hsh.update("".join(self._ldargs).encode())
 
         basename = hsh.hexdigest()
 
@@ -284,7 +339,7 @@ class MacCompiler(Compiler):
     """
 
     def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-march=native', '-O3']
+        opt_flags = ['-march=native', '-O3', '-ffast-math']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
@@ -312,7 +367,7 @@ class LinuxCompiler(Compiler):
     :kwarg comm: Optional communicator to compile the code on (only
     rank 0 compiles code) (defaults to COMM_WORLD)."""
     def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-march=native', '-O3']
+        opt_flags = ['-march=native', '-O3', '-ffast-math']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
@@ -337,7 +392,7 @@ class LinuxIntelCompiler(Compiler):
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
     def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-O3', '-xHost']
+        opt_flags = ['-Ofast', '-xHost']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"

@@ -31,54 +31,16 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
-PETSc specific unit tests
-"""
-
-
-import pytest
-import numpy as np
-
 from pyop2 import op2
 
-# If mpi4py or petsc4py are not available this test module is skipped
-mpi4py = pytest.importorskip("mpi4py")
-petsc4py = pytest.importorskip("petsc4py")
 
+def test_global_operations():
+    g1 = op2.Global(1, data=2.)
+    g2 = op2.Global(1, data=5.)
 
-class TestPETSc:
-
-    def test_vec_norm_changes(self):
-        s = op2.Set(1)
-        d = op2.Dat(s)
-
-        d.data[:] = 1
-
-        with d.vec_ro as v:
-            assert np.allclose(v.norm(), 1.0)
-
-        d.data[:] = 2
-
-        with d.vec_ro as v:
-            assert np.allclose(v.norm(), 2.0)
-
-    def test_mixed_vec_access(self):
-        s = op2.Set(1)
-        ms = op2.MixedSet([s, s])
-        d = op2.MixedDat(ms)
-
-        d.data[0][:] = 1.0
-        d.data[1][:] = 2.0
-
-        with d.vec_ro as v:
-            assert np.allclose(v.array_r, [1.0, 2.0])
-
-        d.data[0][:] = 0.0
-        d.data[0][:] = 0.0
-
-        with d.vec_wo as v:
-            assert np.allclose(v.array_r, [1.0, 2.0])
-            v.array[:] = 1
-
-        assert d.data[0][0] == 1
-        assert d.data[1][0] == 1
+    assert (g1 + g2).data == 7.
+    assert (g2 - g1).data == 3.
+    assert (-g2).data == -5.
+    assert (g1 * g2).data == 10.
+    g1 *= g2
+    assert g1.data == 10.

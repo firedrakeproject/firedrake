@@ -31,7 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
 
 import pytest
 import numpy
@@ -48,9 +47,9 @@ class TestGlobalReductions:
     Global reduction argument tests
     """
 
-    @pytest.fixture(scope='module', params=[(nelems, nelems, nelems, nelems),
-                                            (0, nelems, nelems, nelems),
-                                            (nelems // 2, nelems, nelems, nelems)])
+    @pytest.fixture(scope='module', params=[(nelems, nelems, nelems),
+                                            (0, nelems, nelems),
+                                            (nelems // 2, nelems, nelems)])
     def set(cls, request):
         return op2.Set(request.param, 'set')
 

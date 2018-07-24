@@ -33,8 +33,6 @@
 
 """Classes for handling duplicate arguments in parallel loops and kernels."""
 
-from __future__ import absolute_import, print_function, division
-from six.moves import zip
 
 from collections import OrderedDict
 

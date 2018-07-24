@@ -31,21 +31,20 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
 
 import pytest
 import numpy as np
 
-from pyop2 import op2, base
+from pyop2 import op2
 from pyop2.exceptions import MapValueError
 
 nelems = 4096
 
 
-@pytest.fixture(params=[(nelems, nelems, nelems, nelems),
-                        (0, nelems, nelems, nelems),
-                        (nelems // 2, nelems, nelems, nelems),
-                        (0, nelems//2, nelems, nelems)])
+@pytest.fixture(params=[(nelems, nelems, nelems),
+                        (0, nelems, nelems),
+                        (nelems // 2, nelems, nelems),
+                        (0, nelems//2, nelems)])
 def elems(request):
     return op2.Set(request.param, "elems")
 
@@ -219,16 +218,6 @@ class TestDirectLoop:
         op2.par_loop(op2.Kernel(k, "dummy"), elems,
                      soa(op2.WRITE))
         assert soa.data.flags['C_CONTIGUOUS']
-
-    def test_parloop_should_set_ro_flag(self, elems, x):
-        """Assert that a par_loop locks each Dat argument for writing."""
-        kernel = """void k(unsigned int *x) { *x = 1; }"""
-        x_data = x.data_with_halos
-        op2.par_loop(op2.Kernel(kernel, 'k'),
-                     elems, x(op2.WRITE))
-        base._trace.evaluate(set([x]), set())
-        with pytest.raises((RuntimeError, ValueError)):
-            x_data[0] = 1
 
     def test_host_write(self, elems, x, g):
         """Increment a global by the values of a Dat."""

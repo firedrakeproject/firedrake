@@ -33,7 +33,6 @@
 
 """Provides common base classes for cached objects."""
 
-from __future__ import absolute_import, print_function, division
 
 from pyop2.utils import cached_property
 

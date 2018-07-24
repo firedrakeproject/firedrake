@@ -35,19 +35,19 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
-from __future__ import absolute_import, print_function, division
-import six
-from six.moves import map, zip
+import abc
 
 from contextlib import contextmanager
+from collections import namedtuple
 import itertools
 import numpy as np
 import ctypes
+import numbers
 import operator
 import types
 from hashlib import md5
 
-from pyop2.datatypes import IntType, as_cstr
+from pyop2.datatypes import IntType, as_cstr, _EntityMask, _MapMask, dtype_limits
 from pyop2.configuration import configuration
 from pyop2.caching import Cached, ObjectCached
 from pyop2.exceptions import *
@@ -301,8 +301,6 @@ class Arg(object):
             self._block_shape = tuple(tuple((mr.arity, mc.arity)
                                       for mc in map[1])
                                       for mr in map[0])
-        elif self._uses_itspace:
-            self._block_shape = tuple(((m.arity,),) for m in map)
         else:
             self._block_shape = None
 
@@ -466,35 +464,46 @@ class Arg(object):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
     @collective
-    def halo_exchange_begin(self, update_inc=False):
+    def global_to_local_begin(self):
         """Begin halo exchange for the argument if a halo update is required.
         Doing halo exchanges only makes sense for :class:`Dat` objects.
-
-        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
+        """
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        access = [READ, RW]
-        if update_inc:
-            access.append(INC)
-        if self.access in access and self.data.needs_halo_update:
-            self.data.needs_halo_update = False
+        if self.access in [READ, RW, INC, MIN, MAX]:
             self._in_flight = True
-            self.data.halo_exchange_begin()
+            self.data.global_to_local_begin(self.access)
 
     @collective
-    def halo_exchange_end(self, update_inc=False):
-        """End halo exchange if it is in flight.
+    def global_to_local_end(self):
+        """Finish halo exchange for the argument if a halo update is required.
         Doing halo exchanges only makes sense for :class:`Dat` objects.
-
-        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
+        """
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
-        access = [READ, RW]
-        if update_inc:
-            access.append(INC)
-        if self.access in access and self._in_flight:
-            self.data.halo_exchange_end()
+        if self.access in [READ, RW, INC, MIN, MAX] and self._in_flight:
             self._in_flight = False
+            self.data.global_to_local_end(self.access)
+
+    @collective
+    def local_to_global_begin(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [INC, MIN, MAX]:
+            self._in_flight = True
+            self.data.local_to_global_begin(self.access)
+
+    @collective
+    def local_to_global_end(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [INC, MIN, MAX] and self._in_flight:
+            self._in_flight = False
+            self.data.local_to_global_end(self.access)
+        # WRITE/RW doesn't require halo exchange, but the ghosts are
+        # now dirty.
+        if self.access is not READ:
+            self.data.halo_valid = False
 
     @collective
     def reduction_begin(self, comm):
@@ -561,8 +570,7 @@ class Set(object):
 
         [0, CORE)
         [CORE, OWNED)
-        [OWNED, EXECUTE HALO)
-        [EXECUTE HALO, NON EXECUTE HALO).
+        [OWNED, GHOST)
 
     Halo send/receive data is stored on sets in a :class:`Halo`.
     """
@@ -571,26 +579,24 @@ class Set(object):
 
     _CORE_SIZE = 0
     _OWNED_SIZE = 1
-    _IMPORT_EXEC_SIZE = 2
-    _IMPORT_NON_EXEC_SIZE = 3
+    _GHOST_SIZE = 2
 
-    @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
+    masks = None
+
+    @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None, comm=None):
+    def __init__(self, size, name=None, halo=None, comm=None):
         self.comm = dup_comm(comm)
-        if type(size) is int:
-            size = [size] * 4
-        size = as_tuple(size, int, 4)
+        if isinstance(size, numbers.Integral):
+            size = [size] * 3
+        size = as_tuple(size, numbers.Integral, 3)
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
-            size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
-            "Set received invalid sizes: %s" % size
+            size[Set._GHOST_SIZE], "Set received invalid sizes: %s" % size
         self._sizes = size
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._partition_size = 1024
         self._extruded = False
-        if self.halo:
-            self.halo.verify(self)
         # A cache of objects built on top of this set
         self._cache = {}
         Set._globalcount += 1
@@ -606,18 +612,10 @@ class Set(object):
         return self._sizes[Set._OWNED_SIZE]
 
     @cached_property
-    def exec_size(self):
-        """Set size including execute halo elements.
-
-        If a :class:`ParLoop` is indirect, we do redundant computation
-        by executing over these set elements as well as owned ones.
-        """
-        return self._sizes[Set._IMPORT_EXEC_SIZE]
-
-    @cached_property
     def total_size(self):
-        """Total set size, including halo elements."""
-        return self._sizes[Set._IMPORT_NON_EXEC_SIZE]
+        """Set size including ghost elements.
+        """
+        return self._sizes[Set._GHOST_SIZE]
 
     @cached_property
     def sizes(self):
@@ -631,14 +629,6 @@ class Set(object):
     @cached_property
     def owned_part(self):
         return SetPartition(self, self.core_size, self.size - self.core_size)
-
-    @cached_property
-    def exec_part(self):
-        return SetPartition(self, self.size, self.exec_size - self.size)
-
-    @cached_property
-    def all_part(self):
-        return SetPartition(self, 0, self.exec_size)
 
     @cached_property
     def name(self):
@@ -696,8 +686,6 @@ class Set(object):
         """Indicate whether a given DataSet is compatible with this Set."""
         if isinstance(dset, DataSet):
             return dset.set is self
-        elif isinstance(dset, LocalSet):
-            return dset.superset is self
         else:
             return False
 
@@ -717,16 +705,19 @@ class Set(object):
         if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
-        return cls(size[0], name)
+        return cls(int(size[0]), name)
 
 
 class GlobalSet(Set):
+
+    _extruded = False
 
     """A proxy set allowing a :class:`Global` to be used in place of a
     :class:`Dat` where appropriate."""
 
     def __init__(self, comm=None):
         self.comm = dup_comm(comm)
+        self._cache = {}
 
     @cached_property
     def core_size(self):
@@ -737,10 +728,6 @@ class GlobalSet(Set):
         return 1 if self.comm.rank == 0 else 0
 
     @cached_property
-    def exec_size(self):
-        return 0
-
-    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return 1 if self.comm.rank == 0 else 0
@@ -748,7 +735,7 @@ class GlobalSet(Set):
     @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return (self.core_size, self.size, self.exec_size, self.total_size)
+        return (self.core_size, self.size, self.total_size)
 
     @cached_property
     def name(self):
@@ -788,6 +775,10 @@ class GlobalSet(Set):
         # Currently all GlobalSets compare equal.
         return isinstance(other, GlobalSet)
 
+    def __hash__(self):
+        # Currently all GlobalSets compare equal.
+        return hash(type(self))
+
 
 class ExtrudedSet(Set):
 
@@ -796,7 +787,11 @@ class ExtrudedSet(Set):
     :param parent: The parent :class:`Set` to build this :class:`ExtrudedSet` on top of
     :type parent: a :class:`Set`.
     :param layers: The number of layers in this :class:`ExtrudedSet`.
-    :type layers: an integer.
+    :type layers: an integer, indicating the number of layers for every entity,
+        or an array of shape (parent.total_size, 2) giving the start
+        and one past the stop layer for every entity.  An entry
+        ``a, b = layers[e, ...]`` means that the layers for entity
+        ``e`` run over :math:`[a, b)`.
 
     The number of layers indicates the number of time the base set is
     extruded in the direction of the :class:`ExtrudedSet`.  As a
@@ -804,10 +799,27 @@ class ExtrudedSet(Set):
     """
 
     @validate_type(('parent', Set, TypeError))
-    def __init__(self, parent, layers):
+    def __init__(self, parent, layers, masks=None):
         self._parent = parent
-        if layers < 2:
-            raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
+        try:
+            layers = verify_reshape(layers, IntType, (parent.total_size, 2))
+            self.constant_layers = False
+            if layers.min() < 0:
+                raise SizeTypeError("Bottom of layers must be >= 0")
+            if any(layers[:, 1] - layers[:, 0] < 1):
+                raise SizeTypeError("Number of layers must be >= 0")
+        except DataValueError:
+            # Legacy, integer
+            layers = np.asarray(layers, dtype=IntType)
+            if layers.shape:
+                raise SizeTypeError("Specifying layers per entity, but provided %s, needed (%d, 2)",
+                                    layers.shape, parent.total_size)
+            if layers < 2:
+                raise SizeTypeError("Need at least two layers, not %d", layers)
+            layers = np.asarray([[0, layers]], dtype=IntType)
+            self.constant_layers = True
+
+        self.masks = masks
         self._layers = layers
         self._extruded = True
 
@@ -816,8 +828,6 @@ class ExtrudedSet(Set):
         return getattr(self._parent, name)
 
     def __contains__(self, set):
-        if isinstance(set, LocalSet):
-            return set.superset is self or set.superset in self
         return set is self.parent
 
     def __str__(self):
@@ -827,71 +837,38 @@ class ExtrudedSet(Set):
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
 
+    class EntityMask(namedtuple("_EntityMask_", ["section", "bottom", "top"])):
+        """Mask bits on each set entity indicating which topological
+        entities in the closure of said set entity are exposed on the
+        bottom or top of the extruded set.  The section encodes the
+        number of entities in each entity column, and their offset
+        from the start of the set."""
+        _argtype = ctypes.POINTER(_EntityMask)
+
+        @cached_property
+        def handle(self):
+            struct = _EntityMask()
+            struct.section = self.section.handle
+            struct.bottom = self.bottom.ctypes.data
+            struct.top = self.top.ctypes.data
+            return ctypes.pointer(struct)
+
     @cached_property
     def parent(self):
         return self._parent
 
     @cached_property
     def layers(self):
-        """The number of layers in this extruded set."""
-        return self._layers
-
-
-class LocalSet(ExtrudedSet, ObjectCached):
-
-    """A wrapper around a :class:`Set` or :class:`ExtrudedSet`.
-
-    A :class:`LocalSet` behaves exactly like the :class:`Set` it was
-    built on except during parallel loop iterations. Iteration over a
-    :class:`LocalSet` indicates that the :func:`par_loop` should not
-    compute redundantly over halo entities.  It may be used in
-    conjunction with a :func:`par_loop` that ``INC``\s into a
-    :class:`Dat`.  In this case, after the local computation has
-    finished, remote contributions to local data with be gathered,
-    such that local data is correct on all processes.  Iteration over
-    a :class:`LocalSet` makes no sense for :func:`par_loop`\s
-    accessing a :class:`Mat` or those accessing a :class:`Dat` with
-    ``WRITE`` or ``RW`` access descriptors, in which case an error is
-    raised.
-
-
-    .. note::
-
-       Building :class:`DataSet`\s and hence :class:`Dat`\s on a
-       :class:`LocalSet` is unsupported.
-
-    """
-    def __init__(self, set):
-        if self._initialized:
-            return
-        self._superset = set
-        self._sizes = (set.core_size, set.size, set.size, set.size)
-
-    @classmethod
-    def _process_args(cls, set, **kwargs):
-        return (set, ) + (set, ), kwargs
-
-    @classmethod
-    def _cache_key(cls, set, **kwargs):
-        return (set, )
-
-    def __getattr__(self, name):
-        """Look up attributes on the contained :class:`Set`."""
-        return getattr(self._superset, name)
+        """The layers of this extruded set."""
+        if self.constant_layers:
+            # Backwards compat
+            return self.layers_array[0, 1]
+        else:
+            raise ValueError("No single layer, use layers_array attribute")
 
     @cached_property
-    def superset(self):
-        return self._superset
-
-    def __repr__(self):
-        return "LocalSet(%r)" % self.superset
-
-    def __str__(self):
-        return "OP2 LocalSet on %s" % self.superset
-
-    def __pow__(self, e):
-        """Derive a :class:`DataSet` with dimension ``e``"""
-        raise NotImplementedError("Deriving a DataSet from a Localset is unsupported")
+    def layers_array(self):
+        return self._layers
 
 
 class Subset(ExtrudedSet):
@@ -927,7 +904,6 @@ class Subset(ExtrudedSet):
 
         self._sizes = ((self._indices < superset.core_size).sum(),
                        (self._indices < superset.size).sum(),
-                       (self._indices < superset.exec_size).sum(),
                        len(self._indices))
 
     # Look up any unspecified attributes on the _set.
@@ -970,6 +946,36 @@ class Subset(ExtrudedSet):
         return self._indices
 
     @cached_property
+    def layers_array(self):
+        if self._superset.constant_layers:
+            return self._superset.layers_array
+        else:
+            return self._superset.layers_array[self.indices, ...]
+
+    @cached_property
+    def masks(self):
+        if self._superset.masks is None:
+            return None
+        psection, pbottom, ptop = self._superset.masks
+        # Avoid importing PETSc directly!
+        section = type(psection)().create(comm=MPI.COMM_SELF)
+        section.setChart(0, self.total_size)
+        shape = (np.sum(self.layers_array[:, 1] - self.layers_array[:, 0] - 1), ) + pbottom.shape[1:]
+        bottom = np.zeros(shape, dtype=pbottom.dtype)
+        top = np.zeros_like(bottom)
+        idx = 0
+        for i, pidx in enumerate(self.indices):
+            offset = psection.getOffset(pidx)
+            nval = self.layers_array[i, 1] - self.layers_array[i, 0] - 1
+            for j in range(nval):
+                bottom[idx] = pbottom[offset + j]
+                top[idx] = ptop[offset + j]
+                idx += 1
+            section.setDof(i, nval)
+        section.setUp()
+        return ExtrudedSet.EntityMask(section, bottom, top)
+
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Subset`"""
         return ctypes.c_voidp
@@ -990,7 +996,7 @@ class MixedSet(Set, ObjectCached):
         if self._initialized:
             return
         self._sets = sets
-        assert all(s is None or isinstance(s, GlobalSet) or s.layers == self._sets[0].layers for s in sets), \
+        assert all(s is None or isinstance(s, GlobalSet) or ((s.layers == self._sets[0].layers).all() if s.layers is not None else True) for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
         self.comm = reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
@@ -1030,11 +1036,6 @@ class MixedSet(Set, ObjectCached):
         return sum(0 if s is None else s.size for s in self._sets)
 
     @cached_property
-    def exec_size(self):
-        """Set size including execute halo elements."""
-        return sum(s.exec_size for s in self._sets)
-
-    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return sum(s.total_size for s in self._sets)
@@ -1042,7 +1043,7 @@ class MixedSet(Set, ObjectCached):
     @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return (self.core_size, self.size, self.exec_size, self.total_size)
+        return (self.core_size, self.size, self.total_size)
 
     @cached_property
     def name(self):
@@ -1095,7 +1096,7 @@ class DataSet(ObjectCached):
     _globalcount = 0
 
     @validate_type(('iter_set', Set, SetTypeError),
-                   ('dim', (int, tuple, list), DimTypeError),
+                   ('dim', (numbers.Integral, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, iter_set, dim=1, name=None):
         if self._initialized:
@@ -1103,7 +1104,7 @@ class DataSet(ObjectCached):
         if isinstance(iter_set, Subset):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
-        self._dim = as_tuple(dim, int)
+        self._dim = as_tuple(dim, numbers.Integral)
         self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "dset_%d" % DataSet._globalcount
         DataSet._globalcount += 1
@@ -1115,7 +1116,7 @@ class DataSet(ObjectCached):
 
     @classmethod
     def _cache_key(cls, iter_set, dim=1, name=None):
-        return (iter_set, as_tuple(dim, int))
+        return (iter_set, as_tuple(dim, numbers.Integral))
 
     def __getstate__(self):
         """Extract state to pickle."""
@@ -1361,278 +1362,59 @@ class MixedDataSet(DataSet, ObjectCached):
         return "MixedDataSet(%r)" % (self._dsets,)
 
 
-class Halo(object):
+class Halo(object, metaclass=abc.ABCMeta):
 
     """A description of a halo associated with a :class:`Set`.
 
     The halo object describes which :class:`Set` elements are sent
     where, and which :class:`Set` elements are received from where.
-
-    The `sends` should be a dict whose key is the process we want to
-    send to, similarly the `receives` should be a dict whose key is the
-    process we want to receive from.  The value should in each case be
-    a numpy array of the set elements to send to/receive from each
-    `process`.
-
-    The gnn2unn array is a map from process-local set element
-    numbering to cross-process set element numbering.  It must
-    correctly number all the set elements in the halo region as well
-    as owned elements.  Providing this array is only necessary if you
-    will access :class:`Mat` objects on the :class:`Set` this `Halo`
-    lives on.  Insertion into :class:`Dat`\s always uses process-local
-    numbering, however insertion into :class:`Mat`\s uses cross-process
-    numbering under the hood.
-
-    You can provide your own Halo class, and use that instead when
-    initialising :class:`Set`\s.  It must provide the following
-    methods::
-
-       - :meth:`Halo.begin`
-       - :meth:`Halo.end`
-       - :meth:`Halo.verify`
-
-    and the following properties::
-
-       - :attr:`Halo.global_to_petsc_numbering`
-       - :attr:`Halo.comm`
-
     """
 
-    def __init__(self, sends, receives, comm=None, gnn2unn=None):
-        self._sends = sends
-        self._receives = receives
-        # The user might have passed lists, not numpy arrays, so fix that here.
-        for i, a in six.iteritems(self._sends):
-            self._sends[i] = np.asarray(a)
-        for i, a in six.iteritems(self._receives):
-            self._receives[i] = np.asarray(a)
-        self._global_to_petsc_numbering = gnn2unn
-        self.comm = dup_comm(comm)
-        rank = self.comm.rank
+    @abc.abstractproperty
+    def comm(self):
+        """The MPI communicator for this halo."""
+        pass
 
-        assert rank not in self._sends, \
-            "Halo was specified with self-sends on rank %d" % rank
-        assert rank not in self._receives, \
-            "Halo was specified with self-receives on rank %d" % rank
+    @abc.abstractproperty
+    def local_to_global_numbering(self):
+        """The mapping from process-local to process-global numbers for this halo."""
+        pass
 
-    @collective
-    def begin(self, dat, reverse=False):
-        """Begin halo exchange.
+    @abc.abstractmethod
+    def global_to_local_begin(self, dat, insert_mode):
+        """Begin an exchange from global (assembled) to local (ghosted) representation.
 
-        :arg dat: The :class:`Dat` to perform the exchange on.
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
-        sends = self.sends
-        receives = self.receives
-        if reverse:
-            sends, receives = receives, sends
-        for dest, ele in six.iteritems(sends):
-            dat._send_buf[dest] = dat._data[ele]
-            dat._send_reqs[dest] = self.comm.Isend(dat._send_buf[dest],
-                                                   dest=dest, tag=dat._id)
-        for source, ele in six.iteritems(receives):
-            dat._recv_buf[source] = dat._data[ele]
-            dat._recv_reqs[source] = self.comm.Irecv(dat._recv_buf[source],
-                                                     source=source, tag=dat._id)
-
-    @collective
-    def end(self, dat, reverse=False):
-        """End halo exchange.
-
-        :arg dat: The :class:`Dat` to perform the exchange on.
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
-        with timed_region("Halo exchange receives wait"):
-            MPI.Request.Waitall(dat._recv_reqs.values())
-        with timed_region("Halo exchange sends wait"):
-            MPI.Request.Waitall(dat._send_reqs.values())
-        dat._recv_reqs.clear()
-        dat._send_reqs.clear()
-        dat._send_buf.clear()
-        receives = self.receives
-        if reverse:
-            receives = self.sends
-        maybe_setflags(dat._data, write=True)
-        for source, buf in six.iteritems(dat._recv_buf):
-            if reverse:
-                dat._data[receives[source]] += buf
-            else:
-                dat._data[receives[source]] = buf
-        maybe_setflags(dat._data, write=False)
-        dat._recv_buf.clear()
-
-    @property
-    def sends(self):
-        """Return the sends associated with this :class:`Halo`.
-
-        A dict of numpy arrays, keyed by the rank to send to, with
-        each array indicating the :class:`Set` elements to send.
-
-        For example, to send no elements to rank 0, elements 1 and 2 to rank 1
-        and no elements to rank 2 (with ``comm.size == 3``) we would have: ::
-
-            {1: np.array([1,2], dtype=np.int32)}.
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
         """
-        return self._sends
+        pass
 
-    @property
-    def receives(self):
-        """Return the receives associated with this :class:`Halo`.
+    @abc.abstractmethod
+    def global_to_local_end(self, dat, insert_mode):
+        """Finish an exchange from global (assembled) to local (ghosted) representation.
 
-        A dict of numpy arrays, keyed by the rank to receive from,
-        with each array indicating the :class:`Set` elements to
-        receive.
-
-        See :func:`Halo.sends` for an example.
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
         """
-        return self._receives
+        pass
 
-    @property
-    def global_to_petsc_numbering(self):
-        """The mapping from global (per-process) dof numbering to
-    petsc (cross-process) dof numbering."""
-        return self._global_to_petsc_numbering
+    @abc.abstractmethod
+    def local_to_global_begin(self, dat, insert_mode):
+        """Begin an exchange from local (ghosted) to global (assembled) representation.
 
-    def verify(self, s):
-        """Verify that this :class:`Halo` is valid for a given
-:class:`Set`."""
-        for dest, sends in six.iteritems(self.sends):
-            assert (sends >= 0).all() and (sends < s.size).all(), \
-                "Halo send to %d is invalid (outside owned elements)" % dest
-
-        for source, receives in six.iteritems(self.receives):
-            assert (receives >= s.size).all() and \
-                (receives < s.total_size).all(), \
-                "Halo receive from %d is invalid (not in halo elements)" % \
-                source
-
-
-class IterationSpace(object):
-
-    """OP2 iteration space type.
-
-    .. Warning ::
-        User code should not directly instantiate :class:`IterationSpace`.
-        This class is only for internal use inside a
-        :func:`pyop2.op2.par_loop`."""
-
-    @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, block_shape=None):
-        self._iterset = iterset
-        self.comm = iterset.comm
-        if block_shape:
-            # Try the Mat case first
-            try:
-                self._extents = (sum(b[0][0] for b in block_shape),
-                                 sum(b[1] for b in block_shape[0]))
-            # Otherwise it's a Dat and only has one extent
-            except IndexError:
-                self._extents = (sum(b[0][0] for b in block_shape),)
-        else:
-            self._extents = ()
-        self._block_shape = block_shape or ((self._extents,),)
-
-    @cached_property
-    def iterset(self):
-        """The :class:`Set` over which this IterationSpace is defined."""
-        return self._iterset
-
-    @cached_property
-    def extents(self):
-        """Extents of the IterationSpace within each item of ``iterset``"""
-        return self._extents
-
-    @cached_property
-    def name(self):
-        """The name of the :class:`Set` over which this IterationSpace is
-        defined."""
-        return self._iterset.name
-
-    @cached_property
-    def core_size(self):
-        """The number of :class:`Set` elements which don't touch halo elements in the set
-        over which this IterationSpace is defined"""
-        return self._iterset.core_size
-
-    @cached_property
-    def size(self):
-        """The size of the :class:`Set` over which this IterationSpace is defined."""
-        return self._iterset.size
-
-    @cached_property
-    def exec_size(self):
-        """The size of the :class:`Set` over which this IterationSpace
-        is defined, including halo elements to be executed over"""
-        return self._iterset.exec_size
-
-    @cached_property
-    def layers(self):
-        """Number of layers in the extruded set (or None if this is not an
-        extruded iteration space)
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
         """
-        return self._iterset.layers
+        pass
 
-    @cached_property
-    def _extruded(self):
-        return self._iterset._extruded
+    @abc.abstractmethod
+    def local_to_global_end(self, dat, insert_mode):
+        """Finish an exchange from local (ghosted) to global (assembled) representation.
 
-    @cached_property
-    def partition_size(self):
-        """Default partition size"""
-        return self.iterset.partition_size
-
-    @cached_property
-    def total_size(self):
-        """The total size of :class:`Set` over which this IterationSpace is defined.
-
-        This includes all halo set elements."""
-        return self._iterset.total_size
-
-    @cached_property
-    def _extent_ranges(self):
-        return [e for e in self.extents]
-
-    def __iter__(self):
-        """Yield all block shapes with their indices as i, j, shape, offsets
-        tuples."""
-        roffset = 0
-        for i, row in enumerate(self._block_shape):
-            coffset = 0
-            for j, shape in enumerate(row):
-                yield i, j, shape, (roffset, coffset)
-                if len(shape) > 1:
-                    coffset += shape[1]
-            if len(shape) > 0:
-                roffset += shape[0]
-
-    def __eq__(self, other):
-        """:class:`IterationSpace`s compare equal if they are defined on the
-        same :class:`Set` and have the same ``extent``."""
-        return self._iterset == other._iterset and self._extents == other._extents
-
-    def __ne__(self, other):
-        """:class:`IterationSpace`s compare equal if they are defined on the
-        same :class:`Set` and have the same ``extent``."""
-        return not self == other
-
-    def __hash__(self):
-        return hash((self._iterset, self._extents))
-
-    def __str__(self):
-        return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
-
-    def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
-
-    @cached_property
-    def cache_key(self):
-        """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self._block_shape, self.iterset._extruded, \
-            isinstance(self._iterset, Subset)
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
+        """
+        pass
 
 
 class DataCarrier(object):
@@ -1748,7 +1530,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
     """
 
     _globalcount = 0
-    _modes = [READ, WRITE, RW, INC]
+    _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
     @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError),
                    ('name', str, NameTypeError))
@@ -1772,7 +1554,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.comm = dataset.comm
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self.needs_halo_update = False
+        self.halo_valid = True
         # If the uid is not passed in from outside, assume that Dats
         # have been declared in the same order everywhere.
         if uid is None:
@@ -1781,12 +1563,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         else:
             self._id = uid
         self._name = name or "dat_%d" % self._id
-        halo = dataset.halo
-        if halo is not None:
-            self._send_reqs = {}
-            self._send_buf = {}
-            self._recv_reqs = {}
-            self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None):
@@ -1850,9 +1626,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
-        maybe_setflags(self._data, write=True)
+        self.halo_valid = False
         v = self._data[:self.dataset.size].view()
-        self.needs_halo_update = True
+        v.setflags(write=True)
         return v
 
     @property
@@ -1866,12 +1642,13 @@ class Dat(DataCarrier, _EmptyDataMixin):
         With this accessor, you get to see up to date halo values, but
         you should not try and modify them, because they will be
         overwritten by the next halo exchange."""
-        self.data               # force evaluation
-        self.halo_exchange_begin()
-        self.halo_exchange_end()
-        self.needs_halo_update = True
-        maybe_setflags(self._data, write=True)
-        return self._data
+        _trace.evaluate(set([self]), set([self]))
+        self.global_to_local_begin(RW)
+        self.global_to_local_end(RW)
+        self.halo_valid = False
+        v = self._data.view()
+        v.setflags(write=True)
+        return v
 
     @property
     @collective
@@ -1906,10 +1683,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         overwritten by the next halo exchange.
 
         """
-        self.data_ro            # force evaluation
-        self.halo_exchange_begin()
-        self.halo_exchange_end()
-        self.needs_halo_update = False
+        _trace.evaluate(set([self]), set())
+        self.global_to_local_begin(READ)
+        self.global_to_local_end(READ)
         v = self._data.view()
         v.setflags(write=False)
         return v
@@ -2027,7 +1803,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
                % (self._dataset, self.dtype, self._name)
 
     def _check_shape(self, other):
-        if other.dataset != self.dataset:
+        if other.dataset.dim != self.dataset.dim:
             raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
@@ -2216,30 +1992,57 @@ class Dat(DataCarrier, _EmptyDataMixin):
     __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
-    def halo_exchange_begin(self, reverse=False):
-        """Begin halo exchange.
+    def global_to_local_begin(self, access_mode):
+        """Begin a halo exchange from global to ghosted representation.
 
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
+        :kwarg access_mode: Mode with which the data will subsequently
+           be accessed."""
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.begin(self, reverse=reverse)
+        if access_mode in [READ, RW] and not self.halo_valid:
+            halo.global_to_local_begin(self, WRITE)
+        elif access_mode is INC:
+            self._data[self.dataset.size:] = 0
+        elif access_mode in [MIN, MAX]:
+            min_, max_ = dtype_limits(self.dtype)
+            self._data[self.dataset.size:] = {MAX: min_, MIN: max_}[access_mode]
 
     @collective
-    def halo_exchange_end(self, reverse=False):
-        """End halo exchange. Waits on MPI recv.
+    def global_to_local_end(self, access_mode):
+        """End a halo exchange from global to ghosted representation.
 
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
+        :kwarg access_mode: Mode with which the data will subsequently
+           be accessed."""
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.end(self, reverse=reverse)
+        if access_mode in [READ, RW] and not self.halo_valid:
+            halo.global_to_local_end(self, WRITE)
+            self.halo_valid = True
+        elif access_mode in [MIN, MAX, INC]:
+            self.halo_valid = False
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        """Begin a halo exchange from ghosted to global representation.
+
+        :kwarg insert_mode: insertion mode (an access descriptor)"""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        halo.local_to_global_begin(self, insert_mode)
+
+    @collective
+    def local_to_global_end(self, insert_mode):
+        """End a halo exchange from ghosted to global representation.
+
+        :kwarg insert_mode: insertion mode (an access descriptor)"""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        halo.local_to_global_end(self, insert_mode)
+        self.halo_valid = False
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):
@@ -2334,11 +2137,17 @@ class MixedDat(Dat):
     """
 
     def __init__(self, mdset_or_dats):
+        def what(x):
+            if isinstance(x, (Global, GlobalDataSet, GlobalSet)):
+                return "Global",
+            elif isinstance(x, (Dat, DataSet, Set)):
+                return "Dat"
+            else:
+                raise DataSetTypeError("Huh?!")
         if isinstance(mdset_or_dats, MixedDat):
-            self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
+            self._dats = tuple(_make_object(what(d), d) for d in mdset_or_dats)
         else:
-            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object('Dat', d)
-                               for d in mdset_or_dats)
+            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object(what(d), d) for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
@@ -2399,25 +2208,35 @@ class MixedDat(Dat):
         return tuple(s.data_ro_with_halos for s in self._dats)
 
     @property
-    def needs_halo_update(self):
-        """Has this Dat been written to since the last halo exchange?"""
-        return any(s.needs_halo_update for s in self._dats)
+    def halo_valid(self):
+        """Does this Dat have up to date halos?"""
+        return all(s.halo_valid for s in self)
 
-    @needs_halo_update.setter
-    def needs_halo_update(self, val):
+    @halo_valid.setter
+    def halo_valid(self, val):
         """Indictate whether this Dat requires a halo update"""
-        for d in self._dats:
-            d.needs_halo_update = val
+        for d in self:
+            d.halo_valid = val
 
     @collective
-    def halo_exchange_begin(self, reverse=False):
-        for s in self._dats:
-            s.halo_exchange_begin(reverse)
+    def global_to_local_begin(self, access_mode):
+        for s in self:
+            s.global_to_local_begin(access_mode)
 
     @collective
-    def halo_exchange_end(self, reverse=False):
-        for s in self._dats:
-            s.halo_exchange_end(reverse)
+    def global_to_local_end(self, access_mode):
+        for s in self:
+            s.global_to_local_end(access_mode)
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        for s in self:
+            s.local_to_global_begin(insert_mode)
+
+    @collective
+    def local_to_global_end(self, insert_mode):
+        for s in self:
+            s.local_to_global_end(insert_mode)
 
     @collective
     def zero(self, subset=None):
@@ -2600,6 +2419,12 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None, comm=None):
+        if isinstance(dim, Global):
+            # If g is a Global, Global(g) performs a deep copy. This is for compatibility with Dat.
+            self.__init__(dim._dim, None, dtype=dim.dtype,
+                          name="copy_of_%s" % dim.name, comm=dim.comm)
+            dim.copy(self)
+            return
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
@@ -2721,16 +2546,102 @@ class Global(DataCarrier, _EmptyDataMixin):
         self._zero_loop.enqueue()
 
     @collective
-    def halo_exchange_begin(self):
+    def global_to_local_begin(self, access_mode):
         """Dummy halo operation for the case in which a :class:`Global` forms
         part of a :class:`MixedDat`."""
         pass
 
     @collective
-    def halo_exchange_end(self):
+    def global_to_local_end(self, access_mode):
         """Dummy halo operation for the case in which a :class:`Global` forms
         part of a :class:`MixedDat`."""
         pass
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @collective
+    def local_to_global_end(self, insert_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    def _op(self, other, op):
+        ret = type(self)(self.dim, dtype=self.dtype, name=self.name, comm=self.comm)
+        if isinstance(other, Global):
+            ret.data[:] = op(self.data_ro, other.data_ro)
+        else:
+            ret.data[:] = op(self.data_ro, other)
+        return ret
+
+    def _iop(self, other, op):
+        if isinstance(other, Global):
+            op(self.data[:], other.data_ro)
+        else:
+            op(self.data[:], other)
+        return self
+
+    def __pos__(self):
+        return self.duplicate()
+
+    def __add__(self, other):
+        """Pointwise addition of fields."""
+        return self._op(other, operator.add)
+
+    def __radd__(self, other):
+        """Pointwise addition of fields.
+
+        self.__radd__(other) <==> other + self."""
+        return self + other
+
+    def __neg__(self):
+        return type(self)(self.dim, data=-np.copy(self.data_ro),
+                          dtype=self.dtype, name=self.name)
+
+    def __sub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._op(other, operator.sub)
+
+    def __rsub__(self, other):
+        """Pointwise subtraction of fields.
+
+        self.__rsub__(other) <==> other - self."""
+        ret = -self
+        ret += other
+        return ret
+
+    def __mul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._op(other, operator.mul)
+
+    def __rmul__(self, other):
+        """Pointwise multiplication or scaling of fields.
+
+        self.__rmul__(other) <==> other * self."""
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._op(other, operator.truediv)
+
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        return self._iop(other, operator.iadd)
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._iop(other, operator.isub)
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._iop(other, operator.imul)
+
+    def __itruediv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._iop(other, operator.itruediv)
 
 
 class IterationIndex(object):
@@ -2808,19 +2719,18 @@ class Map(object):
 
     For extruded problems (where ``iterset`` is an
     :class:`ExtrudedSet`) with boundary conditions applied at the top
-    and bottom of the domain, one needs to provide a list of which of
-    the `arity` values in each map entry correspond to values on the
-    bottom boundary and which correspond to the top.  This is done by
-    supplying two lists of indices in `bt_masks`, the first provides
-    indices for the bottom, the second for the top.
+    and bottom of the domain, ``bt_masks`` should be a :class:`dict`
+    mapping boundary condition types to a 2-tuple of masks that should
+    be applied to switch off respectively the "bottom" and "top" nodes
+    of a cell.
 
     """
 
     _globalcount = 0
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
-                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
+                   ('arity', numbers.Integral, ArityTypeError), ('name', str, NameTypeError))
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, boundary_masks=None):
         self._iterset = iterset
         self._toset = toset
         self.comm = toset.comm
@@ -2841,16 +2751,18 @@ class Map(object):
         self._cache = {}
         # Which indices in the extruded map should be masked out for
         # the application of strong boundary conditions
-        self._bottom_mask = {}
-        self._top_mask = {}
-
-        if offset is not None and bt_masks is not None:
-            for name, mask in six.iteritems(bt_masks):
-                self._bottom_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._bottom_mask[name][mask[0]] = -1
-                self._top_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._top_mask[name][mask[1]] = -1
+        self.boundary_masks = boundary_masks
         Map._globalcount += 1
+
+    class MapMask(namedtuple("_MapMask_", ["section", "indices", "facet_points"])):
+        _argtype = ctypes.POINTER(_MapMask)
+
+        @cached_property
+        def handle(self):
+            struct = _MapMask()
+            struct.section = self.section.handle
+            struct.indices = self.indices.ctypes.data
+            return ctypes.pointer(struct)
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
@@ -2893,7 +2805,7 @@ class Map(object):
         """Return any implicit (extruded "top" or "bottom") bcs to
         apply to this :class:`Map`. Normally empty except in the case of
         some :class:`DecoratedMap`\s."""
-        return frozenset([])
+        return ()
 
     @cached_property
     def vector_index(self):
@@ -2955,15 +2867,31 @@ class Map(object):
         """The vertical offset."""
         return self._offset
 
+    def _constant_layer_masks(self, which):
+        if self.offset is None:
+            return {}
+        idx = {"bottom": -2, "top": -1}[which]
+        masks = {}
+        for method, (section, indices, facet_indices) in self.boundary_masks.items():
+            facet = facet_indices[idx]
+            off = section.getOffset(facet)
+            dof = section.getDof(facet)
+            section.getDof(facet)
+            indices = indices[off:off+dof]
+            mask = np.zeros(len(self.offset), dtype=IntType)
+            mask[indices] = -1
+            masks[method] = mask
+        return masks
+
     @cached_property
     def top_mask(self):
         """The top layer mask to be applied on a mesh cell."""
-        return self._top_mask
+        return self._constant_layer_masks("top")
 
     @cached_property
     def bottom_mask(self):
         """The bottom layer mask to be applied on a mesh cell."""
-        return self._bottom_mask
+        return self._constant_layer_masks("bottom")
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \
@@ -3047,7 +2975,7 @@ class DecoratedMap(Map, ObjectCached):
         if implicit_bcs is None:
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
-        self.implicit_bcs = frozenset(implicit_bcs)
+        self.implicit_bcs = tuple(sorted(implicit_bcs))
         self.vector_index = vector_index
         self._initialized = True
 
@@ -3102,12 +3030,18 @@ class MixedMap(Map, ObjectCached):
         if not all(m is None or m.iterset == self.iterset for m in self._maps):
             raise MapTypeError("All maps in a MixedMap need to share the same iterset")
         # TODO: Think about different communicators on maps (c.f. MixedSet)
-        self.comm = maps[0].comm
+        # TODO: What if all maps are None?
+        comms = tuple(m.comm for m in self._maps if m is not None)
+        if not all(c == comms[0] for c in comms):
+            raise MapTypeError("All maps needs to share a communicator")
+        if len(comms) == 0:
+            raise MapTypeError("Don't know how to make communicator")
+        self.comm = comms[0]
         self._initialized = True
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
-        maps = as_tuple(args[0], type=Map)
+        maps = as_tuple(args[0], type=Map, allow_none=True)
         cache = maps[0]
         return (cache, ) + (maps, ), kwargs
 
@@ -3128,7 +3062,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
-        return MixedSet(tuple(GlobalSet() if m is None else
+        return MixedSet(tuple(GlobalSet(comm=self.comm) if m is None else
                               m.toset for m in self._maps))
 
     @cached_property
@@ -3237,30 +3171,23 @@ class Sparsity(ObjectCached):
         self._dsets = dsets
 
         if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
-            self._d_nz = 0
-            self._o_nz = 0
             self._dims = (((1, 1),),)
-            self._rowptr = None
-            self._colidx = None
             self._d_nnz = None
             self._o_nnz = None
             self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
             self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
             self.lcomm = dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm
             self.rcomm = dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm
-            self._rowptr = None
-            self._colidx = None
-            self._d_nnz = 0
-            self._o_nnz = 0
         else:
             self.lcomm = self._rmaps[0].comm
             self.rcomm = self._cmaps[0].comm
 
+            rset, cset = self.dsets
             # All rmaps and cmaps have the same data set - just use the first.
-            self._nrows = self._rmaps[0].toset.size
-            self._ncols = self._cmaps[0].toset.size
+            self._nrows = rset.size
+            self._ncols = cset.size
 
-            self._has_diagonal = self._rmaps[0].toset == self._cmaps[0].toset
+            self._has_diagonal = (rset == cset)
 
             tmp = itertools.product([x.cdim for x in self._dsets[0]],
                                     [x.cdim for x in self._dsets[1]])
@@ -3292,12 +3219,8 @@ class Sparsity(ObjectCached):
                                                      rm, cm in maps],
                                         block_sparse=block_sparse))
                 self._blocks.append(row)
-            self._rowptr = tuple(s._rowptr for s in self)
-            self._colidx = tuple(s._colidx for s in self)
             self._d_nnz = tuple(s._d_nnz for s in self)
             self._o_nnz = tuple(s._o_nnz for s in self)
-            self._d_nz = sum(s._d_nz for s in self)
-            self._o_nz = sum(s._o_nz for s in self)
         elif isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
             # Where the sparsity maps either from or to a Global, we
             # don't really have any sparsity structure.
@@ -3307,11 +3230,12 @@ class Sparsity(ObjectCached):
             for dset in dsets:
                 if isinstance(dset, MixedDataSet) and any([isinstance(d, GlobalDataSet) for d in dset]):
                     raise SparsityFormatError("Mixed monolithic matrices with Global rows or columns are not supported.")
-            with timed_region("CreateSparsity"):
-                build_sparsity(self, parallel=(self.comm.size > 1),
-                               block=self._block_sparse)
-            self._blocks = [[self]]
             self._nested = False
+            with timed_region("CreateSparsity"):
+                nnz, onnz = build_sparsity(self)
+                self._d_nnz = nnz
+                self._o_nnz = onnz
+            self._blocks = [[self]]
         self._initialized = True
 
     _cache = {}
@@ -3490,16 +3414,6 @@ class Sparsity(ObjectCached):
         return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
     @cached_property
-    def rowptr(self):
-        """Row pointer array of CSR data structure."""
-        return self._rowptr
-
-    @cached_property
-    def colidx(self):
-        """Column indices array of CSR data structure."""
-        return self._colidx
-
-    @cached_property
     def nnz(self):
         """Array containing the number of non-zeroes in the various rows of the
         diagonal portion of the local submatrix.
@@ -3519,15 +3433,11 @@ class Sparsity(ObjectCached):
 
     @cached_property
     def nz(self):
-        """Number of non-zeroes in the diagonal portion of the local
-        submatrix."""
-        return int(self._d_nz)
+        return self._d_nnz.sum()
 
     @cached_property
     def onz(self):
-        """Number of non-zeroes in the off-diagonal portion of the local
-        submatrix."""
-        return int(self._o_nz)
+        return self._o_nnz.sum()
 
     def __contains__(self, other):
         """Return true if other is a pair of maps in self.maps(). This
@@ -3810,9 +3720,10 @@ class Kernel(Cached):
         # HACK: Temporary fix!
         if isinstance(code, Node):
             code = code.gencode()
-        return md5(six.b(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                         str(headers) + version + str(configuration['loop_fusion']) +
-                         str(ldargs) + str(cpp))).hexdigest()
+        hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs) +
+                  str(headers) + version + str(configuration['loop_fusion']) +
+                  str(ldargs) + str(cpp))
+        return md5(hashee.encode()).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -3891,8 +3802,10 @@ class JITModule(Cached):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, kernel, itspace, *args, **kwargs):
-        key = (kernel.cache_key, itspace.cache_key)
+    def _cache_key(cls, kernel, iterset, *args, **kwargs):
+        key = (kernel.cache_key, iterset._extruded,
+               (iterset._extruded and iterset.constant_layers),
+               isinstance(iterset, Subset))
         for arg in args:
             key += (arg.__class__,)
             if arg._is_global:
@@ -4033,14 +3946,13 @@ class ParLoop(LazyComputation):
         self._iteration_region = kwargs.get("iterate", None)
         self._pass_layer_arg = kwargs.get("pass_layer_arg", False)
 
+        check_iterset(self.args, iterset)
+
         if self._pass_layer_arg:
             if self.is_direct:
                 raise ValueError("Can't request layer arg for direct iteration")
             if not self._is_layered:
                 raise ValueError("Can't request layer arg for non-extruded iteration")
-
-        # Are we only computing over owned set entities?
-        self._only_local = isinstance(iterset, LocalSet)
 
         self.iterset = iterset
         self.comm = iterset.comm
@@ -4056,17 +3968,6 @@ class ParLoop(LazyComputation):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
-
-        if self.is_direct and self._only_local:
-            raise RuntimeError("Iteration over a LocalSet makes no sense for direct loops")
-        if self._only_local:
-            for arg in self.args:
-                if arg._is_mat:
-                    raise RuntimeError("Iteration over a LocalSet does not make sense for par_loops with Mat args")
-                if arg._is_dat and arg.access not in [INC, READ, WRITE]:
-                    raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
-
-        self._it_space = self._build_itspace(iterset)
 
         # Attach semantic information to the kernel's AST
         # Only need to do this once, since the kernel "defines" the
@@ -4095,18 +3996,17 @@ class ParLoop(LazyComputation):
     @cached_property
     def num_flops(self):
         iterset = self.iterset
-        size = iterset.size
-        if self.needs_exec_halo:
-            size = iterset.exec_size
+        size = 1
         if self.is_indirect and iterset._extruded:
             region = self.iteration_region
+            layers = np.mean(iterset.layers_array[:, 1] - iterset.layers_array[:, 0])
             if region is ON_INTERIOR_FACETS:
-                size *= iterset.layers - 2
+                size = layers - 2
             elif region not in [ON_TOP, ON_BOTTOM]:
-                size *= iterset.layers - 1
+                size = layers - 1
         return size * self._kernel.num_flops
 
-    def log_flops(self):
+    def log_flops(self, flops):
         pass
 
     @property
@@ -4121,24 +4021,21 @@ class ParLoop(LazyComputation):
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         with timed_region("ParLoopExecute"):
-            self.halo_exchange_begin()
+            self.global_to_local_begin()
             iterset = self.iterset
             arglist = self.arglist
             fun = self._jitmodule
             # Need to ensure INC globals are zero on entry to the loop
             # in case it's reused.
-            for g in six.iterkeys(self._reduced_globals):
+            for g in self._reduced_globals.keys():
                 g._data[...] = 0
             self._compute(iterset.core_part, fun, *arglist)
-            self.halo_exchange_end()
+            self.global_to_local_end()
             self._compute(iterset.owned_part, fun, *arglist)
             self.reduction_begin()
-            if self._only_local:
-                self.reverse_halo_exchange_begin()
-                self.reverse_halo_exchange_end()
-            if self.needs_exec_halo:
-                self._compute(iterset.exec_part, fun, *arglist)
+            self.local_to_global_begin()
             self.reduction_end()
+            self.local_to_global_end()
             self.update_arg_data_state()
 
     @collective
@@ -4153,41 +4050,36 @@ class ParLoop(LazyComputation):
         raise RuntimeError("Must select a backend")
 
     @collective
-    def halo_exchange_begin(self):
+    def global_to_local_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
             return
         for arg in self.dat_args:
-            arg.halo_exchange_begin(update_inc=self._only_local)
+            arg.global_to_local_begin()
 
     @collective
-    @timed_function("ParLoopHaloEnd")
-    def halo_exchange_end(self):
+    def global_to_local_end(self):
+        """Finish halo exchanges"""
+        if self.is_direct:
+            return
+        for arg in self.dat_args:
+            arg.global_to_local_end()
+
+    @collective
+    def local_to_global_begin(self):
+        """Start halo exchanges."""
+        if self.is_direct:
+            return
+        for arg in self.dat_args:
+            arg.local_to_global_begin()
+
+    @collective
+    def local_to_global_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
             return
         for arg in self.dat_args:
-            arg.halo_exchange_end(update_inc=self._only_local)
-
-    @collective
-    @timed_function("ParLoopRHaloBegin")
-    def reverse_halo_exchange_begin(self):
-        """Start reverse halo exchanges (to gather remote data)"""
-        if self.is_direct:
-            return
-        for arg in self.dat_args:
-            if arg.access is INC:
-                arg.data.halo_exchange_begin(reverse=True)
-
-    @collective
-    @timed_function("ParLoopRHaloEnd")
-    def reverse_halo_exchange_end(self):
-        """Finish reverse halo exchanges (to gather remote data)"""
-        if self.is_direct:
-            return
-        for arg in self.dat_args:
-            if arg.access is INC:
-                arg.data.halo_exchange_end(reverse=True)
+            arg.local_to_global_end()
 
     @collective
     @timed_function("ParLoopRednBegin")
@@ -4203,7 +4095,7 @@ class ParLoop(LazyComputation):
         for arg in self.global_reduction_args:
             arg.reduction_end(self.comm)
         # Finalise global increments
-        for tmp, glob in six.iteritems(self._reduced_globals):
+        for tmp, glob in self._reduced_globals.items():
             # These can safely access the _data member directly
             # because lazy evaluation has ensured that any pending
             # updates to glob happened before this par_loop started
@@ -4217,14 +4109,10 @@ class ParLoop(LazyComputation):
     def update_arg_data_state(self):
         """Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
 
-        This marks :class:`Dat`\s that need halo updates, sets the
-        data to read-only, and marks :class:`Mat`\s that need assembly."""
+        This marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
-            if arg._is_dat:
-                if arg.access in [INC, WRITE, RW]:
-                    arg.data.needs_halo_update = True
-                for d in arg.data:
-                    d._data.setflags(write=False)
+            if arg._is_dat and arg.access is not READ:
+                arg.data.halo_valid = False
             if arg._is_mat and arg.access is not READ:
                 state = {WRITE: Mat.INSERT_VALUES,
                          INC: Mat.ADD_VALUES}[arg.access]
@@ -4239,18 +4127,6 @@ class ParLoop(LazyComputation):
         return [arg for arg in self.args if arg._is_global_reduction]
 
     @cached_property
-    def layer_arg(self):
-        """The layer arg that needs to be added to the argument list."""
-        if self._is_layered:
-            return [self._it_space.layers]
-        return []
-
-    @cached_property
-    def it_space(self):
-        """Iteration space of the parallel loop."""
-        return self._it_space
-
-    @cached_property
     def is_direct(self):
         """Is this parallel loop direct? I.e. are all the arguments either
         :class:Dats accessed through the identity map, or :class:Global?"""
@@ -4260,15 +4136,6 @@ class ParLoop(LazyComputation):
     def is_indirect(self):
         """Is the parallel loop indirect?"""
         return not self.is_direct
-
-    @cached_property
-    def needs_exec_halo(self):
-        """Does the parallel loop need an exec halo?
-
-        True if the parallel loop is not a "local" loop and there are
-        any indirect arguments that are not read-only."""
-        return not self._only_local and any(arg._is_indirect_and_not_read or arg._is_mat
-                                            for arg in self.args)
 
     @cached_property
     def kernel(self):
@@ -4297,39 +4164,19 @@ class ParLoop(LazyComputation):
         interior facets."""
         return self._iteration_region
 
-    def _build_itspace(self, iterset):
-        """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
-        given iteration set.
 
-        Also checks that the iteration set of the :class:`ParLoop` matches the
-        iteration set of all its arguments. A :class:`MapValueError` is raised
-        if this condition is not met.
-
-        Also determines the size of the local iteration space and checks all
-        arguments using an :class:`IterationIndex` for consistency.
-
-        :return: class:`IterationSpace` for this :class:`ParLoop`"""
-        return build_itspace(self.args, iterset)
-
-
-def build_itspace(args, iterset):
-    """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
-    given iteration set.
-
-    Also checks that the iteration set of the :class:`ParLoop` matches the
+def check_iterset(args, iterset):
+    """Checks that the iteration set of the :class:`ParLoop` matches the
     iteration set of all its arguments. A :class:`MapValueError` is raised
     if this condition is not met.
 
     Also determines the size of the local iteration space and checks all
-    arguments using an :class:`IterationIndex` for consistency.
+    arguments using an :class:`IterationIndex` for consistency."""
 
-    :return: class:`IterationSpace` for this :class:`ParLoop`"""
-
-    if isinstance(iterset, (LocalSet, Subset)):
+    if isinstance(iterset, Subset):
         _iterset = iterset.superset
     else:
         _iterset = iterset
-    block_shape = None
     if configuration["type_check"]:
         if isinstance(_iterset, MixedSet):
             raise SetTypeError("Cannot iterate over MixedSets")
@@ -4349,21 +4196,10 @@ def build_itspace(args, iterset):
                 elif m.iterset != _iterset and m.iterset not in _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-            if arg._uses_itspace:
-                _block_shape = arg._block_shape
-                if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                block_shape = _block_shape
-    else:
-        for arg in args:
-            if arg._uses_itspace:
-                block_shape = arg._block_shape
-                break
-    return IterationSpace(iterset, block_shape)
 
 
 @collective
-def par_loop(kernel, it_space, *args, **kwargs):
+def par_loop(kernel, iterset, *args, **kwargs):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
@@ -4397,12 +4233,6 @@ def par_loop(kernel, it_space, *args, **kwargs):
         :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
         by the :class:`Kernel`. No runtime check is performed to ensure this!
 
-    If a :func:`par_loop` argument indexes into a :class:`Map` using an
-    :class:`base.IterationIndex`, this implies the use of a local
-    :class:`base.IterationSpace` of a size given by the arity of the
-    :class:`Map`. It is an error to have several arguments using local
-    iteration spaces of different size.
-
     :func:`par_loop` invocation is illustrated by the following example ::
 
       pyop2.par_loop(mass, elements,
@@ -4431,5 +4261,5 @@ def par_loop(kernel, it_space, *args, **kwargs):
     """
     if isinstance(kernel, types.FunctionType):
         from pyop2 import pyparloop
-        return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()
-    return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()
+        return pyparloop.ParLoop(pyparloop.Kernel(kernel), iterset, *args, **kwargs).enqueue()
+    return _make_object('ParLoop', kernel, iterset, *args, **kwargs).enqueue()
