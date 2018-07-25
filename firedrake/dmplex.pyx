@@ -885,9 +885,9 @@ def mark_entity_classes(PETSc.DM plex):
         PetscInt nleaves
         PetscInt *closure = NULL
         PetscInt nclosure
-        PetscInt *ilocal = NULL
+        const PetscInt *ilocal = NULL
         PetscBool non_exec
-        PetscSFNode *iremote = NULL
+        const PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
         PetscBool is_ghost, is_owned
         DMLabel lbl_core, lbl_owned, lbl_ghost
@@ -1292,8 +1292,8 @@ def get_cell_remote_ranks(PETSc.DM plex):
         PetscInt cStart, cEnd, ncells, i
         PETSc.SF sf
         PetscInt nroots, nleaves
-        PetscInt *ilocal
-        PetscSFNode *iremote
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
         np.ndarray[PetscInt, ndim=1, mode="c"] result
 
     cStart, cEnd = plex.getHeightStratum(0)
@@ -2088,8 +2088,8 @@ def exchange_cell_orientations(
     cdef:
         PETSc.SF sf
         PetscInt nroots, nleaves
-        PetscInt *ilocal
-        PetscSFNode *iremote
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
         MPI.Datatype dtype
         PETSc.Section new_section
         PetscInt *new_values = NULL
