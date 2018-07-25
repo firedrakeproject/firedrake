@@ -31,7 +31,7 @@ def einsum(factors, sum_indices):
             else:
                 selectors.append(slice(None))
                 letters.append(index2letter[index])
-        operands.append(literal.array.__getitem__(selectors))
+        operands.append(literal.array.__getitem__(tuple(selectors)))
         subscript_parts.append(''.join(letters))
 
     result_pairs = sorted((letter, index)
