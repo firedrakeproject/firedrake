@@ -514,7 +514,8 @@ def two_dimension_plot(function,
             mappable = axes.plot_trisurf(triangulation, Z, edgecolor="none",
                                          cmap=cmap, antialiased=False,
                                          shade=False, **kwargs)
-        plt.colorbar(mappable)
+        if cmap is not None:
+            plt.colorbar(mappable)
         return axes
     else:
         if contour:
@@ -522,7 +523,8 @@ def two_dimension_plot(function,
                                        cmap=cmap, **kwargs)
         else:
             mappable = axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
-        plt.colorbar(mappable)
+        if cmap is not None:
+            plt.colorbar(mappable)
     return axes
 
 
