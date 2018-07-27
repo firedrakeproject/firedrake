@@ -157,3 +157,4 @@ class Projector(object):
             self.v_out.assign(self.v)
         else:
             self.solver.solve()
+        return self.v_out
