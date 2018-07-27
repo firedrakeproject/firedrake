@@ -63,6 +63,14 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level - 1]
 
 
+@coarsen.register(ufl.classes.Expr)
+def coarse_expr(mesh, self, coefficient_mapping=None):
+    if expr is None:
+        return None
+    mapper = CoarsenIntegrand(self, coefficient_mapping)
+    return map_expr_dag(mapper, expr)
+
+
 @coarsen.register(ufl.Form)
 def coarsen_form(form, self, coefficient_mapping=None):
     """Return a coarse mesh version of a form
