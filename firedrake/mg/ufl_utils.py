@@ -64,7 +64,7 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
 
 
 @coarsen.register(ufl.classes.Expr)
-def coarse_expr(mesh, self, coefficient_mapping=None):
+def coarse_expr(expr, self, coefficient_mapping=None):
     if expr is None:
         return None
     mapper = CoarsenIntegrand(self, coefficient_mapping)
