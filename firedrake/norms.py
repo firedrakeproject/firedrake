@@ -47,29 +47,11 @@ def norm(v, norm_type="L2", mesh=None):
 
     Available norm types are:
 
-    * Lp
+    - Lp :math:`||v||_{L^p} = (\\int |v|^p)^{\\frac{1}{p}} \\mathrm{d}x`
+    - H1 :math:`||v||_{H^1}^2 = \\int (v, v) + (\\nabla v, \\nabla v) \\mathrm{d}x`
+    - Hdiv :math:`||v||_{H_\\mathrm{div}}^2 = \\int (v, v) + (\\nabla\cdot v, \\nabla \cdot v) \\mathrm{d}x`
+    - Hcurl :math:`||v||_{H_\\mathrm{curl}}^2 = \\int (v, v) + (\\nabla \\wedge v, \\nabla \\wedge v) \\mathrm{d}x`
 
-       .. math::
-
-          ||v||_{L^p} = \right(\int |v|^p\left)^{\frac{1}{p}} \mathrm{d}x
-
-    * H1
-
-       .. math::
-
-          ||v||_{H^1}^2 = \int (v, v) + (\\nabla v, \\nabla v) \mathrm{d}x
-
-    * Hdiv
-
-       .. math::
-
-          ||v||_{H_\mathrm{div}}^2 = \int (v, v) + (\\nabla\cdot v, \\nabla \cdot v) \mathrm{d}x
-
-    * Hcurl
-
-       .. math::
-
-          ||v||_{H_\mathrm{curl}}^2 = \int (v, v) + (\\nabla \wedge v, \\nabla \wedge v) \mathrm{d}x
     """
     typ = norm_type.lower()
     p = 2
