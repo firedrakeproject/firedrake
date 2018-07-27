@@ -265,7 +265,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
         PetscInt *closure = NULL
         PetscInt closureSize
         MPI.Datatype contig, typ
-        MPI.MPI_Op EXTENTS_REDUCER = NULL
+        MPI.Op EXTENTS_REDUCER = MPI.Op()
 
     pStart, pEnd = dm.getChart()
 
@@ -307,26 +307,16 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
     tmp = numpy.copy(layer_extents)
     # To get owned points correct, we do a reduction over the SF.
-    CHKERR(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
-    CHKERR(PetscSFReduceBegin(sf.sf, contig.ob_mpi,
-                              <const void*>layer_extents.data,
-                              <void *>tmp.data,
-                              EXTENTS_REDUCER))
-    CHKERR(PetscSFReduceEnd(sf.sf, contig.ob_mpi,
-                            <const void*>layer_extents.data,
-                            <void *>tmp.data,
-                            EXTENTS_REDUCER))
-    CHKERR(MPI_Op_free(&EXTENTS_REDUCER))
+    CHKERR(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER.ob_mpi))
+    sf.reduceBegin(contig, layer_extents, tmp, EXTENTS_REDUCER)
+    sf.reduceEnd(contig, layer_extents, tmp, EXTENTS_REDUCER)
+    EXTENTS_REDUCER.Free()
     layer_extents[:] = tmp[:]
     # OK, now we have the correct extents for owned points, but
     # potentially incorrect extents for ghost points, so do a SF Bcast
     # over the point SF to get it right.
-    CHKERR(PetscSFBcastBegin(sf.sf, contig.ob_mpi,
-                             <const void*>tmp.data,
-                             <void *>layer_extents.data))
-    CHKERR(PetscSFBcastEnd(sf.sf, contig.ob_mpi,
-                           <const void*>tmp.data,
-                           <void *>layer_extents.data))
+    sf.bcastBegin(contig, tmp, layer_extents)
+    sf.bcastEnd(contig, tmp, layer_extents)
     contig.Free()
     return layer_extents
 
