@@ -194,19 +194,17 @@ def check_tag(tag):
         sys.exit(1)
 
 
-def resolve_tag(tag):
+def resolve_tag(tag, components):
     """Match a tag in component repositories.
 
     :arg tag: The tag to match.
+    :arg components: list of components to resolve the tag for.
 
     :returns: a list of (repository, [matching-tags, ...]) pairs.
 
     repository is a github3 Repository instance for the component, the
     list of matching tags are possible tags that match the commit of
     the requested tag (for zenodo searching).
-
-    :raises ValueError: if a non-optional component doesn't have the
-        necessary tag.
     """
     import github3
     # Shut up the github module
@@ -230,9 +228,12 @@ access.""")
             if component in optional_components:
                 continue
             if args.skip_missing:
-                log.warning("Tag '{tag}' does not exit in repository '{repo}'. Continuing".format(tag=tag, repo=repo))
+                log.warning("Tag '{tag}' does not exist in repository '{repo}'. Continuing".format(tag=tag, repo=repo))
             else:
-                raise ValueError("Tag '{tag}' does not exist in repository '{repo}'".format(tag=tag, repo=repo))
+                log.error("Tag '{tag}' does not exist in repository '{repo}'".format(
+                    tag=tag, repo=repo))
+                log.error("To continue despite this use --skip-missing")
+                sys.exit(1)
         matching = [t for t in tags if t.commit == found.commit]
         result.append((repo, matching))
     return result
@@ -330,11 +331,12 @@ The Firedrake components and dependencies used were:
     return data
 
 
-def create_metarecord(tag, title, info_file=None):
+def create_metarecord(tag, title, components, info_file=None):
     """Create meta-record.
 
     :arg tag: The tag to create the record for.
     :arg title: The title of the record.
+    :arg components: The components to include in the record.
     :arg info_file: optional (filename, contents) pair of any additional
         (user-provided) information, will be uploaded using the provided filename."""
     # First check that we don't have a matching tag already.
@@ -359,7 +361,7 @@ def create_metarecord(tag, title, info_file=None):
                 log.error("If you really need to create a new record use --ignore-existing-records")
                 sys.exit(1)
 
-    possible_tags = resolve_tag(tag)
+    possible_tags = resolve_tag(tag, components)
     all_records = zenodo_records()
     matching_records = match(all_records, possible_tags)
     if len(matching_records) != len(possible_tags):
@@ -368,8 +370,12 @@ def create_metarecord(tag, title, info_file=None):
             log.warning("Did not find a Zenodo record for repositories: '{}'. Continuing.".format(
                 ", ".join(repo.full_name for repo in missing)))
         else:
-            raise LookupError("Did not find a Zenodo record for repositories: '{}'".format(
-                ", ".join(repo.full_name for repo in missing)))
+            log.error("Did not find a Zenodo record for the following repositories")
+            for repo in missing:
+                log.error("{}".format(repo.full_name))
+            log.error("")
+            log.error("If you want to continue anyway use --skip-missing")
+            sys.exit(1)
     metadata = {
         "metadata": {
             "title": "Software used in '{}'".format(title),
@@ -511,8 +517,9 @@ if args.meta_release:
     tag = data["tag"]
     check_tag(tag)
     title = data["title"]
+    components = data["components"]
     info_file = decode_info_file(data["info_file"])
-    record = create_metarecord(tag, title, info_file)
+    record = create_metarecord(tag, title, components, info_file)
     record = record.json()
     log.info("Created Zenodo meta-release.")
     log.info("DOI is {}".format(record["doi"]))
@@ -612,7 +619,7 @@ message = """This release is specifically created to document the version of
 {component} used in a particular set of experiments using
 Firedrake. Please do not cite this as a general source for Firedrake
 or any of its dependencies. Instead, refer to
-http://www.firedrakeproject.org/publications.html"""
+https://www.firedrakeproject.org/citing.html"""
 
 
 for component in (set(shas) & set(components)):
@@ -631,6 +638,7 @@ meta_file = "firedrake-meta-release.json"
 with open(meta_file, "w") as f:
     data = {"tag": tag,
             "title": shas["title"],
+            "components": sorted(set(shas) & set(components)),
             "info_file": shas.get("metarelease_info_file", None)}
     meta_file.write(json.dumps(data))
 
