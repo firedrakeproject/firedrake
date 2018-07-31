@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import hashlib
 import re
 import logging
 import sys
@@ -9,6 +10,8 @@ from collections import OrderedDict
 import json
 import time
 import requests
+import base64
+import mimetypes
 
 
 descriptions = OrderedDict([
@@ -300,7 +303,7 @@ def create_json(records, title):
                             "zenodo-record": record}
                            for repo, (tag, record) in records],
             "title": title}
-    return json.dumps(data)
+    return json.dumps(data).encode()
 
 
 def create_description(records, title):
@@ -371,28 +374,41 @@ def create_metarecord(tag, title, info_file=None):
     else:
         log.error("Need to set FIREDRAKE_ZENODO_AUTH to create meta-release")
         sys.exit(1)
-    depo = requests.post(base_url, params=authentication_params, headers={"Content-Type": "application/json"},
-                         data=json.dumps(metadata))
+    depo = requests.post(base_url, params=authentication_params, json=metadata)
     if depo.status_code >= 400:
         raise ValueError("Unable to create deposition {}".format(depo.json()))
 
+    components = create_json(matching_records, title)
     upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
-                           files={"file": ("components.json",
-                                           create_json(matching_records, title),
-                                           "application/json")},
+                           files={"file": ("components.json", components, "application/json")},
                            params=authentication_params)
     if upload.status_code >= 400:
         raise ValueError("Unable to upload file {}".format(upload.json()))
+
+    checksum = hashlib.md5(components).hexdigest()
+    if checksum != upload.json()["checksum"]:
+        raise ValueError("components.json failed checksum verification")
 
     if info_file is not None:
         filename, contents = info_file
         if filename == "components.json":
             filename = "user-components.json"
+        content_type, encoding = mimetypes.guess_type(filename)
+        if content_type is None:
+            content_type = "application/octet-stream"
+        if encoding is not None:
+            params = (filename, contents, content_type, {"Content-Encoding": encoding})
+        else:
+            params = (filename, contents, content_type)
         upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
-                               files={"file": (filename, contents, "text/plain")},
+                               files={"file": params},
                                params=authentication_params)
         if upload.status_code >= 400:
             raise ValueError("Unable to upload user file {}".format(upload.json()))
+        checksum = hashlib.md5(contents).hexdigest()
+        if checksum != upload.json()["checksum"]:
+            raise ValueError("User file '{}' failed checksum verification".format(filename))
+
     publish = requests.post("{url}/{id}/actions/publish".format(url=base_url, id=depo.json()["id"]),
                             params=authentication_params)
     if publish.status_code >= 400:
@@ -460,13 +476,28 @@ If the release has only just been created, then the information may not yet have
     sys.exit(0)
 
 
+def encode_info_file(filename):
+    with open(filename, "rb") as f:
+        data = base64.encodebytes(f.read()).decode()
+        name = os.path.basename(filename)
+        return (name, data)
+
+
+def decode_info_file(encoded):
+    if encoded is None:
+        return None
+    name, data = encoded
+    data = base64.decodebytes(data.encode())
+    return (name, data)
+
+
 if args.meta_release:
     with open(args.meta_release[0], "r") as f:
         data = json.loads(f.read())
     tag = data["tag"]
     check_tag(tag)
     title = data["title"]
-    info_file = data["info_file"]
+    info_file = decode_info_file(data["info_file"])
     record = create_metarecord(tag, title, info_file)
     record = record.json()
     log.info("Created Zenodo meta-release.")
@@ -483,9 +514,7 @@ if args.release or not args.input_file:
     # Collect hashes from the current repo.
     shas = collect_repo_shas()
     if args.info_file:
-        with open(args.info_file[0], "r") as f:
-            shas["metarelease_info_file"] = (os.path.basename(args.info_file[0]),
-                                             f.read())
+        shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
     else:
         shas["metarelease_info_file"] = None
 else:
@@ -497,9 +526,7 @@ if args.title:
     shas["title"] = args.title[0]
 
 if args.info_file:
-    with open(args.info_file[0], "r") as f:
-        shas["metarelease_info_file"] = (os.path.basename(args.info_file[0]),
-                                         f.read())
+    shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
 
 # Override hashes with any read from the command line.
 for component in components:
@@ -590,7 +617,7 @@ meta_file = "firedrake-meta-release.json"
 with open(meta_file, "w") as f:
     data = {"tag": tag,
             "title": shas["title"],
-            "info_file": shas["metarelease_info_file"]}
+            "info_file": shas.get("metarelease_info_file", None)}
     meta_file.write(json.dumps(data))
 
 log.info("Releases complete. The release tag is %s" % tag)
