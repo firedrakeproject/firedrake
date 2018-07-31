@@ -76,6 +76,24 @@ else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
 
+# Set up logging
+# Log to file at DEBUG level
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)-6s %(message)s',
+                    filename='firedrake-%s.log' % mode,
+                    filemode='w')
+# Log to console at INFO level
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(message)s')
+console.setFormatter(formatter)
+logging.getLogger().addHandler(console)
+
+log = logging.getLogger()
+
+log.info("Running %s" % " ".join(sys.argv))
+
+
 if sys.version_info < (3, 5):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
@@ -98,6 +116,53 @@ branches = {}
 
 jenkins = "JENKINS_URL" in os.environ
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
+
+
+def resolve_doi_branches(doi):
+    import requests
+    import hashlib
+    log.info("Installing Firedrake components specified by {}".format(doi))
+    response = requests.get("https://zenodo.org/api/records",
+                            params={"q": "doi:{}".format(doi.replace("/", r"\/"))})
+    if response.status_code >= 400:
+        log.error("Unable to obtain Zenodo record for doi {}".format(doi))
+        log.error("Response was {}".format(response.json()))
+        sys.exit(1)
+    response = response.json()
+    try:
+        record, = response["hits"]["hits"]
+    except ValueError:
+        log.error("Was expecting one record for doi '{doi}', found {num}".format(
+            doi=doi, num=response["hits"]["total"]))
+        log.error("Response was {}".format(response))
+        sys.exit(1)
+    files = record["files"]
+    try:
+        componentjson, = (f for f in files if f["key"] == "components.json")
+    except ValueError:
+        log.error("Expecting to find exactly one 'components.json' in record")
+        sys.exit(1)
+    download = requests.get(componentjson["links"]["self"])
+    if download.status_code >= 400:
+        log.error("Unable to download 'components.json'")
+        log.error("Response was {}".format(download.json()))
+        sys.exit(1)
+    # component response has checksum as "md5:HEXDIGEST", strip the md5.
+    if hashlib.md5(download.content).hexdigest() != componentjson["checksum"][4:]:
+        log.error("Download failed checksum, expecting {expect}, got {got}".format(
+            expect=componentjson["checksum"][4:],
+            got=hashlib.md5(download.content).hexdigest()))
+        sys.exit(1)
+    componentjson = download.json()
+    branches = {}
+    for record in componentjson["components"]:
+        commit = record["commit"]
+        component = record["component"]
+        package = component[component.find("/")+1:].lower()
+        branches[package] = commit
+        log.info("Using commit {commit} for component {comp}".format(
+            commit=commit, comp=component))
+    return branches
 
 
 if mode == "install":
@@ -145,6 +210,8 @@ honoured.""",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
+    parser.add_argument("--doi", type=str, nargs=1,
+                        help="Install a set of components matching a particular Zenodo DOI. The record should have been created with firedrake-zenodo.")
     parser.add_argument("--package-branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -173,7 +240,9 @@ honoured.""",
     args = parser.parse_args()
 
     if args.package_branch:
-        branches = {package: branch for package, branch in args.package_branch}
+        branches = {package.lower(): branch for package, branch in args.package_branch}
+    if args.doi:
+        branches = resolve_doi_branches(args.doi[0])
 
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
@@ -248,23 +317,6 @@ where shortname is one of the names given below:
     help_string += line
     print(help_string)
     sys.exit(0)
-
-# Set up logging
-# Log to file at DEBUG level
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(levelname)-6s %(message)s',
-                    filename='firedrake-%s.log' % mode,
-                    filemode='w')
-# Log to console at INFO level
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(message)s')
-console.setFormatter(formatter)
-logging.getLogger().addHandler(console)
-
-log = logging.getLogger()
-
-log.info("Running %s" % " ".join(sys.argv))
 
 
 @atexit.register
@@ -436,8 +488,7 @@ def git_clone(url):
         log.info("Using existing petsc installation\n")
         return name
     log.info("Cloning %s\n" % name)
-    if name in branches:
-        branch = branches[name]
+    branch = branches.get(name.lower(), branch)
     try:
         if options["disable_ssh"]:
             raise InstallError("Skipping ssh clone because --disable-ssh")
