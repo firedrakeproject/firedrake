@@ -100,6 +100,8 @@ parser.add_argument("--info-file", action="store", nargs=1,
 parser.add_argument("--honour-petsc-dir", action="store_true",
                     help="Does your firedrake use a self-built PETSc?")
 
+parser.add_argument("--ignore-existing-records", action="store_true",
+                    help="When creating Zenodo meta-record, ignore any existing records which match the tag")
 parser.add_argument("--skip-missing", action="store_true",
                     help="When creating Zenodo meta-record, skip missing components?")
 
@@ -339,10 +341,23 @@ def create_metarecord(tag, title, info_file=None):
     response = requests.get("https://zenodo.org/api/records",
                             params={"q": "creators.name:firedrake-zenodo AND version:{}".format(tag)})
     if response.status_code < 400:
-        if response.json()["hits"]["total"] > 0:
-            log.error("\nThere is already a meta-record with tag '{}'".format(tag))
-            log.error("This should not happen, perhaps you've already created it?\n")
-            sys.exit(1)
+        hits = response.json()["hits"]
+        if hits["total"] > 0:
+            if args.ignore_existing_records:
+                log.warning("Ignoring {n} existing records for tag '{tag}'".format(
+                    n=hits["total"], tag=tag))
+            else:
+                log.error("\nThere are already {n} meta-records with tag '{tag}'".format(
+                    n=hits["total"], tag=tag))
+                log.error("\nDetails")
+                log.error("*******\n")
+                for hit in hits["hits"]:
+                    log.error("{link}: {title}".format(
+                        title=hit["metadata"]["title"],
+                        link=hit["links"]["html"]))
+                log.error("")
+                log.error("If you really need to create a new record use --ignore-existing-records")
+                sys.exit(1)
 
     possible_tags = resolve_tag(tag)
     all_records = zenodo_records()
@@ -421,7 +436,6 @@ if args.release_tag:
     check_tag(tag)
     log.info("Retrieving BibTeX data for Firedrake release %s." % tag)
     log.info("This may take a few seconds.")
-    # XXX: Switch to live once we're done testing.
     response = requests.get("https://zenodo.org/api/records",
                             params={"q": "creators.name:firedrake-zenodo AND version:%s" % tag})
     if response.status_code >= 400:
