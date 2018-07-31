@@ -1,7 +1,6 @@
 import numpy
 import ufl
 from collections import defaultdict
-from itertools import chain
 
 from pyop2 import op2
 from pyop2.base import collecting_loops
@@ -16,6 +15,7 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
+from firedrake.supermesh import supermesh_wrapping
 
 
 __all__ = ["assemble"]
@@ -201,11 +201,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         m.init()
         if m.topology != topology:
             raise NotImplementedError("All integration domains must share a mesh topology.")
-
-    for o in chain(f.arguments(), f.coefficients()):
-        domain = o.ufl_domain()
-        if domain is not None and domain.topology != topology:
-            raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if isinstance(f, slate.TensorBase):
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
@@ -406,6 +401,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
+            kernel_coeffs = [coefficients[n] for n in coeff_map]
             # Find argument space indices
             if is_mat:
                 i, j = indices
@@ -494,6 +490,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             else:
                 raise ValueError("Unknown integral type '%s'" % integral_type)
 
+            coords = m.coordinates
+            coords_arg = coords.dat(op2.READ, get_map(coords)[op2.i[0]])
+            kernel, get_map, itspace, mC, kernel_coefs, coords_arg, extra_coords_args = supermesh_wrapping(f, kernel, get_map, itspace, m, kernel_coeffs, coords_arg)
+
             # Output argument
             if is_mat:
                 tensor_arg = mat(lambda s: get_map(s, tsbc, decoration),
@@ -504,23 +504,26 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             else:
                 tensor_arg = tensor(op2.INC)
 
-            coords = m.coordinates
-            args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords)[op2.i[0]])]
+            args = [kernel, itspace, tensor_arg, coords_arg]
             if needs_orientations:
                 o = m.cell_orientations()
                 args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
             if needs_cell_sizes:
                 o = m.cell_sizes
                 args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
-            for n in coeff_map:
-                c = coefficients[n]
+            for c in kernel_coeffs:
                 for c_ in c.split():
                     m_ = get_map(c_)
                     args.append(c_.dat(op2.READ, m_ and m_[op2.i[0]]))
             if needs_cell_facets:
                 assert integral_type == "cell"
                 extra_args.append(m.cell_to_facets(op2.READ))
+            if mC is not m:
+                # we're supermeshing
+                assert not needs_orientations
+                assert not needs_cell_sizes
+                assert not needs_cell_facets
+                extra_args.extend(extra_coords_args)
 
             args.extend(extra_args)
             kwargs["pass_layer_arg"] = pass_layer_arg
