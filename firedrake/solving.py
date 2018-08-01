@@ -223,12 +223,8 @@ def _la_solve(A, x, b, **kwargs):
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
 
-    from firedrake import dx, inner, Constant
-    v = ufl.algorithms.extract_arguments(A.a)[0]
-    L = inner(Constant(ufl.zero(v.ufl_shape)), v)*dx # linear MG doesn't need RHS form,
-                                                     # supply zero
-
-    lvp = vs.LinearVariationalProblem(a=A.a, L=L, u=x, bcs=bcs)
+    # linear MG doesn't need RHS, supply zero.
+    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=bcs)
     mat_type = solver_parameters.get("mat_type")
     appctx = solver_parameters.get("appctx", {})
     ctx = solving_utils._SNESContext(lvp,
