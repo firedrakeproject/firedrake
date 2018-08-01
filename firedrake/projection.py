@@ -72,9 +72,6 @@ def project(v, V, bcs=None, mesh=None,
         f = function.Function(fs)
         f.interpolate(v)
         v = f
-    elif isinstance(v, function.Function):
-        if v.function_space().mesh() != ret.function_space().mesh():
-            raise RuntimeError("Can't project between mismatching meshes")
     elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can only project from expressions and functions, not %r" % type(v))
 

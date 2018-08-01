@@ -1,5 +1,5 @@
+import firedrake
 import FIAT
-import ufl
 from pyop2 import op2
 from tsfc.fiatinterface import create_element
 from tsfc import compile_expression_at_points
@@ -8,7 +8,7 @@ from firedrake.mg.kernels import compile_element, to_reference_coordinates
 from firedrake.parameters import parameters as default_parameters
 
 
-def supermesh_wrapping(form, kernel_AB, get_map_AB, itspace_A, domain_A, kernel_coeffs_AB, coords_arg):
+def supermesh_wrapping(kernel_AB, get_map_AB, itspace_A, domain_A, kernel_coeffs_AB, coords_arg, Vtest=None):
     domains = set(coeff.ufl_domain() for coeff in kernel_coeffs_AB)
     domains.add(domain_A)
     domains.discard(None)
@@ -22,7 +22,7 @@ def supermesh_wrapping(form, kernel_AB, get_map_AB, itspace_A, domain_A, kernel_
     domain_B = domains.pop()
     super_mesh = SuperMesh(domain_A, domain_B)
 
-    kernel_C = supermesh_kernel(kernel_AB, kernel_coeffs_AB, domain_A, domain_B)
+    kernel_C = supermesh_kernel(kernel_AB, kernel_coeffs_AB, domain_A, domain_B, Vtest=Vtest)
 
     def get_map_C(x, bcs=None, decoration=None):
         map_AB = get_map_AB(x, bcs=bcs, decoration=decoration)
@@ -34,57 +34,103 @@ def supermesh_wrapping(form, kernel_AB, get_map_AB, itspace_A, domain_A, kernel_
     return kernel_C, get_map_C, super_mesh.mesh_C.cell_set, super_mesh.mesh_C, kernel_coeffs_AB, coords_arg, extra_coords_args
 
 
-def supermesh_kernel(kernel, coeffs, mesh_A, mesh_B):
+def supermesh_kernel(kernel, coeffs, mesh_A, mesh_B, Vtest=None):
     tdim = mesh_A.topological_dimension()
     assert tdim == mesh_B.topological_dimension()
+    Anodes = Vtest.cell_node_map().arity if Vtest else 1
+    Asize = Vtest.ufl_element().value_size() if Vtest else 1
 
-    evaluate_coeffs_on_C = ''
-    evaluate_kernels = ''
+    # first, interpolate reference coordinates for the nodes of every coeff and arg
+    coeffs_and_args = coeffs.copy()
+    if Vtest:
+        coeffs_and_args.append(Vtest)
+    interpolate_reference_coordinates = ''
     interpolate_kernels = ''
-    for i, coeff in enumerate(coeffs):
+    for k, coeff in enumerate(coeffs_and_args):
         # kernel to interpolate ref coords of simplex in mesh_C to ref coords for nodes of coeff
-        interpolate_name = 'interpolate_kernel_%(i)d' % {'i': i}
+        interpolate_name = 'interpolate_kernel_%d' % k
         interpolate_kernel = _interpolate_x_kernel(coeff, mesh_A.coordinates)
         interpolate_kernel.name = interpolate_name
-        # kernel to evaluate coefficient for each ref. coord
-        evaluate_name = 'evaluate_kernel_%(i)d' % {'i': i}
-        evaluate_kernel = compile_element(coeff, name=evaluate_name)
 
-        ctype = evaluate_kernel.args[0].typ
         nnodes = coeff.cell_node_map().arity
-        coeff_size = ufl.product(coeff.ufl_shape)
+        coeff_size = coeff.ufl_element().value_size()
+        if coeff.ufl_domain() is mesh_A:
+            Xref = 'XrefA'
+        elif coeff.ufl_domain() is mesh_B:
+            Xref = 'XrefB'
+
+        interpolate_kernels += str(interpolate_kernel)
+        interpolate_reference_coordinates += '''
+    double wC_%(k)d[%(nnodes_times_coeff_size)d];
+    double XrefC_%(k)d[%(nnodes)d][%(tdim)d];
+    for ( int i = 0; i < %(nnodes)d; i++ ) {
+        for ( int j = 0; j < %(tdim)d; j++ ) {
+            XrefC_%(k)d[i][j] = 0.0;
+        }
+    }
+    %(interpolate_name)s(XrefC_%(k)d, %(Xref)s);
+    ''' % {'k': k,
+           'nnodes': nnodes,
+           'tdim': tdim,
+           'nnodes_times_coeff_size': nnodes*coeff_size,
+           'interpolate_name': interpolate_name,
+           'Xref': Xref}
+
+    # then, for coefficients only, we interpolate them in these nodes using the reference coordinates
+    evaluate_coeffs_on_C = ''
+    evaluate_kernels = ''
+    for k, coeff in enumerate(coeffs):
+        # kernel to evaluate coefficient for each ref. coord
+        evaluate_name = 'evaluate_kernel_%d' % k
+        evaluate_kernel = compile_element(coeff, name=evaluate_name)
+        nnodes = coeff.cell_node_map().arity
+        coeff_size = coeff.ufl_element().value_size()
         if coeff.ufl_domain() is mesh_A:
             Xref = 'XrefA'
         elif coeff.ufl_domain() is mesh_B:
             Xref = 'XrefB'
 
         evaluate_kernels += str(evaluate_kernel)
-        interpolate_kernels += str(interpolate_kernel)
         evaluate_coeffs_on_C += '''
-    %(ctype)s wC_%(i)d[%(nnodes_times_coeff_size)d];
-    double XrefC_%(i)d[%(nnodes)d][%(tdim)d];
-    for ( int i = 0; i < %(nnodes)d; i++ ) {
-        for ( int j = 0; j < %(tdim)d; j++ ) {
-            XrefC_%(i)d[i][j] = 0.0;
-        }
-    }
-    %(interpolate_name)s(XrefC_%(i)d, %(Xref)s);
     for ( int i = 0; i < %(nnodes)d; i++ ) {
         for ( int j = 0; j < %(coeff_size)d; j++ ) {
-            wC_%(i)d[i*%(coeff_size)d + j] = 0.0;
+            wC_%(k)d[i*%(coeff_size)d + j] = 0.0;
         }
-        %(evaluate_name)s(wC_%(i)d + i*%(coeff_size)d, w_%(i)d, XrefC_%(i)d[i]);
+        %(evaluate_name)s(wC_%(k)d + i*%(coeff_size)d, w_%(k)d, XrefC_%(k)d[i]);
     }''' % {
-            'ctype': ctype,
-            'i': i,
+            'k': k,
             'nnodes': nnodes,
             'coeff_size': coeff_size,
-            'tdim': tdim,
-            'nnodes_times_coeff_size': nnodes*coeff_size,
-            'evaluate_name': evaluate_name,
-            'interpolate_name': interpolate_name,
-            'Xref': Xref}
+            'evaluate_name': evaluate_name}
 
+    if Vtest:
+        # we want to use the last of the reference coordinates XrefC from before
+        k = len(coeffs)
+        # kernel to evaluate coefficient for each ref. coord
+        evaluate_name = 'evaluate_kernel_%d' % k
+        evaluate_kernel = compile_element(firedrake.TestFunction(Vtest), Vtest, name=evaluate_name)
+        evaluate_kernels += str(evaluate_kernel)
+
+        # we first assemble into a local vec A_C
+        A_Cdecl = '''
+    double A_C[%(Anodes_times_Asize)d];
+    for ( int i = 0; i < %(Anodes_times_Asize)d; i++ ) {
+        A_C[i] = 0.0;
+    }''' % {'Anodes_times_Asize': Anodes * Asize}
+        transform_argument = '''
+    for ( int i = 0; i < %(Anodes)d; i++ ) {
+        %(evaluate_name)s(A, A_C + i*%(Asize)d, XrefC_%(k)d[i]);
+    }''' % {'k': k,
+            'evaluate_name': evaluate_name,
+            'Anodes': Anodes,
+            'Asize': Asize}
+    else:
+        # don't need a temporary, assemble straight into A
+        A_Cdecl = ''
+        # no transformation needed
+        transform_argument = ''
+
+    # kernel to compute the refence coordinates of the supermesh C triangle within triangle A, and triangle B
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
     xnodes = mesh_A.coordinates.cell_node_map().arity
@@ -94,27 +140,34 @@ def supermesh_kernel(kernel, coeffs, mesh_A, mesh_B):
 %(interpolate_kernels)s
 %(evaluate_kernels)s
 
-static inline void supermesh_kernel(double A[%(Asize)d], const double *restrict coords_C,%(coeffs)s, const double *restrict coords_A, const double *restrict coords_B) {
+static inline void supermesh_kernel(double A[%(Anodes_times_Asize)d], const double *restrict coords_C,%(coeffs)s, const double *restrict coords_A, const double *restrict coords_B) {
     double XrefA[%(xnodes_times_tdim)d], XrefB[%(xnodes_times_tdim)d];
     for ( int i = 0; i < %(xnodes)d; i++ ) {
         to_reference_coords_kernel(XrefA + i*%(tdim)d, coords_C + i*%(tdim)d, coords_A);
         to_reference_coords_kernel(XrefB + i*%(tdim)d, coords_C + i*%(tdim)d, coords_B);
     }
-    %(evaluate_coeffs_on_C)s;
-    %(original_kernel_name)s(A, coords_C,%(coeffs_C)s);
+    %(interpolate_reference_coordinates)s
+    %(evaluate_coeffs_on_C)s
+    %(A_Cdecl)s
+    %(original_kernel_name)s(%(A_or_A_C)s, coords_C,%(coeffs_C)s);
+    %(transform_argument)s
 }''' % {
         'original_kernel': str(kernel.code()),
         'original_kernel_name': kernel.name,
         'to_reference': str(to_reference_kernel),
         'evaluate_kernels': evaluate_kernels,
         'interpolate_kernels': interpolate_kernels,
+        'interpolate_reference_coordinates': interpolate_reference_coordinates,
         'evaluate_coeffs_on_C': evaluate_coeffs_on_C,
-        'Asize': 1,
+        'transform_argument': transform_argument,
+        'Anodes_times_Asize': Anodes * Asize,
+        'A_Cdecl': A_Cdecl,
+        'A_or_A_C': 'A_C' if Vtest else 'A',
         'tdim': tdim,
         'xnodes': xnodes,
         'xnodes_times_tdim': xnodes*tdim,
-        'coeffs': ','.join(' const double *restrict w_%(i)d' % {'i': i} for i in range(len(coeffs))),
-        'coeffs_C': ','.join(' wC_%(i)d' % {'i': i} for i in range(len(coeffs)))}
+        'coeffs': ','.join(' const double *restrict w_%d' % k for k in range(len(coeffs))),
+        'coeffs_C': ','.join(' wC_%d' % k for k in range(len(coeffs)))}
     print(kernel_source)
     opts = default_parameters['coffee']
     kernel_C = op2.Kernel(kernel_source, 'supermesh_kernel', opts)

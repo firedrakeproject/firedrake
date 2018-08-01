@@ -492,7 +492,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             coords = m.coordinates
             coords_arg = coords.dat(op2.READ, get_map(coords)[op2.i[0]])
-            kernel, get_map, itspace, mC, kernel_coefs, coords_arg, extra_coords_args = supermesh_wrapping(f, kernel, get_map, itspace, m, kernel_coeffs, coords_arg)
+            kernel, get_map, itspace, mC, kernel_coefs, coords_arg, extra_coords_args = supermesh_wrapping(
+                kernel, get_map, itspace, m, kernel_coeffs, coords_arg, test.function_space() if is_vec else None)
 
             # Output argument
             if is_mat:
