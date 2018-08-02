@@ -35,6 +35,8 @@ clean:
 	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.c"
 	-@rm -f firedrake/mg/impl.c > /dev/null 2>&1
+	@echo "    RM firedrake/libsupermesh.c"
+	-@rm -f firedrake/libsupermesh.c > /dev/null 2>&1
 
 
 THREADS=1

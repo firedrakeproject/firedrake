@@ -48,6 +48,7 @@ try:
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
+    supermesh_sources = ["firedrake/libsupermesh.pyx"]
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
@@ -55,6 +56,7 @@ except ImportError:
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
+    supermesh_sources = ["firedrake/libsupermesh.c"]
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
@@ -113,4 +115,10 @@ setup(name='firedrake',
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % sys.prefix])])
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
+                   Extension('firedrake.libsupermesh',
+                             sources=supermesh_sources,
+                             libraries=["supermesh", "spatialindex_c"],
+                             include_dirs=include_dirs,
+                             extra_link_args=["-L%s/lib" % sys.prefix,
+                                              "-Wl,-rpath,%s/lib" % sys.prefix])])
