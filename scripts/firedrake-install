@@ -7,6 +7,7 @@ import os
 import shutil
 from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+import argparse
 from collections import OrderedDict
 import atexit
 
@@ -212,6 +213,10 @@ honoured.""",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--doi", type=str, nargs=1,
                         help="Install a set of components matching a particular Zenodo DOI. The record should have been created with firedrake-zenodo.")
+    # Used for testing if Zenodo broke the API
+    # Tries to resolve to a known DOI and immediately exits.
+    parser.add_argument("--test-doi-resolution", action="store_true",
+                        help=argparse.SUPPRESS)
     parser.add_argument("--package-branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -241,6 +246,24 @@ honoured.""",
 
     if args.package_branch:
         branches = {package.lower(): branch for package, branch in args.package_branch}
+    if args.test_doi_resolution:
+        actual = resolve_doi_branches("10.5281/zenodo.1322546")
+        expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
+                  'finat': 'aa74fd499304c8363a4520555fd62ef21e8e5e1f',
+                  'fiat': '184601a46c24fb5cbf8fd7961d22b16dd26890e7',
+                  'firedrake': '6a30b64da01eb587dcc0e04e8e6b84fe4839bdb7',
+                  'petsc': '413f72f04f5cb0a010c85e03ed029573ff6d4c63',
+                  'petsc4py': 'ac2690070a80211dfdbab04634bdb3496c14ca0a',
+                  'tsfc': 'fe9973eaacaa205fd491cd1cc9b3743b93a3d076',
+                  'ufl': 'c5eb7fbe89c1091132479c081e6fa9c182191dcc',
+                  'pyop2': '741a21ba9a62cb67c0aa300a2e199436ea8cb61c'}
+        if actual != expect:
+            log.error("Unable to resolve DOI correctly.")
+            log.error("You'll need to figure out how Zenodo have changed their API.")
+            sys.exit(1)
+        else:
+            log.info("DOI resolution test passed.")
+            sys.exit(0)
     if args.doi:
         branches = resolve_doi_branches(args.doi[0])
 

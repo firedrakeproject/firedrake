@@ -68,6 +68,13 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
         }
       }
     }
+    stage('Zenodo API canary') {
+      steps {
+        timestamps {
+          sh 'scripts/firedrake-install --test-doi-resolution || (cat firedrake-install.log && /bin/false)'
+        }
+      }
+    }
   }
 }
 
