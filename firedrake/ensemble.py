@@ -61,3 +61,60 @@ class Ensemble(object):
         if hasattr(self, "ensemble_comm"):
             self.ensemble_comm.Free()
             del self.ensemble_comm
+
+    def send(self, f, rank, tag):
+        """
+        Send (blocking) a function f into over :attr:`ensemble_comm` to another 
+        ensemble rank.
+
+        :arg f: The function to send
+        :arg rank: the rank to send to
+        :arg tag: the tag of the message
+        """
+
+        raise NotImplementedError("Ensemble send not implemented")
+
+    def recv(self, f, tag):
+        """
+        Receive (blocking) a function f into over :attr:`ensemble_comm` from
+        another ensemble rank.
+
+        :arg f: The function to receive into
+        :arg rank: the rank to receive from
+        :arg tag: the tag of the message
+        """
+
+        raise NotImplementedError("Ensemble recv not implemented")
+
+    def isend(self, f, rank, tag):
+        """
+        Send (non-blocking) a function f into over :attr:`ensemble_comm` to another 
+        ensemble rank.
+
+        :arg f: The function to send
+        :arg rank: the rank to send to
+        :arg tag: the tag of the message
+        """
+
+        raise NotImplementedError("Ensemble isend not implemented")
+
+    def irecv(self, f, tag):
+        """
+        Receive (non-blocking) a function f into over :attr:`ensemble_comm` from
+        another ensemble rank.
+
+        :arg f: The function to receive into
+        :arg rank: the rank to receive from
+        :arg tag: the tag of the message
+        """
+
+        raise NotImplementedError("Ensemble irecv not implemented")
+
+    def wait(self, tag):
+        """
+        Wait for ensemble non-blocking send/receive to complete.
+
+        :arg tag: the tag of the message
+        """
+
+        raise NotImplementedError("Ensemble wait not implemented")
