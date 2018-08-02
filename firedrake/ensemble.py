@@ -38,7 +38,7 @@ class Ensemble(object):
         """
         Allreduce a function f into f_reduced over :attr:`ensemble_comm`.
 
-        :arg f: The function to allreduce.
+        :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator.
         :raises ValueError: if communicators mismatch, or function sizes mismatch.
@@ -62,59 +62,54 @@ class Ensemble(object):
             self.ensemble_comm.Free()
             del self.ensemble_comm
 
-    def send(self, f, rank, tag):
+    def send(self, f, rank, tag=0):
         """
-        Send (blocking) a function f into over :attr:`ensemble_comm` to another 
+        Send (blocking) a function f over :attr:`ensemble_comm` to another 
         ensemble rank.
 
-        :arg f: The function to send
-        :arg rank: the rank to send to
+        :arg f: The a :class:`.Function` to send
+        :arg dest: the rank to send to
         :arg tag: the tag of the message
         """
 
         raise NotImplementedError("Ensemble send not implemented")
 
-    def recv(self, f, tag):
+    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
-        Receive (blocking) a function f into over :attr:`ensemble_comm` from
+        Receive (blocking) a function f over :attr:`ensemble_comm` from
         another ensemble rank.
 
-        :arg f: The function to receive into
-        :arg rank: the rank to receive from
+        :arg f: The a :class:`.Function` to receive into
+        :arg source: the rank to receive from
         :arg tag: the tag of the message
         """
 
         raise NotImplementedError("Ensemble recv not implemented")
 
-    def isend(self, f, rank, tag):
+    def isend(self, f, dest, tag=0):
         """
-        Send (non-blocking) a function f into over :attr:`ensemble_comm` to another 
+        Send (non-blocking) a function f over :attr:`ensemble_comm` to another 
         ensemble rank.
 
-        :arg f: The function to send
-        :arg rank: the rank to send to
+        Returns a Request object.
+
+        :arg f: The a :class:`.Function` to send
+        :arg dest: the rank to send to
         :arg tag: the tag of the message
         """
 
         raise NotImplementedError("Ensemble isend not implemented")
 
-    def irecv(self, f, tag):
+    def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
-        Receive (non-blocking) a function f into over :attr:`ensemble_comm` from
+        Receive (non-blocking) a function f over :attr:`ensemble_comm` from
         another ensemble rank.
 
-        :arg f: The function to receive into
-        :arg rank: the rank to receive from
+        Returns a Request object.
+
+        :arg f: The a :class:`.Function` to receive into
+        :arg source: the rank to receive from
         :arg tag: the tag of the message
         """
 
         raise NotImplementedError("Ensemble irecv not implemented")
-
-    def wait(self, tag):
-        """
-        Wait for ensemble non-blocking send/receive to complete.
-
-        :arg tag: the tag of the message
-        """
-
-        raise NotImplementedError("Ensemble wait not implemented")
