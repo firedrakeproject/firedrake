@@ -1,3 +1,4 @@
+import numpy
 import firedrake
 import FIAT
 from pyop2 import op2
@@ -6,6 +7,7 @@ from tsfc import compile_expression_at_points
 from firedrake.mesh import _from_cell_list, Mesh
 from firedrake.mg.kernels import compile_element, to_reference_coordinates
 from firedrake.parameters import parameters as default_parameters
+from firedrake.libsupermesh import create_supermesh
 
 
 def supermesh_wrapping(kernel_AB, get_map_AB, itspace_A, domain_A, kernel_coeffs_AB, coords_arg, Vtest=None):
@@ -168,7 +170,6 @@ static inline void supermesh_kernel(double A[%(Anodes_times_Asize)d], const doub
         'xnodes_times_tdim': xnodes*tdim,
         'coeffs': ','.join(' const double *restrict w_%d' % k for k in range(len(coeffs))),
         'coeffs_C': ','.join(' wC_%d' % k for k in range(len(coeffs)))}
-    print(kernel_source)
     opts = default_parameters['coffee']
     kernel_C = op2.Kernel(kernel_source, 'supermesh_kernel', opts)
     return kernel_C
@@ -179,13 +180,10 @@ class SuperMesh:
         self.mesh_A = mesh_A
         self.mesh_B = mesh_B
 
-        # magic
-        nodes_C = [[0., 0.], [1., 0.], [1., 1.], [0., 1.], [0.5, 0.5]]
-        cells_C = [[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]]
-
-        # more magic
-        self.cell_map_CA = [0, 0, 1, 1]
-        self.cell_map_CB = [0, 1, 1, 0]
+        nodes_C, self.cell_map_CA, self.cell_map_CB = create_supermesh(mesh_A, mesh_B)
+        shp_C = nodes_C.shape
+        nodes_C = nodes_C.reshape((shp_C[0]*shp_C[1], shp_C[2]))
+        cells_C = numpy.arange(shp_C[0]*shp_C[1]).reshape((shp_C[0], shp_C[1]))
 
         # this assert doesn't work - why?
         # assert mesh_A.comm == mesh_B.comm
