@@ -46,3 +46,6 @@ cdef extern from "spatialindex/capi/sidx_api.h":
     RTError Index_Intersects_id(IndexH index, double* pdMin, double* pdMax, uint32_t nDimension,
                                 int64_t** ids, uint64_t* nResults)
     void Index_Destroy(IndexH index)
+
+cdef class SpatialIndex:
+    cdef IndexH index

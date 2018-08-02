@@ -3,12 +3,10 @@ import ctypes
 import cython
 from libc.stdint cimport uintptr_t
 
-include "spatialindexinc.pxi"
+cimport spatialindex
 
 cdef class SpatialIndex(object):
     """Python class for holding a native spatial index object."""
-
-    cdef IndexH index
 
     def __cinit__(self, uint32_t dim):
         """Initialize a native spatial index.
