@@ -17,12 +17,6 @@ def intersect_tris(np.ndarray[double, ndim=2, mode="c"] tri_A, np.ndarray[double
     np_tris_C[...] = mv_tris_C[0:n_tris_C, :, :]
     return np_tris_C
 
-# is there a better way to do this?
-# I need to somehow declare that mesh.spatial_index is a SpatialIndex
-# before I can access its (IndexH) index attribute
-cdef spatialindex.SpatialIndex get_index(mesh):
-    return mesh.spatial_index
-
 cdef inline get_tri(int [:,:] enlist, int ele, double [:,:] coords, double tri[3][2]):
     cdef int j, n, k
     for j in range(3):
@@ -43,7 +37,7 @@ cdef inline get_tri_bbox(double tri[3][2], double tri_min[2], double tri_max[2])
                 tri_max[k] = tri[j][k]
 
 def create_supermesh(mesh_A, mesh_B):
-    cdef spatialindex.IndexH index_B = get_index(mesh_B).index
+    cdef spatialindex.IndexH index_B = (<spatialindex.SpatialIndex ?>mesh_B.spatial_index).index
     cdef int ele_A
     cdef int ncells_A = mesh_A.num_cells()
     cdef double [:,:] coords_A = mesh_A.coordinates.dat.data
