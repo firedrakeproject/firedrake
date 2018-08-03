@@ -16,7 +16,7 @@ from tsfc.coffee import SCALAR_TYPE
 
 
 # Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'coefficients'])
+ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients'])
 
 
 class Kernel(object):
@@ -81,6 +81,21 @@ class KernelBuilderBase(_KernelBuilderBase):
         self.coefficient_map[coefficient] = expression
         return funarg
 
+    def set_cell_sizes(self, domain):
+        """Setup a fake coefficient for "cell sizes".
+
+        :arg domain: The domain of the integral.
+
+        This is required for scaling of derivative basis functions on
+        physically mapped elements (Argyris, Bell, etc...).  We need a
+        measure of the mesh size around each vertex (hence this lives
+        in P1).
+        """
+        f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
+        funarg, expression = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
+        self.cell_sizes_arg = funarg
+        self._cell_sizes = expression
+
     @staticmethod
     def needs_cell_orientations(ir):
         """Does a multi-root GEM expression DAG references cell
@@ -110,6 +125,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
     def __init__(self):
         super(ExpressionKernelBuilder, self).__init__()
         self.oriented = False
+        self.cell_sizes = False
 
     def set_coefficients(self, coefficients):
         """Prepare the coefficients of the expression.
@@ -135,14 +151,8 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         """Set that the kernel requires cell orientations."""
         self.oriented = True
 
-    @staticmethod
-    def needs_cell_sizes(ir):
-        # Not hooked up
-        return False
-
-    @staticmethod
-    def require_cell_sizes():
-        pass
+    def require_cell_sizes(self):
+        self.cell_sizes = True
 
     def construct_kernel(self, return_arg, body):
         """Constructs an :class:`ExpressionKernel`.
@@ -151,12 +161,15 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         :arg body: function body (:class:`coffee.Block` node)
         :returns: :class:`ExpressionKernel` object
         """
-        args = [return_arg] + self.kernel_args
+        args = [return_arg]
         if self.oriented:
-            args.insert(1, cell_orientations_coffee_arg)
+            args.append(cell_orientations_coffee_arg)
+        if self.cell_sizes:
+            args.append(self.cell_sizes_arg)
+        args.extend(self.kernel_args)
 
         kernel_code = super(ExpressionKernelBuilder, self).construct_kernel("expression_kernel", args, body)
-        return ExpressionKernel(kernel_code, self.oriented, self.coefficients)
+        return ExpressionKernel(kernel_code, self.oriented, self.cell_sizes, self.coefficients)
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -244,21 +257,6 @@ class KernelBuilder(KernelBuilderBase):
     def require_cell_sizes(self):
         """Set that the kernel requires cell sizes."""
         self.kernel.needs_cell_sizes = True
-
-    def set_cell_sizes(self, domain):
-        """Setup a fake coefficient for "cell sizes".
-
-        :arg domain: The domain of the integral.
-
-        This is required for scaling of derivative basis functions on
-        physically mapped elements (Argyris, Bell, etc...).  We need a
-        measure of the mesh size around each vertex (hence this lives
-        in P1).
-        """
-        f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-        funarg, expression = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
-        self.cell_sizes_arg = funarg
-        self._cell_sizes = expression
 
     def construct_kernel(self, name, body):
         """Construct a fully built :class:`Kernel`.
