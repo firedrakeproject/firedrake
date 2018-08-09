@@ -59,6 +59,8 @@ class KernelBuilderBase(KernelInterface):
                                                gem.Literal(numpy.nan)))
 
     def cell_size(self, restriction):
+        if not hasattr(self, "_cell_sizes"):
+            raise RuntimeError("Haven't called set_cell_sizes")
         f = {None: (), '+': (0, ), '-': (1, )}[restriction]
         # cell_sizes expression must have been set up by now.
         return gem.partial_indexed(self._cell_sizes, f)

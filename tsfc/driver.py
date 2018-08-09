@@ -277,10 +277,11 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     if domain:
         assert coordinates.ufl_domain() == domain
         builder.domain_coordinate[domain] = coordinates
+        builder.set_cell_sizes(domain)
 
     # Collect required coefficients
     coefficients = extract_coefficients(expression)
-    if has_type(expression, GeometricQuantity):
+    if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
         coefficients = [coordinates] + coefficients
     builder.set_coefficients(coefficients)
 
@@ -315,7 +316,9 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):
         builder.require_cell_orientations()
-
+    # Handle cell sizes (physically mapped elements)
+    if builder.needs_cell_sizes([ir]):
+        builder.require_cell_sizes()
     # Build kernel tuple
     return builder.construct_kernel(return_arg, body)
 
