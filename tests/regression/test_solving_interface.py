@@ -142,6 +142,7 @@ def test_linear_solves_equivalent():
     solve(assemble(a), sol4, assemble(L))
     assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
 
+
 def test_constant_jacobian_lvs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
