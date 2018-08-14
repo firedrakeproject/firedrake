@@ -25,6 +25,7 @@ import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 from firedrake import solving_utils
 from firedrake import dmhooks
+import firedrake
 
 
 def solve(*args, **kwargs):
@@ -223,6 +224,8 @@ def _la_solve(A, x, b, **kwargs):
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
 
+    if isinstance(x, firedrake.Vector):
+        x = x.function
     # linear MG doesn't need RHS, supply zero.
     lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=bcs)
     mat_type = solver_parameters.get("mat_type")
@@ -250,7 +253,7 @@ def _extract_linear_solver_args(*args, **kwargs):
                                (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
 
     bcs = kwargs.get("bcs", None)
-    solver_parameters = kwargs.get("solver_parameters", None)
+    solver_parameters = kwargs.get("solver_parameters", {})
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
