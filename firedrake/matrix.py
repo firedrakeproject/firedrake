@@ -16,9 +16,11 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     :arg bcs: an iterable of boundary conditions to apply to this
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
+    :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
     """
-    def __init__(self, a, bcs):
+    def __init__(self, a, bcs, mat_type):
         self._a = a
+        self._mat_type = mat_type
 
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
@@ -49,6 +51,14 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         Ensures that the matrix is assembled and populated with
         values, ready for sending to PETSc."""
         pass
+
+    @property
+    def mat_type(self):
+        """Matrix type.
+
+        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
+        or 'matfree' for matrix-free."""
+        return self._mat_type
 
     @property
     def has_bcs(self):
@@ -139,6 +149,7 @@ class Matrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
+    :arg mat_type: matrix type of assembled matrix.
 
     A :class:`pyop2.Mat` will be built from the remaining
     arguments, for valid values, see :class:`pyop2.Mat`.
@@ -151,9 +162,9 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(Matrix, self).__init__(a, bcs)
+    def __init__(self, a, bcs, mat_type, *args, **kwargs):
+        # sets self._a, self._bcs, and self._mat_type
+        super(Matrix, self).__init__(a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
         self._M = op2.Mat(*args, **kwargs)
         self.petscmat = self._M.handle
@@ -255,8 +266,8 @@ class ImplicitMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(ImplicitMatrix, self).__init__(a, bcs)
+        # sets self._a, self._bcs, and self._mat_type
+        super(ImplicitMatrix, self).__init__(a, bcs, 'matfree')
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})

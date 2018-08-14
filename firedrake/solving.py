@@ -228,7 +228,7 @@ def _la_solve(A, x, b, **kwargs):
         x = x.function
     # linear MG doesn't need RHS, supply zero.
     lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=bcs)
-    mat_type = solver_parameters.get("mat_type")
+    mat_type = A.mat_type
     appctx = solver_parameters.get("appctx", {})
     ctx = solving_utils._SNESContext(lvp,
                                      mat_type=mat_type,
