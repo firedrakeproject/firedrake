@@ -389,10 +389,12 @@ def create_metarecord(tag, title, components, info_file=None):
         }
     }
     base_url = "https://zenodo.org/api/deposit/depositions"
-    if os.getenv("FIREDRAKE_ZENODO_AUTH"):
-        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_AUTH")}
+    if os.getenv("FIREDRAKE_ZENODO_TOKEN"):
+        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_TOKEN")}
     else:
-        log.error("Need to set FIREDRAKE_ZENODO_AUTH to create meta-release")
+        log.error("""To create a meta-release, please set the environment
+variable FIREDRAKE_ZENODO_TOKEN to a Zenodo personal access token
+with deposit:write scope.""")
         sys.exit(1)
     depo = requests.post(base_url, params=authentication_params, json=metadata)
     if depo.status_code >= 400:
@@ -583,7 +585,7 @@ a github issue. One of the core developers will then create a release
 from that file.
 
 If you are a Firedrake core developer, please set the environment
-variable FIREDRAKE_GITHUB_TOKEN to a github personal access token
+variable FIREDRAKE_GITHUB_TOKEN to a Github personal access token
 with public_repo scope.""")
     sys.exit(1)
 
