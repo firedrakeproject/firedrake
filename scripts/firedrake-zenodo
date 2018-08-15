@@ -89,7 +89,7 @@ group.add_argument("--release", action="store_true",
                    help="Release based on the current checked out versions.")
 group.add_argument("--bibtex", action="store", nargs=1,
                    help="Retrieve the BibTeX entries corresponding to the release tag provided.", dest="release_tag")
-group.add_argument("--create-meta-release", action="store", nargs="?", const=["firedrake-meta.json"],
+group.add_argument("--create-meta-release", action="store", nargs="?", const="firedrake-meta.json",
                    help="Create meta-record with data from specified file.", dest="meta_release")
 parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
                     help="Output to the named bibtex file rather than firedrake-zenodo.bib")
@@ -512,7 +512,7 @@ def decode_info_file(encoded):
 
 
 if args.meta_release:
-    with open(args.meta_release[0], "r") as f:
+    with open(args.meta_release, "r") as f:
         data = json.loads(f.read())
     tag = data["tag"]
     check_tag(tag)
