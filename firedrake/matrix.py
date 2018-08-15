@@ -100,7 +100,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         new_bcs = [bc]
         for existing_bc in self._bcs:
             # New BC doesn't override existing one, so keep it.
-            if bc.sub_domain != existing_bc.sub_domain:
+            if bc.sub_domain != existing_bc.sub_domain or bc.function_space() != existing_bc.function_space():
                 new_bcs.append(existing_bc)
         self._bcs = new_bcs
 
