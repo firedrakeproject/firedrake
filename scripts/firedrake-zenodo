@@ -63,6 +63,10 @@ will download the corresponding bibliography entries in BibTeX format.
 If you are a Firedrake core developer, this script enables you to
 create DOIs directly, or to create them from a user-supplied JSON file.
 
+You will need to have FIREDRAKE_GITHUB_TOKEN set to a Github personal
+access token with public_repo scope, and FIREDRAKE_ZENODO_TOKEN set
+to a Zenodo personal access token with deposit:write scope.
+
 The release process is two-stage.  First, create a new release with
 
    firedrake-zenodo --release
