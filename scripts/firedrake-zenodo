@@ -640,7 +640,7 @@ with open(meta_file, "w") as f:
             "title": shas["title"],
             "components": sorted(set(shas) & set(components)),
             "info_file": shas.get("metarelease_info_file", None)}
-    meta_file.write(json.dumps(data))
+    f.write(json.dumps(data))
 
 log.info("Releases complete. The release tag is %s" % tag)
 log.info("Now, you need to create the meta-release")
