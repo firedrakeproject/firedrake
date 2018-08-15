@@ -209,14 +209,13 @@ def resolve_tag(tag, components):
     import github3
     # Shut up the github module
     github3.session.__logs__.setLevel(logging.WARNING)
-    if os.getenv("FIREDRAKE_OAUTH"):
-        gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+    if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
+        gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
     else:
-        log.error("""Need to provide FIREDRAKE_OAUTH for github to resolve tags.
+        log.error("""Need to provide FIREDRAKE_GITHUB_TOKEN for github to resolve tags.
 
 If you are a Firedrake core developer, please set the environment
-variable FIREDRAKE_OAUTH to a github OAUTH token with repository
-access.""")
+variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
@@ -572,8 +571,8 @@ except ImportError:
     sys.exit(1)
 
 # Github authentication.
-if os.getenv("FIREDRAKE_OAUTH"):
-    gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
+    gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
 else:
     log.error("""Actually releasing Firedrake and creating DOIs can only be done by
 a Firedrake core developer.
@@ -584,8 +583,8 @@ a github issue. One of the core developers will then create a release
 from that file.
 
 If you are a Firedrake core developer, please set the environment
-variable FIREDRAKE_OAUTH to a github OAUTH token with repository
-access.""")
+variable FIREDRAKE_GITHUB_TOKEN to a github personal access token
+with public_repo scope.""")
     sys.exit(1)
 
 fd = gh.repository("firedrakeproject", "firedrake")
