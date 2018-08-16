@@ -81,6 +81,8 @@ def test_assemble_with_bcs(a, V, mat_type):
     bc1 = DirichletBC(V, 0, 1)
     A = assemble(a, bcs=[bc1], mat_type=mat_type)
 
+    assert A.mat_type == mat_type
+
     A.assemble()
     assert A.assembled
     assert not A._needs_reassembly

@@ -310,7 +310,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, numpy.float64,
                                           "%s_%s_matrix" % fs_names,
                                           options_prefix=options_prefix)
             tensor = result_matrix._M

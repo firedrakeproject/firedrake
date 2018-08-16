@@ -16,10 +16,10 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     :arg bcs: an iterable of boundary conditions to apply to this
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
+    :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
     """
-    def __init__(self, a, bcs):
+    def __init__(self, a, bcs, mat_type):
         self._a = a
-
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
@@ -29,6 +29,11 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
+        self.mat_type = mat_type
+        """Matrix type.
+
+        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
+        or 'matfree' for matrix-free."""
 
     @abc.abstractmethod
     def assemble(self):
@@ -139,6 +144,7 @@ class Matrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
+    :arg mat_type: matrix type of assembled matrix.
 
     A :class:`pyop2.Mat` will be built from the remaining
     arguments, for valid values, see :class:`pyop2.Mat`.
@@ -151,15 +157,16 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(Matrix, self).__init__(a, bcs)
+    def __init__(self, a, bcs, mat_type, *args, **kwargs):
+        # sets self._a, self._bcs, and self._mat_type
+        super(Matrix, self).__init__(a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
         self._M = op2.Mat(*args, **kwargs)
         self.petscmat = self._M.handle
         self.petscmat.setOptionsPrefix(options_prefix)
         self._thunk = None
         self.assembled = False
+        self.mat_type = mat_type
 
     @utils.known_pyop2_safe
     def assemble(self):
@@ -255,8 +262,8 @@ class ImplicitMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(ImplicitMatrix, self).__init__(a, bcs)
+        # sets self._a, self._bcs, and self._mat_type
+        super(ImplicitMatrix, self).__init__(a, bcs, "matfree")
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
