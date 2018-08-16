@@ -256,7 +256,7 @@ def zenodo_records():
     while True:
         if i > 20:
             raise RuntimeError("More than 8000 uploads on zenodo?")
-        response = requests.get("https://zenodo.org/api/records", params={"q": 'owners:19586',
+        response = requests.get("https://zenodo.org/api/records", params={"q": 'owners:19586 OR owners:19587',
                                                                           "all_versions": True,
                                                                           "size": 400,
                                                                           "sort": "mostrecent",
@@ -470,12 +470,12 @@ If the release has only just been created, then the information may not yet have
     def format_bibtex(record):
         metadata = record["metadata"]
         template = """@misc{{{key},
- author = {{{key}}},
- title  = {{{{{title}}}}},
- year   = {{{year}}},
- month  = {{{month}}},
- doi    = {{{doi}}},
- url    = {{https://doi.org/{doi}}},
+ key   = {{{key}}},
+ title = {{{{{title}}}}},
+ year  = {{{year}}},
+ month = {{{month}}},
+ doi   = {{{doi}}},
+ url   = {{https://doi.org/{doi}}},
 }}
 """
         months = {"01": "jan",
@@ -493,6 +493,7 @@ If the release has only just been created, then the information may not yet have
         title = metadata["title"]
         doi = metadata["doi"]
         key = "zenodo/{}".format(tag)
+        key = key.replace("_", "-")
         date = metadata["publication_date"]
         year = date[:4]
         month = months[date[5:7]]
