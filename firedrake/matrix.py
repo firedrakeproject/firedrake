@@ -20,8 +20,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     """
     def __init__(self, a, bcs, mat_type):
         self._a = a
-        self._mat_type = mat_type
-
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
@@ -31,6 +29,11 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
+        self.mat_type = mat_type
+        """Matrix type.
+
+        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
+        or 'matfree' for matrix-free."""
 
     @abc.abstractmethod
     def assemble(self):
@@ -51,14 +54,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         Ensures that the matrix is assembled and populated with
         values, ready for sending to PETSc."""
         pass
-
-    @property
-    def mat_type(self):
-        """Matrix type.
-
-        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
-        or 'matfree' for matrix-free."""
-        return self._mat_type
 
     @property
     def has_bcs(self):
@@ -171,6 +166,7 @@ class Matrix(MatrixBase):
         self.petscmat.setOptionsPrefix(options_prefix)
         self._thunk = None
         self.assembled = False
+        self.mat_type = mat_type
 
     @utils.known_pyop2_safe
     def assemble(self):
@@ -267,7 +263,7 @@ class ImplicitMatrix(MatrixBase):
     """
     def __init__(self, a, bcs, *args, **kwargs):
         # sets self._a, self._bcs, and self._mat_type
-        super(ImplicitMatrix, self).__init__(a, bcs, 'matfree')
+        super(ImplicitMatrix, self).__init__(a, bcs, "matfree")
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
