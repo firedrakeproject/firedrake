@@ -24,7 +24,9 @@ descriptions = OrderedDict([
     ("FInAT", "a smarter library of finite elements"),
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
-    ("petsc4py", "The Python interface to PETSc")])
+    ("petsc4py", "The Python interface to PETSc"),
+    ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
+    ("slepc4py", "The Python interface to SLEPc")])
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
@@ -36,11 +38,13 @@ projects = dict(
      ("FInAT", "FInAT"),
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
-     ("petsc4py", "firedrakeproject")])
+     ("petsc4py", "firedrakeproject"),
+     ("slepc", "firedrakeproject"),
+     ("slepc4py", "firedrakeproject")])
 
 components = list(descriptions.keys())
 
-optional_components = ("SLOPE",)
+optional_components = ("SLOPE", "slepc", "slepc4py")
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
