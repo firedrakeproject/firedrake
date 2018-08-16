@@ -63,6 +63,10 @@ will download the corresponding bibliography entries in BibTeX format.
 If you are a Firedrake core developer, this script enables you to
 create DOIs directly, or to create them from a user-supplied JSON file.
 
+You will need to have FIREDRAKE_GITHUB_TOKEN set to a Github personal
+access token with public_repo scope, and FIREDRAKE_ZENODO_TOKEN set
+to a Zenodo personal access token with deposit:write scope.
+
 The release process is two-stage.  First, create a new release with
 
    firedrake-zenodo --release
@@ -89,7 +93,7 @@ group.add_argument("--release", action="store_true",
                    help="Release based on the current checked out versions.")
 group.add_argument("--bibtex", action="store", nargs=1,
                    help="Retrieve the BibTeX entries corresponding to the release tag provided.", dest="release_tag")
-group.add_argument("--create-meta-release", action="store", nargs=1, default=["firedrake-meta.json"],
+group.add_argument("--create-meta-release", action="store", nargs="?", const="firedrake-meta-release.json",
                    help="Create meta-record with data from specified file.", dest="meta_release")
 parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
                     help="Output to the named bibtex file rather than firedrake-zenodo.bib")
@@ -209,14 +213,13 @@ def resolve_tag(tag, components):
     import github3
     # Shut up the github module
     github3.session.__logs__.setLevel(logging.WARNING)
-    if os.getenv("FIREDRAKE_OAUTH"):
-        gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+    if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
+        gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
     else:
-        log.error("""Need to provide FIREDRAKE_OAUTH for github to resolve tags.
+        log.error("""Need to provide FIREDRAKE_GITHUB_TOKEN for github to resolve tags.
 
 If you are a Firedrake core developer, please set the environment
-variable FIREDRAKE_OAUTH to a github OAUTH token with repository
-access.""")
+variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
@@ -390,10 +393,12 @@ def create_metarecord(tag, title, components, info_file=None):
         }
     }
     base_url = "https://zenodo.org/api/deposit/depositions"
-    if os.getenv("FIREDRAKE_ZENODO_AUTH"):
-        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_AUTH")}
+    if os.getenv("FIREDRAKE_ZENODO_TOKEN"):
+        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_TOKEN")}
     else:
-        log.error("Need to set FIREDRAKE_ZENODO_AUTH to create meta-release")
+        log.error("""To create a meta-release, please set the environment
+variable FIREDRAKE_ZENODO_TOKEN to a Zenodo personal access token
+with deposit:write scope.""")
         sys.exit(1)
     depo = requests.post(base_url, params=authentication_params, json=metadata)
     if depo.status_code >= 400:
@@ -512,7 +517,7 @@ def decode_info_file(encoded):
 
 
 if args.meta_release:
-    with open(args.meta_release[0], "r") as f:
+    with open(args.meta_release, "r") as f:
         data = json.loads(f.read())
     tag = data["tag"]
     check_tag(tag)
@@ -572,8 +577,8 @@ except ImportError:
     sys.exit(1)
 
 # Github authentication.
-if os.getenv("FIREDRAKE_OAUTH"):
-    gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
+    gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
 else:
     log.error("""Actually releasing Firedrake and creating DOIs can only be done by
 a Firedrake core developer.
@@ -584,8 +589,8 @@ a github issue. One of the core developers will then create a release
 from that file.
 
 If you are a Firedrake core developer, please set the environment
-variable FIREDRAKE_OAUTH to a github OAUTH token with repository
-access.""")
+variable FIREDRAKE_GITHUB_TOKEN to a Github personal access token
+with public_repo scope.""")
     sys.exit(1)
 
 fd = gh.repository("firedrakeproject", "firedrake")
@@ -640,7 +645,7 @@ with open(meta_file, "w") as f:
             "title": shas["title"],
             "components": sorted(set(shas) & set(components)),
             "info_file": shas.get("metarelease_info_file", None)}
-    meta_file.write(json.dumps(data))
+    f.write(json.dumps(data))
 
 log.info("Releases complete. The release tag is %s" % tag)
 log.info("Now, you need to create the meta-release")
