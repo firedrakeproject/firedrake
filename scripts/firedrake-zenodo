@@ -502,7 +502,7 @@ If the release has only just been created, then the information may not yet have
 
 
 def encode_info_file(filename):
-    with open(filename, "rb") as f:
+    with open(os.path.join(cwd, filename), "rb") as f:
         data = base64.encodebytes(f.read()).decode()
         name = os.path.basename(filename)
         return (name, data)
