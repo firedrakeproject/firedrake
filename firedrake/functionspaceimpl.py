@@ -319,7 +319,8 @@ class FunctionSpace(object):
         # FIXME: Think harder about equality
         return self.mesh() is other.mesh() and \
             self.dof_dset is other.dof_dset and \
-            self.ufl_element() == other.ufl_element()
+            self.ufl_element() == other.ufl_element() and \
+            self.component == other.component
 
     def __ne__(self, other):
         return not self.__eq__(other)
