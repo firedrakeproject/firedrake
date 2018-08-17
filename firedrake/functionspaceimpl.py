@@ -839,7 +839,6 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    dim = 1
     rank = 0
     shape = ()
     value_size = 1
@@ -900,3 +899,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
+
+    def dim(self):
+        return 1
