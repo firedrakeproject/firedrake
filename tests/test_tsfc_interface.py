@@ -3,6 +3,7 @@ from firedrake import *
 import os
 import subprocess
 import sys
+import loopy
 
 
 @pytest.fixture(scope='module')
@@ -119,11 +120,11 @@ with open("{file}", "w") as f:
 
     def test_tsfc_cell_kernel(self, mass):
         k = tsfc_interface.compile_form(mass, 'mass')
-        assert len(k) == 1 and 'cell_integral' in k[0][1][0].code()
+        assert len(k) == 1 and 'cell_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
     def test_tsfc_exterior_facet_kernel(self, rhs):
         k = tsfc_interface.compile_form(rhs, 'rhs')
-        assert len(k) == 1 and 'exterior_facet_integral' in k[0][1][0].code()
+        assert len(k) == 1 and 'exterior_facet_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
     def test_tsfc_cell_exterior_facet_kernel(self, rhs2):
         k = tsfc_interface.compile_form(rhs2, 'rhs2')
