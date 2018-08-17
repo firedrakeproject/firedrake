@@ -64,7 +64,7 @@ class Ensemble(object):
 
     def send(self, f, rank, tag=0):
         """
-        Send (blocking) a function f over :attr:`ensemble_comm` to another 
+        Send (blocking) a function f over :attr:`ensemble_comm` to another
         ensemble rank.
 
         :arg f: The a :class:`.Function` to send
@@ -88,7 +88,7 @@ class Ensemble(object):
 
     def isend(self, f, dest, tag=0):
         """
-        Send (non-blocking) a function f over :attr:`ensemble_comm` to another 
+        Send (non-blocking) a function f over :attr:`ensemble_comm` to another
         ensemble rank.
 
         Returns a Request object.
