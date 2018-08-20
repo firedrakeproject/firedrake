@@ -66,7 +66,10 @@ def load(function_space):
 @pytest.fixture
 def boundary_load(function_space):
     f = Function(function_space)
-    f.interpolate(Expression("cos(x[1]*pi*2)"))
+    if function_space.mesh().cell_dimension == 1:
+        f.interpolate(Expression("cos(x[0]*pi*2)"))
+    else:
+        f.interpolate(Expression("cos(x[1]*pi*2)"))
     v = TestFunction(function_space)
     return Tensor(f * v * ds)
 
@@ -74,7 +77,10 @@ def boundary_load(function_space):
 @pytest.fixture
 def zero_rank_tensor(function_space):
     c = Function(function_space)
-    c.interpolate(Expression("x[0]*x[1]"))
+    if function_space.mesh().cell_dimension == 1:
+        c.interpolate(Expression("x[0]*x[0]"))
+    else:
+        c.interpolate(Expression("x[0]*x[1]"))
     return Tensor(c * dx)
 
 
