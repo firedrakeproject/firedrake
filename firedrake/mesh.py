@@ -11,7 +11,7 @@ import enum
 from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
@@ -247,7 +247,6 @@ def _from_triangle(filename, dim, comm):
     """
     basename, ext = os.path.splitext(filename)
 
-    comm = dup_comm(comm)
     if comm.rank == 0:
         try:
             facetfile = open(basename+".face")
@@ -304,7 +303,6 @@ def _from_triangle(filename, dim, comm):
                 join = plex.getJoin(vertices)
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
 
-    free_comm(comm)
     return plex
 
 
@@ -317,7 +315,6 @@ def _from_cell_list(dim, cells, coords, comm):
     :arg coords: The coordinates of each vertex
     :arg comm: communicator to build the mesh on.
     """
-    comm = dup_comm(comm)
     # These types are /correct/, DMPlexCreateFromCellList wants int
     # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
@@ -338,7 +335,6 @@ def _from_cell_list(dim, cells, coords, comm):
                                                  np.zeros(cell_shape, dtype=np.int32),
                                                  np.zeros(coord_shape, dtype=np.double),
                                                  comm=comm)
-    free_comm(comm)
     return plex
 
 
