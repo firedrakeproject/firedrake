@@ -331,7 +331,7 @@ def create_field_decomposition(dm, *args, **kwargs):
         # Inside a solve, ctx to split.  If we're not from a
         # hierarchy, this information is not used, so don't bother
         # splitting, since it costs some time.
-        if dm.getRefineLevel() - dm.getCoarsenLevel() != 0:
+        if (dm.getRefineLevel() - dm.getCoarsenLevel() != 0) or True:
             ctxs = ctx.split([i for i in range(len(W))])
             for d, c in zip(dms, ctxs):
                 push_appctx(d, c)
