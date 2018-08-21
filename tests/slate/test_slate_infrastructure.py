@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+import math
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, quadrilateral])
@@ -58,7 +59,8 @@ def stiffness(function_space):
 @pytest.fixture
 def load(function_space):
     f = Function(function_space)
-    f.interpolate(Expression("cos(x[0]*pi*2)"))
+    x = SpatialCoordinate(function_space.mesh())
+    f.interpolate(cos(x[0])*math.pi*2)
     v = TestFunction(function_space)
     return Tensor(f * v * dx)
 
@@ -66,10 +68,11 @@ def load(function_space):
 @pytest.fixture
 def boundary_load(function_space):
     f = Function(function_space)
-    if function_space.mesh().cell_dimension == 1:
-        f.interpolate(Expression("cos(x[0]*pi*2)"))
+    x = SpatialCoordinate(function_space.mesh())
+    if function_space.mesh().cell_dimension() == 1:
+        f.interpolate(cos(x[0]*math.pi*2))
     else:
-        f.interpolate(Expression("cos(x[1]*pi*2)"))
+        f.interpolate(cos(x[1] * math.pi*2))
     v = TestFunction(function_space)
     return Tensor(f * v * ds)
 
@@ -77,10 +80,11 @@ def boundary_load(function_space):
 @pytest.fixture
 def zero_rank_tensor(function_space):
     c = Function(function_space)
-    if function_space.mesh().cell_dimension == 1:
-        c.interpolate(Expression("x[0]*x[0]"))
+    x = SpatialCoordinate(function_space.mesh())
+    if function_space.mesh().cell_dimension() == 1:
+        c.interpolate(x[0]*x[0])
     else:
-        c.interpolate(Expression("x[0]*x[1]"))
+        c.interpolate(x[0]*x[1])
     return Tensor(c * dx)
 
 
