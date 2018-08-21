@@ -8,6 +8,7 @@ from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
 
+from firedrake.utils import cached_property
 
 def flatten_parameters(parameters, sep="_"):
     """Flatten a nested parameters dict, joining keys with sep.
@@ -257,14 +258,18 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
+    
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
+        self.allocate_matrix = allocate_matrix
+        self.create_assembly_callable = create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
+        self.options_prefix = options_prefix
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
@@ -294,19 +299,6 @@ class _SNESContext(object):
         self.F = problem.F
         self.J = problem.J
 
-        self._jac = allocate_matrix(self.J, bcs=problem.bcs,
-                                    form_compiler_parameters=fcp,
-                                    mat_type=mat_type,
-                                    appctx=appctx,
-                                    options_prefix=options_prefix)
-        self._assemble_jac = create_assembly_callable(self.J,
-                                                      tensor=self._jac,
-                                                      bcs=problem.bcs,
-                                                      form_compiler_parameters=fcp,
-                                                      mat_type=mat_type)
-
-        self.is_mixed = self._jac.block_shape != (1, 1)
-
         if mat_type != pmat_type or problem.Jp is not None:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
@@ -314,26 +306,10 @@ class _SNESContext(object):
                 self.Jp = self.J
             else:
                 self.Jp = problem.Jp
-            self._pjac = allocate_matrix(self.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=pmat_type,
-                                         appctx=appctx,
-                                         options_prefix=options_prefix)
-
-            self._assemble_pjac = create_assembly_callable(self.Jp,
-                                                           tensor=self._pjac,
-                                                           bcs=problem.bcs,
-                                                           form_compiler_parameters=fcp,
-                                                           mat_type=pmat_type)
+                
         else:
             # pmat_type == mat_type and Jp is None
             self.Jp = None
-            self._pjac = self._jac
-
-        self._F = function.Function(self.F.arguments()[0].function_space())
-        self._assemble_residual = create_assembly_callable(self.F,
-                                                           tensor=self._F,
-                                                           form_compiler_parameters=fcp)
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -503,3 +479,57 @@ class _SNESContext(object):
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
+    
+    @cached_property
+    def _jac(self):
+        return self.allocate_matrix(self.J, bcs=self._problem.bcs,
+                                    form_compiler_parameters=self._problem.form_compiler_parameters,
+                                    mat_type=self.mat_type,
+                                    appctx=self.appctx,
+                                    options_prefix=self.options_prefix)
+    
+    @cached_property
+    def _assemble_jac(self):
+        return self.create_assembly_callable(self.J,
+                                                    tensor=self._jac,
+                                                    bcs=self._problem.bcs,
+                                                    form_compiler_parameters=self._problem.form_compiler_parameters,
+                                                    mat_type=self.mat_type)
+    
+    @cached_property
+    def is_mixed(self):
+        return self._jac.block_shape != (1, 1)
+    
+    @cached_property
+    def _pjac(self):
+        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+            return self.allocate_matrix(self.Jp, bcs=self._problem.bcs,
+                                         form_compiler_parameters=self._problem.form_compiler_parameters,
+                                         mat_type=self.pmat_type,
+                                         appctx=self.appctx,
+                                         options_prefix=self.options_prefix)
+        else:
+            return self._jac
+    
+    @cached_property
+    def _assemble_pjac(self):
+        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+            return self.create_assembly_callable(self.Jp,
+                                                      tensor=self._pjac,
+                                                      bcs=self._problem.bcs,
+                                                      form_compiler_parameters=self._problem.form_compiler_parameters,
+                                                      mat_type=self.pmat_type)
+        else:
+            return self._assemble_jac
+    
+    @cached_property
+    def _F(self):
+        return function.Function(self.F.arguments()[0].function_space())
+    
+    @cached_property
+    def _assemble_residual(self):
+        return self.create_assembly_callable(self.F,
+                                                tensor=self._F,
+                                                form_compiler_parameters=self._problem.form_compiler_parameters)
+    
+ 
