@@ -5,7 +5,7 @@ from firedrake import slate
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -69,7 +69,7 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(solving_utils.ParametersMixin):
+class NonlinearVariationalSolver(OptionsManager):
     """Solves a :class:`NonlinearVariationalProblem`."""
 
     def __init__(self, problem, **kwargs):
@@ -266,12 +266,14 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
-            raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
-        if len(L.arguments()) != 1:
-            raise ValueError("Provided RHS is not a linear form")
-
-        F = ufl_expr.action(J, u) - L
+        if L is 0:
+            F = ufl_expr.action(J, u)
+        else:
+            if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+                raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
+            if len(L.arguments()) != 1:
+                raise ValueError("Provided RHS is not a linear form")
+            F = ufl_expr.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters)

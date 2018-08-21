@@ -91,6 +91,7 @@ finite element problems in Firedrake.
    matrix-free
    petsc-interface
    parallelism
+   zenodo
 
 Advanced tutorials
 ==================

@@ -3,7 +3,7 @@ import firedrake.function as function
 import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
 
@@ -11,7 +11,7 @@ from firedrake.ufl_expr import action
 __all__ = ["LinearSolver"]
 
 
-class LinearSolver(solving_utils.ParametersMixin):
+class LinearSolver(OptionsManager):
 
     def __init__(self, A, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,

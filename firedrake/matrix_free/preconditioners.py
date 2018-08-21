@@ -117,7 +117,7 @@ class AssembledPC(PCBase):
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -assembled_pc_type ksp.
-        pc = PETSc.PC().create()
+        pc = PETSc.PC().create(comm=opc.comm)
         pc.incrementTabLevel(1, parent=opc)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(Pmat, Pmat)
@@ -195,7 +195,7 @@ class MassInvPC(PCBase):
         if tnullsp.handle != 0:
             Pmat.setTransposeNullSpace(tnullsp)
 
-        ksp = PETSc.KSP().create()
+        ksp = PETSc.KSP().create(comm=pc.comm)
         ksp.incrementTabLevel(1, parent=pc)
         ksp.setOperators(Pmat)
         ksp.setOptionsPrefix(options_prefix)
@@ -298,7 +298,7 @@ class PCDPC(PCBase):
 
         # FIXME: Should we transfer nullspaces over.  I think not.
 
-        Mksp = PETSc.KSP().create()
+        Mksp = PETSc.KSP().create(comm=pc.comm)
         Mksp.incrementTabLevel(1, parent=pc)
         Mksp.setOptionsPrefix(prefix + "Mp_")
         Mksp.setOperators(Mp.petscmat)
@@ -306,7 +306,7 @@ class PCDPC(PCBase):
         Mksp.setFromOptions()
         self.Mksp = Mksp
 
-        Kksp = PETSc.KSP().create()
+        Kksp = PETSc.KSP().create(comm=pc.comm)
         Kksp.incrementTabLevel(1, parent=pc)
         Kksp.setOptionsPrefix(prefix + "Kp_")
         Kksp.setOperators(Kp.petscmat)

@@ -165,14 +165,14 @@ def _interpolator(V, dat, expr, subset):
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
-        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
+        ast, oriented, needs_cell_sizes, coefficients = compile_ufl_kernel(expr, to_pts, coords)
         kernel = op2.Kernel(ast, ast.name)
         indexed = True
     elif hasattr(expr, "eval"):
-        kernel, oriented, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
+        kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
         indexed = False
     elif expr.code is not None:
-        kernel, oriented, coefficients = compile_c_kernel(expr, to_pts, to_element, V, coords)
+        kernel, oriented, needs_cell_sizes, coefficients = compile_c_kernel(expr, to_pts, to_element, V, coords)
         indexed = True
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
@@ -195,6 +195,9 @@ def _interpolator(V, dat, expr, subset):
     if oriented:
         co = mesh.cell_orientations()
         args.append(co.dat(op2.READ, co.cell_node_map()[op2.i[0]]))
+    if needs_cell_sizes:
+        cs = mesh.cell_sizes
+        args.append(cs.dat(op2.READ, cs.cell_node_map()[op2.i[0]]))
     for coefficient in coefficients:
         m_ = coefficient.cell_node_map()
         if indexed:
@@ -249,7 +252,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     coefficients = [coords]
     for _, arg in expression._user_args:
         coefficients.append(GlobalWrapper(arg))
-    return kernel, False, tuple(coefficients)
+    return kernel, False, False, tuple(coefficients)
 
 
 def compile_c_kernel(expression, to_pts, to_element, fs, coords):
@@ -320,4 +323,4 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     coefficients = [coords]
     for _, arg in expression._user_args:
         coefficients.append(GlobalWrapper(arg))
-    return op2.Kernel(kernel_code, kernel_code.name), False, tuple(coefficients)
+    return op2.Kernel(kernel_code, kernel_code.name), False, False, tuple(coefficients)

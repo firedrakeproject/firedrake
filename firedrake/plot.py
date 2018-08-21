@@ -93,11 +93,12 @@ def _plot_mult(functions, num_points=10, axes=None, **kwargs):
     return ax
 
 
-def plot_mesh(mesh, axes=None, **kwargs):
+def plot_mesh(mesh, axes=None, surface=False, **kwargs):
     """Plot a mesh.
 
     :arg mesh: The mesh to plot.
     :arg axes: Optional matplotlib axes to draw on.
+    :arg surface: Plot surface of mesh only?
     :arg **kwargs: Extra keyword arguments to pass to matplotlib.
 
     Note that high-order coordinate fields are downsampled to
@@ -107,6 +108,8 @@ def plot_mesh(mesh, axes=None, **kwargs):
     from matplotlib import pyplot as plt
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
+    if surface:
+        tdim -= 1
     if tdim not in [1, 2]:
         raise NotImplementedError("Not implemented except for %d-dimensional meshes", tdim)
     if gdim == 3:
@@ -124,22 +127,26 @@ def plot_mesh(mesh, axes=None, **kwargs):
         from firedrake import VectorFunctionSpace, interpolate
         V = VectorFunctionSpace(mesh, ele.family(), 1)
         coordinates = interpolate(coordinates, V)
-    quad = mesh.ufl_cell().cellname() == "quadrilateral"
-    cell = coordinates.cell_node_map().values
-    if tdim == 2:
-        if quad:
-            # permute for clockwise ordering
-            # Plus first vertex again to close loop
-            idx = (0, 1, 3, 2, 0)
-        else:
-            idx = (0, 1, 2, 0)
+    idx = tuple(range(tdim + 1))
+    if surface:
+        values = coordinates.exterior_facet_node_map().values
+        dofs = np.asarray(list(coordinates.function_space().finat_element.entity_closure_dofs()[tdim].values()))
+        local_facet = mesh.exterior_facets.local_facet_dat.data_ro
+        indices = dofs[local_facet]
+        values = np.choose(indices, values[np.newaxis, ...].T)
     else:
-        idx = (0, 1, 0)
+        quad = mesh.ufl_cell().cellname() == "quadrilateral"
+        values = coordinates.cell_node_map().values
+        if tdim == 2 and quad:
+            # permute for clockwise ordering
+            idx = (0, 1, 3, 2)
+    # Plus first vertex again to close loop
+    idx = idx + (0, )
     coords = coordinates.dat.data_ro
     if tdim == gdim and tdim == 1:
         # Pad 1D array with zeros
         coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
-    vertices = coords[cell[:, idx]]
+    vertices = coords[values[:, idx]]
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection=projection, **kwargs)
@@ -149,12 +156,14 @@ def plot_mesh(mesh, axes=None, **kwargs):
     if gdim == 3:
         axes.add_collection3d(lines)
     else:
-        points = Circles([10] * coords.shape[0],
-                         offsets=coords,
-                         transOffset=axes.transData,
-                         edgecolors="black", facecolors="black")
+        if not surface:
+            points = np.unique(vertices.reshape(-1, gdim), axis=0)
+            points = Circles([10] * points.shape[0],
+                             offsets=points,
+                             transOffset=axes.transData,
+                             edgecolors="black", facecolors="black")
+            axes.add_collection(points)
         axes.add_collection(lines)
-        axes.add_collection(points)
     for setter, idx in zip(["set_xlim",
                             "set_ylim",
                             "set_zlim"],
@@ -514,7 +523,8 @@ def two_dimension_plot(function,
             mappable = axes.plot_trisurf(triangulation, Z, edgecolor="none",
                                          cmap=cmap, antialiased=False,
                                          shade=False, **kwargs)
-        plt.colorbar(mappable)
+        if cmap is not None:
+            plt.colorbar(mappable)
         return axes
     else:
         if contour:
@@ -522,7 +532,8 @@ def two_dimension_plot(function,
                                        cmap=cmap, **kwargs)
         else:
             mappable = axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
-        plt.colorbar(mappable)
+        if cmap is not None:
+            plt.colorbar(mappable)
     return axes
 
 

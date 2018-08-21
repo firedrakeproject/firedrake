@@ -24,7 +24,7 @@ import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -1316,7 +1316,13 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.cgns':
             plex = _from_cgns(meshfile, comm)
         elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile, comm)
+            if geometric_dim is not None:
+                opts = {"dm_plex_gmsh_spacedim": geometric_dim}
+            else:
+                opts = {}
+            opts = OptionsManager(opts, "")
+            with opts.inserted_options():
+                plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, comm)
         else:

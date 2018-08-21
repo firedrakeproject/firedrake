@@ -23,6 +23,9 @@ import ufl
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
+from firedrake import solving_utils
+from firedrake import dmhooks
+import firedrake
 
 
 def solve(*args, **kwargs):
@@ -221,7 +224,21 @@ def _la_solve(A, x, b, **kwargs):
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
 
-    solver.solve(x, b)
+    if isinstance(x, firedrake.Vector):
+        x = x.function
+    # linear MG doesn't need RHS, supply zero.
+    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=bcs)
+    mat_type = A.mat_type
+    appctx = solver_parameters.get("appctx", {})
+    ctx = solving_utils._SNESContext(lvp,
+                                     mat_type=mat_type,
+                                     pmat_type=mat_type,
+                                     appctx=appctx,
+                                     options_prefix=options_prefix)
+    dm = solver.ksp.dm
+
+    with dmhooks.appctx(dm, ctx):
+        solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
@@ -236,7 +253,7 @@ def _extract_linear_solver_args(*args, **kwargs):
                                (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
 
     bcs = kwargs.get("bcs", None)
-    solver_parameters = kwargs.get("solver_parameters", None)
+    solver_parameters = kwargs.get("solver_parameters", {})
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
