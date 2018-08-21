@@ -21,7 +21,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --package-branch firedrake tsfc2loopy --package-branch tsfc tsfc2loopy --package-branch PyOP2 tsfc_loopying --package-branch loopy opaque-type --disable-ssh --minimal-petsc ${SLEPC} --slope --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --package-branch firedrake tsfc2loopy --package-branch PyOP2 tsfc_loopying --disable-ssh --minimal-petsc ${SLEPC} --slope --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
