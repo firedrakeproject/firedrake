@@ -70,6 +70,7 @@ class PCBase(object, metaclass=abc.ABCMeta):
 
         """
         pass
+
     @staticmethod
     def get_appctx(pc):
         from firedrake.dmhooks import get_appctx
