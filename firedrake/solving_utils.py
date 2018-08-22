@@ -67,7 +67,6 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
@@ -87,6 +86,7 @@ class _SNESContext(object):
         self._pre_jacobian_callback = pre_jacobian_callback
         self._pre_function_callback = pre_function_callback
 
+        self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
         self._x = problem.u
 
@@ -112,10 +112,13 @@ class _SNESContext(object):
                 self.Jp = self.J
             else:
                 self.Jp = problem.Jp
-
         else:
             # pmat_type == mat_type and Jp is None
             self.Jp = None
+
+        self._assemble_residual = self.create_assembly_callable(self.F,
+                                                           tensor=self._F,
+                                                           form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -289,14 +292,14 @@ class _SNESContext(object):
     @cached_property
     def _jac(self):
         return self.allocate_matrix(self.J, bcs=self._problem.bcs,
-                                    form_compiler_parameters=self._problem.form_compiler_parameters,
+                                    form_compiler_parameters=self.fcp,
                                     mat_type=self.mat_type,
                                     appctx=self.appctx,
                                     options_prefix=self.options_prefix)
 
     @cached_property
     def _assemble_jac(self):
-        return self.create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self._problem.form_compiler_parameters, mat_type=self.mat_type)
+        return self.create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
 
     @cached_property
     def is_mixed(self):
@@ -305,18 +308,15 @@ class _SNESContext(object):
     @cached_property
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            return self.allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self._problem.form_compiler_parameters, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
+            return self.allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
-        return self.create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self._problem.form_compiler_parameters, mat_type=self.pmat_type)
+        return self.create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):
         return function.Function(self.F.arguments()[0].function_space())
 
-    @cached_property
-    def _assemble_residual(self):
-        return self.create_assembly_callable(self.F, tensor=self._F, form_compiler_parameters=self._problem.form_compiler_parameters)
