@@ -314,10 +314,7 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_pjac(self):
-        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            return self.create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self._problem.form_compiler_parameters, mat_type=self.pmat_type)
-        else:
-            return self._assemble_jac
+        return self.create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self._problem.form_compiler_parameters, mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):
