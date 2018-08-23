@@ -340,17 +340,18 @@ def create_json(records, title):
     return json.dumps(data).encode()
 
 
-def create_description(records, title):
+def create_description(records, title, doi):
     """Create a description of a meta-record.
 
     :arg records: the (repo, (tag, record)) list to encode.
     :arg title: The title of the meta-record.
+    :arg doi: The DOI of the meta-record.
     :returns: A HTML string suitable for zenodo upload."""
-    links = "\n".join("<li>{name} ({desc}): https://doi.org/{doi}</li>".format(
+    links = "\n".join('<li>{name} ({desc}): <a href="https://doi.org/{doi}">{doi}</a></li>'.format(
         name=repo.name,
         desc=descriptions[repo.name],
         doi=record["doi"]) for repo, (_, record) in records)
-    data = """<p>This records collates DOIs for the software components used in '{title}'.</p>
+    data = """<p>This record collates DOIs for the software components used in '{title}'.</p>
 
 <p>
 The Firedrake components and dependencies used were:
@@ -358,7 +359,15 @@ The Firedrake components and dependencies used were:
 <ul>
 {links}
 </ul>
-</p>""".format(title=title, links=links)
+</p>
+
+<p>
+You can install Firedrake using exactly this set of component versions using:
+<pre>firedrake-install --doi {doi}</pre>
+</p>
+<p>
+See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.org/download.html</a> for more information.
+</p>""".format(title=title, links=links, doi=doi)
     return data
 
 
@@ -407,6 +416,21 @@ def create_metarecord(tag, title, components, info_file=None):
             log.error("")
             log.error("If you want to continue anyway use --skip-missing")
             sys.exit(1)
+    base_url = "https://zenodo.org/api/deposit/depositions"
+    if os.getenv("FIREDRAKE_ZENODO_TOKEN"):
+        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_TOKEN")}
+    else:
+        log.error("""To create a meta-release, please set the environment
+variable FIREDRAKE_ZENODO_TOKEN to a Zenodo personal access token
+with deposit:write scope.""")
+        sys.exit(1)
+    empty = requests.post(base_url, params=authentication_params, json={})
+    if empty.status_code >= 400:
+        raise ValueError("Unable to create deposition {}".format(empty.json()))
+    empty = empty.json()
+    doi = empty["metadata"]["prereserve_doi"]["doi"]
+
+    depo_id = empty["id"]
     metadata = {
         "metadata": {
             "title": "Software used in '{}'".format(title),
@@ -417,23 +441,16 @@ def create_metarecord(tag, title, components, info_file=None):
             "license": "cc-by",
             "related_identifiers": [{"relation": "cites", "identifier": record["doi"]}
                                     for _, (_, record) in matching_records],
-            "description": create_description(matching_records, title),
+            "description": create_description(matching_records, title, doi),
         }
     }
-    base_url = "https://zenodo.org/api/deposit/depositions"
-    if os.getenv("FIREDRAKE_ZENODO_TOKEN"):
-        authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_TOKEN")}
-    else:
-        log.error("""To create a meta-release, please set the environment
-variable FIREDRAKE_ZENODO_TOKEN to a Zenodo personal access token
-with deposit:write scope.""")
-        sys.exit(1)
-    depo = requests.post(base_url, params=authentication_params, json=metadata)
+    depo = requests.put("{url}/{id}".format(url=base_url, id=depo_id),
+                        params=authentication_params, json=metadata)
     if depo.status_code >= 400:
-        raise ValueError("Unable to create deposition {}".format(depo.json()))
+        raise ValueError("Unable to add metadata to deposition {}".format(depo.json()))
 
     components = create_json(matching_records, title)
-    upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
+    upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo_id),
                            files={"file": ("components.json", components, "application/json")},
                            params=authentication_params)
     if upload.status_code >= 400:
@@ -454,7 +471,7 @@ with deposit:write scope.""")
             params = (filename, contents, content_type, {"Content-Encoding": encoding})
         else:
             params = (filename, contents, content_type)
-        upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo.json()["id"]),
+        upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo_id),
                                files={"file": params},
                                params=authentication_params)
         if upload.status_code >= 400:
@@ -463,7 +480,7 @@ with deposit:write scope.""")
         if checksum != upload.json()["checksum"]:
             raise ValueError("User file '{}' failed checksum verification".format(filename))
 
-    publish = requests.post("{url}/{id}/actions/publish".format(url=base_url, id=depo.json()["id"]),
+    publish = requests.post("{url}/{id}/actions/publish".format(url=base_url, id=depo_id),
                             params=authentication_params)
     if publish.status_code >= 400:
         raise ValueError("Unable to publish deposition {}".format(publish.json()))
