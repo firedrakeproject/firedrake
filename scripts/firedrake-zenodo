@@ -196,6 +196,28 @@ def collect_repo_shas():
     return shas
 
 
+def check_github_token_scope(token):
+    response = requests.get("https://api.github.com",
+                            headers={"Authorization": "token {}".format(token)})
+    scopes = {}
+    if response.status_code == 200:
+        try:
+            scopes = response.headers["X-OAuth-Scopes"]
+            log.debug("Provided FIREDRAKE_GITHUB_TOKEN has scopes '{}'".format(scopes))
+            scopes = set(*map(str.strip, scopes.split(","))) & {"repo", "public_repo"}
+        except KeyError:
+            pass
+    else:
+        log.debug("Was unable to determine scope of FIREDRAKE_GITHUB_TOKEN")
+        log.debug("Server response was {}".format(response.content.decode()))
+    if len(scopes) == 0:
+        log.error("Provided FIREDRAKE_GITHUB_TOKEN does not have required scopes.")
+        log.error("The access token must provide at least 'public_repo' scope.")
+        sys.exit(1)
+    else:
+        log.debug("FIREDRAKE_GITHUB_TOKEN has necessary scopes")
+
+
 def check_tag(tag):
     if re.match("Firedrake_20[0-9]{6,6}\.[0-9]+", tag) is None:
         log.error("Provided tag '{}' is not a legal Firedrake Zenodo release tag".format(tag))
@@ -217,8 +239,10 @@ def resolve_tag(tag, components):
     import github3
     # Shut up the github module
     github3.session.__logs__.setLevel(logging.WARNING)
-    if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
-        gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
+    token = os.getenv("FIREDRAKE_GITHUB_TOKEN")
+    if token:
+        check_github_token_scope(token)
+        gh = github3.login(token=token)
     else:
         log.error("""Need to provide FIREDRAKE_GITHUB_TOKEN for github to resolve tags.
 
@@ -582,8 +606,10 @@ except ImportError:
     sys.exit(1)
 
 # Github authentication.
-if os.getenv("FIREDRAKE_GITHUB_TOKEN"):
-    gh = github3.login(token=os.getenv("FIREDRAKE_GITHUB_TOKEN"))
+token = os.getenv("FIREDRAKE_GITHUB_TOKEN")
+if token:
+    check_github_token_scope(token)
+    gh = github3.login(token=token)
 else:
     log.error("""Actually releasing Firedrake and creating DOIs can only be done by
 a Firedrake core developer.
