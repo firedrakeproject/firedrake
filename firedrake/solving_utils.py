@@ -70,9 +70,7 @@ class _SNESContext(object):
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
-        self.allocate_matrix = allocate_matrix
-        self.create_assembly_callable = create_assembly_callable
+        from firedrake.assemble import create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -92,7 +90,7 @@ class _SNESContext(object):
 
         if appctx is None:
             appctx = {}
-
+        # A split context will already get the full state.
         # TODO, a better way of doing this.
         # Now we don't have a temporary state inside the snes
         # context we could just require the user to pass in the
@@ -116,9 +114,9 @@ class _SNESContext(object):
             # pmat_type == mat_type and Jp is None
             self.Jp = None
 
-        self._assemble_residual = self.create_assembly_callable(self.F,
-                                                                tensor=self._F,
-                                                                form_compiler_parameters=self.fcp)
+        self._assemble_residual = create_assembly_callable(self.F,
+                                                           tensor=self._F,
+                                                           form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -291,15 +289,17 @@ class _SNESContext(object):
 
     @cached_property
     def _jac(self):
-        return self.allocate_matrix(self.J, bcs=self._problem.bcs,
-                                    form_compiler_parameters=self.fcp,
-                                    mat_type=self.mat_type,
-                                    appctx=self.appctx,
-                                    options_prefix=self.options_prefix)
+        from firedrake.assemble import allocate_matrix
+        return allocate_matrix(self.J, bcs=self._problem.bcs,
+                               form_compiler_parameters=self.fcp,
+                               mat_type=self.mat_type,
+                               appctx=self.appctx,
+                               options_prefix=self.options_prefix)
 
     @cached_property
     def _assemble_jac(self):
-        return self.create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
 
     @cached_property
     def is_mixed(self):
@@ -308,13 +308,15 @@ class _SNESContext(object):
     @cached_property
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            return self.allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
+            from firedrake.assemble import allocate_matrix
+            return allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
-        return self.create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):
