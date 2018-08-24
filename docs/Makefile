@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/demos
+GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos
 
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
@@ -73,7 +73,10 @@ copy_demos:
 	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
 
 source/teamgrid.rst: source/team.py
-	cd source; python team.py
+	cd source; python team.py teamgrid.rst
+
+source/teaminactive.rst: source/team.py
+	cd source; python team.py teaminactive.rst
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc ../firedrake -o source/ -f -T
