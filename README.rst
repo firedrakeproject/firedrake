@@ -4,4 +4,4 @@ enables users to employ a wide range of discretisations to an infinite
 variety of PDEs and employ either conventional CPUs or GPUs to obtain
 the solution.
 
-For more information on Firedrake, please see http://www.firedrakeproject.org.
+For more information on Firedrake, please see https://www.firedrakeproject.org.
