@@ -78,25 +78,27 @@ To access the communicator a mesh was created on, we can use the
 Ensemble parallelism
 =======================
 
-Ensemble parallelism means solving simultaneous copies of the model
+Ensemble parallelism means solving simultaneous copies of a model
 with different coefficients, RHS or initial data, in situations that
 require communication between the copies. Use cases include ensemble
 data assimilation, uncertainty quantification, and time parallelism.
-For large models this will require standard spatial parallelism to
-solve each model copy as well. This requires sub-communicators, even
-if there is only one spatial process per ensemble member, since
-Firedrake does not do anything different for this special case.
 
-Firedrake provides some wrappers to MPI calls so that
-ensemble-member-to-ensemble-member communication can be expressed at
-the level of ``Function``. This is handled by the ``Ensemble``
-class. Instantiating an ensemble requires a communicator (usually
-``MPI_COMM_WORLD``) plus the number of ranks for spatial communication
-within each ensemble subcommunicator (4, in the case of the example
-below). The program should then be executed with ``mpiexec`` as
-normal, specifying the total size of the commicator which should be
-equal to the product of the number of ranks for spatial communication
-and the number of ranks for ensemble communication.
+In ensemble parallelism, we split the MPI communicator into a number of
+subcommunicators, each of which we refer to as an ensemble
+member. Within each ensemble member, existing Firedrake functionality
+allows us to specify the FE problem solves which use spatial
+parallelism across the subcommunicator in the usual way.
+
+The additional functionality required to support ensemble parallelism
+is the ability to send instances of ``Function`` from one ensemble to another.
+This is handled by the ``Ensemble`` class. Instantiating an ensemble
+requires a communicator (usually ``MPI_COMM_WORLD``) plus the number
+of ranks for spatial communication within each ensemble
+subcommunicator (4, in the case of the example below). The program
+should then be executed with ``mpiexec`` as normal, specifying the
+total size of the commicator which should be equal to the product of
+the number of ranks for spatial communication and the number of ranks
+for ensemble communication.
 
 .. code-block:: python
 
@@ -110,14 +112,16 @@ and functions derived from the mesh.
 
 .. code-block:: python
 
+    mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
 
 The ensemble sub-communicator is then available at ``Ensemble.ensemble_comm``.
+
 .. code-block:: python
 
-    q = Constant(manager.ensemble_comm.rank + 1)
+    q = Constant(my_ensemble.ensemble_comm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
 
 MPI communications across the spatial sub-communicator (i.e., within
@@ -128,7 +132,7 @@ global reductions are supported.
 
 .. code-block:: python
 
-	manager.allreduce(u, usum)
+    my_ensemble.allreduce(u, usum)
 
 Other forms of MPI communication (send, recv, isend, irecv) are specified but not currently implemented.
 
