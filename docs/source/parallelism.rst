@@ -87,7 +87,9 @@ In ensemble parallelism, we split the MPI communicator into a number of
 subcommunicators, each of which we refer to as an ensemble
 member. Within each ensemble member, existing Firedrake functionality
 allows us to specify the FE problem solves which use spatial
-parallelism across the subcommunicator in the usual way.
+parallelism across the subcommunicator in the usual way. Another
+set of subcommunicators then allow communication between ensemble
+members.
 
 .. figure:: images/ensemble.svg
   :align: center
