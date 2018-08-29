@@ -97,7 +97,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
     body = ast.FlatBlock(lkernel)
 
     return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
-                        "par_loop_kernel", **kwargs)
+                        "par_loop_kernel")
 
 
 def par_loop(kernel, measure, args, **kwargs):
@@ -114,6 +114,17 @@ def par_loop(kernel, measure, args, **kwargs):
         indicates how these :class:`.Function`\s are to be accessed.
     :arg kwargs: additional keyword arguments are passed to the
         :class:`~pyop2.op2.Kernel` constructor
+
+    :kwarg iterate: Optionally specify which region of an
+                    :class:`ExtrudedSet` to iterate over.
+                    Valid values are the following objects from pyop2:
+
+                    - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+                    - ``ON_TOP`` iterate over the top layer of cells.
+                    - ``ALL`` iterate over all cells (the default if unspecified)
+                    - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                      except the top layer, accessing data two adjacent (in
+                      the extruded direction) cells at a time.
 
     **Example**
 
@@ -262,4 +273,4 @@ def par_loop(kernel, measure, args, **kwargs):
         return f.dat(intent, _map['nodes'](f))
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
-    return pyop2.par_loop(*op2args)
+    return pyop2.par_loop(*op2args, **kwargs)
