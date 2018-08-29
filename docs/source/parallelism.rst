@@ -89,6 +89,9 @@ member. Within each ensemble member, existing Firedrake functionality
 allows us to specify the FE problem solves which use spatial
 parallelism across the subcommunicator in the usual way.
 
+.. figure:: images/ensemble.svg
+  :align: center
+
 The additional functionality required to support ensemble parallelism
 is the ability to send instances of ``Function`` from one ensemble to another.
 This is handled by the ``Ensemble`` class. Instantiating an ensemble
