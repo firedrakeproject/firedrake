@@ -13,7 +13,7 @@ if outfile == "teamgrid.rst":
         ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
         ("Tianjiao (TJ) Sun", "https://www.hipeac.net/~tjsun/"),
         ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
-        ("Andrew McRae", "http://people.bath.ac.uk/attm20/"),
+        ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),
         ("Rob Kirby", "http://www.baylor.edu/math/index.php?id=90540"),
     ])
