@@ -62,7 +62,7 @@ _maps = {
 """Map a measure to the correct maps."""
 
 
-def _form_kernel(kernel, measure, args, **kwargs):
+def _form_kernel(kernel, measure, args):
 
     kargs = []
     lkernel = kernel
@@ -260,7 +260,7 @@ def par_loop(kernel, measure, args, **kwargs):
         domain, = domains
         mesh = domain
 
-    op2args = [_form_kernel(kernel, measure, args, **kwargs)]
+    op2args = [_form_kernel(kernel, measure, args)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
