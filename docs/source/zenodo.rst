@@ -69,7 +69,7 @@ scripts in your path.
    ``Firedrake_YYYYMMDD.N``.
 
    You can see an example such a collated record `here
-   <https://zenodo.org/record/1322546>`_.
+   <https://zenodo.org/record/1402622>`_.
 
 4. You can use this release tag to generate a BibTeX entry (including
    the DOI) for the collated "meta"-record, which in turn links to all
