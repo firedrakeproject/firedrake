@@ -94,22 +94,28 @@ members.
 .. figure:: images/ensemble.svg
   :align: center
 
+  Spatial and ensemble paralellism for an ensemble with 5 members,
+  each of which is executed in parallel over 5 processors.
+
 The additional functionality required to support ensemble parallelism
 is the ability to send instances of :class:`~.Function` from one
 ensemble to another.  This is handled by the :class:`~.Ensemble`
 class. Instantiating an ensemble requires a communicator (usually
-``MPI_COMM_WORLD``) plus the number of ranks for spatial communication
-within each ensemble subcommunicator (4, in the case of the example
-below). The program should then be executed with ``mpiexec`` as
-normal, specifying the total size of the commicator which should be
-equal to the product of the number of ranks for spatial communication
-and the number of ranks for ensemble communication.
+``MPI_COMM_WORLD``) plus the number of independent simulations making
+up the ensemble (5, in the case of the example
+below). Each ensemble member will have the same spatial
+parallelism with the number of ranks in each spatial communicator
+given by dividing the size of the original communicator
+the number of ensemble members. The total number of processes launched
+by ``mpiexec`` must therefore be
+equal to the product of number of ensemble members with the number of
+processes to be used for each ensemble member.
 
 .. code-block:: python
 
    from firedrake import *
 
-   my_ensemble = Ensemble(COMM_WORLD, 4)
+   my_ensemble = Ensemble(COMM_WORLD, 5)
 
 Then, the spatial sub-communicator must be passed to :func:`~.mesh.Mesh` (or via
 inbuilt mesh generators in :mod:`~.utility_meshes`), so that it will then be used by function spaces
