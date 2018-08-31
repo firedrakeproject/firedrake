@@ -18,7 +18,7 @@ called ``mpiexec``.  For example, to run a simulation in a file named
    mpiexec -n 16 python simulation.py
 
 Printing in parallel
---------------------
+====================
 
 The MPI_ execution model is that of `single program, multiple data
 <https://en.wikipedia.org/wiki/SPMD>`__.  As a result, printing output
@@ -76,7 +76,7 @@ To access the communicator a mesh was created on, we can use the
 :attr:`~.mesh.comm` property, or the function :func:`~.mesh.mpi_comm`.
 
 Ensemble parallelism
-=======================
+====================
 
 Ensemble parallelism means solving simultaneous copies of a model
 with different coefficients, RHS or initial data, in situations that
