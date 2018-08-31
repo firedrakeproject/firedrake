@@ -9,7 +9,7 @@ if outfile == "teamgrid.rst":
         ("David Ham", "http://www.imperial.ac.uk/people/david.ham"),
         ("Paul Kelly", "http://www.imperial.ac.uk/people/p.kelly"),
         ("Lawrence Mitchell",
-         "http://www.imperial.ac.uk/people/lawrence.mitchell"),
+         "https://www.dur.ac.uk/computer.science/staff/profile/?id=17243"),
         ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
         ("Tianjiao (TJ) Sun", "https://www.hipeac.net/~tjsun/"),
         ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
