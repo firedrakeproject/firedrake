@@ -62,7 +62,7 @@ _maps = {
 """Map a measure to the correct maps."""
 
 
-def _form_kernel(kernel, measure, args):
+def _form_kernel(kernel, measure, args, **kwargs):
 
     kargs = []
     lkernel = kernel
@@ -97,10 +97,10 @@ def _form_kernel(kernel, measure, args):
     body = ast.FlatBlock(lkernel)
 
     return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
-                        "par_loop_kernel")
+                        "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args, **kwargs):
+def par_loop(kernel, measure, args, kernel_kwargs={}, **kwargs):
     """A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
@@ -112,8 +112,10 @@ def par_loop(kernel, measure, args, **kwargs):
     :arg args: is a dictionary mapping variable names in the kernel to
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
-    :arg kwargs: additional keyword arguments are passed to the
+    :arg kernel_kwargs: keyword arguments to be passed to the
         :class:`~pyop2.op2.Kernel` constructor
+    :arg kwargs: additional keyword arguments are passed to the underlying
+        :class:`~pyop2.par_loop`
 
     :kwarg iterate: Optionally specify which region of an
                     :class:`ExtrudedSet` to iterate over.
@@ -260,7 +262,7 @@ def par_loop(kernel, measure, args, **kwargs):
         domain, = domains
         mesh = domain
 
-    op2args = [_form_kernel(kernel, measure, args)]
+    op2args = [_form_kernel(kernel, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
