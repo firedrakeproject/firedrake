@@ -138,20 +138,7 @@ Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
-
-Documentation dependencies
---------------------------
-
-Building the documention requires Sphinx_ (including the Youtube and
-Bibtex plugins) and wget_.  In addition the Sphinx Youtube and bibtex
-plugins are required.  The former is available from
-`a fork of the sphinx-contrib repository
-<https://bitbucket.org/David_Ham/sphinx-contrib>`__, the latter is
-the python package ``sphinxcontrib-bibtex``.
-
 .. _Paraview: http://www.paraview.org
-.. _Sphinx: http://www.sphinx-doc.org/
-.. _wget: http://www.gnu.org/software/wget/
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _anaconda: https://www.continuum.io/downloads
