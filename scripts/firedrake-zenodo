@@ -204,7 +204,7 @@ def check_github_token_scope(token):
         try:
             scopes = response.headers["X-OAuth-Scopes"]
             log.debug("Provided FIREDRAKE_GITHUB_TOKEN has scopes '{}'".format(scopes))
-            scopes = set(*map(str.strip, scopes.split(","))) & {"repo", "public_repo"}
+            scopes = set(map(str.strip, scopes.split(","))) & {"repo", "public_repo"}
         except KeyError:
             pass
     else:
