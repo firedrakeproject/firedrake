@@ -123,10 +123,10 @@ class HybridizationPC(PCBase):
         sigma = TrialFunctions(V_d)[self.vidx]
 
         if mesh.cell_set._extruded:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h +
-                     gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
+            Kform = (ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_h +
+                     ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_v)
         else:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS)
+            Kform = (ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS)
 
         # Here we deal with boundaries. If there are Neumann
         # conditions (which should be enforced strongly for
