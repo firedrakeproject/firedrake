@@ -100,7 +100,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
                         "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args, kernel_kwargs={}, **kwargs):
+def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     """A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
@@ -225,6 +225,9 @@ def par_loop(kernel, measure, args, kernel_kwargs={}, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
+
+    if kernel_kwargs is None:
+        kernel_kwargs = {}
 
     _map = _maps[measure.integral_type()]
     # Ensure that the dict args passed in are consistently ordered
