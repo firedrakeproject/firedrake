@@ -54,7 +54,7 @@ from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
-from firedrake.matrix_free.preconditioners import *
+from firedrake.preconditioners import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
 from firedrake.mg.interface import *
