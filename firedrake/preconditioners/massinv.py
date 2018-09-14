@@ -61,8 +61,8 @@ class MassInvPC(PCBase):
         ksp.incrementTabLevel(1, parent=pc)
         ksp.setOperators(Pmat)
         ksp.setOptionsPrefix(options_prefix)
-        ksp.setUp()
         ksp.setFromOptions()
+        ksp.setUp()
         self.ksp = ksp
 
     def update(self, pc):
