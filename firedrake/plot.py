@@ -147,11 +147,15 @@ def plot_mesh(mesh, axes=None, surface=False, **kwargs):
         # Pad 1D array with zeros
         coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
     vertices = coords[values[:, idx]]
+
+    # need to pop the colors before we pass kwargs to figure
+    colors = kwargs.pop("colors", None)
+
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection=projection, **kwargs)
 
-    lines = Lines(vertices)
+    lines = Lines(vertices, colors=colors)
 
     if gdim == 3:
         axes.add_collection3d(lines)
