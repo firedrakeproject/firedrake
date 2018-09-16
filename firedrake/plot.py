@@ -93,12 +93,13 @@ def _plot_mult(functions, num_points=10, axes=None, **kwargs):
     return ax
 
 
-def plot_mesh(mesh, axes=None, surface=False, **kwargs):
+def plot_mesh(mesh, axes=None, surface=False, colors=None, **kwargs):
     """Plot a mesh.
 
     :arg mesh: The mesh to plot.
     :arg axes: Optional matplotlib axes to draw on.
     :arg surface: Plot surface of mesh only?
+    :arg colors: Colour for the edges (passed to constructor of LineCollection)
     :arg **kwargs: Extra keyword arguments to pass to matplotlib.
 
     Note that high-order coordinate fields are downsampled to
@@ -147,9 +148,6 @@ def plot_mesh(mesh, axes=None, surface=False, **kwargs):
         # Pad 1D array with zeros
         coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
     vertices = coords[values[:, idx]]
-
-    # need to pop the colors before we pass kwargs to figure
-    colors = kwargs.pop("colors", None)
 
     if axes is None:
         figure = plt.figure()
@@ -214,6 +212,8 @@ def plot(function_or_mesh,
         resample automatically when zoomed
     :kwarg interactive: For 1D plotting for multiple functions, use an
         interactive inferface in Jupyter Notebook
+    :kwarg colors: for meshes, the colour to use for the edges
+        (passed to constructor of LineCollection)
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
