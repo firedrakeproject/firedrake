@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
+import finat
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
@@ -44,8 +45,8 @@ class DirichletBC(object):
 
     def __init__(self, V, g, sub_domain, method="topological"):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        import finat
-        if isinstance(V.finat_element, (finat.Hermite, finat.Argyris, finat.Morley, finat.Bell)):
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         self._function_space = V
@@ -181,7 +182,11 @@ class DirichletBC(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
-        return self._function_space.boundary_nodes(self.sub_domain, self.method)
+        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
+        if isinstance(self._function_space.finat_element, finat.Hermite) and \
+           self._function_space.mesh().topological_dimension() == 1:
+            bcnodes = bcnodes[::2]  # every second dof is the vertex value
+        return bcnodes
 
     @utils.cached_property
     def node_set(self):
