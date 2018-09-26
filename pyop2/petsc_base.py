@@ -229,9 +229,9 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         scatters = []
         for d in self:
             size = d.size * d.cdim
-            vscat = PETSc.Scatter().create(d.layout_vec, None, self.layout_vec,
-                                           PETSc.IS().createStride(size, offset, 1,
-                                                                   comm=d.comm))
+            vscat = PETSc.Scatter().createWithData(d.layout_vec, None, self.layout_vec,
+                                                   PETSc.IS().createStride(size, offset, 1,
+                                                                           comm=d.comm))
             offset += size
             scatters.append(vscat)
         return tuple(scatters)
