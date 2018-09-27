@@ -10,6 +10,7 @@ from pyop2.exceptions import MapValueError, SparsityFormatError
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
 from firedrake import function
+from firedrake import functionspaceimpl
 from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
@@ -327,9 +328,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
+        real_bcs = []
         def mat(testmap, trialmap, i, j):
-            m = testmap(test.function_space()[i])
-            n = trialmap(trial.function_space()[j])
+            ignore_trial_bcs = test.function_space()[i].ufl_element().family() == "Real"
+            ignore_test_bcs = trial.function_space()[j].ufl_element().family() == "Real"
+
+            if ignore_trial_bcs ^ ignore_test_bcs:
+                real_bcs.append((i, j))
+            m = testmap(test.function_space()[i], ignore_test_bcs)
+            n = trialmap(trial.function_space()[j], ignore_trial_bcs)
             maps = (m[op2.i[0]] if m else None,
                     n[op2.i[1 if m else 0]] if n else None)
             return tensor[i, j](op2.INC, maps)
@@ -496,8 +503,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             # Output argument
             if is_mat:
-                tensor_arg = mat(lambda s: get_map(s, tsbc, decoration),
-                                 lambda s: get_map(s, trbc, decoration),
+                tensor_arg = mat(lambda s, ignore: get_map(s, None if ignore else tsbc, decoration),
+                                 lambda s, ignore: get_map(s, None if ignore else trbc, decoration),
                                  i, j)
             elif is_vec:
                 tensor_arg = vec(lambda s: get_map(s), i)
@@ -568,6 +575,21 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                 loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
                             else:
                                 raise RuntimeError("Unhandled BC case")
+                    for i, j in real_bcs:
+                        payload = tensor[i, j].handle.getPythonContext()
+                        if fs.component is None and fs.index is not None:
+                            # Mixed, index (no ComponentFunctionSpace)
+                            if fs.index == i:
+                                loops.append(payload.dat.zero(bc.node_set))
+                            elif fs.index == j:
+                                loops.append(payload.dat.zero(bc.node_set))
+                        elif fs.component is not None:
+                            raise NotImplementedError("Haven't thought about this")
+                        elif fs.index is None:
+                            loops.append(payload.dat.zero(bc.node_set))
+                        else:
+                            raise RuntimeError("Unhandled real BC case")
+                        
         if bcs is not None and is_vec:
             if len(bcs) > 0 and collect_loops:
                 raise NotImplementedError("Loop collection not handled in this case")
