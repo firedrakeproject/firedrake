@@ -288,7 +288,6 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake import inject
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
@@ -302,6 +301,7 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
+            _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
             for bc in ctx._problem.bcs:
                 bc.apply(ctx._x)
