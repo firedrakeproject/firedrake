@@ -92,7 +92,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         in P1).
         """
         f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-        funarg, expression = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
+        funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
         self.cell_sizes_arg = funarg
         self._cell_sizes = expression
 
