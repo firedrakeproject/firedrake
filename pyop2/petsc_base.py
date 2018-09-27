@@ -962,9 +962,11 @@ def _DatMat(sparsity, dat=None):
     """A :class:`PETSc.Mat` with global size nx1 or nx1 implemented as a
     :class:`.Dat`"""
     if isinstance(sparsity.dsets[0], GlobalDataSet):
-        sizes = ((None, 1), (sparsity._ncols, None))
+        dset = sparsity.dsets[1]
+        sizes = ((None, 1), (dset.size*dset.cdim, None))
     elif isinstance(sparsity.dsets[1], GlobalDataSet):
-        sizes = ((sparsity._nrows, None), (None, 1))
+        dset = sparsity.dsets[0]
+        sizes = ((dset.size * dset.cdim, None), (None, 1))
     else:
         raise ValueError("Not a DatMat")
 
@@ -979,10 +981,10 @@ class _DatMatPayload(object):
     def __init__(self, sparsity, dat=None, dset=None):
         if isinstance(sparsity.dsets[0], GlobalDataSet):
             self.dset = sparsity.dsets[1]
-            self.sizes = ((None, 1), (sparsity._ncols, None))
+            self.sizes = ((None, 1), (self.dset.size * self.dset.cdim, None))
         elif isinstance(sparsity.dsets[1], GlobalDataSet):
             self.dset = sparsity.dsets[0]
-            self.sizes = ((sparsity._nrows, None), (None, 1))
+            self.sizes = ((self.dset.size * self.dset.cdim, None), (None, 1))
         else:
             raise ValueError("Not a DatMat")
 
