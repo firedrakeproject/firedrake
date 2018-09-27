@@ -30,12 +30,12 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
-from finat.physically_mapped import PhysicalGeometry
+from finat.physically_mapped import PhysicalGeometry, PhysicallyMappedElement
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
-from tsfc.finatinterface import as_fiat_cell
+from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
@@ -178,6 +178,14 @@ class CoordinateMapping(PhysicalGeometry):
         config.update(self.config)
         context = PointSetContext(**config)
         return map_expr_dag(context.translator, expr)
+
+
+def needs_coordinate_mapping(element):
+    """Does this UFL element require a CoordinateMapping for translation?"""
+    if element.family() == 'Real':
+        return False
+    else:
+        return isinstance(create_element(element), PhysicallyMappedElement)
 
 
 class PointSetContext(ContextBase):
