@@ -1040,7 +1040,7 @@ if mode == "install" or not args.update_script:
             log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
             # Ensure a fortran compiler is available
             brew_install("gcc")
-            brew_install("openmpi")
+            brew_install("mpich")
             brew_install("python3")
             brew_install("autoconf")
             brew_install("automake")
@@ -1223,6 +1223,7 @@ else:
         if args.rebuild:
             pip_uninstall("petsc")
             pip_uninstall("petsc4py")
+            pip_uninstall("mpi4py")
 
     for p in packages:
         try:
