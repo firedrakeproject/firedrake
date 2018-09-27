@@ -189,7 +189,9 @@ class Compiler(object):
             if version.StrictVersion("4.8.0") <= ver < version.StrictVersion("4.9.0"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
                 return ["-fno-ivopts"]
-            if version.StrictVersion("6.0.0") <= ver < version.StrictVersion("7.0.1"):
+            if version.StrictVersion("5.0") <= ver <= version.StrictVersion("5.4.0"):
+                return ["-fno-tree-loop-vectorize"]
+            if version.StrictVersion("6.0.0") <= ver < version.StrictVersion("6.5.0"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
                 return ["-fno-tree-loop-vectorize"]
             if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):

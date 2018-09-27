@@ -2139,7 +2139,7 @@ class MixedDat(Dat):
     def __init__(self, mdset_or_dats):
         def what(x):
             if isinstance(x, (Global, GlobalDataSet, GlobalSet)):
-                return "Global",
+                return "Global"
             elif isinstance(x, (Dat, DataSet, Set)):
                 return "Dat"
             else:
