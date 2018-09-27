@@ -4,7 +4,7 @@ the Slate language.
 import ufl
 import numpy as np
 
-from firedrake.matrix_free.preconditioners import PCBase
+from firedrake.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC

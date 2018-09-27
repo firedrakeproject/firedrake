@@ -27,7 +27,7 @@ the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`.
 
-The form compiler, TSFC, is documented in :cite:`Homolya2017` and
+The form compiler, TSFC, is documented in :cite:`Homolya2018` and
 :cite:`Homolya2017a`.  If, in addition, your work relies on the
 kernel-level performance optimisations that Firedrake performs using
 `COFFEE <https://github.com/coneoproject/COFFEE>`_, please cite the

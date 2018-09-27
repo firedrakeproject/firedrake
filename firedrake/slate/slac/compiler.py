@@ -230,6 +230,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
                            headers=['#include <Eigen/Dense>',
                                     '#define restrict __restrict'])
 
+    op2kernel.num_flops = builder.expression_flops + builder.terminal_flops
     # Send back a "TSFC-like" SplitKernel object with an
     # index and KernelInfo
     kinfo = KernelInfo(kernel=op2kernel,
@@ -239,7 +240,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
                        domain_number=0,
                        coefficient_map=tuple(range(len(expr_coeffs))),
                        needs_cell_facets=builder.needs_cell_facets,
-                       pass_layer_arg=builder.needs_mesh_layers)
+                       pass_layer_arg=builder.needs_mesh_layers,
+                       needs_cell_sizes=builder.needs_cell_sizes)
 
     return kinfo
 

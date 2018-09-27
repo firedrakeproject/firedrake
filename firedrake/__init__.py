@@ -54,7 +54,7 @@ from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
-from firedrake.matrix_free.preconditioners import *
+from firedrake.preconditioners import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
 from firedrake.mg.interface import *
@@ -73,6 +73,7 @@ from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
+from firedrake.ensemble import *
 
 from firedrake.logging import *
 # Set default log level

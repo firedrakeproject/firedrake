@@ -22,8 +22,8 @@ def mesh2d(request):
                         ('dg', False),
                         ('dg', True),
                         # TODO: generate mesh from .geo file
-                        pytest.mark.longtest(('file', 't11_tria.msh')),
-                        pytest.mark.longtest(('file', 't11_quad.msh'))])
+                        ('file', 't11_tria.msh'),
+                        ('file', 't11_quad.msh')])
 def mesh3d(request):
     if request.param[0] == 'cg':
         m = UnitSquareMesh(12, 12, quadrilateral=request.param[1])

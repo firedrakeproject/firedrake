@@ -174,7 +174,7 @@ def pop_transfer_operators(dm, match=None):
             if transfer == match:
                 stack.pop()
             else:
-                print("Mismatch, not popping")
+                pass
         else:
             stack.pop()
 
@@ -230,6 +230,63 @@ class transfer_operators(object):
         pop_transfer_operators(self.V.dm, match=self.transfer)
 
 
+def push_ctx_coarsener(dm, coarsen):
+    stack = dm.getAttr("__ctx_coarsen__")
+    if stack is None:
+        stack = []
+        dm.setAttr("__ctx_coarsen__", stack)
+    stack.append(coarsen)
+
+
+def pop_ctx_coarsener(dm, match):
+    stack = dm.getAttr("__ctx_coarsen__")
+    if stack:
+        if match is not None:
+            coarsen = stack[-1]
+            if coarsen == match:
+                stack.pop()
+            else:
+                pass
+        else:
+            stack.pop()
+
+
+def get_ctx_coarsener(dm):
+    from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+    stack = dm.getAttr("__ctx_coarsen__")
+    if stack:
+        coarsen = stack[-1]
+    else:
+        coarsen = symbolic_coarsen
+
+    return coarsen
+
+
+class ctx_coarsener(object):
+    def __init__(self, V, coarsen=None):
+        from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+        self.V = V
+        if coarsen is None:
+            coarsen = symbolic_coarsen
+        self.coarsen = coarsen
+
+    def __enter__(self):
+        push_ctx_coarsener(self.V.dm, self.coarsen)
+        V = self.V
+        while hasattr(V, "_coarse"):
+            V = V._coarse
+            push_ctx_coarsener(V.dm, self.coarsen)
+
+    def __exit__(self, typ, value, traceback):
+        V = self.V
+        while hasattr(V, "_coarse"):
+            V = V._coarse
+        while hasattr(V, "_fine"):
+            pop_ctx_coarsener(V.dm, self.coarsen)
+            V = V._fine
+        pop_ctx_coarsener(V.dm, self.coarsen)
+
+
 def create_matrix(dm):
     """
     Callback to create a matrix from this DM.
@@ -268,6 +325,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     names = [s.name for s in W]
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
+    coarsen = get_ctx_coarsener(dm)
     if ctx is not None:
         # DM from a hierarchy, so let's split apart in case we want to use it
         # Inside a solve, ctx to split.  If we're not from a
@@ -277,6 +335,7 @@ def create_field_decomposition(dm, *args, **kwargs):
             ctxs = ctx.split([i for i in range(len(W))])
             for d, c in zip(dms, ctxs):
                 push_appctx(d, c)
+                push_ctx_coarsener(d, coarsen)
     return names, W._ises, dms
 
 
@@ -329,7 +388,6 @@ def coarsen(dm, comm):
     DM (if found on the input DM).
     """
     from firedrake.mg.utils import get_level
-    from firedrake.mg.ufl_utils import coarsen
     V = get_function_space(dm)
     if V is None:
         raise RuntimeError("No functionspace found on DM")
@@ -339,14 +397,17 @@ def coarsen(dm, comm):
     if hasattr(V, "_coarse"):
         cdm = V._coarse.dm
     else:
-        V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
+        coarsen = get_ctx_coarsener(dm)
+        V._coarse = coarsen(V, coarsen)
         cdm = V._coarse.dm
 
     transfer = get_transfer_operators(dm)
     push_transfer_operators(cdm, *transfer)
+    coarsen = get_ctx_coarsener(dm)
+    push_ctx_coarsener(cdm, coarsen)
     ctx = get_appctx(dm)
     if ctx is not None:
-        push_appctx(cdm, coarsen(ctx))
+        push_appctx(cdm, coarsen(ctx, coarsen))
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     V._coarse._fine = V

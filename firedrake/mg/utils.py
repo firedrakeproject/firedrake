@@ -1,4 +1,5 @@
 import numpy
+from fractions import Fraction
 from pyop2 import op2
 from pyop2.datatypes import IntType
 from firedrake.functionspacedata import entity_dofs_key
@@ -20,7 +21,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         raise ValueError("Can't map across hierarchies")
 
     hierarchy = hierarchyf
-    if levelc + 1 != levelf:
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
@@ -37,7 +39,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
             raise ValueError("Coarse and fine meshes must have same number of layers")
 
-        fine_to_coarse = hierarchy.fine_to_coarse_cells[levelc+1]
+        fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
@@ -57,7 +59,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map across hierarchies")
 
     hierarchy = hierarchyf
-    if levelc + 1 != levelf:
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
@@ -94,7 +97,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map across hierarchies")
 
     hierarchy = hierarchyf
-    if levelc + 1 != levelf:
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = (entity_dofs_key(Vf.finat_element.entity_dofs()) + (levelc, levelf))

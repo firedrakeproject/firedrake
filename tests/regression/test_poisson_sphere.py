@@ -42,7 +42,6 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     return L2_error_u, h, assemble(u*dx)
 
 
-@pytest.mark.longtest
 @pytest.mark.parametrize(('MeshClass', 'hdiv_space', 'degree', 'refinement', 'conv_order'),
                          [(UnitIcosahedralSphereMesh, 'RT', 1, (1, 4), 0.75),
                           (UnitIcosahedralSphereMesh, 'BDM', 1, (1, 4), 0.8),

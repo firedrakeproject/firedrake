@@ -11,7 +11,7 @@ import enum
 from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
@@ -24,7 +24,7 @@ import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -247,7 +247,6 @@ def _from_triangle(filename, dim, comm):
     """
     basename, ext = os.path.splitext(filename)
 
-    comm = dup_comm(comm)
     if comm.rank == 0:
         try:
             facetfile = open(basename+".face")
@@ -304,7 +303,6 @@ def _from_triangle(filename, dim, comm):
                 join = plex.getJoin(vertices)
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
 
-    free_comm(comm)
     return plex
 
 
@@ -317,7 +315,6 @@ def _from_cell_list(dim, cells, coords, comm):
     :arg coords: The coordinates of each vertex
     :arg comm: communicator to build the mesh on.
     """
-    comm = dup_comm(comm)
     # These types are /correct/, DMPlexCreateFromCellList wants int
     # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
@@ -338,7 +335,6 @@ def _from_cell_list(dim, cells, coords, comm):
                                                  np.zeros(cell_shape, dtype=np.int32),
                                                  np.zeros(coord_shape, dtype=np.double),
                                                  comm=comm)
-    free_comm(comm)
     return plex
 
 
@@ -385,6 +381,7 @@ class MeshTopology(object):
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
         dmplex.validate_mesh(plex)
+        plex.setFromOptions()
         utils._init()
 
         self._plex = plex
@@ -1032,6 +1029,27 @@ values from f.)"""
 
         raise AttributeError(message)
 
+    @utils.cached_property
+    def cell_sizes(self):
+        """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
+
+        This is computed by the :math:`L^2` projection of the local mesh element size."""
+        from firedrake.ufl_expr import CellSize
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.projection import project
+        P1 = FunctionSpace(self, "Lagrange", 1)
+        return project(CellSize(self), P1)
+
+    def clear_cell_sizes(self):
+        """Reset the :attr:`cell_sizes` field on this mesh geometry.
+
+        Use this if you move the mesh.
+        """
+        try:
+            del self.cell_size
+        except AttributeError:
+            pass
+
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
 
@@ -1301,7 +1319,13 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.cgns':
             plex = _from_cgns(meshfile, comm)
         elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile, comm)
+            if geometric_dim is not None:
+                opts = {"dm_plex_gmsh_spacedim": geometric_dim}
+            else:
+                opts = {}
+            opts = OptionsManager(opts, "")
+            with opts.inserted_options():
+                plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, comm)
         else:

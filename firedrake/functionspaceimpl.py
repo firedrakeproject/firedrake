@@ -319,7 +319,8 @@ class FunctionSpace(object):
         # FIXME: Think harder about equality
         return self.mesh() is other.mesh() and \
             self.dof_dset is other.dof_dset and \
-            self.ufl_element() == other.ufl_element()
+            self.ufl_element() == other.ufl_element() and \
+            self.component == other.component
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -838,11 +839,9 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    dim = 1
     rank = 0
     shape = ()
     value_size = 1
-    node_set = None
 
     def __init__(self, mesh, element, name):
         self._ufl_element = element
@@ -850,6 +849,7 @@ class RealFunctionSpace(FunctionSpace):
         self.comm = mesh.comm
         self._mesh = mesh
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
+        self.node_set = self.dof_dset.set
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
@@ -899,3 +899,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
+
+    def dim(self):
+        return 1
