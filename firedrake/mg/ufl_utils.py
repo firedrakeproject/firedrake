@@ -147,9 +147,10 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
+        _, _, inject = firedrake.dmhooks.get_transfer_operators(expr.function_space().dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
-        firedrake.inject(expr, new)
+        inject(expr, new)
     return new
 
 
