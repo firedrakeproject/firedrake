@@ -56,31 +56,37 @@ def cached(f, mesh, key, *args, **kwargs):
 
 
 @cached
-def get_global_numbering(mesh, nodes_per_entity):
+def get_global_numbering(mesh, key):
     """Get a PETSc Section describing the global numbering.
 
     This numbering associates function space nodes with topological
     entities.
 
     :arg mesh: The mesh to use.
-    :arg nodes_per_entity: a tuple of the number of nodes per
-        topological entity.
+    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+        nodes_per_entity is a tuple of the number of nodes per topological
+        entity; real_tensorproduct is True if the function space is a
+        degenerate fs x Real tensorproduct.
     :returns: A new PETSc Section.
     """
-    return mesh.create_section(nodes_per_entity)
+    nodes_per_entity, real_tensorproduct = key
+    return mesh.create_section(nodes_per_entity, real_tensorproduct)
 
 
 @cached
-def get_node_set(mesh, nodes_per_entity):
+def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
     :arg mesh: The mesh to use.
-    :arg nodes_per_entity: The number of function space nodes per
-        topological entity.
+    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+        nodes_per_entity is a tuple of the number of nodes per topological
+        entity; real_tensorproduct is True if the function space is a
+        degenerate fs x Real tensorproduct.
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
-    global_numbering = get_global_numbering(mesh, nodes_per_entity)
-    node_classes = mesh.node_classes(nodes_per_entity)
+    nodes_per_entity, real_tensorproduct = key
+    global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+    node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh._plex, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
@@ -129,7 +135,7 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
-    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs, real_tensorproduct) tuple.
     :arg entity_dofs: FInAT entity dofs.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
@@ -153,13 +159,16 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
 
 @cached
-def get_map_caches(mesh, entity_dofs):
+def get_map_caches(mesh, key):
     """Get the map caches for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg entity_dofs: Canonicalised entity_dofs (see
-        :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs, real_tensorproduct) tuple where
+        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
+        real_tensorproduct is True if the function space is a degenerate
+        fs x Real tensorproduct.
     """
+    entity_dofs, _ = key
     return {mesh.cell_set: {},
             mesh.interior_facets.set: {},
             mesh.exterior_facets.set: {},
@@ -171,12 +180,16 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
     """Get the dof offsets.
 
     :arg mesh: The mesh to use.
-    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs_key, real_tensorproduct) tuple where
+        entity_dofs_key is Canonicalised entity_dofs
+        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
+        function space is a degenerate fs x Real tensorproduct.
     :arg entity_dofs: The FInAT entity_dofs dict.
     :arg ndof: The number of dofs (the FInAT space_dimension).
     :returns: A numpy array of dof offsets (extruded) or ``None``.
     """
-    return mesh.make_offset(entity_dofs, ndof)
+    _, real_tensorproduct = key
+    return mesh.make_offset(entity_dofs, ndof, real_tensorproduct=real_tensorproduct)
 
 
 @cached
@@ -381,7 +394,7 @@ class FunctionSpaceData(object):
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
-    def __init__(self, mesh, finat_element):
+    def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
@@ -389,8 +402,8 @@ class FunctionSpaceData(object):
         # For non-scalar valued function spaces, there are multiple dofs per node.
 
         # These are keyed only on nodes per topological entity.
-        global_numbering = get_global_numbering(mesh, nodes_per_entity)
-        node_set = get_node_set(mesh, nodes_per_entity)
+        global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+        node_set = get_node_set(mesh, (nodes_per_entity, real_tensorproduct))
 
         edofs_key = entity_dofs_key(entity_dofs)
 
@@ -398,9 +411,9 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_caches = get_map_caches(mesh, edofs_key)
-        self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
-        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
+        self.map_caches = get_map_caches(mesh, (edofs_key, real_tensorproduct))
+        self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
+        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
@@ -571,7 +584,7 @@ class FunctionSpaceData(object):
             return val
 
 
-def get_shared_data(mesh, finat_element):
+def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
@@ -586,4 +599,4 @@ def get_shared_data(mesh, finat_element):
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))
-    return FunctionSpaceData(mesh, finat_element)
+    return FunctionSpaceData(mesh, finat_element, real_tensorproduct=real_tensorproduct)
