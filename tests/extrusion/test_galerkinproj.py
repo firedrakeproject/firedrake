@@ -41,7 +41,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
                           (("N2curl", 1, "DG", 1, "h"), 1.8),
                           (("N2curl", 2, "DG", 2, "h"), 2.85),
                           (("DG", 1, "CG", 1, "v"), 1.84),
-                          (("DG", 2, "CG", 2, "v"), 2.98)])
+                          (("DG", 2, "CG", 2, "v"), 2.98),
+                          (("RT", 1, "Real", 0, "h"), 0.9)])
 def test_hdiv_convergence(extmesh, testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
     l2err = np.zeros(2)
