@@ -59,9 +59,9 @@ class FiredrakeConfiguration(dict):
 
 
 def deep_update(this, that):
-    import collections
+    from collections import abc
     for k, v in that.items():
-        if isinstance(v, collections.Mapping) and k in this.keys():
+        if isinstance(v, abc.Mapping) and k in this.keys():
             this[k] = deep_update(this.get(k, {}), v)
         else:
             this[k] = v
