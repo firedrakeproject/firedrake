@@ -1,3 +1,5 @@
+import abc
+
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
@@ -42,7 +44,7 @@ class AssembledPC(PCBase):
 
         mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
 
-        (a, bcs) = self.form(test, trial, pc)
+        (a, bcs) = self.form(pc, test, trial)
 
         self.P = allocate_matrix(a, bcs=bcs,
                                  form_compiler_parameters=fcp,
@@ -97,9 +99,24 @@ class AssembledPC(PCBase):
 
 
 class ExplicitSchurPC(AssembledPC):
+    """A preconditioner that builds a PC on a specified form.
+    Mainly used for describing approximations to Schur complements.
+    """
 
     _prefix = "schur_"
 
-    def form(self, test, trial, pc):
-        """Return (a, bcs)"""
+    @abc.abstractmethod
+    def form(self, pc, test, trial):
+        """
+
+        :arg pc: a `PETSc.PC` object. Use `self.get_appctx(pc)` to get the
+             user-supplied application-context, if desired.
+
+        :arg test: a `TestFunction` on this `FunctionSpace`.
+
+        :arg trial: a `TrialFunction` on this `FunctionSpace`.
+
+        This method should return `(a, bcs)`, where `a` is a bilinear `Form`
+        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
+        """
         raise NotImplementedError
