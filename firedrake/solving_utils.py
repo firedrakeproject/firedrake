@@ -1,5 +1,6 @@
 import numpy
 
+from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
@@ -48,10 +49,10 @@ class _SNESContext(object):
     :arg problem: a :class:`NonlinearVariationalProblem`.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -143,8 +144,9 @@ class _SNESContext(object):
             nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
-        from ufl import as_vector, replace
-        from firedrake import NonlinearVariationalProblem as NLVP, FunctionSpace
+        from firedrake import replace, as_vector
+        from firedrake import NonlinearVariationalProblem as NLVP
+        fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
         if splits is not None:
             return splits
@@ -153,33 +155,48 @@ class _SNESContext(object):
         problem = self._problem
         splitter = ExtractSubBlock()
         for field in fields:
-            try:
-                if len(field) > 1:
-                    raise NotImplementedError("Can't split into subblock")
-            except TypeError:
-                # Just a single field, we can handle that
-                pass
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u.split()
-            subu = us[field]
+            V = F.arguments()[0].function_space()
+            pieces = [us[i].dat for i in field]
+            if len(pieces) == 1:
+                val, = pieces
+                subu = function.Function(V, val=val)
+                subsplit = (subu, )
+            else:
+                val = op2.MixedDat(pieces)
+                subu = function.Function(V, val=val)
+                subsplit = subu.split()
+            field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(us):
+                if i in field:
+                    u = subsplit[field_renumbering[i]]
                 for idx in numpy.ndindex(u.ufl_shape):
                     vec.append(u[idx])
+
             u = as_vector(vec)
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u: u})
+                Jp = replace(Jp, {problem.u: subu})
             else:
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                if bc.function_space().index == field:
-                    V = FunctionSpace(subu.ufl_domain(), subu.ufl_element())
-                    bcs.append(type(bc)(V,
+                index = bc.function_space().index
+                cmpt = bc.function_space().component
+                # TODO: need to test this logic
+                if index in field:
+                    if len(field) == 1:
+                        W = V
+                    else:
+                        W = V.sub(field_renumbering[index])
+                    if cmpt is not None:
+                        W = W.sub(cmpt)
+                    bcs.append(type(bc)(W,
                                         bc.function_arg,
                                         bc.sub_domain,
                                         method=bc.method))
