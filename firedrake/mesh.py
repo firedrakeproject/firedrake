@@ -1074,8 +1074,8 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V)
-        coords_max = function.Function(V)
+        coords_min = function.Function(V, dtype=np.float64)
+        coords_max = function.Function(V, dtype=np.float64)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
@@ -1089,13 +1089,22 @@ values from f.)"""
     }
 """
 
+        if utils.complex_mode:
+            coords = Function(self.coordinates.function_space(), dtype=np.float64)
+            coords.dat.data[:] = np.real_if_close(self.coordinates.dat.data_ro, tol=1.e-14)
+            if issubclass(a.dtype.type, numpy.complex):
+                info_red("libspatialindex does not support complex coordinates.")
+                return None
+        else:
+            coords = self.coordinates
+
         cell_node_list = self.coordinates.function_space().cell_node_list
         nodes_per_cell = len(cell_node_list[0])
 
         kernel = kernel.replace("gdim", str(gdim))
         kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
 
-        par_loop(kernel, ufl.dx, {'f': (self.coordinates, READ),
+        par_loop(kernel, ufl.dx, {'f': (coords, READ),
                                   'f_min': (coords_min, RW),
                                   'f_max': (coords_max, RW)})
 

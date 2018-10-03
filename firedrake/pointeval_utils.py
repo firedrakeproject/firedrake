@@ -12,9 +12,9 @@ import gem
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 from tsfc.coffee import generate as generate_coffee
-from tsfc.parameters import default_parameters, set_scalar_type, scalar_type
+from tsfc.parameters import default_parameters
 
-from firedrake_configuration import get_config
+from firedrake import utils
 
 
 def compile_element(expression, coordinates, parameters=None):
@@ -31,11 +31,6 @@ def compile_element(expression, coordinates, parameters=None):
         _ = default_parameters()
         _.update(parameters)
         parameters = _
-
-    config = get_config()
-    if config['options']['complex']:
-        parameters['scalar_type'] = 'double complex'
-    set_scalar_type(parameters['scalar_type'])
 
     # No arguments, please!
     if extract_arguments(expression):
@@ -56,7 +51,7 @@ def compile_element(expression, coordinates, parameters=None):
     assert coordinates.ufl_domain() == domain
 
     # Initialise kernel builder
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
     builder.domain_coordinate[domain] = coordinates
     x_arg = builder._coefficient(coordinates, "x")
     f_arg = builder._coefficient(coefficient, "f")
@@ -68,7 +63,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(scalar_type(), ast.Symbol('X', rank=(dim,)))
+    point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
@@ -90,11 +85,11 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = ast.Decl(scalar_type(), ast.Symbol('R', rank=expression.ufl_shape))
+        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = ast.Decl(scalar_type(), ast.Symbol('R', rank=(1,)))
+        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -106,7 +101,7 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"])
+    body = generate_coffee(impero_c, {}, parameters["precision"], utils.ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
@@ -119,11 +114,12 @@ def compile_element(expression, coordinates, parameters=None):
         "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
         "IntType": as_cstr(IntType),
+        "scalar_type": utils.ScalarType_c,
     }
 
-    evaluate_template_c = """static inline void wrap_evaluate(double *result, double *X, double *coords, %(IntType)s *coords_map, double *f, %(IntType)s *f_map%(extruded_arg)s, %(IntType)s cell);
+    evaluate_template_c = """static inline void wrap_evaluate(%(scalar_type)s *result, %(scalar_type)s *X, %(scalar_type)s *coords, %(IntType)s *coords_map, %(scalar_type)s *f, %(IntType)s *f_map%(extruded_arg)s, %(IntType)s cell);
 
-int evaluate(struct Function *f, double *x, double *result)
+int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)
 {
     struct ReferenceCoords reference_coords;
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
