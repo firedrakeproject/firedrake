@@ -34,7 +34,7 @@ Features:
   for high order elements, and vectorisation.
 * Geometric multigrid.
 * Customisable operator preconditioners.
-* Support for hydridisation, and HDG methods.
+* Support for static condensation, hybridisation, and HDG methods.
 
 
 .. only:: html
