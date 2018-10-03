@@ -181,7 +181,7 @@ class _SNESContext(object):
             J = replace(J, {problem.u: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u: subu})
+                Jp = replace(Jp, {problem.u: u})
             else:
                 Jp = None
             bcs = []
