@@ -122,6 +122,9 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
 def coarsen_function_space(V, self, coefficient_mapping=None):
+    if hasattr(V, "_coarse"):
+        return V._coarse
+    fine = V
     indices = []
     while True:
         if V.index is not None:
@@ -138,6 +141,8 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     V = firedrake.FunctionSpace(mesh, V.ufl_element())
     for i in reversed(indices):
         V = V.sub(i)
+    V._fine = fine
+    fine._coarse = V
     return V
 
 
