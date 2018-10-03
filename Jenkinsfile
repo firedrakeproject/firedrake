@@ -11,9 +11,7 @@ pipeline {
   stages {
     stage('Clean') {
       steps {
-        dir('tmp') {
-          deleteDir()
-        }
+        deleteDir()
       }
     }
     stage('Build') {
