@@ -1216,6 +1216,9 @@ else:
         clean(p)
         install(p+"/")
 
+    # Ensure pytest is at the latest version
+    run_pip(["install", "-U", "pytest"])
+
 if options["slepc"]:
     build_and_install_slepc()
 if options["slope"]:

@@ -11,7 +11,7 @@ if outfile == "teamgrid.rst":
         ("Lawrence Mitchell",
          "https://www.dur.ac.uk/computer.science/staff/profile/?id=17243"),
         ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
-        ("Tianjiao (TJ) Sun", "https://www.hipeac.net/~tjsun/"),
+        ("Tianjiao (TJ) Sun", "https://www.doc.ic.ac.uk/~ts2914/"),
         ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
         ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),

@@ -11,6 +11,7 @@ pipeline {
   stages {
     stage('Clean') {
       steps {
+        sh 'git clean -fdx'
         dir('tmp') {
           deleteDir()
         }
