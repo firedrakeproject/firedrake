@@ -96,6 +96,7 @@ class _SNESContext(object):
         # context we could just require the user to pass in the
         # full state on the outside.
         appctx.setdefault("state", self._x)
+        appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self.appctx = appctx
         self.matfree = matfree

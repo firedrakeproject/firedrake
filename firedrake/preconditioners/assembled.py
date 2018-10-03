@@ -1,7 +1,9 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.dmhooks import get_function_space
 
-__all__ = ("AssembledPC", )
+__all__ = ("AssembledPC", "ExplicitSchurPC")
 
 
 class AssembledPC(PCBase):
@@ -10,6 +12,9 @@ class AssembledPC(PCBase):
     Internally this makes a PETSc PC object that can be controlled by
     options using the extra options prefix ``assembled_``.
     """
+
+    _prefix = "assembled_"
+
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
 
@@ -18,23 +23,34 @@ class AssembledPC(PCBase):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
-        context = P.getPythonContext()
-        prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + "assembled_"
+        appctx = self.get_appctx(pc)
+        fcp = appctx.get("form_compiler_parameters")
 
-        # It only makes sense to preconditioner/invert a diagonal
-        # block in general.  That's all we're going to allow.
-        if not context.on_diag:
-            raise ValueError("Only makes sense to invert diagonal block")
+        V = get_function_space(pc.getDM())
+        test = TestFunction(V)
+        trial = TrialFunction(V)
+
+        if P.type == "python":
+            context = P.getPythonContext()
+            # It only makes sense to preconditioner/invert a diagonal
+            # block in general.  That's all we're going to allow.
+            if not context.on_diag:
+                raise ValueError("Only makes sense to invert diagonal block")
+
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + self._prefix
 
         mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
-        self.P = allocate_matrix(context.a, bcs=context.row_bcs,
-                                 form_compiler_parameters=context.fc_params,
+
+        (a, bcs) = self.form(test, trial, pc)
+
+        self.P = allocate_matrix(a, bcs=bcs,
+                                 form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = create_assembly_callable(context.a, tensor=self.P,
-                                                    bcs=context.row_bcs,
-                                                    form_compiler_parameters=context.fc_params,
+        self._assemble_P = create_assembly_callable(a, tensor=self.P,
+                                                    bcs=bcs,
+                                                    form_compiler_parameters=fcp,
                                                     mat_type=mat_type)
         self._assemble_P()
         self.P.force_evaluation()
@@ -61,6 +77,12 @@ class AssembledPC(PCBase):
         self._assemble_P()
         self.P.force_evaluation()
 
+    def form(self, test, trial, pc):
+        _, P = pc.getOperators()
+        assert P.type == "python"
+        context = P.getPythonContext()
+        return (context.a, context.row_bcs)
+
     def apply(self, pc, x, y):
         self.pc.apply(x, y)
 
@@ -72,3 +94,12 @@ class AssembledPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
+
+
+class ExplicitSchurPC(AssembledPC):
+
+    _prefix = "schur_"
+
+    def form(self, test, trial, pc):
+        """Return (a, bcs)"""
+        raise NotImplementedError
