@@ -116,7 +116,7 @@ class ExplicitSchurPC(AssembledPC):
 
         :arg trial: a `TrialFunction` on this `FunctionSpace`.
 
-        This method should return `(a, bcs)`, where `a` is a bilinear `Form`
+        :returns `(a, bcs)`, where `a` is a bilinear `Form`
         and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
         """
         raise NotImplementedError
