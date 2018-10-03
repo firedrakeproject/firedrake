@@ -167,8 +167,15 @@ remembering to tell PETSc to use pivoting in the factorisation. ::
                                                "ksp_monitor": True,
                                                "pmat_type": "aij"})
 
-Next we'll use a schur complement solver, using geometric multigrid to
+Next we'll use a Schur complement solver, using geometric multigrid to
 invert the velocity block. ::
+
+  class Mass(ExplicitSchurPC):
+
+      def form(self, test, trial, pc):
+          a = inner(test, trial)*dx
+          bcs = None
+          return (a, bcs)
 
   parameters = {
       "ksp_type": "gmres",
@@ -179,19 +186,17 @@ invert the velocity block. ::
       "fieldsplit_0_ksp_type": "preonly",
       "fieldsplit_0_pc_type": "mg",
       "fieldsplit_1_ksp_type": "preonly",
-      "fieldsplit_1_pc_type": "bjacobi",
-      "fieldsplit_1_sub_pc_type": "icc",
+      "fieldsplit_1_pc_type": "python",
+      "fieldsplit_1_pc_python_type": "__main__.Mass",
+      "fieldsplit_1_schur_pc_type": "bjacobi",
+      "fieldsplit_1_schur_sub_pc_type": "icc",
   }
 
-We provide an auxiliary operator so that we can precondition the schur
-complement inverse with a pressure mass matrix. ::
-
-  Jp = a + p*q*dx
   u = Function(Z)
-  solve(a == L, u, bcs=bcs, Jp=Jp, solver_parameters=parameters)
+  solve(a == L, u, bcs=bcs, solver_parameters=parameters)
 
 Finally, we'll use coupled geometric multigrid on the full problem,
-using schur complement "smoothers" on each level.  On the coarse grid
+using Schur complement "smoothers" on each level.  On the coarse grid
 we use a full factorisation with LU for the velocity block, whereas on
 the finer levels we use incomplete factorisations for the velocity
 block.
