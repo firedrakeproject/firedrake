@@ -61,7 +61,10 @@ def MeshHierarchy(mesh, refinement_levels,
     :arg refinements_per_level: the number of refinements for each
         level in the hierarchy.
     :arg distribution_parameters: options controlling mesh
-        distribution, see :func:`~.Mesh` for details.
+        distribution, see :func:`~.Mesh` for details.  If ``None``,
+        use the same distribution parameters as were used to
+        distribute the coarse mesh, otherwise, these options override
+        the default.
     :arg reorder: optional flag indicating whether to reorder the
          refined meshes.
     :arg callbacks: A 2-tuple of callbacks to call before and
@@ -78,6 +81,8 @@ def MeshHierarchy(mesh, refinement_levels,
     parameters = {}
     if distribution_parameters is not None:
         parameters.update(distribution_parameters)
+    else:
+        parameters.update(mesh._distribution_parameters)
 
     parameters["partition"] = False
     distribution_parameters = parameters

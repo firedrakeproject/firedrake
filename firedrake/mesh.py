@@ -353,6 +353,7 @@ class MeshTopology(object):
         """
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
+        self._distribution_parameters = distribution_parameters.copy()
         if distribute is None:
             distribute = True
 
