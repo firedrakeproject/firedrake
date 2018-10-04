@@ -192,7 +192,7 @@ def plot(function_or_mesh,
          axes=None,
          plot3d=False,
          **kwargs):
-    """Plot a Firedrake object.
+    r"""Plot a Firedrake object.
 
     :arg function_or_mesh: The :class:`~.Function` or :func:`~.Mesh`
          to plot.  An iterable of :class:`~.Function`\s may also be

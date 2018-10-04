@@ -1,4 +1,4 @@
-"""This module implements parallel loops reading and writing
+r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 import collections
@@ -18,7 +18,7 @@ __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
 
 
 class _DirectLoop(object):
-    """A singleton object which can be used in a :func:`par_loop` in place
+    r"""A singleton object which can be used in a :func:`par_loop` in place
     of the measure in order to indicate that the loop is a direct loop
     over degrees of freedom."""
 
@@ -31,7 +31,7 @@ class _DirectLoop(object):
 
 
 direct = _DirectLoop()
-"""A singleton object which can be used in a :func:`par_loop` in place
+r"""A singleton object which can be used in a :func:`par_loop` in place
 of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
@@ -59,7 +59,7 @@ _maps = {
         'itspace': lambda mesh, measure: mesh
     }
 }
-"""Map a measure to the correct maps."""
+r"""Map a measure to the correct maps."""
 
 
 def _form_kernel(kernel, measure, args, **kwargs):
@@ -101,7 +101,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
 
 
 def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
-    """A :func:`par_loop` is a user-defined operation which reads and
+    r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
