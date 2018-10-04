@@ -1,6 +1,7 @@
 import abc
 
 from firedrake.preconditioners.base import PCBase
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.dmhooks import get_function_space
@@ -29,6 +30,10 @@ class AssembledPC(PCBase):
         fcp = appctx.get("form_compiler_parameters")
 
         V = get_function_space(pc.getDM())
+        if len(V) == 1:
+            V = FunctionSpace(V.mesh(), V.ufl_element())
+        else:
+            V = MixedFunctionSpace([V_ for V_ in V])
         test = TestFunction(V)
         trial = TrialFunction(V)
 
