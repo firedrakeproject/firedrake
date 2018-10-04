@@ -11,7 +11,7 @@ def parallel(item):
     """
     if MPI.COMM_WORLD.size > 1:
         raise RuntimeError("parallel test can't be run within parallel environment")
-    marker = item.get_marker("parallel")
+    marker = item.get_closest_marker("parallel")
     if marker is None:
         raise RuntimeError("Parallel test doesn't have parallel marker")
     nprocs = marker.kwargs.get("nprocs", 3)
@@ -34,7 +34,7 @@ def pytest_configure(config):
 
 
 def pytest_runtest_setup(item):
-    if item.get_marker("parallel"):
+    if item.get_closest_marker("parallel"):
         if MPI.COMM_WORLD.size > 1:
             # Turn on source hash checking
             from firedrake import parameters
@@ -55,6 +55,6 @@ def pytest_runtest_setup(item):
 
 
 def pytest_runtest_call(item):
-    if item.get_marker("parallel") and MPI.COMM_WORLD.size == 1:
+    if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)

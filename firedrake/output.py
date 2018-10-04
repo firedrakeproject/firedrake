@@ -68,7 +68,7 @@ def is_linear(V):
 
 
 def get_topology(coordinates):
-    """Get the topology for VTU output.
+    r"""Get the topology for VTU output.
 
     :arg coordinates: The coordinates defining the mesh.
     :returns: A tuple of ``(connectivity, offsets, types)``

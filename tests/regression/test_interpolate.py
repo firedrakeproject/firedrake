@@ -23,6 +23,21 @@ def test_function():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_inner():
+    m = UnitTriangleMesh()
+    V1 = FunctionSpace(m, 'P', 1)
+    V2 = FunctionSpace(m, 'P', 2)
+
+    x, y = SpatialCoordinate(m)
+    f = interpolate(inner(x, x), V1)
+    g = interpolate(f, V2)
+
+    # g shall be equivalent to:
+    h = interpolate(x, V2)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
 def test_coordinates():
     cg2 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 2)
     f = interpolate(Expression("x[0]*x[0]"), cg2)

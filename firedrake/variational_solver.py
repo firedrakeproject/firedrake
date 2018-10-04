@@ -14,12 +14,12 @@ __all__ = ["LinearVariationalProblem",
 
 
 class NonlinearVariationalProblem(object):
-    """Nonlinear variational problem F(u; v) = 0."""
+    r"""Nonlinear variational problem F(u; v) = 0."""
 
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None):
-        """
+        r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
@@ -70,10 +70,10 @@ class NonlinearVariationalProblem(object):
 
 
 class NonlinearVariationalSolver(OptionsManager):
-    """Solves a :class:`NonlinearVariationalProblem`."""
+    r"""Solves a :class:`NonlinearVariationalProblem`."""
 
     def __init__(self, problem, **kwargs):
-        """
+        r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
@@ -195,7 +195,7 @@ class NonlinearVariationalSolver(OptionsManager):
         self._setup = False
 
     def set_transfer_operators(self, contextmanager):
-        """Set a context manager which manages which grid transfer operators should be used.
+        r"""Set a context manager which manages which grid transfer operators should be used.
 
         :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
         :raises RuntimeError: if called after calling solve.
@@ -205,7 +205,7 @@ class NonlinearVariationalSolver(OptionsManager):
         self._transfer_operators = contextmanager
 
     def solve(self, bounds=None):
-        """Solve the variational problem.
+        r"""Solve the variational problem.
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
@@ -243,12 +243,12 @@ class NonlinearVariationalSolver(OptionsManager):
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
-    """Linear variational problem a(u, v) = L(v)."""
+    r"""Linear variational problem a(u, v) = L(v)."""
 
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
                  constant_jacobian=True):
-        """
+        r"""
         :param a: the bilinear form
         :param L: the linear form
         :param u: the :class:`.Function` to solve for
@@ -281,10 +281,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
 
 class LinearVariationalSolver(NonlinearVariationalSolver):
-    """Solves a :class:`LinearVariationalProblem`."""
+    r"""Solves a :class:`LinearVariationalProblem`."""
 
     def __init__(self, *args, **kwargs):
-        """
+        r"""
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
@@ -309,7 +309,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
     def invalidate_jacobian(self):
-        """
+        r"""
         Forces the matrix to be reassembled next time it is required.
         """
         self._ctx._jacobian_assembled = False

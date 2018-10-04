@@ -19,7 +19,7 @@ __all__ = ['DirichletBC', 'homogenize']
 
 
 class DirichletBC(object):
-    '''Implementation of a strong Dirichlet boundary condition.
+    r'''Implementation of a strong Dirichlet boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
@@ -174,7 +174,7 @@ class DirichletBC(object):
 
     @utils.cached_property
     def domain_args(self):
-        """The sub_domain the BC applies to."""
+        r"""The sub_domain the BC applies to."""
         if isinstance(self.sub_domain, str):
             return (self.sub_domain, )
         return (as_tuple(self.sub_domain), )
@@ -197,7 +197,7 @@ class DirichletBC(object):
 
     @timed_function('ApplyBC')
     def apply(self, r, u=None):
-        """Apply this boundary condition to ``r``.
+        r"""Apply this boundary condition to ``r``.
 
         :arg r: a :class:`.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
@@ -249,7 +249,7 @@ class DirichletBC(object):
             r.assign(self.function_arg, subset=self.node_set)
 
     def zero(self, r):
-        """Zero the boundary condition nodes on ``r``.
+        r"""Zero the boundary condition nodes on ``r``.
 
         :arg r: a :class:`.Function` to which the
             boundary condition should be applied.
@@ -266,7 +266,7 @@ class DirichletBC(object):
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
     def set(self, r, val):
-        """Set the boundary nodes to a prescribed (external) value.
+        r"""Set the boundary nodes to a prescribed (external) value.
         :arg r: the :class:`Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
@@ -277,7 +277,7 @@ class DirichletBC(object):
 
 
 def homogenize(bc):
-    """Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
+    r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
     then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
 

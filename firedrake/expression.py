@@ -13,7 +13,7 @@ __all__ = ['Expression']
 
 
 class Expression(ufl.Coefficient):
-    """A code snippet or Python function that may be evaluated on a
+    r"""A code snippet or Python function that may be evaluated on a
     :class:`.FunctionSpace`. This provides a mechanism for setting
     :class:`.Function` values to user-determined values.
 
@@ -94,7 +94,7 @@ class Expression(ufl.Coefficient):
 
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
-        """
+        r"""
         :param code: a string C statement, or list of statements.
         :param element: a :class:`~ufl.finiteelement.finiteelement.FiniteElement`, optional
               (currently ignored)
@@ -197,11 +197,11 @@ class Expression(ufl.Coefficient):
         self.__class__ = cls
 
     def rank(self):
-        """Return the rank of this :class:`Expression`"""
+        r"""Return the rank of this :class:`Expression`"""
         return len(self.value_shape())
 
     def value_shape(self):
-        """Return the shape of this :class:`Expression`.
+        r"""Return the shape of this :class:`Expression`.
 
         This is the number of values the code snippet in the
         expression contains.
@@ -215,7 +215,7 @@ class Expression(ufl.Coefficient):
 
 
 def to_expression(val, **kwargs):
-    """Convert val to an :class:`Expression`.
+    r"""Convert val to an :class:`Expression`.
 
     :arg val: an iterable of values suitable for a code snippet in an
          :class:`Expression`.
