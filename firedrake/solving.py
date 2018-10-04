@@ -29,7 +29,7 @@ import firedrake
 
 
 def solve(*args, **kwargs):
-    """Solve linear system Ax = b or variational problem a == L or F == 0.
+    r"""Solve linear system Ax = b or variational problem a == L or F == 0.
 
     The Firedrake solve() function can be used to solve either linear
     systems or variational problems. The following list explains the
@@ -173,7 +173,7 @@ def _solve_varproblem(*args, **kwargs):
 
 
 def _la_solve(A, x, b, **kwargs):
-    """Solve a linear algebra problem.
+    r"""Solve a linear algebra problem.
 
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
     :arg x: the :class:`.Function` to write the solution into.

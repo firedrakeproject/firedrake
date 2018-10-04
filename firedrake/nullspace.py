@@ -11,7 +11,7 @@ __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
 
 
 class VectorSpaceBasis(object):
-    """Build a basis for a vector space.
+    r"""Build a basis for a vector space.
 
     You can use this basis to express the null space of a singular operator.
 
@@ -50,7 +50,7 @@ class VectorSpaceBasis(object):
         self._constant = constant
 
     def nullspace(self, comm=None):
-        """The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
+        r"""The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
 
         :kwarg comm: Communicator to create the nullspace on."""
         if hasattr(self, "_nullspace"):
@@ -62,7 +62,7 @@ class VectorSpaceBasis(object):
         return self._nullspace
 
     def orthonormalize(self):
-        """Orthonormalize the basis.
+        r"""Orthonormalize the basis.
 
         .. warning::
 
@@ -85,7 +85,7 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
 
     def orthogonalize(self, b):
-        """Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
+        r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
         :arg b: a :class:`.Function`
 
@@ -97,7 +97,7 @@ class VectorSpaceBasis(object):
             nullsp.remove(v)
 
     def check_orthogonality(self, orthonormal=True):
-        """Check if the basis is orthogonal.
+        r"""Check if the basis is orthogonal.
 
         :arg orthonormal: If True check that the basis is also orthonormal.
 
@@ -124,7 +124,7 @@ class VectorSpaceBasis(object):
                                      " inner product is %g", i, i+j+1, abs(dot))
 
     def is_orthonormal(self):
-        """Is this vector space basis orthonormal?"""
+        r"""Is this vector space basis orthonormal?"""
         try:
             self.check_orthogonality(orthonormal=True)
             return True
@@ -132,7 +132,7 @@ class VectorSpaceBasis(object):
             return False
 
     def is_orthogonal(self):
-        """Is this vector space basis orthogonal?"""
+        r"""Is this vector space basis orthogonal?"""
         try:
             self.check_orthogonality(orthonormal=False)
             return True
@@ -140,7 +140,7 @@ class VectorSpaceBasis(object):
             return False
 
     def _apply(self, matrix, transpose=False, near=False):
-        """Set this VectorSpaceBasis as a nullspace for a matrix
+        r"""Set this VectorSpaceBasis as a nullspace for a matrix
 
         :arg matrix: a :class:`~.MatrixBase` whose nullspace should
              be set.
@@ -162,12 +162,12 @@ class VectorSpaceBasis(object):
                 matrix.petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
 
     def __iter__(self):
-        """Yield self when iterated over"""
+        r"""Yield self when iterated over"""
         yield self
 
 
 class MixedVectorSpaceBasis(object):
-    """A basis for a mixed vector space
+    r"""A basis for a mixed vector space
 
     :arg function_space: the :class:`~.MixedFunctionSpace` this vector
          space is a basis for.
@@ -224,7 +224,7 @@ class MixedVectorSpaceBasis(object):
         self._nullspace = None
 
     def _build_monolithic_basis(self):
-        """Build a basis for the complete mixed space.
+        r"""Build a basis for the complete mixed space.
 
         The monolithic basis is formed by the cartesian product of the
         bases forming each sub part.
@@ -264,7 +264,7 @@ class MixedVectorSpaceBasis(object):
                                                    comm=self.comm)
 
     def _apply_monolithic(self, matrix, transpose=False, near=False):
-        """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
+        r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
         :arg matrix: a :class:`~.MatrixBase` whose nullspace should
@@ -294,7 +294,7 @@ class MixedVectorSpaceBasis(object):
                 matrix.petscmat.setNullSpace(self._nullspace)
 
     def _apply(self, matrix_or_ises, transpose=False, near=False):
-        """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
+        r"""Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
         :arg matrix_or_ises: either a :class:`~.MatrixBase` to set a
              nullspace on, or else a list of PETSc ISes to compose a
@@ -340,10 +340,10 @@ class MixedVectorSpaceBasis(object):
                 is_.compose(key, basis.nullspace(comm=self.comm))
 
     def __iter__(self):
-        """Yield the individual bases making up this MixedVectorSpaceBasis"""
+        r"""Yield the individual bases making up this MixedVectorSpaceBasis"""
         for basis in self._bases:
             yield basis
 
     def __len__(self):
-        """The number of bases in this MixedVectorSpaceBasis"""
+        r"""The number of bases in this MixedVectorSpaceBasis"""
         return len(self._bases)

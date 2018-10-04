@@ -19,7 +19,7 @@ from firedrake import utils
 
 
 def ufl_type(*args, **kwargs):
-    """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
+    r"""Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
 
     Additionally adds the class decorated to the appropriate set of ufl classes."""
     def decorator(cls):
@@ -38,7 +38,7 @@ def ufl_type(*args, **kwargs):
 
 
 def _ast(expr):
-    """Convert expr to a COFFEE AST."""
+    r"""Convert expr to a COFFEE AST."""
 
     try:
         return expr.ast
@@ -51,7 +51,7 @@ def _ast(expr):
 
 class DummyFunction(ufl.Coefficient):
 
-    """A dummy object to take the place of a :class:`.Function` in the
+    r"""A dummy object to take the place of a :class:`.Function` in the
     expression. This has the sole role of producing the right strings
     when the expression is unparsed and when the arguments are
     formatted.
@@ -97,7 +97,7 @@ class DummyFunction(ufl.Coefficient):
 
 class AssignmentBase(Operator):
 
-    """Base class for UFL augmented assignments."""
+    r"""Base class for UFL augmented assignments."""
 
     __slots__ = ("ufl_shape",)
     _identity = Zero()
@@ -130,7 +130,7 @@ class AssignmentBase(Operator):
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class Assign(AssignmentBase):
 
-    """A UFL assignment operator."""
+    r"""A UFL assignment operator."""
     _symbol = "="
     _ast = ast.Assign
     __slots__ = ("ufl_shape",)
@@ -160,7 +160,7 @@ class Assign(AssignmentBase):
 
 class AugmentedAssignment(AssignmentBase):
 
-    """Base for the augmented assignment operators `+=`, `-=,` `*=`, `/=`"""
+    r"""Base for the augmented assignment operators `+=`, `-=,` `*=`, `/=`"""
     __slots__ = ()
 
     def _visit(self, transformer):
@@ -186,7 +186,7 @@ class AugmentedAssignment(AssignmentBase):
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IAdd(AugmentedAssignment):
 
-    """A UFL `+=` operator."""
+    r"""A UFL `+=` operator."""
     _symbol = "+="
     _ast = ast.Incr
     __slots__ = ()
@@ -195,7 +195,7 @@ class IAdd(AugmentedAssignment):
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class ISub(AugmentedAssignment):
 
-    """A UFL `-=` operator."""
+    r"""A UFL `-=` operator."""
     _symbol = "-="
     _ast = ast.Decr
     __slots__ = ()
@@ -204,7 +204,7 @@ class ISub(AugmentedAssignment):
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IMul(AugmentedAssignment):
 
-    """A UFL `*=` operator."""
+    r"""A UFL `*=` operator."""
     _symbol = "*="
     _ast = ast.IMul
     _identity = IntValue(1)
@@ -214,7 +214,7 @@ class IMul(AugmentedAssignment):
 @ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IDiv(AugmentedAssignment):
 
-    """A UFL `/=` operator."""
+    r"""A UFL `/=` operator."""
     _symbol = "/="
     _ast = ast.IDiv
     _identity = IntValue(1)
@@ -223,7 +223,7 @@ class IDiv(AugmentedAssignment):
 
 class Power(ufl.algebra.Power):
 
-    """Subclass of :class:`ufl.algebra.Power` which prints pow(x,y)
+    r"""Subclass of :class:`ufl.algebra.Power` which prints pow(x,y)
     instead of x**y."""
 
     def __str__(self):
@@ -236,7 +236,7 @@ class Power(ufl.algebra.Power):
 
 class Ln(ufl.mathfunctions.Ln):
 
-    """Subclass of :class:`ufl.mathfunctions.Ln` which prints log(x)
+    r"""Subclass of :class:`ufl.mathfunctions.Ln` which prints log(x)
     instead of ln(x)."""
 
     def __str__(self):
@@ -248,7 +248,7 @@ class Ln(ufl.mathfunctions.Ln):
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
-    """Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
+    r"""Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
     first operand."""
 
     def __str__(self):
@@ -260,7 +260,7 @@ class ComponentTensor(ufl.tensors.ComponentTensor):
 
 
 class Indexed(ufl.indexed.Indexed):
-    """Subclass of :class:`ufl.indexed.Indexed` which only prints the first
+    r"""Subclass of :class:`ufl.indexed.Indexed` which only prints the first
     operand."""
 
     def __str__(self):
@@ -272,11 +272,11 @@ class Indexed(ufl.indexed.Indexed):
 
 
 class ExpressionSplitter(ReuseTransformer):
-    """Split an expression tree into a subtree for each component of the
+    r"""Split an expression tree into a subtree for each component of the
     appropriate :class:`.FunctionSpace`."""
 
     def split(self, expr):
-        """Split the given expression."""
+        r"""Split the given expression."""
         self._identity = expr._identity
         self._trees = None
         lhs, rhs = expr.ufl_operands
@@ -289,7 +289,7 @@ class ExpressionSplitter(ReuseTransformer):
         return [expr._ufl_expr_reconstruct_(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
 
     def indexed(self, o, *operands):
-        """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
+        r"""Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
         is defined on a :class:`.FunctionSpace` with rank 1."""
         def reconstruct_if_vec(coeff, idx, i):
             # If the MultiIndex contains a FixedIndex we only want to return
@@ -308,7 +308,7 @@ class ExpressionSplitter(ReuseTransformer):
                 for i, ops in enumerate(zip(*operands))]
 
     def component_tensor(self, o, *operands):
-        """Only return the first operand."""
+        r"""Only return the first operand."""
         return operands[0]
 
     def terminal(self, o):
@@ -385,11 +385,11 @@ class ExpressionSplitter(ReuseTransformer):
         raise NotImplementedError("Don't know what to do with %r" % o)
 
     def product(self, o, *operands):
-        """Reconstruct a product on each of the component spaces."""
+        r"""Reconstruct a product on each of the component spaces."""
         return [op0 * op1 for op0, op1 in zip(*operands)]
 
     def operator(self, o, *operands):
-        """Reconstruct an operator on each of the component spaces."""
+        r"""Reconstruct an operator on each of the component spaces."""
         ret = []
         for ops in zip(*operands):
             # Don't try to reconstruct if we've just got the identity
@@ -411,7 +411,7 @@ class ExpressionWalker(ReuseTransformer):
         self._result = None
 
     def walk(self, expr):
-        """Walk the given expression and return a tuple of the transformed
+        r"""Walk the given expression and return a tuple of the transformed
         expression, the list of coefficients sorted by their count and the
         function space the expression is defined on."""
         return (self.visit(expr),
@@ -482,11 +482,11 @@ class ExpressionWalker(ReuseTransformer):
         return Ln(*operands)
 
     def component_tensor(self, o, *operands):
-        """Override string representation to only print first operand."""
+        r"""Override string representation to only print first operand."""
         return ComponentTensor(*operands)
 
     def indexed(self, o, *operands):
-        """Override string representation to only print first operand."""
+        r"""Override string representation to only print first operand."""
         return Indexed(*operands)
 
     def operator(self, o):
@@ -507,7 +507,7 @@ class ExpressionWalker(ReuseTransformer):
 
 
 def expression_kernel(expr, args):
-    """Produce a :class:`pyop2.Kernel` from the processed UFL expression
+    r"""Produce a :class:`pyop2.Kernel` from the processed UFL expression
     expr and the corresponding args."""
 
     # Empty slot indicating assignment to indexed LHS, so don't do anything
@@ -545,7 +545,7 @@ def evaluate_preprocessed_expression(kernel, args, subset=None):
 
 @utils.known_pyop2_safe
 def evaluate_expression(expr, subset=None):
-    """Evaluates UFL expressions on :class:`.Function`\s."""
+    r"""Evaluates UFL expressions on :class:`.Function`\s."""
 
     # We cache the generated kernel and the argument list on the
     # result function, keyed on the hash of the expression
@@ -583,7 +583,7 @@ def evaluate_expression(expr, subset=None):
 
 @timed_function("AssembleExpression")
 def assemble_expression(expr, subset=None):
-    """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
+    r"""Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
 
     result = function.Function(ExpressionWalker().walk(expr)[2])

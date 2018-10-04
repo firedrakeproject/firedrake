@@ -1,4 +1,4 @@
-"""
+r"""
 This module provides the implementations of :class:`~.FunctionSpace`
 and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
@@ -20,7 +20,7 @@ from firedrake import dmhooks
 
 
 class WithGeometry(ufl.FunctionSpace):
-    """Attach geometric information to a :class:`~.FunctionSpace`.
+    r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
     Function spaces on meshes with different geometry but the same
     topology can share data, except for their UFL cell.  This class
@@ -55,15 +55,15 @@ class WithGeometry(ufl.FunctionSpace):
     mesh = ufl.FunctionSpace.ufl_domain
 
     def ufl_function_space(self):
-        """The :class:`~ufl.classes.FunctionSpace` this object represents."""
+        r"""The :class:`~ufl.classes.FunctionSpace` this object represents."""
         return self
 
     def ufl_cell(self):
-        """The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
+        r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
     def split(self):
-        """Split into a tuple of constituent spaces."""
+        r"""Split into a tuple of constituent spaces."""
         return self._split
 
     def sub(self, i):
@@ -77,14 +77,14 @@ class WithGeometry(ufl.FunctionSpace):
 
     @property
     def num_work_functions(self):
-        """The number of checked out work functions."""
+        r"""The number of checked out work functions."""
         from firedrake.functionspacedata import get_work_function_cache
         cache = get_work_function_cache(self.mesh(), self.ufl_element())
         return sum(cache.values())
 
     @property
     def max_work_functions(self):
-        """The maximum number of work functions this :class:`FunctionSpace` supports.
+        r"""The maximum number of work functions this :class:`FunctionSpace` supports.
 
         See :meth:`get_work_function` for obtaining work functions."""
         from firedrake.functionspacedata import get_max_work_functions
@@ -92,7 +92,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     @max_work_functions.setter
     def max_work_functions(self, val):
-        """Set the number of work functions this :class:`FunctionSpace` supports.
+        r"""Set the number of work functions this :class:`FunctionSpace` supports.
 
         :arg val: The new maximum number of work functions.
         :raises ValueError: if the provided value is smaller than the
@@ -111,7 +111,7 @@ class WithGeometry(ufl.FunctionSpace):
         set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
-        """Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
+        r"""Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
 
         :arg zero: Should the :class:`~.Function` be guaranteed zero?
             If ``zero`` is ``False`` the returned function may or may
@@ -151,7 +151,7 @@ class WithGeometry(ufl.FunctionSpace):
         return function
 
     def restore_work_function(self, function):
-        """Restore a work function obtained with :meth:`get_work_function`.
+        r"""Restore a work function obtained with :meth:`get_work_function`.
 
         :arg function: The work function to restore
         :raises ValueError: if the provided function was not obtained
@@ -203,7 +203,7 @@ class WithGeometry(ufl.FunctionSpace):
         return self._split[i]
 
     def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
+        r"""Create a :class:`.MixedFunctionSpace` composed of this
         :class:`.FunctionSpace` and other"""
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
@@ -217,7 +217,7 @@ class WithGeometry(ufl.FunctionSpace):
 
 
 class FunctionSpace(object):
-    """A representation of a function space.
+    r"""A representation of a function space.
 
     A :class:`FunctionSpace` associates degrees of freedom with
     topological mesh entities.  The degree of freedom mapping is
@@ -274,7 +274,7 @@ class FunctionSpace(object):
         self._mesh = mesh
 
         self.rank = len(self.shape)
-        """The rank of this :class:`FunctionSpace`.  Spaces where the
+        r"""The rank of this :class:`FunctionSpace`.  Spaces where the
         element is scalar-valued (or intrinsically vector-valued) have
         rank zero.  Spaces built on :class:`~ufl.classes.VectorElement` or
         :class:`~ufl.classes.TensorElement` instances have rank equivalent to
@@ -282,15 +282,15 @@ class FunctionSpace(object):
         :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
 
         self.value_size = int(numpy.prod(self.shape, dtype=int))
-        """The total number of degrees of freedom at each function
+        r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name
-        """The (optional) descriptive name for this space."""
+        r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
-        """A :class:`pyop2.Set` representing the function space nodes."""
+        r"""A :class:`pyop2.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
                                     name="%s_nodes_dset" % self.name)
-        """A :class:`pyop2.DataSet` representing the function space
+        r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
 
         self.comm = self.node_set.comm
@@ -303,14 +303,14 @@ class FunctionSpace(object):
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
     index = None
-    """The position of this space in its parent
+    r"""The position of this space in its parent
     :class:`MixedFunctionSpace`, or ``None``."""
 
     parent = None
-    """The parent space if this space was extracted from one, or ``None``."""
+    r"""The parent space if this space was extracted from one, or ``None``."""
 
     component = None
-    """The component of this space in its parent VectorElement space, or
+    r"""The component of this space in its parent VectorElement space, or
     ``None``."""
 
     def __eq__(self, other):
@@ -330,7 +330,7 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def dm(self):
-        """A PETSc DM describing the data layout for this FunctionSpace."""
+        r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
         return dm
@@ -352,12 +352,12 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def cell_node_list(self):
-        """A numpy array mapping mesh cells to function space nodes."""
+        r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
     @property
     def topological(self):
-        """Function space on a mesh topology."""
+        r"""Function space on a mesh topology."""
         return self
 
     def mesh(self):
@@ -383,30 +383,30 @@ class FunctionSpace(object):
                                                    self.name)
 
     def split(self):
-        """Split into a tuple of constituent spaces."""
+        r"""Split into a tuple of constituent spaces."""
         return (self, )
 
     def __getitem__(self, i):
-        """Return the ith subspace."""
+        r"""Return the ith subspace."""
         if i != 0:
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
 
     def sub(self, i):
-        """Return a view into the ith component."""
+        r"""Return a view into the ith component."""
         if self.rank != 1:
             raise ValueError("Can only take sub of FS with VectorElement")
         return ComponentFunctionSpace(self, i)
 
     def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
+        r"""Create a :class:`.MixedFunctionSpace` composed of this
         :class:`.FunctionSpace` and other"""
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
     @utils.cached_property
     def node_count(self):
-        """The number of nodes (includes halo nodes) of this function space on
+        r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
         is equal to the :attr:`dof_count`, otherwise the :attr:`dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
@@ -414,23 +414,23 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def dof_count(self):
-        """The number of degrees of freedom (includes halo dofs) of this
+        r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`node_count`."""
         return self.node_count*self.value_size
 
     def dim(self):
-        """The global number of degrees of freedom for this function space.
+        r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`dof_count` and :attr:`node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
-        """Return a newly allocated :class:`pyop2.Dat` defined on the
+        r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
     def cell_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from interior facets to
+        r"""Return the :class:`pyop2.Map` from interior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
@@ -452,7 +452,7 @@ class FunctionSpace(object):
                              parent)
 
     def interior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from interior facets to
+        r"""Return the :class:`pyop2.Map` from interior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
@@ -481,7 +481,7 @@ class FunctionSpace(object):
         return map
 
     def exterior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from exterior facets to
+        r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
@@ -503,7 +503,7 @@ class FunctionSpace(object):
                              parent)
 
     def boundary_nodes(self, sub_domain, method):
-        """Return the boundary nodes for this :class:`~.FunctionSpace`.
+        r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
         :arg method: the method for determining boundary nodes.
@@ -516,7 +516,7 @@ class FunctionSpace(object):
 
 
 class MixedFunctionSpace(object):
-    """A function space on a mixed finite element.
+    r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
     :class:`FunctionSpace` objects.
@@ -552,11 +552,11 @@ class MixedFunctionSpace(object):
 
     @property
     def topological(self):
-        """Function space on a mesh topology."""
+        r"""Function space on a mesh topology."""
         return self
 
     def ufl_element(self):
-        """The :class:`~ufl.classes.Mixedelement` this space represents."""
+        r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
         return self._ufl_element
 
     def __eq__(self, other):
@@ -571,27 +571,27 @@ class MixedFunctionSpace(object):
         return hash(tuple(self))
 
     def split(self):
-        """The list of :class:`FunctionSpace`\s of which this
+        r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
 
     def sub(self, i):
-        """Return the `i`th :class:`FunctionSpace` in this
+        r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
         return self[i]
 
     def num_sub_spaces(self):
-        """Return the number of :class:`FunctionSpace`\s of which this
+        r"""Return the number of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return len(self)
 
     def __len__(self):
-        """Return the number of :class:`FunctionSpace`\s of which this
+        r"""Return the number of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return len(self._spaces)
 
     def __getitem__(self, i):
-        """Return the `i`th :class:`FunctionSpace` in this
+        r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
         return self._spaces[i]
 
@@ -607,34 +607,34 @@ class MixedFunctionSpace(object):
 
     @utils.cached_property
     def value_size(self):
-        """Return the sum of the :attr:`FunctionSpace.value_size`\s of the
+        r"""Return the sum of the :attr:`FunctionSpace.value_size`\s of the
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of."""
         return sum(fs.value_size for fs in self._spaces)
 
     @utils.cached_property
     def node_count(self):
-        """Return a tuple of :attr:`FunctionSpace.node_count`\s of the
+        r"""Return a tuple of :attr:`FunctionSpace.node_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         return tuple(fs.node_count for fs in self._spaces)
 
     @utils.cached_property
     def dof_count(self):
-        """Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
+        r"""Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         return tuple(fs.dof_count for fs in self._spaces)
 
     def dim(self):
-        """The global number of degrees of freedom for this function space.
+        r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`dof_count` and :attr:`node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
     @utils.cached_property
     def node_set(self):
-        """A :class:`pyop2.MixedSet` containing the nodes of this
+        r"""A :class:`pyop2.MixedSet` containing the nodes of this
         :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.node_set`\s of the underlying
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
@@ -644,7 +644,7 @@ class MixedFunctionSpace(object):
 
     @utils.cached_property
     def dof_dset(self):
-        """A :class:`pyop2.MixedDataSet` containing the degrees of freedom of
+        r"""A :class:`pyop2.MixedDataSet` containing the degrees of freedom of
         this :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -652,7 +652,7 @@ class MixedFunctionSpace(object):
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def cell_node_map(self, bcs=None):
-        """A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
+        r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
         underlying mesh to the :attr:`node_set` of this
         :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
@@ -667,7 +667,7 @@ class MixedFunctionSpace(object):
                             for i, s in enumerate(self._spaces))
 
     def interior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.MixedMap` from interior facets to
+        r"""Return the :class:`pyop2.MixedMap` from interior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
@@ -682,7 +682,7 @@ class MixedFunctionSpace(object):
                             for i, s in enumerate(self._spaces))
 
     def exterior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from exterior facets to
+        r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
@@ -697,7 +697,7 @@ class MixedFunctionSpace(object):
                             for i, s in enumerate(self._spaces))
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
-        """Return a newly allocated :class:`pyop2.MixedDat` defined on the
+        r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
@@ -708,7 +708,7 @@ class MixedFunctionSpace(object):
 
     @utils.cached_property
     def dm(self):
-        """A PETSc DM describing the data layout for fieldsplit solvers."""
+        r"""A PETSc DM describing the data layout for fieldsplit solvers."""
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
         return dm
@@ -726,7 +726,7 @@ class MixedFunctionSpace(object):
 
 
 class ProxyFunctionSpace(FunctionSpace):
-    """A :class:`FunctionSpace` that one can attach extra properties to.
+    r"""A :class:`FunctionSpace` that one can attach extra properties to.
 
     :arg mesh: The mesh to use.
     :arg element: The UFL element.
@@ -764,13 +764,13 @@ class ProxyFunctionSpace(FunctionSpace):
              self.component)
 
     identifier = None
-    """An optional identifier, for debugging purposes."""
+    r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    """Can this proxy make :class:`pyop2.Dat` objects"""
+    r"""Can this proxy make :class:`pyop2.Dat` objects"""
 
     def make_dat(self, *args, **kwargs):
-        """Create a :class:`pyop2.Dat`.
+        r"""Create a :class:`pyop2.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
@@ -780,7 +780,7 @@ class ProxyFunctionSpace(FunctionSpace):
 
 
 def IndexedFunctionSpace(index, space, parent):
-    """Build a new FunctionSpace that remembers it is a particular
+    r"""Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
 
     :arg index: The index into the parent space.
@@ -803,7 +803,7 @@ def IndexedFunctionSpace(index, space, parent):
 
 
 def ComponentFunctionSpace(parent, component):
-    """Build a new FunctionSpace that remembers it represents a
+    r"""Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
     components of a :func:`.VectorFunctionSpace`.
 
@@ -828,7 +828,7 @@ def ComponentFunctionSpace(parent, component):
 
 
 class RealFunctionSpace(FunctionSpace):
-    """:class:`FunctionSpace` based on elements of family "Real". A
+    r""":class:`FunctionSpace` based on elements of family "Real". A
     :class`RealFunctionSpace` only has a single global value for the
     whole mesh.
 
@@ -876,7 +876,7 @@ class RealFunctionSpace(FunctionSpace):
         return dm
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
-        """Return a newly allocated :class:`pyop2.Global` representing the
+        r"""Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self.comm)
 

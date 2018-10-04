@@ -36,13 +36,13 @@ def check_snes_convergence(snes):
                   (snes.getKSP().getIterationNumber(), reason)
         else:
             msg = reason
-        raise ConvergenceError("""Nonlinear solve failed to converge after %d nonlinear iterations.
+        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
 Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
 class _SNESContext(object):
-    """
+    r"""
     Context holding information for SNES callbacks.
 
     :arg problem: a :class:`NonlinearVariationalProblem`.
@@ -124,7 +124,7 @@ class _SNESContext(object):
         self._fine = None
 
     def set_function(self, snes):
-        """Set the residual evaluation function"""
+        r"""Set the residual evaluation function"""
         with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
@@ -191,7 +191,7 @@ class _SNESContext(object):
 
     @staticmethod
     def form_function(snes, X, F):
-        """Form the residual for this problem
+        r"""Form the residual for this problem
 
         :arg snes: a PETSc SNES object
         :arg X: the current guess (a Vec)
@@ -221,7 +221,7 @@ class _SNESContext(object):
 
     @staticmethod
     def form_jacobian(snes, X, J, P):
-        """Form the Jacobian for this problem
+        r"""Form the Jacobian for this problem
 
         :arg snes: a PETSc SNES object
         :arg X: the current guess (a Vec)
@@ -256,7 +256,7 @@ class _SNESContext(object):
 
     @staticmethod
     def compute_operators(ksp, J, P):
-        """Form the Jacobian for this problem
+        r"""Form the Jacobian for this problem
 
         :arg ksp: a PETSc KSP object
         :arg J: the Jacobian (a Mat)

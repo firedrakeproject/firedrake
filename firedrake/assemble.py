@@ -24,7 +24,7 @@ __all__ = ["assemble"]
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
              inverse=False, mat_type=None, sub_mat_type=None,
              appctx={}, options_prefix=None, **kwargs):
-    """Evaluate f.
+    r"""Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
             a :class:`~slate.TensorBase` expression.
@@ -110,7 +110,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
                     inverse=False, mat_type=None, sub_mat_type=None, appctx={},
                     options_prefix=None):
-    """Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
+    r"""Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
 
     .. warning::
 
@@ -124,7 +124,7 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
-    """Create a callable object than be used to assemble f into a tensor.
+    r"""Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
     jacobian callbacks, since it always assembles back into the
@@ -157,7 +157,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               options_prefix=None,
               collect_loops=False,
               allocate_only=False):
-    """Assemble the form or Slate expression f and return a Firedrake object
+    r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
@@ -542,7 +542,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 # par_loop.
                 nodes = bc.nodes
                 if len(fs) > 1:
-                    raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                    raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = result_matrix.block_shape
                 with collecting_loops(collect_loops):
                     for i in range(shape[0]):
