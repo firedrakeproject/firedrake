@@ -22,7 +22,8 @@ def as_cstr(dtype):
             "uint32": "uint32_t",
             "uint64": "uint64_t",
             "float32": "float",
-            "float64": "double"}[numpy.dtype(dtype).name]
+            "float64": "double",
+            "complex128": "double complex"}[numpy.dtype(dtype).name]
 
 
 def as_ctypes(dtype):

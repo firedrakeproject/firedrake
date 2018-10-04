@@ -989,7 +989,7 @@ class _DatMatPayload(object):
             raise ValueError("Not a DatMat")
 
         self.sparsity = sparsity
-        self.dat = dat or _make_object("Dat", self.dset)
+        self.dat = dat or _make_object("Dat", self.dset, dtype=PETSc.ScalarType)
         self.dset = dset
 
     def __getitem__(self, key):
@@ -1102,7 +1102,7 @@ def _GlobalMat(global_=None, comm=None):
 class _GlobalMatPayload(object):
 
     def __init__(self, global_=None, comm=None):
-        self.global_ = global_ or _make_object("Global", 1, comm=comm)
+        self.global_ = global_ or _make_object("Global", 1, dtype=PETSc.ScalarType, comm=comm)
 
     def __getitem__(self, key):
         return self.global_.data_ro.reshape(1, 1)[key]
