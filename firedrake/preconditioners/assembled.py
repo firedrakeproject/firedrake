@@ -79,7 +79,7 @@ class AssembledPC(PCBase):
         self._assemble_P()
         self.P.force_evaluation()
 
-    def form(self, test, trial, pc):
+    def form(self, pc, test, trial):
         _, P = pc.getOperators()
         assert P.type == "python"
         context = P.getPythonContext()
