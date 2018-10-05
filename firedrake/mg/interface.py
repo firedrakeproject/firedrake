@@ -33,6 +33,14 @@ def prolong(coarse, fine):
         for in_, out in zip(coarse.split(), fine.split()):
             prolong(in_, out)
         return
+
+    if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
+        assert Vc.ufl_element().family() == "Real"
+        assert Vf.ufl_element().family() == "Real"
+        with fine.dat.vec_wo as dest, coarse.dat.vec_ro as src:
+            src.copy(dest)
+        return
+
     hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
     _, fine_level = utils.get_level(fine.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
@@ -85,6 +93,14 @@ def restrict(fine_dual, coarse_dual):
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
             restrict(in_, out)
         return
+
+    if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
+        assert Vc.ufl_element().family() == "Real"
+        assert Vf.ufl_element().family() == "Real"
+        with coarse_dual.dat.vec_wo as dest, fine_dual.dat.vec_ro as src:
+            src.copy(dest)
+        return
+
     hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
     _, fine_level = utils.get_level(fine_dual.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
@@ -138,6 +154,14 @@ def inject(fine, coarse):
         for in_, out in zip(fine.split(), coarse.split()):
             inject(in_, out)
         return
+
+    if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
+        assert Vc.ufl_element().family() == "Real"
+        assert Vf.ufl_element().family() == "Real"
+        with coarse.dat.vec_wo as dest, fine.dat.vec_ro as src:
+            src.copy(dest)
+        return
+
     # Algorithm:
     # Loop over coarse nodes
     # Have list of candidate fine cells for each coarse node
