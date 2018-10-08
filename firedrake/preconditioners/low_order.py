@@ -1,4 +1,5 @@
 from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
 import numpy
 
 from ufl.algorithms import MultiFunction, map_integrands
@@ -105,14 +106,14 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
     return mat.handle
 
 
-class P1PC(firedrake.PCBase):
-
-    def __init__(self, J, bcs):
-        self.J = J
-        self.bcs = bcs
-        super(P1PC, self).__init__()
+class P1PC(PCBase):
 
     def initialize(self, pc):
+        _, P = pc.getOperators()
+        assert P.type == "python"
+        context = P.getPythonContext()
+        (self.J, self.bcs) = (context.a, context.row_bcs)
+
         test, trial = self.J.arguments()
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
