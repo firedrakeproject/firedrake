@@ -496,8 +496,9 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    absfunc, sinfunc, cosfunc = 'cabs', 'csin', 'ccos' if utils.complex_mode \
-                                else 'fabs', 'sin', 'cos'
+    absfunc = 'cabs' if utils.complex_mode else 'fabs'
+    sinfunc = 'csin' if utils.complex_mode else 'sin'
+    cosfunc = 'ccos' if utils.complex_mode else 'cos'
 
     periodic_kernel = """
 {0} pi = 3.141592653589793;
