@@ -144,7 +144,7 @@ class _SNESContext(object):
             nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
-        from firedrake import replace, as_vector
+        from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
@@ -159,6 +159,13 @@ class _SNESContext(object):
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u.split()
             V = F.arguments()[0].function_space()
+            # Exposition:
+            # We are going to make a new solution Function on the sub
+            # mixed space defined by the relevant fields.
+            # But the form may refer to the rest of the solution
+            # anyway.
+            # So we pull it apart and will make a new function on the
+            # subspace that shares data.
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
@@ -167,15 +174,32 @@ class _SNESContext(object):
             else:
                 val = op2.MixedDat(pieces)
                 subu = function.Function(V, val=val)
-                subsplit = subu.split()
+                # Split it apart to shove in the form.
+                subsplit = split(subu)
+            # Permutation from field indexing to indexing of pieces
             field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(us):
                 if i in field:
+                    # If this is a field we're keeping, get it from
+                    # the new function. Otherwise just point to the
+                    # old data.
                     u = subsplit[field_renumbering[i]]
-                for idx in numpy.ndindex(u.ufl_shape):
-                    vec.append(u[idx])
+                if u.ufl_shape == ():
+                    vec.append(u)
+                else:
+                    for idx in numpy.ndindex(u.ufl_shape):
+                        vec.append(u[idx])
 
+            # So now we have a new representation for the solution
+            # vector in the old problem. For the fields we're going
+            # to solve for, it points to a new Function (which wraps
+            # the original pieces). For the rest, it points to the
+            # pieces from the original Function.
+            # IOW, we've reinterpreted our original mixed solution
+            # function as being made up of some spaces we're still
+            # solving for, and some spaces that have just become
+            # coefficients in the new form.
             u = as_vector(vec)
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
