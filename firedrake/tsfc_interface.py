@@ -9,6 +9,7 @@ import os
 import zlib
 import tempfile
 import collections
+import numpy
 
 import ufl
 from ufl import Form
@@ -217,7 +218,13 @@ def _real_mangle(form):
     replacements = {}
     for arg, r in zip(a, reals):
         if r:
-            replacements[arg] = 1
+            shape = arg.ufl_shape
+            if len(shape) == 0:
+                replacements[arg] = 1
+            elif len(shape) == 1:
+                replacements[arg] = ufl.as_vector([1]*shape[0])
+            else:
+                replacements[arg] = ufl.as_tensor(numpy.ones(shape))
     # If only the test space is Real, we need to turn the trial function into a test function.
     if reals == [True, False]:
         replacements[a[1]] = TestFunction(a[1].function_space())

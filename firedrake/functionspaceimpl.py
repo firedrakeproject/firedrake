@@ -839,12 +839,14 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    rank = 0
-    shape = ()
-    value_size = 1
 
     def __init__(self, mesh, element, name):
         self._ufl_element = element
+
+        self.shape = element.value_shape()
+        self.rank = len(self.shape)
+        self.value_size = element.value_size()
+
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
@@ -901,4 +903,4 @@ class RealFunctionSpace(FunctionSpace):
         return None
 
     def dim(self):
-        return 1
+        return self.value_size
