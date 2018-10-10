@@ -327,7 +327,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     ctx = get_appctx(dm)
     coarsen = get_ctx_coarsener(dm)
     if ctx is not None:
-        ctxs = ctx.split([i for i in range(len(W))])
+        ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
             push_appctx(d, c)
             push_ctx_coarsener(d, coarsen)
@@ -346,30 +346,38 @@ def create_subdm(dm, fields, *args, **kwargs):
        split application contexts onto the sub-DMs.
     """
     W = get_function_space(dm)
-    # TODO: Correct splitting of SNESContext for len(fields) > 1 case
+    ctx = get_appctx(dm)
+    coarsen = get_ctx_coarsener(dm)
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
-        idx = fields[0]
+        idx, = fields
         subdm = W[idx].dm
         iset = W._ises[idx]
+        if ctx is not None:
+            ctx, = ctx.split([(idx, )])
+            push_appctx(subdm, ctx)
+            push_ctx_coarsener(subdm, coarsen)
         return iset, subdm
     else:
         try:
             # Look up the subspace in the cache
             iset, subspace = W._subspaces[tuple(fields)]
-            return iset, subspace.dm
         except KeyError:
-            pass
-        # Need to build an MFS for the subspace
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
-        # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                           for f in fields]),
-                                        comm=W.comm)
-        # Keep hold of strong reference to created subspace (given we
-        # only hold a weakref in the shell DM), and so we can
-        # reuse it later.
-        W._subspaces[tuple(fields)] = iset, subspace
+            # Need to build an MFS for the subspace
+            subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+            # Index set mapping from W into subspace.
+            iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+                                                               for f in fields]),
+                                            comm=W.comm)
+            # Keep hold of strong reference to created subspace (given we
+            # only hold a weakref in the shell DM), and so we can
+            # reuse it later.
+            W._subspaces[tuple(fields)] = iset, subspace
+
+        if ctx is not None:
+            ctx, = ctx.split([fields])
+            push_appctx(subspace.dm, ctx)
+            push_ctx_coarsener(subspace.dm, coarsen)
         return iset, subspace.dm
 
 

@@ -1,7 +1,12 @@
-from firedrake.preconditioners.base import PCBase
-from firedrake.petsc import PETSc
+import abc
 
-__all__ = ("AssembledPC", )
+from firedrake.preconditioners.base import PCBase
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.petsc import PETSc
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.dmhooks import get_function_space
+
+__all__ = ("AssembledPC", "ExplicitSchurPC")
 
 
 class AssembledPC(PCBase):
@@ -10,6 +15,9 @@ class AssembledPC(PCBase):
     Internally this makes a PETSc PC object that can be controlled by
     options using the extra options prefix ``assembled_``.
     """
+
+    _prefix = "assembled_"
+
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
 
@@ -18,23 +26,38 @@ class AssembledPC(PCBase):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
-        context = P.getPythonContext()
-        prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + "assembled_"
+        appctx = self.get_appctx(pc)
+        fcp = appctx.get("form_compiler_parameters")
 
-        # It only makes sense to preconditioner/invert a diagonal
-        # block in general.  That's all we're going to allow.
-        if not context.on_diag:
-            raise ValueError("Only makes sense to invert diagonal block")
+        V = get_function_space(pc.getDM())
+        if len(V) == 1:
+            V = FunctionSpace(V.mesh(), V.ufl_element())
+        else:
+            V = MixedFunctionSpace([V_ for V_ in V])
+        test = TestFunction(V)
+        trial = TrialFunction(V)
+
+        if P.type == "python":
+            context = P.getPythonContext()
+            # It only makes sense to preconditioner/invert a diagonal
+            # block in general.  That's all we're going to allow.
+            if not context.on_diag:
+                raise ValueError("Only makes sense to invert diagonal block")
+
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + self._prefix
 
         mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
-        self.P = allocate_matrix(context.a, bcs=context.row_bcs,
-                                 form_compiler_parameters=context.fc_params,
+
+        (a, bcs) = self.form(pc, test, trial)
+
+        self.P = allocate_matrix(a, bcs=bcs,
+                                 form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = create_assembly_callable(context.a, tensor=self.P,
-                                                    bcs=context.row_bcs,
-                                                    form_compiler_parameters=context.fc_params,
+        self._assemble_P = create_assembly_callable(a, tensor=self.P,
+                                                    bcs=bcs,
+                                                    form_compiler_parameters=fcp,
                                                     mat_type=mat_type)
         self._assemble_P()
         self.P.force_evaluation()
@@ -61,6 +84,12 @@ class AssembledPC(PCBase):
         self._assemble_P()
         self.P.force_evaluation()
 
+    def form(self, pc, test, trial):
+        _, P = pc.getOperators()
+        assert P.type == "python"
+        context = P.getPythonContext()
+        return (context.a, context.row_bcs)
+
     def apply(self, pc, x, y):
         self.pc.apply(x, y)
 
@@ -72,3 +101,27 @@ class AssembledPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
+
+
+class ExplicitSchurPC(AssembledPC):
+    """A preconditioner that builds a PC on a specified form.
+    Mainly used for describing approximations to Schur complements.
+    """
+
+    _prefix = "schur_"
+
+    @abc.abstractmethod
+    def form(self, pc, test, trial):
+        """
+
+        :arg pc: a `PETSc.PC` object. Use `self.get_appctx(pc)` to get the
+             user-supplied application-context, if desired.
+
+        :arg test: a `TestFunction` on this `FunctionSpace`.
+
+        :arg trial: a `TrialFunction` on this `FunctionSpace`.
+
+        :returns `(a, bcs)`, where `a` is a bilinear `Form`
+        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
+        """
+        raise NotImplementedError
