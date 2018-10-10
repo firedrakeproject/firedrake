@@ -263,7 +263,7 @@ class LocalKernelBuilder(object):
                                  "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
 
-                if needs_cell_sizes:
+                if kinfo.needs_cell_sizes:
                     args.append(self.cell_size_sym)
 
                 # Assembly calls within the macro kernel
