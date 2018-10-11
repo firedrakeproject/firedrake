@@ -419,7 +419,7 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
-full_opts = '--download-chaco --download-metis --download-parmetis \
+full_opts = petsc_opts + '--download-chaco --download-metis --download-parmetis \
 --download-scalapack --download-hypre --download-mumps --with-zlib --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-fortran-bindings=0'
 
 split_opts = set(full_opts.split())
