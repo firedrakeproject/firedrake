@@ -206,6 +206,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
     if builder.needs_mesh_layers:
         args.append(ast.Decl("int", builder.mesh_layer_sym))
 
+    # Cell size information
+    if builder.needs_cell_sizes:
+        args.append(ast.Decl(SCALAR_TYPE, builder.cell_size_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
+
     # Macro kernel
     macro_kernel_name = "compile_slate"
     stmts = ast.Block(statements)
