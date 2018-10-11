@@ -85,6 +85,11 @@ class SingleTransfer(object):
         try:
             return self._V_dof_weights[key]
         except KeyError:
+            # Compute dof multiplicity for V
+            # Spin over all (owned) cells incrementing visible dofs by 1.
+            # After halo exchange, the Vec representation is the
+            # global Vector counting the number of cells that see each
+            # dof.
             f = firedrake.Function(V)
             firedrake.par_loop(
                 """for (int i = 0; i < A.dofs; i++)
