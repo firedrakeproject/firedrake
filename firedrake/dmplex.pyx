@@ -419,7 +419,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity):
+def create_section(mesh, nodes_per_entity, on_base=False):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
@@ -427,6 +427,7 @@ def create_section(mesh, nodes_per_entity):
         type of topological entity of the mesh.  Or, if the mesh is
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
+    :arg on_base: If True, assume extruded space is actually Foo x Real.
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
@@ -441,15 +442,19 @@ def create_section(mesh, nodes_per_entity):
         PetscInt dimension, ndof
         np.ndarray[PetscInt, ndim=2, mode="c"] nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        bint variable, extruded
+        bint variable, extruded, on_base_
 
     variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
+    on_base_ = on_base
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
     if variable:
         layer_extents = mesh.layer_extents
     elif extruded:
-        nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
+        if on_base:
+            nodes_per_entity = sum(nodes_per_entity[:, i] for i in range(2))
+        else:
+            nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
     dm = mesh._plex
     renumbering = mesh._plex_renumbering
@@ -467,8 +472,11 @@ def create_section(mesh, nodes_per_entity):
             ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
             if variable:
-                layers = layer_extents[p, 1] - layer_extents[p, 0]
-                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+                if on_base_:
+                    ndof = nodes[i, 1]
+                else:
+                    layers = layer_extents[p, 1] - layer_extents[p, 0]
+                    ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, ndof))
     section.setUp()
     return section
