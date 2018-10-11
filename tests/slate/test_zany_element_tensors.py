@@ -8,17 +8,15 @@ def mesh(request):
     return UnitSquareMesh(2, 2)
 
 
-@pytest.fixture(scope='module', params=['M2', 'H3', 'B5', 'A5'])
+@pytest.fixture(scope='module',
+                params=[("Morley", 2),
+                        ("Hermite", 3),
+                        ("Bell", 5),
+                        ("Argyris", 5)],
+                ids=['M2', 'H3', 'B5', 'A5'])
 def function_space(request, mesh):
     """Generates zany function spaces for testing SLATE tensor assembly."""
-    A5 = FunctionSpace(mesh, "Argyris", 5)
-    B5 = FunctionSpace(mesh, "Bell", 5)
-    H3 = FunctionSpace(mesh, "Hermite", 3)
-    M2 = FunctionSpace(mesh, "Morley", 2)
-    return {'A5': A5,
-            'B5': B5,
-            'H3': H3,
-            'M2': M2}[request.param]
+    return FunctionSpace(mesh, *request.param)
 
 
 @pytest.fixture
