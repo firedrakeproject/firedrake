@@ -2,36 +2,6 @@ import pytest
 from firedrake import *
 
 
-solver_parameters = {
-    "mat_type": "aij",
-    "snes_type": "ksponly",
-    "ksp_type": "cg",
-    "ksp_max_it": 20,
-    "ksp_rtol": 1e-9,
-    "ksp_monitor_true_residual": None,
-    "pc_type": "mg",
-    "mg_levels": {
-        "ksp_type": "richardson",
-        "ksp_norm_type": "unpreconditioned",
-        "ksp_richardson_scale": 0.5,
-        "pc_type": "python",
-        "pc_python_type": "firedrake.PatchPC",
-        "patch_pc_patch_save_operators": True,
-        "patch_pc_patch_partition_of_unity": False,
-        "patch_pc_patch_construct_type": "star",
-        "patch_pc_patch_construct_dim": 0,
-        "patch_pc_patch_sub_mat_type": "seqdense",
-        "patch_sub_ksp_type": "preonly",
-        "patch_sub_pc_type": "lu",
-    },
-    "mg_coarse_pc_type": "lu",
-    "RT_prolongation_mass_ksp_type": "cg",
-    "RT_prolongation_mass_ksp_max_it": 10,
-    "RT_prolongation_mass_pc_type": "bjacobi",
-    "RT_prolongation_mass_sub_pc_type": "ilu",
-}
-
-
 @pytest.fixture(scope="module")
 def hierarchy():
     N = 10
@@ -65,8 +35,58 @@ def V(mesh, degree, space):
     return FunctionSpace(mesh, space, degree)
 
 
+@pytest.fixture(params=[False, True],
+                ids=["Exact", "Fortin"])
+def use_fortin_interpolation(request):
+    return request.param
+
+
 @pytest.fixture
-def solver(V, space):
+def transfer(use_fortin_interpolation, V):
+    return EmbeddedDGTransfer(V.ufl_element(), use_fortin_interpolation=use_fortin_interpolation)
+
+
+@pytest.fixture
+def solver_parameters(use_fortin_interpolation, V):
+    element_name = V.ufl_element()._short_name
+    solver_parameters = {
+        "mat_type": "aij",
+        "snes_type": "ksponly",
+        # When using mass solves in the prolongation, the V-cycle is
+        # no longer a linear operator (because the prolongation uses
+        # CG which is a nonlinear operator).
+        "ksp_type": "cg" if use_fortin_interpolation else "fcg",
+        "ksp_max_it": 20,
+        "ksp_rtol": 1e-9,
+        "ksp_monitor_true_residual": None,
+        "pc_type": "mg",
+        "mg_levels": {
+            "ksp_type": "richardson",
+            "ksp_norm_type": "unpreconditioned",
+            "ksp_richardson_scale": 0.5,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_save_operators": True,
+            "patch_pc_patch_partition_of_unity": False,
+            "patch_pc_patch_construct_type": "star",
+            "patch_pc_patch_construct_dim": 0,
+            "patch_pc_patch_sub_mat_type": "seqdense",
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+        },
+        "mg_coarse_pc_type": "lu",
+        element_name: {
+            "prolongation_mass_ksp_type": "cg",
+            "prolongation_mass_ksp_max_it": 10,
+            "prolongation_mass_pc_type": "bjacobi",
+            "prolongation_mass_sub_pc_type": "ilu",
+        }
+    }
+    return solver_parameters
+
+
+@pytest.fixture
+def solver(V, space, solver_parameters):
     u = Function(V)
     v = TestFunction(V)
     mesh = V.mesh()
@@ -83,12 +103,6 @@ def solver(V, space):
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                         options_prefix="")
     return solver
-
-
-@pytest.fixture(params=[False, True],
-                ids=["Exact", "Fortin"])
-def transfer(request, V):
-    return EmbeddedDGTransfer(V.ufl_element(), use_fortin_interpolation=request.param)
 
 
 def test_riesz(V, solver, transfer):
