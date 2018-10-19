@@ -22,7 +22,6 @@ def refinements_per_level(request):
     return request.param
 
 
-@pytest.fixture(scope="module")
 def hierarchy(cell, refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
@@ -114,26 +113,33 @@ def run_prolongation(hierarchy, vector, space, degrees):
 
 
 def run_restriction(hierarchy, vector, space, degrees):
-    def exact_dual(V):
-        if V.shape:
-            c = Constant([1] * V.value_size)
-        else:
-            c = Constant(1)
-        return assemble(inner(c, TestFunction(V))*dx)
+    def victim(V):
+        return Function(V).assign(1)
+
+    def dual(V):
+        f = Function(V).assign(1)
+        return assemble(inner(f, TestFunction(V))*dx)
+
+    def functional(victim, dual):
+        with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
+            return dv.dot(v)
 
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
-        mesh = hierarchy[-1]
-        V = FunctionSpace(mesh, Ve)
+        for cmesh, fmesh in zip(hierarchy[:-1], hierarchy[1:]):
+            Vc = FunctionSpace(cmesh, Ve)
+            Vf = FunctionSpace(fmesh, Ve)
+            fine_dual = dual(Vf)
+            coarse_primal = victim(Vc)
 
-        actual = exact_dual(V)
-        for mesh in reversed(hierarchy[:-1]):
-            V = FunctionSpace(mesh, Ve)
-            expect = exact_dual(V)
-            tmp = Function(V)
-            restrict(actual, tmp)
-            actual = tmp
-            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
+            coarse_dual = Function(Vc)
+            fine_primal = Function(Vf)
+            restrict(fine_dual, coarse_dual)
+            prolong(coarse_primal, fine_primal)
+            coarse_functional = functional(coarse_primal, coarse_dual)
+            fine_functional = functional(fine_primal, fine_dual)
+
+            assert numpy.allclose(fine_functional, coarse_functional)
 
 
 def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):

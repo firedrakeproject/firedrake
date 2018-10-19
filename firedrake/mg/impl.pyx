@@ -133,7 +133,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
                                  dtype=IntType)
 
     for i in range(fine_cells):
-        for coarse_cell in fine_to_coarse_cells[i, :]:
+        for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
             for j in range(fine_per_cell):
                 node = fine_map[i, j]
                 if extruded:
@@ -143,7 +143,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
                                                                                   coarse_offset[k]*layer)
                 else:
                     for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
+                        fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
 

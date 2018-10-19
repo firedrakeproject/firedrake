@@ -197,7 +197,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 
 def prolong_kernel(expression):
-    hierarchy, _ = utils.get_level(expression.ufl_domain())
+    hierarchy, level = utils.get_level(expression.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
     key = (("prolong", )
@@ -212,34 +212,49 @@ def prolong_kernel(expression):
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         eval_args = evaluate_kernel.args[:-1]
+        coords_element = create_element(coordinates.ufl_element())
 
         args = ", ".join(a.gencode(not_scope=True) for a in eval_args)
-        arg_names = ", ".join(a.sym.symbol for a in eval_args)
+        R, coarse = (a.sym.symbol for a in eval_args)
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
         void prolong_kernel(%(args)s, const double *X, const double *Xc)
         {
             double Xref[%(tdim)d];
-            to_reference_coords_kernel(Xref, X, Xc);
+            int cell = -1;
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    break;
+                }
+            }
+            if (cell == -1) abort();
+            const double *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 %(R)s[i] = 0;
             }
-            evaluate_kernel(%(arg_names)s, Xref);
+            evaluate_kernel(%(R)s, coarsei, Xref);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
                "args": args,
-               "R": arg_names[0],
+               "R": R,
+               "coarse": coarse,
+               "ncandidate": hierarchy.fine_to_coarse_cells[level+1].shape[1],
                "Rdim": numpy.prod(element.value_shape),
-               "arg_names": arg_names,
+               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "Xc_cell_inc": coords_element.space_dimension(),
+               "coarse_cell_inc": element.space_dimension(),
                "tdim": mesh.topological_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="prolong_kernel"))
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, _ = utils.get_level(Vc.ufl_domain())
+    hierarchy, level = utils.get_level(Vc.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
     key = (("restrict", )
@@ -253,24 +268,38 @@ def restrict_kernel(Vf, Vc):
         mesh = coordinates.ufl_domain()
         evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-
+        coords_element = create_element(coordinates.ufl_element())
+        element = create_element(Vc.ufl_element())
         eval_args = evaluate_kernel.args[:-1]
-
         args = ", ".join(a.gencode(not_scope=True) for a in eval_args)
-        arg_names = ", ".join(a.sym.symbol for a in eval_args)
+        R, fine = (a.sym.symbol for a in eval_args)
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
         void restrict_kernel(%(args)s, const double *X, const double *Xc)
         {
             double Xref[%(tdim)d];
-            to_reference_coords_kernel(Xref, X, Xc);
-            evaluate_kernel(%(arg_names)s, Xref);
+            int cell = -1;
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    const double *Ri = %(R)s + cell*%(coarse_cell_inc)d;
+                    evaluate_kernel(Ri, %(fine)s, Xref);
+                    break;
+                }
+            }
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
+               "ncandidate": hierarchy.fine_to_coarse_cells[level+1].shape[1],
+               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "Xc_cell_inc": coords_element.space_dimension(),
+               "coarse_cell_inc": element.space_dimension(),
                "args": args,
-               "arg_names": arg_names,
+               "R": R,
+               "fine": fine,
                "tdim": mesh.topological_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="restrict_kernel"))
