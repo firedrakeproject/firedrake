@@ -175,6 +175,8 @@ def inject(fine, coarse):
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
     hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    if dg and not hierarchy.nested:
+        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
     _, fine_level = utils.get_level(fine.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
