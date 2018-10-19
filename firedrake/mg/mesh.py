@@ -8,10 +8,26 @@ from . import impl
 from .utils import set_level
 
 
-__all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy"]
+__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy")
 
 
 class HierarchyBase(object):
+    """Create an encapsulation of an hierarchy of meshes.
+
+    :arg meshes: list of meshes (coarse to fine)
+    :arg coarse_to_fine_cells: list of numpy arrays for each level
+       pair, mapping each coarse cell into fine cells it intersects.
+    :arg fine_to_coarse_cells: list of numpy arrays for each level
+       pair, mapping each fine cell into coarse cells it intersects.
+    :arg refinements_per_level: number of mesh refinements each
+       multigrid level should "see".
+
+    .. note::
+
+       Most of the time, you do not need to create this object
+       yourself, instead using :func:`MeshHierarchy`,
+       :func:`ExtrudedMeshHierarchy`, or :func:`NonNestedHierarchy`.
+    """
     def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
                  refinements_per_level=1):
         from firedrake_citations import Citations
