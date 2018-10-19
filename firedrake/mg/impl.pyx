@@ -105,7 +105,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse_cells):
+def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse_cells):
     cdef:
         np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
         np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
@@ -122,25 +122,28 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_
         coarse_offset = Vc.offset
         fine_offset = Vf.offset
         layers = Vc.mesh().layers - 1
-    fine_cells = fine_map.shape[0]
+
+    fine_cells = fine_to_coarse_cells.shape[0]
+    coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
     fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
-                                  coarse_per_cell),
+                                  coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)
+
     for i in range(fine_cells):
-        coarse_cell = fine_to_coarse_cells[i]
-        for j in range(fine_per_cell):
-            node = fine_map[i, j]
-            if extruded:
-                for layer in range(layers):
+        for coarse_cell in fine_to_coarse_cells[i, :]:
+            for j in range(fine_per_cell):
+                node = fine_map[i, j]
+                if extruded:
+                    for layer in range(layers):
+                        for k in range(coarse_per_cell):
+                            fine_to_coarse_map[node + fine_offset[j]*layer, k] = (coarse_map[coarse_cell, k] +
+                                                                                  coarse_offset[k]*layer)
+                else:
                     for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node + fine_offset[j]*layer, k] = (coarse_map[coarse_cell, k] +
-                                                                              coarse_offset[k]*layer)
-            else:
-                for k in range(coarse_per_cell):
-                    fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
+                        fine_to_coarse_map[node, k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
 
@@ -230,7 +233,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
-        np.ndarray[PetscInt, ndim=1, mode="c"] fine_to_coarse
+        np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse
         np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
     cdm = mc._plex
@@ -242,7 +245,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
-    fine_to_coarse = np.full(nfine, -1, dtype=PETSc.IntType)
+    fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
     cStart, cEnd = 0, nfine
 
@@ -276,7 +279,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # cells should map into owned coarse cells)
         ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
-        fine_to_coarse[c] = ccell
+        fine_to_coarse[c, 0] = ccell
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
                 coarse_to_fine[ccell, i] = c
