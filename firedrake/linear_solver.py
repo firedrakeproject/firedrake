@@ -149,14 +149,13 @@ class LinearSolver(OptionsManager):
         if self.A.has_bcs:
             b = self._lifted(b)
 
-        with self.inserted_options():
-            with b.dat.vec_ro as rhs:
-                if self.ksp.getInitialGuessNonzero():
-                    acc = x.dat.vec
-                else:
-                    acc = x.dat.vec_wo
-                with acc as solution:
-                    self.ksp.solve(rhs, solution)
+        if self.ksp.getInitialGuessNonzero():
+            acc = x.dat.vec
+        else:
+            acc = x.dat.vec_wo
+
+        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution:
+            self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()
         if r < 0:
