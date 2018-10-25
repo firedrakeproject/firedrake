@@ -404,8 +404,15 @@ def coarsen(dm, comm):
         V._coarse = coarsen(V, coarsen)
         cdm = V._coarse.dm
 
-    transfer = get_transfer_operators(dm)
-    push_transfer_operators(cdm, *transfer)
+    # In case transfer is attached to monolithic space
+    push_transfer_operators(cdm, *get_transfer_operators(dm))
+    if len(V) > 1:
+        # Transfer operators typically live on individual subspaces,
+        # not mixed spaces.
+        for V_, Vc_ in zip(V, V._coarse):
+            transfer = get_transfer_operators(V_.dm)
+            push_transfer_operators(Vc_.dm, *transfer)
+
     coarsen = get_ctx_coarsener(dm)
     push_ctx_coarsener(cdm, coarsen)
     ctx = get_appctx(dm)
