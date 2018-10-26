@@ -25,9 +25,9 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
-           entity_dofs_key(Vf.finat_element.entity_dofs()) +
-           (levelc, levelf))
+    key = (entity_dofs_key(Vc.finat_element.entity_dofs())
+           + entity_dofs_key(Vf.finat_element.entity_dofs())
+           + (levelc, levelf))
 
     cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
@@ -63,9 +63,9 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = (entity_dofs_key(Vc.finat_element.entity_dofs()) +
-           entity_dofs_key(Vf.finat_element.entity_dofs()) +
-           (levelc, levelf))
+    key = (entity_dofs_key(Vc.finat_element.entity_dofs())
+           + entity_dofs_key(Vf.finat_element.entity_dofs())
+           + (levelc, levelf))
 
     cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:

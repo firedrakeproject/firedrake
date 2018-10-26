@@ -64,8 +64,8 @@ class Argument(ufl.argument.Argument):
             return self
         ufl_assert(isinstance(number, int),
                    "Expecting an int, not %s" % number)
-        ufl_assert(function_space.ufl_element().value_shape() ==
-                   self.ufl_element().value_shape(),
+        ufl_assert(function_space.ufl_element().value_shape()
+                   == self.ufl_element().value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 

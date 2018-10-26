@@ -671,8 +671,8 @@ def get_petsc_dir():
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
         try:
-            petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
+            petsc_dir = check_output(python
+                                     + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
 
             petsc_arch = ""
         except subprocess.CalledProcessError:
@@ -689,8 +689,8 @@ def get_slepc_dir():
             raise InstallError("Need to set SLEPC_DIR for --slepc with --honour-petsc-dir")
     else:
         try:
-            slepc_dir = check_output(python +
-                                     ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
+            slepc_dir = check_output(python
+                                     + ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
         except subprocess.CalledProcessError:
             raise InstallError("Unable to find installed SLEPc")
     return slepc_dir, petsc_arch

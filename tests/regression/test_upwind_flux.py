@@ -1,4 +1,4 @@
-"""
+r"""
 This code does the following.
 
 First, obtains an upwind DG0 approximation to div(u*D).
@@ -77,8 +77,8 @@ def run_test(quadrilateral):
     Ft = TrialFunction(V1)
     Fs = Function(V1)
 
-    aFs = (inner(w('+'), n('+'))*inner(Ft('+'), n('+')) +
-           inner(w('-'), n('-'))*inner(Ft('-'), n('-')))*dS
+    aFs = (inner(w('+'), n('+'))*inner(Ft('+'), n('+'))
+           + inner(w('-'), n('-'))*inner(Ft('-'), n('-')))*dS
     LFs = 2.0*(inner(w('+'), n('+'))*un('+')*D('+')
                + inner(w('-'), n('-'))*un('-')*D('-'))*dS
 

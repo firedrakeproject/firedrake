@@ -93,8 +93,8 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     W = W0*W1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v) +
-                  div(u)*div(v))*dx)
+    L = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v)
+                  + div(u)*div(v))*dx)
 
     dW0 = W0.dof_count
     dW1 = W1.dof_count
@@ -113,8 +113,8 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     bc0 = [DirichletBC(W.sub(0), 0., x) for x in ["top", "bottom"]]
     bc1 = [DirichletBC(W.sub(1), Expression(("0.", "0.", "0.")), x)
            for x in ["top", "bottom"]]
-    L0 = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v) +
-                   div(u)*div(v))*dx, bcs=(bc0 + bc1))
+    L0 = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v)
+                   + div(u)*div(v))*dx, bcs=(bc0 + bc1))
 
     A0 = np.zeros((dW0+dW1, dW0+dW1))
     A0[:dW0, :dW0] = L0.M[0, 0].values

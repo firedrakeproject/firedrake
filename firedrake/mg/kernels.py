@@ -200,10 +200,10 @@ def prolong_kernel(expression):
     hierarchy, _ = utils.get_level(expression.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
-    key = (("prolong", ) +
-           expression.ufl_element().value_shape() +
-           entity_dofs_key(expression.function_space().finat_element.entity_dofs()) +
-           entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
+    key = (("prolong", )
+           + expression.ufl_element().value_shape()
+           + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
+           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
@@ -242,11 +242,11 @@ def restrict_kernel(Vf, Vc):
     hierarchy, _ = utils.get_level(Vc.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
-    key = (("restrict", ) +
-           Vf.ufl_element().value_shape() +
-           entity_dofs_key(Vf.finat_element.entity_dofs()) +
-           entity_dofs_key(Vc.finat_element.entity_dofs()) +
-           entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
+    key = (("restrict", )
+           + Vf.ufl_element().value_shape()
+           + entity_dofs_key(Vf.finat_element.entity_dofs())
+           + entity_dofs_key(Vc.finat_element.entity_dofs())
+           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
@@ -280,12 +280,12 @@ def inject_kernel(Vf, Vc):
     hierarchy, level = utils.get_level(Vc.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vf.ufl_domain().coordinates
-    key = (("inject", ) +
-           Vf.ufl_element().value_shape() +
-           entity_dofs_key(Vc.finat_element.entity_dofs()) +
-           entity_dofs_key(Vf.finat_element.entity_dofs()) +
-           entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs()) +
-           entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
+    key = (("inject", )
+           + Vf.ufl_element().value_shape()
+           + entity_dofs_key(Vc.finat_element.entity_dofs())
+           + entity_dofs_key(Vf.finat_element.entity_dofs())
+           + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
+           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:

@@ -143,8 +143,8 @@ class _Facets(object):
                              "interior_facet_horiz"):
             # these iterate over the base cell set
             return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
-        elif not (integral_type.startswith("exterior_") or
-                  integral_type.startswith("interior_")):
+        elif not (integral_type.startswith("exterior_")
+                  or integral_type.startswith("interior_")):
             raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
         if subdomain_id == "everywhere":
             return self.set
@@ -1151,8 +1151,8 @@ values from f.)"""
 
             locator = compilation.load(src, "c", "locator",
                                        cppargs=["-I%s" % os.path.dirname(__file__),
-                                                "-I%s/include" % sys.prefix] +
-                                       ["-I%s/include" % d for d in get_petsc_dir()],
+                                                "-I%s/include" % sys.prefix]
+                                       + ["-I%s/include" % d for d in get_petsc_dir()],
                                        ldargs=["-L%s/lib" % sys.prefix,
                                                "-lspatialindex_c",
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
