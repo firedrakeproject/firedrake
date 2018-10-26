@@ -271,12 +271,12 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
         eval_args = evaluate_kernel.args[:-1]
-        args = ", ".join(a.gencode(not_scope=True) for a in eval_args)
+        args = eval_args[-1].gencode(not_scope=True)
         R, fine = (a.sym.symbol for a in eval_args)
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
-        void restrict_kernel(%(args)s, const double *X, const double *Xc)
+        void restrict_kernel(double *R, %(args)s, const double *X, const double *Xc)
         {
             double Xref[%(tdim)d];
             int cell = -1;
