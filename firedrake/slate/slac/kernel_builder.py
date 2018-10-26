@@ -328,7 +328,7 @@ class LocalKernelBuilder(object):
 
     @cached_property
     def context_kernels(self):
-        """Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
+        r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form

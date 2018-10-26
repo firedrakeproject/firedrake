@@ -5,7 +5,7 @@ __all__ = ("PCDPC", )
 
 
 class PCDPC(PCBase):
-    """A Pressure-Convection-Diffusion preconditioner for Navier-Stokes.
+    r"""A Pressure-Convection-Diffusion preconditioner for Navier-Stokes.
 
     This preconditioner approximates the inverse of the pressure schur
     complement for the Navier-Stokes equations by.

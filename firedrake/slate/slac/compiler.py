@@ -51,8 +51,8 @@ cell_to_facets_dtype = np.dtype(np.int8)
 class SlateKernel(TSFCKernel):
     @classmethod
     def _cache_key(cls, expr, tsfc_parameters):
-        return md5((expr.expression_hash +
-                    str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+        return md5((expr.expression_hash
+                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
         if self._initialized:

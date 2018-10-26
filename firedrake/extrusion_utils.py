@@ -39,9 +39,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     height, and the current cell layer.
     """
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements()[0].sub_elements()
-    if kernel is None and not (vert_space.degree() == 1 and
-                               vert_space.family() in ['Lagrange',
-                                                       'Discontinuous Lagrange']):
+    if kernel is None and not (vert_space.degree() == 1
+                               and vert_space.family() in ['Lagrange',
+                                                           'Discontinuous Lagrange']):
         raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
     if kernel is not None:
         pass
@@ -174,9 +174,9 @@ def flat_entity_dofs(entity_dofs):
             # We pick up the DoFs from the bottom point,
             # then the DoFs from the interior of the interval,
             # then finally the DoFs from the top point.
-            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i] +
-                                      entity_dofs[(b, 1)][i] +
-                                      entity_dofs[(b, 0)][2*i+1])
+            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i]
+                                      + entity_dofs[(b, 1)][i]
+                                      + entity_dofs[(b, 0)][2*i+1])
     return flat_entity_dofs
 
 
