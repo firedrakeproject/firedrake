@@ -91,13 +91,13 @@ def test_betti1(space, mesh):
     W = V0*V1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v) +
-                  div(u)*div(v))*dx)
+    L = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
+                  + div(u)*div(v))*dx)
 
     bc0 = DirichletBC(W.sub(0), 0., 9)
     bc1 = DirichletBC(W.sub(1), Expression(("0.0", "0.0")), 9)
-    L0 = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v) +
-                   div(u)*div(v))*dx, bcs=[bc0, bc1])
+    L0 = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
+                   + div(u)*div(v))*dx, bcs=[bc0, bc1])
 
     dV0 = V0.dof_count
     dV1 = V1.dof_count

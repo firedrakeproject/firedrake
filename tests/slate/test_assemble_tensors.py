@@ -205,9 +205,9 @@ def test_matrix_subblocks(mesh):
     u, p, lambdar = TrialFunctions(W)
     w, q, gammar = TestFunctions(W)
 
-    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx +
-               lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS +
-               lambdar*gammar*ds)
+    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
+               + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
+               + lambdar*gammar*ds)
 
     # Test individual blocks
     indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]

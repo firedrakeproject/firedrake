@@ -638,7 +638,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
     return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix] +
-                            ["-I%s/include" % d for d in get_petsc_dir()],
+                                     "-I%s/include" % sys.prefix]
+                            + ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)

@@ -123,8 +123,8 @@ class HybridizationPC(PCBase):
         sigma = TrialFunctions(V_d)[self.vidx]
 
         if mesh.cell_set._extruded:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h +
-                     gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
+            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
+                     + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS)
 
