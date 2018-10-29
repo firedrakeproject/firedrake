@@ -19,8 +19,9 @@ def mesh(request):
 
 
 @pytest.fixture
-def pvd(tmpdir):
-    return File(str(tmpdir.join("foo.pvd")))
+def pvd(dumpdir):
+    f = join(dumpdir, "foo.pvd")
+    return File(f)
 
 
 def test_can_save_coordinates(mesh, pvd):
@@ -161,8 +162,3 @@ def test_restart_shorten(mesh, tmpdir):
     for i, ds in enumerate(datasets):
         assert ds.attrib["timestep"] == "%d" % i
         assert ds.attrib["file"] == "restart_%d.vtu" % i
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))
