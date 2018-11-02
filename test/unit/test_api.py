@@ -1115,8 +1115,8 @@ class TestSparsityAPI:
     def test_sparsity_single_dset(self, di, mi):
         "Sparsity constructor should accept single Map and turn it into tuple"
         s = op2.Sparsity(di, mi, "foo")
-        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) and
-                s.name == "foo" and s.dsets == (di, di))
+        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
+                and s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_set_not_dset(self, di, mi):
         "If we pass a Set, not a DataSet, it default to dimension 1."
@@ -1127,15 +1127,15 @@ class TestSparsityAPI:
     def test_sparsity_map_pair(self, di, mi):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, di), (mi, mi), "foo")
-        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) and
-                s.name == "foo" and s.dsets == (di, di))
+        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
+                and s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_map_pair_different_dataset(self, mi, md, di, dd, m_iterset_toset):
         """Sparsity can be built from different row and column maps as long as
         the tosets match the row and column DataSet."""
         s = op2.Sparsity((di, dd), (m_iterset_toset, md), "foo")
-        assert (s.maps[0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1) and
-                s.name == "foo" and s.dsets == (di, dd))
+        assert (s.maps[0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1)
+                and s.name == "foo" and s.dsets == (di, dd))
 
     def test_sparsity_unique_map_pairs(self, mi, di):
         "Sparsity constructor should filter duplicate tuples of pairs of maps."
@@ -1196,16 +1196,16 @@ class TestSparsityAPI:
                 block = ms[i, j]
                 # Indexing with a tuple and double index is equivalent
                 assert block == ms[i][j]
-                assert (block.dsets == (rds, cds) and
-                        block.maps == [(rm.split[i], cm.split[j])])
+                assert (block.dsets == (rds, cds)
+                        and block.maps == [(rm.split[i], cm.split[j])])
 
     def test_sparsity_mmap_getrow(self, ms):
         """Indexing a Sparsity with a single index should yield a row of
         blocks."""
         for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
             for j, (s, cds, cm) in enumerate(zip(ms[i], ms.dsets[1], ms.cmaps)):
-                assert (s.dsets == (rds, cds) and
-                        s.maps == [(rm.split[i], cm.split[j])])
+                assert (s.dsets == (rds, cds)
+                        and s.maps == [(rm.split[i], cm.split[j])])
 
     def test_sparsity_mmap_shape(self, ms):
         "Sparsity shape of should be the sizes of the mixed space."
@@ -1492,9 +1492,9 @@ class TestMapAPI:
     def test_map_properties(self, iterset, toset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'bar')
-        assert (m.iterset == iterset and m.toset == toset and m.arity == 2 and
-                m.arities == (2,) and m.arange == (0, 2) and
-                m.values.sum() == 2 * iterset.size and m.name == 'bar')
+        assert (m.iterset == iterset and m.toset == toset and m.arity == 2
+                and m.arities == (2,) and m.arange == (0, 2)
+                and m.values.sum() == 2 * iterset.size and m.name == 'bar')
 
     def test_map_indexing(self, m_iterset_toset):
         "Indexing a map should create an appropriate Arg"

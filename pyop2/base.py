@@ -141,7 +141,7 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def evaluate(self, reads=None, writes=None):
-        """Force the evaluation of delayed computation on which reads and writes
+        r"""Force the evaluation of delayed computation on which reads and writes
         depend.
 
         :arg reads: the :class:`DataCarrier`\s which you wish to read from.
@@ -315,13 +315,13 @@ class Arg(object):
         return id(self)
 
     def __eq__(self, other):
-        """:class:`Arg`\s compare equal of they are defined on the same data,
+        r""":class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
         return self._key == other._key
 
     def __ne__(self, other):
-        """:class:`Arg`\s compare equal of they are defined on the same data,
+        r""":class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
         return not self.__eq__(other)
@@ -896,8 +896,7 @@ class Subset(ExtrudedSet):
         self._superset = superset
         self._indices = verify_reshape(indices, IntType, (len(indices),))
 
-        if len(self._indices) > 0 and (self._indices[0] < 0 or
-                                       self._indices[-1] >= self._superset.total_size):
+        if len(self._indices) > 0 and (self._indices[0] < 0 or self._indices[-1] >= self._superset.total_size):
             raise SubsetIndexOutOfBounds(
                 'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
                 (self._indices[0], self._indices[-1], self._superset.total_size))
@@ -989,10 +988,10 @@ class SetPartition(object):
 
 
 class MixedSet(Set, ObjectCached):
-    """A container for a bag of :class:`Set`\s."""
+    r"""A container for a bag of :class:`Set`\s."""
 
     def __init__(self, sets):
-        """:param iterable sets: Iterable of :class:`Set`\s or :class:`ExtrudedSet`\s"""
+        r""":param iterable sets: Iterable of :class:`Set`\s or :class:`ExtrudedSet`\s"""
         if self._initialized:
             return
         self._sets = sets
@@ -1022,7 +1021,7 @@ class MixedSet(Set, ObjectCached):
 
     @cached_property
     def split(self):
-        """The underlying tuple of :class:`Set`\s."""
+        r"""The underlying tuple of :class:`Set`\s."""
         return self._sets
 
     @cached_property
@@ -1052,7 +1051,7 @@ class MixedSet(Set, ObjectCached):
 
     @cached_property
     def halo(self):
-        """:class:`Halo`\s associated with these :class:`Set`\s."""
+        r""":class:`Halo`\s associated with these :class:`Set`\s."""
         halos = tuple(s.halo for s in self._sets)
         return halos if any(halos) else None
 
@@ -1066,7 +1065,7 @@ class MixedSet(Set, ObjectCached):
         return self._sets[0].layers
 
     def __iter__(self):
-        """Yield all :class:`Set`\s when iterated over."""
+        r"""Yield all :class:`Set`\s when iterated over."""
         for s in self._sets:
             yield s
 
@@ -1241,7 +1240,7 @@ class GlobalDataSet(DataSet):
 
 
 class MixedDataSet(DataSet, ObjectCached):
-    """A container for a bag of :class:`DataSet`\s.
+    r"""A container for a bag of :class:`DataSet`\s.
 
     Initialized either from a :class:`MixedSet` and an iterable or iterator of
     ``dims`` of corresponding length ::
@@ -1272,7 +1271,7 @@ class MixedDataSet(DataSet, ObjectCached):
     """
 
     def __init__(self, arg, dims=None):
-        """
+        r"""
         :param arg:  a :class:`MixedSet` or an iterable or a generator
                      expression of :class:`Set`\s or :class:`DataSet`\s or a
                      mixture of both
@@ -1321,7 +1320,7 @@ class MixedDataSet(DataSet, ObjectCached):
 
     @cached_property
     def split(self):
-        """The underlying tuple of :class:`DataSet`\s."""
+        r"""The underlying tuple of :class:`DataSet`\s."""
         return self._dsets
 
     @cached_property
@@ -1347,7 +1346,7 @@ class MixedDataSet(DataSet, ObjectCached):
         return MixedSet(s.set for s in self._dsets)
 
     def __iter__(self):
-        """Yield all :class:`DataSet`\s when iterated over."""
+        r"""Yield all :class:`DataSet`\s when iterated over."""
         for ds in self._dsets:
             yield ds
 
@@ -1634,7 +1633,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
     @property
     @collective
     def data_with_halos(self):
-        """A view of this :class:`Dat`\s data.
+        r"""A view of this :class:`Dat`\s data.
 
         This accessor marks the :class:`Dat` as dirty, see
         :meth:`data` for more details on the semantics.
@@ -1672,7 +1671,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
     @property
     @collective
     def data_ro_with_halos(self):
-        """A view of this :class:`Dat`\s data.
+        r"""A view of this :class:`Dat`\s data.
 
         This accessor does not mark the :class:`Dat` as dirty, and is
         a read only view, see :meth:`data_ro` for more details on the
@@ -2122,7 +2121,7 @@ class DatView(Dat):
 
 
 class MixedDat(Dat):
-    """A container for a bag of :class:`Dat`\s.
+    r"""A container for a bag of :class:`Dat`\s.
 
     Initialized either from a :class:`MixedDataSet`, a :class:`MixedSet`, or
     an iterable of :class:`DataSet`\s and/or :class:`Set`\s, where all the
@@ -2164,12 +2163,12 @@ class MixedDat(Dat):
 
     @cached_property
     def split(self):
-        """The underlying tuple of :class:`Dat`\s."""
+        r"""The underlying tuple of :class:`Dat`\s."""
         return self._dats
 
     @cached_property
     def dataset(self):
-        """:class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
+        r""":class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
         return _make_object('MixedDataSet', tuple(s.dataset for s in self._dats))
 
     @cached_property
@@ -2274,24 +2273,24 @@ class MixedDat(Dat):
             s.copy(o)
 
     def __iter__(self):
-        """Yield all :class:`Dat`\s when iterated over."""
+        r"""Yield all :class:`Dat`\s when iterated over."""
         for d in self._dats:
             yield d
 
     def __len__(self):
-        """Return number of contained :class:`Dats`\s."""
+        r"""Return number of contained :class:`Dats`\s."""
         return len(self._dats)
 
     def __hash__(self):
         return hash(self._dats)
 
     def __eq__(self, other):
-        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        r""":class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
         are."""
         return type(self) == type(other) and self._dats == other._dats
 
     def __ne__(self, other):
-        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        r""":class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
         are."""
         return not self.__eq__(other)
 
@@ -2688,7 +2687,7 @@ property is `idx`.
 class _MapArg(object):
 
     def __init__(self, map, idx):
-        """
+        r"""
         Temporary :class:`Arg`-like object for :class:`Map`\s.
 
         :arg map: The :class:`Map`.
@@ -2802,7 +2801,7 @@ class Map(object):
 
     @cached_property
     def implicit_bcs(self):
-        """Return any implicit (extruded "top" or "bottom") bcs to
+        r"""Return any implicit (extruded "top" or "bottom") bcs to
         apply to this :class:`Map`. Normally empty except in the case of
         some :class:`DecoratedMap`\s."""
         return ()
@@ -2921,7 +2920,7 @@ class Map(object):
 
 
 class DecoratedMap(Map, ObjectCached):
-    """Augmented type for a map used for attaching extra information
+    r"""Augmented type for a map used for attaching extra information
     used to inform code generation and/or sparsity building about the
     implicit structure of the extruded :class:`Map`.
 
@@ -3020,10 +3019,10 @@ class DecoratedMap(Map, ObjectCached):
 
 
 class MixedMap(Map, ObjectCached):
-    """A container for a bag of :class:`Map`\s."""
+    r"""A container for a bag of :class:`Map`\s."""
 
     def __init__(self, maps):
-        """:param iterable maps: Iterable of :class:`Map`\s"""
+        r""":param iterable maps: Iterable of :class:`Map`\s"""
         if self._initialized:
             return
         self._maps = maps
@@ -3051,7 +3050,7 @@ class MixedMap(Map, ObjectCached):
 
     @cached_property
     def split(self):
-        """The underlying tuple of :class:`Map`\s."""
+        r"""The underlying tuple of :class:`Map`\s."""
         return self._maps
 
     @cached_property
@@ -3113,12 +3112,12 @@ class MixedMap(Map, ObjectCached):
         return tuple(0 if m is None else m.offset for m in self._maps)
 
     def __iter__(self):
-        """Yield all :class:`Map`\s when iterated over."""
+        r"""Yield all :class:`Map`\s when iterated over."""
         for m in self._maps:
             yield m
 
     def __len__(self):
-        """Number of contained :class:`Map`\s."""
+        r"""Number of contained :class:`Map`\s."""
         return len(self._maps)
 
     def __le__(self, o):
@@ -3148,7 +3147,7 @@ class Sparsity(ObjectCached):
     """
 
     def __init__(self, dsets, maps, name=None, nest=None, block_sparse=None):
-        """
+        r"""
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
         :param maps: :class:`Map`\s to build the :class:`Sparsity` from
@@ -3278,8 +3277,8 @@ class Sparsity(ObjectCached):
                         "Unpopulated map values when trying to build sparsity.")
             # Make sure that the "to" Set of each map in a pair is the set of
             # the corresponding DataSet set
-            if not (pair[0].toset == dsets[0].set and
-                    pair[1].toset == dsets[1].set):
+            if not (pair[0].toset == dsets[0].set
+                    and pair[1].toset == dsets[1].set):
                 raise RuntimeError("Map to set must be the same as corresponding DataSet set")
 
             # Each pair of maps must have the same from-set (iteration set)
@@ -3329,7 +3328,7 @@ class Sparsity(ObjectCached):
 
     @cached_property
     def dsets(self):
-        """A pair of :class:`DataSet`\s for the left and right function
+        r"""A pair of :class:`DataSet`\s for the left and right function
         spaces this :class:`Sparsity` maps between."""
         return self._dsets
 
@@ -3383,7 +3382,7 @@ class Sparsity(ObjectCached):
 
     @cached_property
     def nested(self):
-        """Whether a sparsity is monolithic (even if it has a block structure).
+        r"""Whether a sparsity is monolithic (even if it has a block structure).
 
         To elaborate, if a sparsity maps between
         :class:`MixedDataSet`\s, it can either be nested, in which
@@ -3401,7 +3400,7 @@ class Sparsity(ObjectCached):
         return self._name
 
     def __iter__(self):
-        """Iterate over all :class:`Sparsity`\s by row and then by column."""
+        r"""Iterate over all :class:`Sparsity`\s by row and then by column."""
         for row in self._blocks:
             for s in row:
                 yield s
@@ -3480,7 +3479,7 @@ class _LazyMatOp(LazyComputation):
 
 
 class Mat(DataCarrier):
-    """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
+    r"""OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
     When a ``Mat`` is passed to :func:`pyop2.op2.par_loop`, the maps via which
@@ -3720,9 +3719,9 @@ class Kernel(Cached):
         # HACK: Temporary fix!
         if isinstance(code, Node):
             code = code.gencode()
-        hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs) +
-                  str(headers) + version + str(configuration['loop_fusion']) +
-                  str(ldargs) + str(cpp))
+        hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs)
+                  + str(headers) + version + str(configuration['loop_fusion'])
+                  + str(ldargs) + str(cpp))
         return md5(hashee.encode()).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
@@ -4107,7 +4106,7 @@ class ParLoop(LazyComputation):
 
     @collective
     def update_arg_data_state(self):
-        """Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
+        r"""Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
 
         This marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
@@ -4200,7 +4199,7 @@ def check_iterset(args, iterset):
 
 @collective
 def par_loop(kernel, iterset, *args, **kwargs):
-    """Invocation of an OP2 kernel
+    r"""Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
     :arg iterset: The iteration :class:`Set` over which the kernel should be

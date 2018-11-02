@@ -88,12 +88,12 @@ def pytest_generate_tests(metafunc):
 
     lazy = []
     # Skip greedy execution by passing skip_greedy as a parameter
-    if not ('skip_greedy' in metafunc.fixturenames or
-            metafunc.config.option.lazy):
+    if not ('skip_greedy' in metafunc.fixturenames
+            or metafunc.config.option.lazy):
         lazy.append("greedy")
     # Skip lazy execution by passing skip_greedy as a parameter
-    if not ('skip_lazy' in metafunc.fixturenames or
-            metafunc.config.option.greedy):
+    if not ('skip_lazy' in metafunc.fixturenames
+            or metafunc.config.option.greedy):
         lazy.append("lazy")
     metafunc.parametrize('initializer', lazy, indirect=True)
 

@@ -211,8 +211,7 @@ def dat_c(dnode_set2):
     coords_dat = numpy.zeros(coords_size)
     count = 0
     for k in range(0, nums[0]):
-        coords_dat[count:count + layers *
-                   dofs[0][0]] = numpy.tile([0, 0], layers)
+        coords_dat[count:count + layers * dofs[0][0]] = numpy.tile([0, 0], layers)
         count += layers * dofs[0][0]
     return op2.Dat(dnode_set2, coords_dat, numpy.float64, "c")
 

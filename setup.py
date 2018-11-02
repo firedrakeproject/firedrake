@@ -158,7 +158,7 @@ setup(name='PyOP2',
       ext_modules=[Extension('pyop2.sparsity', sparsity_sources,
                              include_dirs=['pyop2'] + includes, language="c",
                              libraries=["petsc"],
-                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),
+                             extra_link_args=(["-L%s/lib" % d for d in petsc_dirs]
+                                              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs])),
                    Extension('pyop2.computeind', computeind_sources,
                              include_dirs=numpy_includes)])

@@ -539,8 +539,8 @@ def build_soft_fusion_kernel(loops, loop_chain_index):
             for symbol, _ in fuse_symbols[decl.sym.symbol]:
                 symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
         # 4) Concatenate bodies
-        base_fundecl.body.extend([ast.FlatBlock("\n\n// Fused kernel: \n\n")] +
-                                 [ast.Block(fuse_fundecl.body, open_scope=True)])
+        base_fundecl.body.extend([ast.FlatBlock("\n\n// Fused kernel: \n\n")]
+                                 + [ast.Block(fuse_fundecl.body, open_scope=True)])
 
     # Eliminate redundancies in the /fused/ kernel signature
     Filter().kernel_args(loops, base_fundecl)
@@ -769,8 +769,8 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
             fuse_funcall.children.append(fuse_funcall_sym)
 
     fused_headers = set([str(h) for h in base_headers + fuse_headers])
-    fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
-                         [base_fundecl, fuse_fundecl, fusion_fundecl])
+    fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers]
+                         + [base_fundecl, fuse_fundecl, fusion_fundecl])
 
     return Kernel([base, fuse], fused_ast, loop_chain_index), fargs
 

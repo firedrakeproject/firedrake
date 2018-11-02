@@ -378,7 +378,7 @@ class MixedDat(base.MixedDat):
 
     @contextmanager
     def vecscatter(self, access):
-        """A context manager scattering the arrays of all components of this
+        r"""A context manager scattering the arrays of all components of this
         :class:`MixedDat` into a contiguous :class:`PETSc.Vec` and reverse
         scattering to the original arrays when exiting the context.
 
@@ -748,8 +748,7 @@ class Mat(base.Mat):
         self._blocks = [[self]]
 
         rset, cset = self.sparsity.dsets
-        if (isinstance(rset, GlobalDataSet) or
-                isinstance(cset, GlobalDataSet)):
+        if (isinstance(rset, GlobalDataSet) or isinstance(cset, GlobalDataSet)):
             self._init_global_block()
             return
 
@@ -805,10 +804,8 @@ class Mat(base.Mat):
         """Initialise this block in the case where the matrix maps either
         to or from a :class:`Global`"""
 
-        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) and
-                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) and isinstance(self.sparsity._dsets[1], GlobalDataSet)):
             # In this case both row and column are a Global.
-
             mat = _GlobalMat(comm=self.comm)
         else:
             mat = _DatMat(self.sparsity)
@@ -944,9 +941,7 @@ class Mat(base.Mat):
         if self.nrows * self.ncols > 1000000:
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")
-        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
-           isinstance(self.sparsity._dsets[1], GlobalDataSet)):
-
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or isinstance(self.sparsity._dsets[1], GlobalDataSet)):
             return self.handle.getPythonContext()[:, :]
         else:
             return self.handle[:, :]

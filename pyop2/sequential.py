@@ -720,7 +720,7 @@ PetscErrorCode %(wrapper_name)s(int start,
     _extension = 'c'
 
     def __init__(self, kernel, iterset, *args, **kwargs):
-        """
+        r"""
         A cached compiled function to execute for a specified par_loop.
 
         See :func:`~.par_loop` for the description of arguments.

@@ -509,8 +509,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 prefetch_maps = flatten([j for j in pm if pm.index(j) % 2 == 0]
                                         for pm in prefetch_maps)
                 prefetch_maps = list(OrderedDict.fromkeys(prefetch_maps))
-                prefetch_maps = ';\n'.join([prefetch_var] +
-                                           [prefetch('&(%s)' % pm) for pm in prefetch_maps])
+                prefetch_maps = ';\n'.join([prefetch_var] + [prefetch('&(%s)' % pm) for pm in prefetch_maps])
                 prefetch_vecs = flatten(a.c_vec_entry('p', True) for a in args
                                         if a._is_indirect)
                 prefetch_vecs = ';\n'.join([prefetch(pv) for pv in prefetch_vecs])

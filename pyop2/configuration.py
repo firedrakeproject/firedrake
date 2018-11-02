@@ -40,7 +40,7 @@ from pyop2.exceptions import ConfigurationError
 
 
 class Configuration(dict):
-    """PyOP2 configuration parameters
+    r"""PyOP2 configuration parameters
 
     :param compiler: compiler identifier used by COFFEE (one of `gnu`, `intel`).
     :param simd_isa: Instruction set architecture (ISA) COFFEE is optimising

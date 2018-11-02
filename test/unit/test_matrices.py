@@ -877,9 +877,9 @@ class TestMixedMatrices:
                    [0.0, 4.0, 6.0, 0.0],
                    [0.0, 0.0, 9.0, 12.0]])
     # lower left block
-    ll = (np.diag([1.0, 8.0, 18.0, 16.0]) +
-          np.diag([2.0, 6.0, 12.0], -1) +
-          np.diag([2.0, 6.0, 12.0], 1))
+    ll = (np.diag([1.0, 8.0, 18.0, 16.0])
+          + np.diag([2.0, 6.0, 12.0], -1)
+          + np.diag([2.0, 6.0, 12.0], 1))
 
     @pytest.fixture
     def mat(self, msparsity, mmap, mdat):
