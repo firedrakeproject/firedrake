@@ -78,6 +78,12 @@ coverings that we fetch from the hierarchy.
     preallocator.assemble()
 
     dnnz, onnz = get_preallocation(preallocator, nrows[0])
+
+    # Unroll from block to AIJ
+    dnnz = dnnz * cset.cdim
+    dnnz = numpy.repeat(dnnz, rset.cdim)
+    onnz = onnz * cset.cdim
+    onnz = numpy.repeat(onnz, cset.cdim)
     preallocator.destroy()
 
     assert V_A.value_size == V_B.value_size
