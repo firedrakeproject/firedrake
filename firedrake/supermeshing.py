@@ -84,13 +84,16 @@ coverings that we fetch from the hierarchy.
     rdim = V_B.dof_dset.cdim
     cdim = V_A.dof_dset.cdim
 
+    #
+    # Preallocate M_AB.
+    #
     mat = PETSc.Mat().create(comm=mesh_A.comm)
     mat.setType(PETSc.Mat.Type.AIJ)
     rsizes = tuple(n * rdim for n in nrows)
     csizes = tuple(c * cdim for c in ncols)
     mat.setSizes(size=(rsizes, csizes),
-                 nnz=(dnnz, onnz),
                  bsize=(rdim, cdim))
+    mat.setPreallocationNNZ((dnnz, onnz))
     mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
     # TODO: Boundary conditions not handled.
     mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
@@ -99,10 +102,43 @@ coverings that we fetch from the hierarchy.
     mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
     mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
     mat.setUp()
-    return dnnz, onnz
-    #
-    # Preallocate M_AB.
-    #
+
+    vertices_A = mesh_A.coordinates.dat._data
+    vertex_map_A = mesh_A.coordinates.cell_node_map().values
+    vertices_B = mesh_B.coordinates.dat._data
+    vertex_map_B = mesh_B.coordinates.cell_node_map().values
+    # Magic number! 22 in 2D, 81 in 3D
+    # TODO: need to be careful in "complex" mode, libsupermesh needs real coordinates.
+    tris_C = numpy.empty((22, 3, 2), dtype=numpy.float64)
+    for cell_A in range(len(V_A.cell_node_map().values)):
+        for cell_B in likely(cell_A):
+            if cell_B >= mesh_B.cell_set.size:
+                # In halo region
+                continue
+            tri_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
+            tri_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
+            """
+            libsupermesh_intersect_tris_real(&tri_A[0], &tri_B[0], &tris_C[0], &ntris);
+            if (ntris == 0)
+                continue;
+            double MAB[NB][NA];
+            for (int c = 0; c < ntris; c++) {
+                cell_S = tris_C + c*6;
+                evaluate V_A at dofs(A) in cell_S;
+                assemble mass A-B on cell_S;
+                evaluate V_B at dofs(B) in cell_S;
+                for ( int i = 0; i < NB; i++ ) {
+                    for (int j = 0; j < NA; j++) {
+                        MAB[i][j] = 0;
+                        for ( int k = 0; k < NB; k++) {
+                            for ( int l = 0; l < NA; l++) {
+                                MAB[i][j] += R_BS[k][i] * M_SS[k][l] * R_AS[l][j];
+                            }
+                        }
+                    }
+                }
+            }
+            """
     # Compute M_AB:
     # For cell_A in mesh_A:
     #     For cell_B in likely(cell_A):
@@ -115,3 +151,5 @@ coverings that we fetch from the hierarchy.
     #             evaluate basis functions of cell_B at dofs(B) of cell_S -> R_BS matrix
     #             compute out = R_BS^T @ M_SS @ R_AS with dense matrix triple product
     #             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
+
+    return mat
