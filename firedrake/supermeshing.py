@@ -1,5 +1,9 @@
 # Code for projections and other fun stuff involving supermeshes.
 from firedrake.mg.utils import get_level
+from firedrake.petsc import PETSc
+import numpy
+from pyop2.datatypes import IntType, ScalarType
+from pyop2.sparsity import get_preallocation
 
 __all__ = ["assemble_mixed_mass_matrix"]
 
@@ -10,6 +14,8 @@ def assemble_mixed_mass_matrix(V_A, V_B):
     from V_B.
     """
 
+    if len(V_A) > 1 or len(V_B) > 1:
+        raise NotImplementedError("Sorry, only implemented for non-mixed spaces")
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
 
@@ -38,15 +44,62 @@ coverings that we fetch from the hierarchy.
     def likely(cell_A):
         return cell_map[cell_A]
 
-    for cell_A in range(mesh_A.num_cells()):
-        print("likely(%s) = %s" % (cell_A, likely(cell_A)))
+    # for cell_A in range(mesh_A.num_cells()):
+    #     print("likely(%s) = %s" % (cell_A, likely(cell_A)))
+
 
     # Preallocate sparsity pattern for mixed mass matrix from likely() function:
     # For each cell_A, find dofs_A.
-    # For each cell_B in likely(cell_B), 
+    #   For each cell_B in likely(cell_B), 
     #     Find dofs_B.
     #     For dof_B in dofs_B:
     #         nnz[dof_B] += len(dofs_A)
+    preallocator = PETSc.Mat().create(comm=mesh_A.comm)
+    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+
+    rset = V_B.dof_dset
+    cset = V_A.dof_dset
+
+    nrows = rset.layout_vec.getSizes()
+    ncols = cset.layout_vec.getSizes()
+
+    preallocator.setLGMap(rmap=rset.scalar_lgmap, cmap=cset.scalar_lgmap)
+    preallocator.setSizes(size=(nrows, ncols), bsize=1)
+    preallocator.setUp()
+
+    zeros = numpy.zeros((V_B.cell_node_map().arity, V_A.cell_node_map().arity), dtype=ScalarType)
+    for cell_A, dofs_A in enumerate(V_A.cell_node_map().values):
+        for cell_B in likely(cell_A):
+            if cell_B >= mesh_B.cell_set.size:
+                # In halo region
+                continue
+            dofs_B = V_B.cell_node_map().values[cell_B, :]
+            preallocator.setValuesLocal(dofs_B, dofs_A, zeros)
+    preallocator.assemble()
+
+    dnnz, onnz = get_preallocation(preallocator, nrows[0])
+    preallocator.destroy()
+
+    assert V_A.value_size == V_B.value_size
+    rdim = V_B.dof_dset.cdim
+    cdim = V_A.dof_dset.cdim
+
+    mat = PETSc.Mat().create(comm=mesh_A.comm)
+    mat.setType(PETSc.Mat.Type.AIJ)
+    rsizes = tuple(n * rdim for n in nrows)
+    csizes = tuple(c * cdim for c in ncols)
+    mat.setSizes(size=(rsizes, csizes),
+                 nnz=(dnnz, onnz),
+                 bsize=(rdim, cdim))
+    mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
+    # TODO: Boundary conditions not handled.
+    mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
+    mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
+    mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
+    mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
+    mat.setUp()
+    return dnnz, onnz
     #
     # Preallocate M_AB.
     #
