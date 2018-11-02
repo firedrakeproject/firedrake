@@ -96,7 +96,7 @@ cdef void restore_writeable(map, flag):
      map.values_with_halo.setflags(write=flag)
 
 
-cdef get_preallocation(PETSc.Mat preallocator, PetscInt nrow):
+def get_preallocation(PETSc.Mat preallocator, PetscInt nrow):
     cdef:
         _p_Mat *A = <_p_Mat *>(preallocator.mat)
         Mat_Preallocator *p = <Mat_Preallocator *>(A.data)
