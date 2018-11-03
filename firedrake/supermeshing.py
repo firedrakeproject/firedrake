@@ -1,9 +1,17 @@
 # Code for projections and other fun stuff involving supermeshes.
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.mg.kernels import to_reference_coordinates, compile_element
+from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
+from firedrake.functionspace import FunctionSpace
+import firedrake.mg.utils as utils
+import ufl
 import numpy
+from pyop2 import op2
 from pyop2.datatypes import IntType, ScalarType
 from pyop2.sparsity import get_preallocation
+from pyop2.compilation import load
 
 __all__ = ["assemble_mixed_mass_matrix"]
 
@@ -116,6 +124,105 @@ coverings that we fetch from the hierarchy.
     # Magic number! 22 in 2D, 81 in 3D
     # TODO: need to be careful in "complex" mode, libsupermesh needs real coordinates.
     tris_C = numpy.empty((22, 3, 2), dtype=numpy.float64)
+    ndofs_per_cell_A = V_A.cell_node_map().arity
+    ndofs_per_cell_B = V_B.cell_node_map().arity
+    outmat = numpy.empty((ndofs_per_cell_B, ndofs_per_cell_A), dtype=numpy.float64)
+    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), name="evaluate_kernel_A")
+    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), name="evaluate_kernel_B")
+
+    # We only need one of these since we assume that the two meshes both have CG1 coordinates
+    to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
+
+    reference_mesh = UnitTriangleMesh()
+    evaluate_kernel_S = compile_element(ufl.Coefficient(reference_mesh.coordinates.function_space()), name="evaluate_kernel_S")
+
+    node_locations_A = utils.physical_node_locations(FunctionSpace(reference_mesh, V_A.ufl_element())).dat.data
+    node_locations_B = utils.physical_node_locations(FunctionSpace(reference_mesh, V_B.ufl_element())).dat.data
+    num_nodes_A = node_locations_A.shape[0] 
+    num_nodes_B = node_locations_B.shape[0] 
+    node_locations_A = node_locations_A.flatten()
+    node_locations_B = node_locations_B.flatten()
+
+    supermesh_kernel_str = """
+    #include "libsupermesh-c.h"
+    %(evaluate_S)s
+    void print_array(double *arr, int d)
+    {
+        for(int j=0; j<d; j++)
+            printf("%%+.2f ", arr[j]);
+    }
+    void print_coordinates(double *tri, int d)
+    {
+        for(int i=0; i<d+1; i++)
+        {
+            printf("\t");
+            print_array(&tri[d*i], d);
+            printf("\\n");
+        }
+    }
+    int supermesh_kernel(double* tri_A, double* tri_B, double* tris_C, double* nodes_A, double* nodes_B, double* outmat)
+    {
+        int d = 2;
+        printf("tri_A coordinates\\n");
+        print_coordinates(tri_A, d);
+        printf("tri_B coordinates\\n");
+        print_coordinates(tri_B, d);
+        int num_elements;
+
+        libsupermesh_intersect_tris_real(tri_A, tri_B, tris_C, &num_elements);
+
+        printf("Supermesh consists of %%i elements\\n", num_elements);
+        for(int s=0; s<num_elements; s++)
+        {
+            double* tri_S = &tris_C[s * d * (d+1)];
+            printf("tri_S coordinates\\n");
+            print_coordinates(tri_S, d);
+
+            printf("Start mapping nodes for V_A\\n");
+            double physical_nodes_A[d*%(num_nodes_A)s];
+            for(int n=0; n < %(num_nodes_A)s; n++) {
+                double* reference_node_location = &nodes_A[n*d];
+                double* physical_node_location = &physical_nodes_A[n*d];
+                evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
+                printf("\\tNode ");
+                print_array(reference_node_location, d);
+                printf(" mapped to ");
+                print_array(physical_node_location, d);
+                printf("\\n");
+            }
+            printf("Start mapping nodes for V_B\\n");
+            double physical_nodes_B[d*%(num_nodes_B)s];
+            for(int n=0; n < %(num_nodes_B)s; n++) {
+                double* reference_node_location = &nodes_B[n*d];
+                double* physical_node_location = &physical_nodes_B[n*d];
+                evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
+                printf("\\tNode ");
+                print_array(reference_node_location, d);
+                printf(" mapped to ");
+                print_array(physical_node_location, d);
+                printf("\\n");
+            }
+            printf("==========================================================\\n");
+
+            // now evaluate basis functions at nodes_A and nodes_B
+        }
+        return num_elements;
+    }
+    """ % {
+        "evaluate_S": str(evaluate_kernel_S),
+        "num_nodes_A": num_nodes_A,
+        "num_nodes_B": num_nodes_B
+    }
+
+    import ctypes
+    include_path = "/home/wechsung/bin/firedrake/include"
+    lib_path = "/home/wechsung/bin/firedrake/lib"
+    lib = load(supermesh_kernel_str, "c", "supermesh_kernel",
+               cppargs=["-I" + include_path, "-v"],
+               ldargs=["-L" + lib_path, "-lsupermesh"],
+               argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
+               restype=ctypes.c_int)
+
     for cell_A in range(len(V_A.cell_node_map().values)):
         for cell_B in likely(cell_A):
             if cell_B >= mesh_B.cell_set.size:
@@ -123,6 +230,11 @@ coverings that we fetch from the hierarchy.
                 continue
             tri_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
             tri_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
+            print(lib(tri_A.ctypes.data, tri_B.ctypes.data, tris_C.ctypes.data,
+                      node_locations_A.ctypes.data, node_locations_B.ctypes.data,
+                      outmat.ctypes.data))
+            # import sys; sys.exit(1)
+
             """
             libsupermesh_intersect_tris_real(&tri_A[0], &tri_B[0], &tris_C[0], &ntris);
             if (ntris == 0)
