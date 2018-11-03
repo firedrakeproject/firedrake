@@ -215,11 +215,13 @@ coverings that we fetch from the hierarchy.
     }
 
     import ctypes
-    include_path = "/home/wechsung/bin/firedrake/include"
-    lib_path = "/home/wechsung/bin/firedrake/lib"
+    import os
+    venv_dir = os.environ["VIRTUAL_ENV"]
+    include_path = "%s/include" % venv_dir
+    lib_path = "%s/lib" % venv_dir
     lib = load(supermesh_kernel_str, "c", "supermesh_kernel",
                cppargs=["-I" + include_path, "-v"],
-               ldargs=["-L" + lib_path, "-lsupermesh"],
+               ldargs=["-L" + lib_path, "-lsupermesh", "-Wl,-rpath=" + lib_path],
                argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
                restype=ctypes.c_int)
 
