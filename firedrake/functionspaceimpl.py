@@ -514,6 +514,9 @@ class FunctionSpace(object):
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
 
+    def collapse(self):
+        return FunctionSpace(self.mesh(), self.ufl_element())
+
 
 class MixedFunctionSpace(object):
     r"""A function space on a mixed finite element.
