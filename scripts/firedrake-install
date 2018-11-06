@@ -523,7 +523,7 @@ def git_clone(url):
         log.info("Successfully cloned repository %s" % name)
     except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
-            log.warn("Failed to clone %s using ssh, falling back to https." % name)
+            log.warning("Failed to clone %s using ssh, falling back to https." % name)
         try:
             check_call(["git", "clone", "-q", git_url(plain_url, "https")])
             log.info("Successfully cloned repository %s." % name)
@@ -1063,7 +1063,7 @@ if mode == "install" or not args.update_script:
             log.info("* zlib")
 
     else:
-        log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+        log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
 if mode == "install":
@@ -1195,7 +1195,7 @@ else:
             git_update(p, deps.get(p, None))
         except OSError as e:
             if e.errno == 2:
-                log.warn("%s missing, cloning anew.\n" % p)
+                log.warning("%s missing, cloning anew.\n" % p)
                 git_clone(deps[p])
             else:
                 raise
