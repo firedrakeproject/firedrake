@@ -187,7 +187,7 @@ coverings that we fetch from the hierarchy.
             printf("\\n");
         }
     }
-    int supermesh_kernel(double* tri_A, double* tri_B, double* tris_C, double* nodes_A, double* nodes_B, double* M_SS, double* MAB)
+    int supermesh_kernel(double* tri_A, double* tri_B, double* tris_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
         int d = 2;
         printf("tri_A coordinates\\n");
@@ -210,6 +210,12 @@ coverings that we fetch from the hierarchy.
         libsupermesh_intersect_tris_real(tri_A, tri_B, tris_C, &num_elements);
 
         printf("Supermesh consists of %%i elements\\n", num_elements);
+
+        // would like to do this
+        //double MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (double (*)[%(num_nodes_B)s])outptr;
+        // but have to do this instead because we don't grok C
+        double (*MAB)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])outptr;
+        double (*MSS)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])M_SS; // note the underscore
 
         for(int s=0; s<num_elements; s++)
         {
@@ -285,10 +291,18 @@ coverings that we fetch from the hierarchy.
                 printf("\\n");
                 coeffs_B[i] = 0.;
             }
+            printf("Start doing the matmatmat mult\\n");
 
-
-
-            // now evaluate basis functions at nodes_A and nodes_B
+            for ( int i = 0; i < num_nodes_B; i++ ) {
+                for (int j = 0; j < num_nodes_A; j++) {
+                    MAB[i][j] = 0;
+                    for ( int k = 0; k < num_nodes_B; k++) {
+                        for ( int l = 0; l < num_nodes_A; l++) {
+                            MAB[i][j] += R_BS[k][i] * MSS[k][l] * R_AS[l][j];
+                        }
+                    }
+                }
+            }
         }
         return num_elements;
     }
@@ -321,9 +335,10 @@ coverings that we fetch from the hierarchy.
                 continue
             tri_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
             tri_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
-            print(lib(tri_A.ctypes.data, tri_B.ctypes.data, tris_C.ctypes.data,
+            lib(tri_A.ctypes.data, tri_B.ctypes.data, tris_C.ctypes.data,
                       node_locations_A.ctypes.data, node_locations_B.ctypes.data,
-                      M_SS.ctypes.data, outmat.ctypes.data))
+                      M_SS.ctypes.data, outmat.ctypes.data)
+            mat.setValues(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
             # import sys; sys.exit(1)
 
             """
@@ -361,4 +376,5 @@ coverings that we fetch from the hierarchy.
     #             compute out = R_BS^T @ M_SS @ R_AS with dense matrix triple product
     #             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
 
+    mat.assemble()
     return mat
