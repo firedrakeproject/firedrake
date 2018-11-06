@@ -515,6 +515,7 @@ class FunctionSpace(object):
         return self._shared_data.boundary_nodes(self, sub_domain, method)
 
     def collapse(self):
+        from firedrake import FunctionSpace
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
