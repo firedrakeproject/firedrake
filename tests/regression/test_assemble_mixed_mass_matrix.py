@@ -3,7 +3,7 @@ from firedrake.supermeshing import *
 
 def test_assemble_mixed_mass_matrix():
     base = UnitTriangleMesh()
-    mh = MeshHierarchy(base, 2)
+    mh = MeshHierarchy(base, 1)
     mesh_A = mh[-2]
     mesh_B = mh[-1]
 
