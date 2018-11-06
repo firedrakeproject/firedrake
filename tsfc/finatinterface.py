@@ -64,6 +64,7 @@ supported_elements = {
     "RTCF": None,
     "NCE": None,
     "NCF": None,
+    "Real": finat.DiscontinuousLagrange,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -103,6 +104,8 @@ def convert_finiteelement(element, **kwargs):
             raise ValueError("Quadrature scheme and degree must be specified!")
 
         return finat.QuadratureElement(cell, degree, scheme), set()
+    elif element.family() == "Bernstein":
+        return fiat_compat(element), set()
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":

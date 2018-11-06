@@ -35,6 +35,7 @@ __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
 supported_elements = {
     # These all map directly to FIAT elements
+    "Bernstein": FIAT.Bernstein,
     "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
     "Bubble": FIAT.Bubble,
