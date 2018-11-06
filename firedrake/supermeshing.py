@@ -51,7 +51,10 @@ each supermesh cell.
     (mh_A, level_A) = get_level(mesh_A)
     (mh_B, level_B) = get_level(mesh_B)
 
-    if mesh_A is not mesh_B:
+    if mesh_A is mesh_B:
+        def likely(cell_A):
+            return [cell_A]
+    else:
         if (mh_A is None or mh_B is None) or (mh_A is not mh_B):
             msg = """
 Sorry, only implemented for non-nested hierarchies for now. You need to
@@ -61,21 +64,18 @@ coverings that we fetch from the hierarchy.
 
             raise NotImplementedError(msg)
 
-    if abs(level_A - level_B) > 1:
-        raise NotImplementedError("Only works for transferring between adjacent levels for now.")
+        if abs(level_A - level_B) > 1:
+            raise NotImplementedError("Only works for transferring between adjacent levels for now.")
 
-    # What are the cells of B that (probably) intersect with a given cell in A?
-    if level_A > level_B:
-        cell_map = mh_A.fine_to_coarse_cells[level_A]
-        def likely(cell_A):
-            return cell_map[cell_A]
-    elif level_A < level_B:
-        cell_map = mh_A.coarse_to_fine_cells[level_A]
-        def likely(cell_A):
-            return cell_map[cell_A]
-    else:
-        def likely(cell_A):
-            return [cell_A]
+        # What are the cells of B that (probably) intersect with a given cell in A?
+        if level_A > level_B:
+            cell_map = mh_A.fine_to_coarse_cells[level_A]
+            def likely(cell_A):
+                return cell_map[cell_A]
+        elif level_A < level_B:
+            cell_map = mh_A.coarse_to_fine_cells[level_A]
+            def likely(cell_A):
+                return cell_map[cell_A]
 
 
     # for cell_A in range(mesh_A.num_cells()):
