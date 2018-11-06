@@ -149,7 +149,8 @@ coverings that we fetch from the hierarchy.
     vertex_map_B = mesh_B.coordinates.cell_node_map().values
     # Magic number! 22 in 2D, 81 in 3D
     # TODO: need to be careful in "complex" mode, libsupermesh needs real coordinates.
-    tris_C = numpy.empty((22, 3, 2), dtype=numpy.float64)
+    bufsize = {2: 22, 3: 81}[dim]
+    simplices_C = numpy.empty((bufsize, 3, 2), dtype=numpy.float64)
     ndofs_per_cell_A = V_A.cell_node_map().arity
     ndofs_per_cell_B = V_B.cell_node_map().arity
     outmat = numpy.empty((ndofs_per_cell_B, ndofs_per_cell_A), dtype=numpy.float64)
@@ -197,7 +198,7 @@ coverings that we fetch from the hierarchy.
             printf("\\n");
         }
     }
-    int supermesh_kernel(double* tri_A, double* tri_B, double* tris_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
+    int supermesh_kernel(double* tri_A, double* tri_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
         int d = %(dim)s;
         double tri_ref_measure;
@@ -221,7 +222,7 @@ coverings that we fetch from the hierarchy.
         double reference_nodes_A[num_nodes_A][d];
         double reference_nodes_B[num_nodes_B][d];
 
-        libsupermesh_intersect_tris_real(tri_A, tri_B, tris_C, &num_elements);
+        %(libsupermesh_intersect_simplices)s(tri_A, tri_B, simplices_C, &num_elements);
 
         printf("Supermesh consists of %%i elements\\n", num_elements);
 
@@ -239,7 +240,7 @@ coverings that we fetch from the hierarchy.
 
         for(int s=0; s<num_elements; s++)
         {
-            double* tri_S = &tris_C[s * d * (d+1)];
+            double* tri_S = &simplices_C[s * d * (d+1)];
             double tri_S_measure;
 
             %(libsupermesh_simplex_measure)s(tri_S, &tri_S_measure);
@@ -340,6 +341,7 @@ coverings that we fetch from the hierarchy.
         "value_size_A": V_A.value_size,
         "value_size_B": V_B.value_size,
         "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
+        "libsupermesh_intersect_simplices": "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real",
         "dim": dim
     }
 
@@ -361,7 +363,7 @@ coverings that we fetch from the hierarchy.
                 continue
             tri_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
             tri_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
-            lib(tri_A.ctypes.data, tri_B.ctypes.data, tris_C.ctypes.data,
+            lib(tri_A.ctypes.data, tri_B.ctypes.data, simplices_C.ctypes.data,
                       node_locations_A.ctypes.data, node_locations_B.ctypes.data,
                       M_SS.ctypes.data, outmat.ctypes.data)
             print("outmat:\n", outmat)
@@ -371,12 +373,12 @@ coverings that we fetch from the hierarchy.
             # import sys; sys.exit(1)
 
             """
-            libsupermesh_intersect_tris_real(&tri_A[0], &tri_B[0], &tris_C[0], &ntris);
-            if (ntris == 0)
+            libsupermesh_intersect_simplices_real(&tri_A[0], &tri_B[0], &simplices_C[0], &nsimplices);
+            if (nsimplices == 0)
                 continue;
             double MAB[NB][NA];
-            for (int c = 0; c < ntris; c++) {
-                cell_S = tris_C + c*6;
+            for (int c = 0; c < nsimplices; c++) {
+                cell_S = simplices_C + c*6;
                 evaluate V_A at dofs(A) in cell_S;
                 assemble mass A-B on cell_S;
                 evaluate V_B at dofs(B) in cell_S;
