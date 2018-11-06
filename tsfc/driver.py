@@ -10,7 +10,6 @@ from numpy import asarray
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
@@ -288,9 +287,6 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
 
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
-
-    # Change this before complex lands.
-    expression = remove_complex_nodes(expression)
 
     # Translate to GEM
     point_set = PointSet(points)
