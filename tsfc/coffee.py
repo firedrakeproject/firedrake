@@ -24,6 +24,7 @@ def generate(impero_c, index_names, precision, scalar_type, roots=(), argument_i
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
     :arg precision: floating-point precision for printing
+    :arg scalar_type: type of scalars as C typename string
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
     :arg argument_indices: argument indices for attaching
