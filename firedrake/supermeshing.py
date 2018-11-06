@@ -251,6 +251,7 @@ coverings that we fetch from the hierarchy.
             for(int n=0; n < num_nodes_A; n++) {
                 double* reference_node_location = &nodes_A[n*d];
                 double* physical_node_location = &physical_nodes_A[n];
+                for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
                 printf("\\tNode ");
                 print_array(reference_node_location, d);
@@ -263,6 +264,7 @@ coverings that we fetch from the hierarchy.
             for(int n=0; n < num_nodes_B; n++) {
                 double* reference_node_location = &nodes_B[n*d];
                 double* physical_node_location = &physical_nodes_B[n];
+                for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
                 printf("\\tNode ");
                 print_array(reference_node_location, d);
