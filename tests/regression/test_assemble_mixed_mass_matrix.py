@@ -3,14 +3,15 @@ from firedrake.supermeshing import *
 import numpy as np
 
 def test_assemble_mixed_mass_matrix():
-    base = UnitTriangleMesh()
+    #base = UnitTriangleMesh()
+    base = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(base, 1)
     mesh_A = mh[-2]
     mesh_B = mh[-2]
 
-    ele_A = FiniteElement("CG", base.ufl_cell(), 3)
+    ele_A = FiniteElement("CG", base.ufl_cell(), 2)
     V_A = FunctionSpace(mesh_A, ele_A)
-    ele_B = FiniteElement("CG", base.ufl_cell(), 2)
+    ele_B = FiniteElement("DG", base.ufl_cell(), 3)
     V_B = FunctionSpace(mesh_B, ele_B)
 
     M = assemble_mixed_mass_matrix(V_A, V_B)

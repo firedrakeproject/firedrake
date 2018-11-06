@@ -43,6 +43,11 @@ each supermesh cell.
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
 
+    dim = mesh_A.geometric_dimension()
+    assert dim == mesh_B.geometric_dimension()
+    assert dim == mesh_A.topological_dimension()
+    assert dim == mesh_B.topological_dimension()
+
     (mh_A, level_A) = get_level(mesh_A)
     (mh_B, level_B) = get_level(mesh_B)
 
@@ -62,11 +67,16 @@ coverings that we fetch from the hierarchy.
     # What are the cells of B that (probably) intersect with a given cell in A?
     if level_A > level_B:
         cell_map = mh_A.fine_to_coarse_cells[level_A]
-    else:
+        def likely(cell_A):
+            return cell_map[cell_A]
+    elif level_A < level_B:
         cell_map = mh_A.coarse_to_fine_cells[level_A]
+        def likely(cell_A):
+            return cell_map[cell_A]
+    else:
+        def likely(cell_A):
+            return [cell_A]
 
-    def likely(cell_A):
-        return cell_map[cell_A]
 
     # for cell_A in range(mesh_A.num_cells()):
     #     print("likely(%s) = %s" % (cell_A, likely(cell_A)))
@@ -189,12 +199,16 @@ coverings that we fetch from the hierarchy.
     }
     int supermesh_kernel(double* tri_A, double* tri_B, double* tris_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
-        int d = 2;
+        int d = %(dim)s;
+        double tri_ref_measure;
         printf("tri_A coordinates\\n");
         print_coordinates(tri_A, d);
         printf("tri_B coordinates\\n");
         print_coordinates(tri_B, d);
         int num_elements;
+
+        if (d == 2) tri_ref_measure = 0.5;
+        else if (d == 3) tri_ref_measure = 1.0/6;
 
         int num_nodes_A = %(num_nodes_A)s;
         int num_nodes_B = %(num_nodes_B)s;
@@ -217,10 +231,19 @@ coverings that we fetch from the hierarchy.
         double (*MAB)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])outptr;
         double (*MSS)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])M_SS; // note the underscore
 
+        for ( int i = 0; i < num_nodes_B; i++ ) {
+            for (int j = 0; j < num_nodes_A; j++) {
+                MAB[i][j] = 0;
+            }
+        }
+
         for(int s=0; s<num_elements; s++)
         {
             double* tri_S = &tris_C[s * d * (d+1)];
-            printf("tri_S coordinates\\n");
+            double tri_S_measure;
+
+            %(libsupermesh_simplex_measure)s(tri_S, &tri_S_measure);
+            printf("tri_S coordinates with measure %%f\\n", tri_S_measure);
             print_coordinates(tri_S, d);
 
             printf("Start mapping nodes for V_A\\n");
@@ -293,14 +316,11 @@ coverings that we fetch from the hierarchy.
             }
             printf("Start doing the matmatmat mult\\n");
 
-            // TODO: must scale the mass matrix with the Jacobian determinant
-
             for ( int i = 0; i < num_nodes_B; i++ ) {
                 for (int j = 0; j < num_nodes_A; j++) {
-                    MAB[i][j] = 0;
                     for ( int k = 0; k < num_nodes_B; k++) {
                         for ( int l = 0; l < num_nodes_A; l++) {
-                            MAB[i][j] += R_BS[i][k] * MSS[k][l] * R_AS[j][l];
+                            MAB[i][j] += (tri_S_measure/tri_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
                         }
                     }
                 }
@@ -316,7 +336,9 @@ coverings that we fetch from the hierarchy.
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
         "value_size_A": V_A.value_size,
-        "value_size_B": V_B.value_size
+        "value_size_B": V_B.value_size,
+        "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
+        "dim": dim
     }
 
     import ctypes
