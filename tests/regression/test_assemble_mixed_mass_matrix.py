@@ -3,12 +3,12 @@ from firedrake.supermeshing import *
 import numpy as np
 import pytest
 
-@pytest.fixture(params=[2])
+@pytest.fixture(params=[2, 3])
 def mesh(request):
     if request.param == 2:
         return UnitSquareMesh(2, 3)
     if request.param == 3:
-        return UnitTetrahedronMesh()
+        return UnitCubeMesh(3, 2, 1)
 
 @pytest.fixture(params=["CG", "DG"])
 def family_A(request):
@@ -50,6 +50,6 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
 
 if __name__ == "__main__":
     class ThereMustBeABetterWay(object):
-        param = 2
+        param = 3
 
     test_assemble_mixed_mass_matrix(mesh(ThereMustBeABetterWay()), "CG", "CG", 1, 1)

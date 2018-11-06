@@ -160,7 +160,10 @@ coverings that we fetch from the hierarchy.
     # We only need one of these since we assume that the two meshes both have CG1 coordinates
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
-    reference_mesh = UnitTriangleMesh(comm=COMM_SELF)
+    if dim == 2:
+        reference_mesh = UnitTriangleMesh(comm=COMM_SELF)
+    else:
+        reference_mesh = UnitTetrahedronMesh(comm=COMM_SELF)
     evaluate_kernel_S = compile_element(ufl.Coefficient(reference_mesh.coordinates.function_space()), name="evaluate_kernel_S")
 
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
@@ -189,27 +192,27 @@ coverings that we fetch from the hierarchy.
         for(int j=0; j<d; j++)
             printf("%%+.2f ", arr[j]);
     }
-    void print_coordinates(double *tri, int d)
+    void print_coordinates(double *simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
             printf("\t");
-            print_array(&tri[d*i], d);
+            print_array(&simplex[d*i], d);
             printf("\\n");
         }
     }
-    int supermesh_kernel(double* tri_A, double* tri_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
+    int supermesh_kernel(double* simplex_A, double* simplex_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
         int d = %(dim)s;
-        double tri_ref_measure;
-        printf("tri_A coordinates\\n");
-        print_coordinates(tri_A, d);
-        printf("tri_B coordinates\\n");
-        print_coordinates(tri_B, d);
+        double simplex_ref_measure;
+        printf("simplex_A coordinates\\n");
+        print_coordinates(simplex_A, d);
+        printf("simplex_B coordinates\\n");
+        print_coordinates(simplex_B, d);
         int num_elements;
 
-        if (d == 2) tri_ref_measure = 0.5;
-        else if (d == 3) tri_ref_measure = 1.0/6;
+        if (d == 2) simplex_ref_measure = 0.5;
+        else if (d == 3) simplex_ref_measure = 1.0/6;
 
         int num_nodes_A = %(num_nodes_A)s;
         int num_nodes_B = %(num_nodes_B)s;
@@ -222,7 +225,7 @@ coverings that we fetch from the hierarchy.
         double reference_nodes_A[num_nodes_A][d];
         double reference_nodes_B[num_nodes_B][d];
 
-        %(libsupermesh_intersect_simplices)s(tri_A, tri_B, simplices_C, &num_elements);
+        %(libsupermesh_intersect_simplices)s(simplex_A, simplex_B, simplices_C, &num_elements);
 
         printf("Supermesh consists of %%i elements\\n", num_elements);
 
@@ -240,12 +243,12 @@ coverings that we fetch from the hierarchy.
 
         for(int s=0; s<num_elements; s++)
         {
-            double* tri_S = &simplices_C[s * d * (d+1)];
-            double tri_S_measure;
+            double* simplex_S = &simplices_C[s * d * (d+1)];
+            double simplex_S_measure;
 
-            %(libsupermesh_simplex_measure)s(tri_S, &tri_S_measure);
-            printf("tri_S coordinates with measure %%f\\n", tri_S_measure);
-            print_coordinates(tri_S, d);
+            %(libsupermesh_simplex_measure)s(simplex_S, &simplex_S_measure);
+            printf("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
+            print_coordinates(simplex_S, d);
 
             printf("Start mapping nodes for V_A\\n");
             double physical_nodes_A[num_nodes_A][d];
@@ -253,7 +256,7 @@ coverings that we fetch from the hierarchy.
                 double* reference_node_location = &nodes_A[n*d];
                 double* physical_node_location = &physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
+                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 printf("\\tNode ");
                 print_array(reference_node_location, d);
                 printf(" mapped to ");
@@ -266,7 +269,7 @@ coverings that we fetch from the hierarchy.
                 double* reference_node_location = &nodes_B[n*d];
                 double* physical_node_location = &physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, tri_S, reference_node_location);
+                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 printf("\\tNode ");
                 print_array(reference_node_location, d);
                 printf(" mapped to ");
@@ -277,7 +280,7 @@ coverings that we fetch from the hierarchy.
             printf("Start pulling back dof from S into reference space for A.\\n");
             for(int n=0; n < num_nodes_A; n++) {
                 for(int i=0; i<d; i++) reference_nodes_A[n][i] = 0.;
-                to_reference_coords_kernel(reference_nodes_A[n], physical_nodes_A[n], tri_A);
+                to_reference_coords_kernel(reference_nodes_A[n], physical_nodes_A[n], simplex_A);
                 printf("Pulling back ");
                 print_array(physical_nodes_A[n], d);
                 printf(" to ");
@@ -287,7 +290,7 @@ coverings that we fetch from the hierarchy.
             printf("Start pulling back dof from S into reference space for B.\\n");
             for(int n=0; n < num_nodes_B; n++) {
                 for(int i=0; i<d; i++) reference_nodes_B[n][i] = 0.;
-                to_reference_coords_kernel(reference_nodes_B[n], physical_nodes_B[n], tri_B);
+                to_reference_coords_kernel(reference_nodes_B[n], physical_nodes_B[n], simplex_B);
                 printf("Pulling back ");
                 print_array(physical_nodes_B[n], d);
                 printf(" to ");
@@ -323,7 +326,7 @@ coverings that we fetch from the hierarchy.
                 for (int j = 0; j < num_nodes_A; j++) {
                     for ( int k = 0; k < num_nodes_B; k++) {
                         for ( int l = 0; l < num_nodes_A; l++) {
-                            MAB[i][j] += (tri_S_measure/tri_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
+                            MAB[i][j] += (simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
                         }
                     }
                 }
@@ -361,39 +364,16 @@ coverings that we fetch from the hierarchy.
             if cell_B >= mesh_B.cell_set.size:
                 # In halo region
                 continue
-            tri_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
-            tri_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
-            lib(tri_A.ctypes.data, tri_B.ctypes.data, simplices_C.ctypes.data,
+            simplex_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
+            simplex_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
+            lib(simplex_A.ctypes.data, simplex_B.ctypes.data, simplices_C.ctypes.data,
                       node_locations_A.ctypes.data, node_locations_B.ctypes.data,
                       M_SS.ctypes.data, outmat.ctypes.data)
             print("outmat:\n", outmat)
             print("dofs_A:\n", V_A.cell_node_list[cell_A])
             print("dofs_B:\n", V_B.cell_node_list[cell_B])
             mat.setValues(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
-            # import sys; sys.exit(1)
 
-            """
-            libsupermesh_intersect_simplices_real(&tri_A[0], &tri_B[0], &simplices_C[0], &nsimplices);
-            if (nsimplices == 0)
-                continue;
-            double MAB[NB][NA];
-            for (int c = 0; c < nsimplices; c++) {
-                cell_S = simplices_C + c*6;
-                evaluate V_A at dofs(A) in cell_S;
-                assemble mass A-B on cell_S;
-                evaluate V_B at dofs(B) in cell_S;
-                for ( int i = 0; i < NB; i++ ) {
-                    for (int j = 0; j < NA; j++) {
-                        MAB[i][j] = 0;
-                        for ( int k = 0; k < NB; k++) {
-                            for ( int l = 0; l < NA; l++) {
-                                MAB[i][j] += R_BS[k][i] * M_SS[k][l] * R_AS[l][j];
-                            }
-                        }
-                    }
-                }
-            }
-            """
     # Compute M_AB:
     # For cell_A in mesh_A:
     #     For cell_B in likely(cell_A):
