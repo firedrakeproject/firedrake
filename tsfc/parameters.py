@@ -14,18 +14,13 @@ PARAMETERS = {
     # that makes compilation time much shorter.
     "unroll_indexsum": 3,
 
+    # Scalar type (C typename string)
     "scalar_type": "double",
+
     # Precision of float printing (number of digits)
     "precision": numpy.finfo(numpy.dtype("double")).precision,
-
-    "scalar_type": "double"
 }
 
 
 def default_parameters():
     return PARAMETERS.copy()
-
-
-numpy_type_map = {"double": numpy.dtype("double"),
-                  "float": numpy.dtype("float32"),
-                  "double complex": numpy.dtype("complex128")}

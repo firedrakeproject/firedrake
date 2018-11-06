@@ -26,7 +26,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters, numpy_type_map
+from tsfc.parameters import default_parameters
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -128,7 +128,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       ufl_cell=cell,
                       integral_type=integral_type,
                       precision=parameters["precision"],
-                      numpy_type=numpy_type_map[parameters["scalar_type"]],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
@@ -303,7 +302,6 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
-                  numpy_type=numpy_type_map[parameters["scalar_type"]],
                   point_set=point_set)
     ir, = fem.compile_ufl(expression, point_sum=False, **config)
 

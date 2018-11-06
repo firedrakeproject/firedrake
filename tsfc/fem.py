@@ -53,7 +53,6 @@ class ContextBase(ProxyKernelInterface):
                 'integration_dim',
                 'entity_ids',
                 'precision',
-                'numpy_type',
                 'argument_multiindices',
                 'facetarea',
                 'index_cache')
@@ -383,7 +382,7 @@ def translate_reference_cell_edge_vectors(terminal, mt, ctx):
         raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
 
     nedges = len(fiat_cell.get_topology()[1])
-    vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(ctx["numpy_type"])
+    vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges)))
     assert vecs.shape == terminal.ufl_shape
     return gem.Literal(vecs)
 
