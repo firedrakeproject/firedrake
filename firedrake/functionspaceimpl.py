@@ -215,6 +215,9 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def collapse(self):
+        return type(self)(self.topological.collapse(), self.mesh())
+
 
 class FunctionSpace(object):
     r"""A representation of a function space.
