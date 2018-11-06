@@ -610,6 +610,18 @@ def pip_requirements(package):
             # FIXME: Horrible hack to work around
             # https://github.com/coin-or/pulp/issues/123
             run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
+        elif package == "pyadjoint":
+            with open("%s/requirements.txt" % package, "r") as f:
+                reqs = f.readlines()
+            for req in reqs:
+                req = req.strip()
+                try:
+                    run_pip_install([req])
+                except subprocess.CalledProcessError as e:
+                    if req == "tensorflow":
+                        log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
+                    else:
+                        raise e
         else:
             run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
