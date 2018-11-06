@@ -21,6 +21,9 @@ PARAMETERS = {
     "precision": numpy.finfo(numpy.dtype("double")).precision,
 }
 
+# Satisfy import demands until complex branch is merged in Firedrake
+SCALAR_TYPE = PARAMETERS["scalar_type"]
+
 
 def default_parameters():
     return PARAMETERS.copy()
