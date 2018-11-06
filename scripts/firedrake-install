@@ -68,6 +68,8 @@ def deep_update(this, that):
     return this
 
 
+invocation_directory = os.path.abspath(os.getcwd())
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
@@ -79,9 +81,10 @@ else:
 
 # Set up logging
 # Log to file at DEBUG level
+logfile = os.path.join(invocation_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)-6s %(message)s',
-                    filename='firedrake-%s.log' % mode,
+                    filename=logfile,
                     filemode='w')
 # Log to console at INFO level
 console = logging.StreamHandler()
@@ -348,7 +351,7 @@ where shortname is one of the names given below:
 
 @atexit.register
 def print_log_location():
-    log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
+    log.info("\n\n%s log saved in %s" % (mode.capitalize(), logfile))
 
 
 class directory(object):
