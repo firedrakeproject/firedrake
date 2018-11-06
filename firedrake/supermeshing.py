@@ -293,12 +293,14 @@ coverings that we fetch from the hierarchy.
             }
             printf("Start doing the matmatmat mult\\n");
 
+            // TODO: must scale the mass matrix with the Jacobian determinant
+
             for ( int i = 0; i < num_nodes_B; i++ ) {
                 for (int j = 0; j < num_nodes_A; j++) {
                     MAB[i][j] = 0;
                     for ( int k = 0; k < num_nodes_B; k++) {
                         for ( int l = 0; l < num_nodes_A; l++) {
-                            MAB[i][j] += R_BS[k][i] * MSS[k][l] * R_AS[l][j];
+                            MAB[i][j] += R_BS[i][k] * MSS[k][l] * R_AS[j][l];
                         }
                     }
                 }
@@ -338,6 +340,9 @@ coverings that we fetch from the hierarchy.
             lib(tri_A.ctypes.data, tri_B.ctypes.data, tris_C.ctypes.data,
                       node_locations_A.ctypes.data, node_locations_B.ctypes.data,
                       M_SS.ctypes.data, outmat.ctypes.data)
+            print("outmat:\n", outmat)
+            print("dofs_A:\n", V_A.cell_node_list[cell_A])
+            print("dofs_B:\n", V_B.cell_node_list[cell_B])
             mat.setValues(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
             # import sys; sys.exit(1)
 

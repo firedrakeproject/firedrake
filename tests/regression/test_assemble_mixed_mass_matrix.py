@@ -8,7 +8,7 @@ def test_assemble_mixed_mass_matrix():
     mesh_A = mh[-2]
     mesh_B = mh[-2]
 
-    ele_A = FiniteElement("CG", base.ufl_cell(), 2)
+    ele_A = FiniteElement("CG", base.ufl_cell(), 3)
     V_A = FunctionSpace(mesh_A, ele_A)
     ele_B = FiniteElement("CG", base.ufl_cell(), 2)
     V_B = FunctionSpace(mesh_B, ele_B)
