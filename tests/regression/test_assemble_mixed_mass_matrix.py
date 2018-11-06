@@ -44,8 +44,12 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
     M_ex = assemble(inner(TrialFunction(V_A), TestFunction(V_B)) * dx)
     M_ex.force_evaluation()
     M_ex = M_ex.M.handle[:,:]
+    print("M_ex: \n", M_ex)
+    print("M: \n", M)
     assert np.allclose(M_ex, M)
 
 if __name__ == "__main__":
-    #test_assemble_mixed_mass_matrix()
-    pass
+    class ThereMustBeABetterWay(object):
+        param = 2
+
+    test_assemble_mixed_mass_matrix(mesh(ThereMustBeABetterWay()), "CG", "CG", 1, 1)
