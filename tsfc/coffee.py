@@ -239,56 +239,86 @@ def _expression_division(expr, parameters):
                         for c in expr.children])
 
 
+# Table of handled math functions in real and complex modes
+# Copied from FFCX (ffc/language/ufl_to_cnodes.py)
+math_table = {
+    'sqrt': ('sqrt', 'csqrt'),
+    'abs': ('fabs', 'cabs'),
+    'cos': ('cos', 'ccos'),
+    'sin': ('sin', 'csin'),
+    'tan': ('tan', 'ctan'),
+    'acos': ('acos', 'cacos'),
+    'asin': ('asin', 'casin'),
+    'atan': ('atan', 'catan'),
+    'cosh': ('cosh', 'ccosh'),
+    'sinh': ('sinh', 'csinh'),
+    'tanh': ('tanh', 'ctanh'),
+    'acosh': ('acosh', 'cacosh'),
+    'asinh': ('asinh', 'casinh'),
+    'atanh': ('atanh', 'catanh'),
+    'power': ('pow', 'cpow'),
+    'exp': ('exp', 'cexp'),
+    'ln': ('log', 'clog'),
+    'real': (None, 'creal'),
+    'imag': (None, 'cimag'),
+    'conj': (None, 'conj'),
+    'erf': ('erf', None),
+    'atan_2': ('atan2', None),
+    'min_value': ('fmin', None),
+    'max_value': ('fmax', None)
+}
+
+
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    if is_complex(parameters.scalar_type):
-        return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
-    else:
-        return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
+    complex_mode = int(is_complex(parameters.scalar_type))
+    return coffee.FunCall(math_table['power'][complex_mode],
+                          expression(base, parameters),
+                          expression(exponent, parameters))
 
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
-    name_map = {
-        'abs': 'fabs',
-        'ln': 'log',
+    complex_mode = int(is_complex(parameters.scalar_type))
 
-        # Bessel functions
-        'cyl_bessel_j': 'jn',
-        'cyl_bessel_y': 'yn',
+    # Bessel functions
+    if expr.name.startswith('cyl_bessel_'):
+        if complex_mode:
+            msg = "Bessel functions for complex numbers: missing implementation"
+            raise NotImplementedError(msg)
+        nu, arg = expr.children
+        nu_thunk = lambda: expression(nu, parameters)
+        arg_coffee = expression(arg, parameters)
+        if expr.name == 'cyl_bessel_j':
+            if nu == gem.Zero():
+                return coffee.FunCall('j0', arg_coffee)
+            elif nu == gem.one:
+                return coffee.FunCall('j1', arg_coffee)
+            else:
+                return coffee.FunCall('jn', nu_thunk(), arg_coffee)
+        if expr.name == 'cyl_bessel_y':
+            if nu == gem.Zero():
+                return coffee.FunCall('y0', arg_coffee)
+            elif nu == gem.one:
+                return coffee.FunCall('y1', arg_coffee)
+            else:
+                return coffee.FunCall('yn', nu_thunk(), arg_coffee)
 
         # Modified Bessel functions (C++ only)
         #
         # These mappings work for FEniCS only, and fail with Firedrake
         # since no Boost available.
-        'cyl_bessel_i': 'boost::math::cyl_bessel_i',
-        'cyl_bessel_k': 'boost::math::cyl_bessel_k',
-    }
-    complex_name_map = {
-        'ln': 'clog',
-        'conj': 'conj'
-        # TODO: Are there different complex Bessel Functions?
-    }
-    if is_complex(parameters.scalar_type):
-        name = complex_name_map.get(expr.name, expr.name)
-        if name in {'sin', 'cos', 'tan', 'sqrt', 'exp', 'abs', 'sinh', 'cosh', 'tanh',
-                    'sinh', 'acos', 'asin', 'atan', 'real', 'imag'}:
-            name = 'c' + expr.name
-    else:
-        name = name_map.get(expr.name, expr.name)
-    if name == 'jn':
-        nu, arg = expr.children
-        if nu == gem.Zero():
-            return coffee.FunCall('j0', expression(arg, parameters))
-        elif nu == gem.one:
-            return coffee.FunCall('j1', expression(arg, parameters))
-    if name == 'yn':
-        nu, arg = expr.children
-        if nu == gem.Zero():
-            return coffee.FunCall('y0', expression(arg, parameters))
-        elif nu == gem.one:
-            return coffee.FunCall('y1', expression(arg, parameters))
+        if expr.name in ['cyl_bessel_i', 'cyl_bessel_k']:
+            name = 'boost::math::' + expr.name
+            return coffee.FunCall(name, nu_thunk(), arg_coffee)
+
+        assert False, "Unknown Bessel function: {}".format(expr.name)
+
+    # Other math functions
+    name = math_table[expr.name][complex_mode]
+    if name is None:
+        raise RuntimeError("{} not supported in complex mode".format(expr.name))
     return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
 
