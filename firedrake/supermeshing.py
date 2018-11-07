@@ -7,6 +7,8 @@ from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
 from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
 from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.solving import solve
+from firedrake.slate.slate import Tensor
 import firedrake.mg.utils as utils
 import ufl
 from ufl import inner, dx
@@ -17,7 +19,7 @@ from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 
-__all__ = ["assemble_mixed_mass_matrix"]
+__all__ = ["assemble_mixed_mass_matrix", "galerkin_projection"]
 
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
@@ -389,3 +391,33 @@ coverings that we fetch from the hierarchy.
 
     mat.assemble()
     return mat
+
+def galerkin_projection(f_A, V_B, mixed_mass_matrix=None, solver_parameters=None):
+
+    V_A = f_A.function_space()
+
+    if mixed_mass_matrix is None:
+        mixed_mass_matrix = assemble_mixed_mass_matrix(V_A, V_B)
+
+    f_B = Function(V_B, name=f_A.name())
+    rhs_B = Function(V_B)
+
+    with f_A.dat.vec_ro as u, rhs_B.dat.vec_wo as v:
+        mixed_mass_matrix.mult(u, v)
+
+    if solver_parameters is None:
+        solver_parameters = {"mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps"}
+
+    is_DG = V_A.ufl_element().family() == "Discontinuous Lagrange"
+
+    u = TrialFunction(V_B)
+    v = TestFunction(V_B)
+    if is_DG:
+        mass_B_inv = assemble(Tensor(inner(u, v)*dx).inv)
+        with f_B.dat.vec_wo as u, rhs_B.dat.vec_ro as v:
+            mass_B_inv.M.handle.mult(v, u)
+    else:
+        mass_B = assemble(inner(u, v)*dx)
+        solve(mass_B, f_B, rhs_B, solver_parameters=solver_parameters)
+
+    return f_B
