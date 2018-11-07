@@ -39,6 +39,7 @@ from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
+from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             entity_avg, one_times, simplify_abs,
                             preprocess_expression)
@@ -74,6 +75,8 @@ class ContextBase(ProxyKernelInterface):
         return self.fiat_cell.get_dimension()
 
     entity_ids = [0]
+
+    precision = PARAMETERS["precision"]
 
     @cached_property
     def epsilon(self):
