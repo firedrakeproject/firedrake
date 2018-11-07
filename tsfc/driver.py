@@ -26,7 +26,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters
+from tsfc.parameters import default_parameters, is_complex
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -43,11 +43,16 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
-    # determine if we're in complex mode; coffee mode does not support complex
-    complx = parameters and "scalar_type" in parameters and 'complex' in parameters["scalar_type"]
-    if complx:
+    # Determine whether in complex mode:
+    # complex nodes would break the refactoriser.
+    complex_mode = parameters and is_complex(parameters.get("scalar_type"))
+    if complex_mode:
+        logger.warning("Disabling whole expression optimisations"
+                       " in GEM for supporting complex mode.")
+        parameters = parameters.copy()
         parameters["mode"] = 'vanilla'
-    fd = ufl_utils.compute_form_data(form, complex_mode=complx)
+
+    fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []
@@ -272,11 +277,12 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
-    # determine if we're in complex mode
-    complx = parameters["scalar_type"] == 'double complex'
+    # Determine whether in complex mode
+    complex_mode = is_complex(parameters["scalar_type"])
 
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression, complex_mode=complx)
+    expression = ufl_utils.preprocess_expression(expression,
+                                                 complex_mode=complex_mode)
 
     # Initialise kernel builder
     builder = firedrake_interface.ExpressionKernelBuilder(parameters["scalar_type"])

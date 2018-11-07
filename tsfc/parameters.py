@@ -24,3 +24,8 @@ PARAMETERS = {
 
 def default_parameters():
     return PARAMETERS.copy()
+
+
+def is_complex(scalar_type):
+    """Decides complex mode based on scalar type."""
+    return scalar_type and 'complex' in scalar_type

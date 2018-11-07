@@ -13,6 +13,8 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
+from tsfc.parameters import is_complex
+
 
 class Bunch(object):
     pass
@@ -237,7 +239,7 @@ def _expression_division(expr, parameters):
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    if parameters.scalar_type is 'double complex':
+    if is_complex(parameters.scalar_type):
         return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
     else:
         return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
@@ -265,7 +267,7 @@ def _expression_mathfunction(expr, parameters):
         'conj': 'conj'
         # TODO: Are there different complex Bessel Functions?
     }
-    if parameters.scalar_type == 'double complex':
+    if is_complex(parameters.scalar_type):
         name = complex_name_map.get(expr.name, expr.name)
         if name in {'sin', 'cos', 'tan', 'sqrt', 'exp', 'abs', 'sinh', 'cosh', 'tanh',
                     'sinh', 'acos', 'asin', 'atan', 'real', 'imag'}:
