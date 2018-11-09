@@ -122,7 +122,7 @@ def compilation_comm(comm):
     import tempfile
     if comm.rank == 0:
         if not os.path.exists(configuration["cache_dir"]):
-            os.makedirs(configuration["cache_dir"])
+            os.makedirs(configuration["cache_dir"], exist_ok=True)
         tmpname = tempfile.mkdtemp(prefix="rank-determination-",
                                    dir=configuration["cache_dir"])
     else:
@@ -236,7 +236,7 @@ class Compiler(object):
                 srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
                 if self.comm.rank == 0:
                     if not os.path.exists(output):
-                        os.makedirs(output)
+                        os.makedirs(output, exist_ok=True)
                 self.comm.barrier()
                 with open(srcfile, "w") as f:
                     f.write(src)
@@ -250,7 +250,7 @@ class Compiler(object):
             if self.comm.rank == 0:
                 # No need to do this on all ranks
                 if not os.path.exists(cachedir):
-                    os.makedirs(cachedir)
+                    os.makedirs(cachedir, exist_ok=True)
                 logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
