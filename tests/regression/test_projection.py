@@ -128,13 +128,13 @@ def test_project_mismatched_rank():
     u = Function(U)
     ev = Expression('x[0]')
     eu = Expression(('x[0]', 'x[1]'))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(ev, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(eu, V)
 
 
@@ -148,10 +148,10 @@ def test_project_mismatched_mesh():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 
@@ -164,10 +164,10 @@ def test_project_mismatched_shape():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 
@@ -238,8 +238,8 @@ def test_projector_expression():
     V = FunctionSpace(mesh, "CG", 1)
     vo = Function(V)
     expr = Expression("1")
-    with pytest.raises(ValueError):
-        Projector(expr, vo)
+    Projector(expr, vo)
+    assert np.allclose(vo.dat.data_ro, 1.0)
 
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
