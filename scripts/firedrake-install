@@ -796,6 +796,36 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
+def build_and_install_libsupermesh():
+    log.info("Installing libsupermesh")
+    url = "git+https://bitbucket.org/libsupermesh/libsupermesh.git"
+    if os.path.exists("libsupermesh"):
+        log.info("Updating the git repository for libsupermesh")
+        with directory("libsupermesh"):
+            check_call(["git", "fetch"])
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
+            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            changed = git_sha != git_sha_new
+            if changed:
+                check_call(["git", "reset", "--hard"])
+                check_call(["git", "pull"])
+    else:
+        git_clone(url)
+        changed = True
+    if changed:
+        with directory("libsupermesh"):
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            check_call(["mkdir", "-p", "build"])
+            with directory("build"):
+                check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env])
+                check_call(["make"])
+                check_call(["make", "install"])
+    else:
+        log.info("No need to rebuild libsupermesh")
+
+
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -1140,6 +1170,7 @@ if mode == "install":
 
     build_and_install_h5py()
     build_and_install_libspatialindex()
+    build_and_install_libsupermesh()
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
@@ -1220,6 +1251,7 @@ else:
     # Always rebuild h5py.
     build_and_install_h5py()
     build_and_install_libspatialindex()
+    build_and_install_libsupermesh()
 
     try:
         packages.remove("PyOP2")
