@@ -26,25 +26,20 @@ class BlockMatrix(object):
     def __init__(self, mat, dimension):
         self.mat = mat
         self.dimension = dimension
-        row_ises = []
-        rows, cols = mat.getLocalSize()
-        col_ises = []
-        for i in range(dimension):
-            start = i
-            stride = dimension
-            row_ises.append(PETSc.IS().createStride(rows, start, stride, comm=mat.comm))
-            col_ises.append(PETSc.IS().createStride(cols, start, stride, comm=mat.comm))
-        self.row_ises = tuple(row_ises)
-        self.col_ises = tuple(col_ises)
 
     def mult(self, mat, x, y):
-        for row_is, col_is in zip(self.row_ises, self.col_ises):
-            xi = x.getSubVector(col_is)
-            yi = y.getSubVector(row_is)
-            self.mat.mult(xi, yi)
-            x.restoreSubVector(col_is, xi)
-            y.restoreSubVector(row_is, yi)
+        sizes = self.mat.getSizes()
 
+        for i in range(self.dimension):
+            start = i
+            stride = self.dimension
+
+            xa = x.array_r[start::stride]
+            ya = y.array_r[start::stride]
+            xi = PETSc.Vec().createWithArray(xa, size=sizes[1], comm=x.comm)
+            yi = PETSc.Vec().createWithArray(ya, size=sizes[0], comm=y.comm)
+            self.mat.mult(xi, yi)
+            y.array[start::stride] = yi.array_r
 
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
