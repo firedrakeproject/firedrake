@@ -44,6 +44,27 @@ class Mixin(object):
     def division(self, o, numerator, denominator):
         return Division(numerator, denominator)
 
+    def real(self, o, expr):
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(MathFunction('real', Indexed(expr, indices)), indices)
+        else:
+            return MathFunction('real', expr)
+
+    def imag(self, o, expr):
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(MathFunction('imag', Indexed(expr, indices)), indices)
+        else:
+            return MathFunction('imag', expr)
+
+    def conj(self, o, expr):
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(MathFunction('conj', Indexed(expr, indices)), indices)
+        else:
+            return MathFunction('conj', expr)
+
     def abs(self, o, expr):
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))

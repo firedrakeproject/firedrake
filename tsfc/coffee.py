@@ -3,8 +3,8 @@
 This is the final stage of code generation in TSFC."""
 
 from collections import defaultdict
+from cmath import isnan
 from functools import singledispatch, reduce
-from math import isnan
 import itertools
 
 import numpy
@@ -13,6 +13,9 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
+from tsfc.parameters import is_complex
+
+# Satisfy import demands until complex branch is merged in Firedrake
 from tsfc.parameters import SCALAR_TYPE
 
 
@@ -20,12 +23,13 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
+def generate(impero_c, index_names, precision, scalar_type=None, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
     :arg precision: floating-point precision for printing
+    :arg scalar_type: type of scalars as C typename string
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
     :arg argument_indices: argument indices for attaching
@@ -40,6 +44,7 @@ def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
     params.epsilon = 10.0 * eval("1e-%d" % precision)
     params.roots = roots
     params.argument_indices = argument_indices
+    params.scalar_type = scalar_type or SCALAR_TYPE
 
     params.names = {}
     for i, temp in enumerate(impero_c.temporaries):
@@ -108,7 +113,7 @@ def statement_block(tree, parameters):
     statements = [statement(child, parameters) for child in tree.children]
     declares = []
     for expr in parameters.declare[tree]:
-        declares.append(coffee.Decl(SCALAR_TYPE, _decl_symbol(expr, parameters)))
+        declares.append(coffee.Decl(parameters.scalar_type, _decl_symbol(expr, parameters)))
     return coffee.Block(declares + statements, open_scope=True)
 
 
@@ -132,7 +137,7 @@ def statement_for(tree, parameters):
 @statement.register(imp.Initialise)
 def statement_initialise(leaf, parameters):
     if parameters.declare[leaf]:
-        return coffee.Decl(SCALAR_TYPE, _decl_symbol(leaf.indexsum, parameters), 0.0)
+        return coffee.Decl(parameters.scalar_type, _decl_symbol(leaf.indexsum, parameters), 0.0)
     else:
         return coffee.Assign(_ref_symbol(leaf.indexsum, parameters), 0.0)
 
@@ -167,7 +172,7 @@ def statement_evaluate(leaf, parameters):
     if isinstance(expr, gem.ListTensor):
         if parameters.declare[leaf]:
             array_expression = numpy.vectorize(lambda v: expression(v, parameters))
-            return coffee.Decl(SCALAR_TYPE,
+            return coffee.Decl(parameters.scalar_type,
                                _decl_symbol(expr, parameters),
                                coffee.ArrayInit(array_expression(expr.array),
                                                 precision=parameters.precision))
@@ -179,14 +184,14 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
-        return coffee.Decl(SCALAR_TYPE,
+        return coffee.Decl(parameters.scalar_type,
                            _decl_symbol(expr, parameters),
                            coffee.ArrayInit(expr.array, parameters.precision),
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
         if parameters.declare[leaf]:
-            return coffee.Decl(SCALAR_TYPE, _decl_symbol(expr, parameters), code)
+            return coffee.Decl(parameters.scalar_type, _decl_symbol(expr, parameters), code)
         else:
             return coffee.Assign(_ref_symbol(expr, parameters), code)
 
@@ -234,42 +239,86 @@ def _expression_division(expr, parameters):
                         for c in expr.children])
 
 
+# Table of handled math functions in real and complex modes
+# Copied from FFCX (ffc/language/ufl_to_cnodes.py)
+math_table = {
+    'sqrt': ('sqrt', 'csqrt'),
+    'abs': ('fabs', 'cabs'),
+    'cos': ('cos', 'ccos'),
+    'sin': ('sin', 'csin'),
+    'tan': ('tan', 'ctan'),
+    'acos': ('acos', 'cacos'),
+    'asin': ('asin', 'casin'),
+    'atan': ('atan', 'catan'),
+    'cosh': ('cosh', 'ccosh'),
+    'sinh': ('sinh', 'csinh'),
+    'tanh': ('tanh', 'ctanh'),
+    'acosh': ('acosh', 'cacosh'),
+    'asinh': ('asinh', 'casinh'),
+    'atanh': ('atanh', 'catanh'),
+    'power': ('pow', 'cpow'),
+    'exp': ('exp', 'cexp'),
+    'ln': ('log', 'clog'),
+    'real': (None, 'creal'),
+    'imag': (None, 'cimag'),
+    'conj': (None, 'conj'),
+    'erf': ('erf', None),
+    'atan_2': ('atan2', None),
+    'min_value': ('fmin', None),
+    'max_value': ('fmax', None)
+}
+
+
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
+    complex_mode = int(is_complex(parameters.scalar_type))
+    return coffee.FunCall(math_table['power'][complex_mode],
+                          expression(base, parameters),
+                          expression(exponent, parameters))
 
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
-    name_map = {
-        'abs': 'fabs',
-        'ln': 'log',
+    complex_mode = int(is_complex(parameters.scalar_type))
 
-        # Bessel functions
-        'cyl_bessel_j': 'jn',
-        'cyl_bessel_y': 'yn',
+    # Bessel functions
+    if expr.name.startswith('cyl_bessel_'):
+        if complex_mode:
+            msg = "Bessel functions for complex numbers: missing implementation"
+            raise NotImplementedError(msg)
+        nu, arg = expr.children
+        nu_thunk = lambda: expression(nu, parameters)
+        arg_coffee = expression(arg, parameters)
+        if expr.name == 'cyl_bessel_j':
+            if nu == gem.Zero():
+                return coffee.FunCall('j0', arg_coffee)
+            elif nu == gem.one:
+                return coffee.FunCall('j1', arg_coffee)
+            else:
+                return coffee.FunCall('jn', nu_thunk(), arg_coffee)
+        if expr.name == 'cyl_bessel_y':
+            if nu == gem.Zero():
+                return coffee.FunCall('y0', arg_coffee)
+            elif nu == gem.one:
+                return coffee.FunCall('y1', arg_coffee)
+            else:
+                return coffee.FunCall('yn', nu_thunk(), arg_coffee)
 
         # Modified Bessel functions (C++ only)
         #
         # These mappings work for FEniCS only, and fail with Firedrake
         # since no Boost available.
-        'cyl_bessel_i': 'boost::math::cyl_bessel_i',
-        'cyl_bessel_k': 'boost::math::cyl_bessel_k',
-    }
-    name = name_map.get(expr.name, expr.name)
-    if name == 'jn':
-        nu, arg = expr.children
-        if nu == gem.Zero():
-            return coffee.FunCall('j0', expression(arg, parameters))
-        elif nu == gem.one:
-            return coffee.FunCall('j1', expression(arg, parameters))
-    if name == 'yn':
-        nu, arg = expr.children
-        if nu == gem.Zero():
-            return coffee.FunCall('y0', expression(arg, parameters))
-        elif nu == gem.one:
-            return coffee.FunCall('y1', expression(arg, parameters))
+        if expr.name in ['cyl_bessel_i', 'cyl_bessel_k']:
+            name = 'boost::math::' + expr.name
+            return coffee.FunCall(name, nu_thunk(), arg_coffee)
+
+        assert False, "Unknown Bessel function: {}".format(expr.name)
+
+    # Other math functions
+    name = math_table[expr.name][complex_mode]
+    if name is None:
+        raise RuntimeError("{} not supported in complex mode".format(expr.name))
     return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
 
@@ -320,11 +369,20 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        v = expr.value
-        r = round(v, 1)
-        if r and abs(v - r) < parameters.epsilon:
-            v = r  # round to nonzero
-        return coffee.Symbol(("(%s)(%%.%dg)" % (SCALAR_TYPE, parameters.precision)) % v)
+        vr = expr.value.real
+        rr = round(vr, 1)
+        if rr and abs(vr - rr) < parameters.epsilon:
+            vr = rr  # round to nonzero
+
+        vi = expr.value.imag  # also checks if v is purely real
+        if vi == 0.0:
+            return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
+        ri = round(vi, 1)
+
+        if ri and abs(vi - ri) < parameters.epsilon:
+            vi = ri
+        return coffee.Symbol("({real:.{prec}g} + {imag:.{prec}g} * I)".format(
+            real=vr, imag=vi, prec=parameters.precision))
 
 
 @_expression.register(gem.Variable)

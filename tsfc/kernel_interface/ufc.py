@@ -13,7 +13,6 @@ import ufl
 
 from tsfc.kernel_interface.common import KernelBuilderBase
 from tsfc.finatinterface import create_element as _create_element
-from tsfc.coffee import SCALAR_TYPE
 
 
 # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
@@ -23,9 +22,9 @@ create_element = functools.partial(_create_element, shape_innermost=False)
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(integral_type.startswith("interior_facet"))
+        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
         self.integral_type = integral_type
 
         self.local_tensor = None
@@ -57,7 +56,7 @@ class KernelBuilder(KernelBuilderBase):
         :returns: GEM expression representing the return variable
         """
         self.local_tensor, prepare, expressions = prepare_arguments(
-            arguments, multiindices, interior_facet=self.interior_facet)
+            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
         self.apply_glue(prepare)
         return expressions
 
@@ -70,7 +69,7 @@ class KernelBuilder(KernelBuilderBase):
         f = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
         self.coordinates_args, expression = prepare_coordinates(
-            f, "coordinate_dofs", interior_facet=self.interior_facet)
+            f, "coordinate_dofs", self.scalar_type, interior_facet=self.interior_facet)
         self.coefficient_map[f] = expression
 
     def set_cell_sizes(self, domain):
@@ -88,7 +87,7 @@ class KernelBuilder(KernelBuilderBase):
         """
         name = "w"
         self.coefficient_args = [
-            coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+            coffee.Decl(self.scalar_type, coffee.Symbol(name),
                         pointers=[("const",), ()],
                         qualifiers=["const"])
         ]
@@ -205,7 +204,7 @@ def prepare_coefficient(coefficient, num, name, interior_facet=False):
                 expression(gem.reshape(data_m, (), (size,))))
 
 
-def prepare_coordinates(coefficient, name, interior_facet=False):
+def prepare_coordinates(coefficient, name, scalar_type, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     coordinates.
 
@@ -234,16 +233,16 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
                                    transposed_indices)
 
     if not interior_facet:
-        funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+        funargs = [coffee.Decl(scalar_type, coffee.Symbol(name),
                                pointers=[("",)],
                                qualifiers=["const"])]
         variable = gem.Variable(name, (size,))
         expression = transpose(gem.reshape(variable, transposed_shape))
     else:
-        funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_0"),
+        funargs = [coffee.Decl(scalar_type, coffee.Symbol(name+"_0"),
                                pointers=[("",)],
                                qualifiers=["const"]),
-                   coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_1"),
+                   coffee.Decl(scalar_type, coffee.Symbol(name+"_1"),
                                pointers=[("",)],
                                qualifiers=["const"])]
         variable0 = gem.Variable(name+"_0", (size,))
@@ -254,7 +253,7 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
     return funargs, expression
 
 
-def prepare_arguments(arguments, multiindices, interior_facet=False):
+def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -269,7 +268,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
          expressions - GEM expressions referring to the argument
                        tensor
     """
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A"), pointers=[()])
+    funarg = coffee.Decl(scalar_type, coffee.Symbol("A"), pointers=[()])
     varexp = gem.Variable("A", (None,))
 
     if len(arguments) == 0:

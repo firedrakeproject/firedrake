@@ -1,12 +1,6 @@
 import numpy
 
 
-NUMPY_TYPE = numpy.dtype("double")
-
-SCALAR_TYPE = {numpy.dtype("double"): "double",
-               numpy.dtype("float32"): "float"}[NUMPY_TYPE]
-
-
 PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto",
@@ -20,10 +14,21 @@ PARAMETERS = {
     # that makes compilation time much shorter.
     "unroll_indexsum": 3,
 
+    # Scalar type (C typename string)
+    "scalar_type": "double",
+
     # Precision of float printing (number of digits)
-    "precision": numpy.finfo(NUMPY_TYPE).precision,
+    "precision": numpy.finfo(numpy.dtype("double")).precision,
 }
+
+# Satisfy import demands until complex branch is merged in Firedrake
+SCALAR_TYPE = PARAMETERS["scalar_type"]
 
 
 def default_parameters():
     return PARAMETERS.copy()
+
+
+def is_complex(scalar_type):
+    """Decides complex mode based on scalar type."""
+    return scalar_type and 'complex' in scalar_type

@@ -12,7 +12,6 @@ from gem.optimise import remove_componenttensors as prune
 
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
-from tsfc.coffee import SCALAR_TYPE
 
 
 # Expression kernel description type
@@ -53,12 +52,16 @@ class Kernel(object):
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, interior_facet=False):
+    def __init__(self, scalar_type=None, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        super(KernelBuilderBase, self).__init__(interior_facet=interior_facet)
+        if scalar_type is None:
+            from tsfc.parameters import SCALAR_TYPE
+            scalar_type = SCALAR_TYPE
+        super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
+                                                interior_facet=interior_facet)
 
         # Cell orientation
         if self.interior_facet:
@@ -77,7 +80,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: COFFEE function argument for the coefficient
         """
-        funarg, expression = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet)
+        funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
         self.coefficient_map[coefficient] = expression
         return funarg
 
@@ -92,7 +95,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         in P1).
         """
         f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-        funarg, expression = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
+        funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
         self.cell_sizes_arg = funarg
         self._cell_sizes = expression
 
@@ -122,8 +125,8 @@ class KernelBuilderBase(_KernelBuilderBase):
 class ExpressionKernelBuilder(KernelBuilderBase):
     """Builds expression kernels for UFL interpolation in Firedrake."""
 
-    def __init__(self):
-        super(ExpressionKernelBuilder, self).__init__()
+    def __init__(self, scalar_type):
+        super(ExpressionKernelBuilder, self).__init__(scalar_type)
         self.oriented = False
         self.cell_sizes = False
 
@@ -175,9 +178,9 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(integral_type.startswith("interior_facet"))
+        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
@@ -207,7 +210,7 @@ class KernelBuilder(KernelBuilderBase):
         :returns: GEM expression representing the return variable
         """
         self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, interior_facet=self.interior_facet)
+            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
         return expressions
 
     def set_coordinates(self, domain):
@@ -295,7 +298,7 @@ class KernelBuilder(KernelBuilderBase):
         return None
 
 
-def prepare_coefficient(coefficient, name, interior_facet=False):
+def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -311,7 +314,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+        funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
 
@@ -324,7 +327,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+    funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
                          pointers=[("restrict",)],
                          qualifiers=["const"])
 
@@ -339,7 +342,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     return funarg, expression
 
 
-def prepare_arguments(arguments, multiindices, interior_facet=False):
+def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -356,7 +359,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
 
     if len(arguments) == 0:
         # No arguments
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=(1,)))
+        funarg = coffee.Decl(scalar_type, coffee.Symbol("A", rank=(1,)))
         expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
 
         return funarg, [expression]
@@ -378,7 +381,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
         c_shape = tuple(u_shape)
         slicez = [[slice(s) for s in u_shape]]
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=c_shape))
+    funarg = coffee.Decl(scalar_type, coffee.Symbol("A", rank=c_shape))
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
     return funarg, prune(expressions)

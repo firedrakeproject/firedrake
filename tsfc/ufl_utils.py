@@ -13,14 +13,15 @@ from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+from ufl.algorithms.comparison_checker import do_comparison_check
+from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
-                         ScalarValue, Sqrt, Zero, CellVolume,
-                         FacetArea)
+                         ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
 
@@ -38,7 +39,8 @@ def compute_form_data(form,
                       do_apply_geometry_lowering=True,
                       preserve_geometry_types=preserve_geometry_types,
                       do_apply_restrictions=True,
-                      do_estimate_degrees=True):
+                      do_estimate_degrees=True,
+                      complex_mode=False):
     """Preprocess UFL form in a format suitable for TSFC. Return
     form data.
 
@@ -54,6 +56,7 @@ def compute_form_data(form,
         preserve_geometry_types=preserve_geometry_types,
         do_apply_restrictions=do_apply_restrictions,
         do_estimate_degrees=do_estimate_degrees,
+        complex_mode=complex_mode
     )
     return fd
 
@@ -98,12 +101,16 @@ def entity_avg(integrand, measure, argument_multiindices):
     return integrand, degree, argument_multiindices
 
 
-def preprocess_expression(expression):
+def preprocess_expression(expression, complex_mode=False):
     """Imitates the compute_form_data processing pipeline.
 
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
     """
+    if complex_mode:
+        expression = do_comparison_check(expression)
+    else:
+        expression = remove_complex_nodes(expression)
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
@@ -111,6 +118,8 @@ def preprocess_expression(expression):
     expression = apply_derivatives(expression)
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
+    if not complex_mode:
+        expression = remove_complex_nodes(expression)
     return expression
 
 

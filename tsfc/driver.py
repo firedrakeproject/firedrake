@@ -10,7 +10,6 @@ from numpy import asarray
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
@@ -24,10 +23,10 @@ from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
+from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters
+from tsfc.parameters import default_parameters, is_complex
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -44,7 +43,16 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
-    fd = ufl_utils.compute_form_data(form)
+    # Determine whether in complex mode:
+    # complex nodes would break the refactoriser.
+    complex_mode = parameters and is_complex(parameters.get("scalar_type"))
+    if complex_mode:
+        logger.warning("Disabling whole expression optimisations"
+                       " in GEM for supporting complex mode.")
+        parameters = parameters.copy()
+        parameters["mode"] = 'vanilla'
+
+    fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []
@@ -100,7 +108,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
-                                      domain_numbering[integral_data.domain])
+                                      domain_numbering[integral_data.domain],
+                                      parameters["scalar_type"])
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
@@ -239,7 +248,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         name_multiindex(multiindex, name)
 
     # Construct kernel
-    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, split_argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"],
+                           parameters["scalar_type"], expressions, split_argument_indices)
 
     return builder.construct_kernel(kernel_name, body)
 
@@ -267,11 +277,15 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
+    # Determine whether in complex mode
+    complex_mode = is_complex(parameters["scalar_type"])
+
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression)
+    expression = ufl_utils.preprocess_expression(expression,
+                                                 complex_mode=complex_mode)
 
     # Initialise kernel builder
-    builder = firedrake_interface.ExpressionKernelBuilder()
+    builder = firedrake_interface.ExpressionKernelBuilder(parameters["scalar_type"])
 
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
@@ -288,9 +302,6 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
 
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
-
-    # Change this before complex lands.
-    expression = remove_complex_nodes(expression)
 
     # Translate to GEM
     point_set = PointSet(points)
@@ -310,12 +321,12 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_shape = (len(points),) + value_shape
     return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
-    return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
+    return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
     point_index, = point_set.indices
-    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
+    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"], parameters["scalar_type"])
 
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):

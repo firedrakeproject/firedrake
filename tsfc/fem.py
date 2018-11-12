@@ -39,7 +39,7 @@ from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
-from tsfc.parameters import NUMPY_TYPE, PARAMETERS
+from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             entity_avg, one_times, simplify_abs,
                             preprocess_expression)
@@ -385,7 +385,7 @@ def translate_reference_cell_edge_vectors(terminal, mt, ctx):
         raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
 
     nedges = len(fiat_cell.get_topology()[1])
-    vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
+    vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges)))
     assert vecs.shape == terminal.ufl_shape
     return gem.Literal(vecs)
 
