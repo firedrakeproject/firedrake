@@ -1,4 +1,5 @@
 # Code for projections and other fun stuff involving supermeshes.
+from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
 from firedrake.function import Function
@@ -176,12 +177,10 @@ coverings that we fetch from the hierarchy.
     M_SS.force_evaluation()
     M_SS = M_SS.M.handle[:,:]
 
-    node_locations_A = utils.physical_node_locations(V_S_A).dat.data
-    node_locations_B = utils.physical_node_locations(V_S_B).dat.data
+    node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
+    node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
     num_nodes_A = node_locations_A.shape[0] 
     num_nodes_B = node_locations_B.shape[0] 
-    node_locations_A = node_locations_A.flatten()
-    node_locations_B = node_locations_B.flatten()
 
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
@@ -367,20 +366,21 @@ coverings that we fetch from the hierarchy.
                argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
                restype=ctypes.c_int)
 
-    for cell_A in range(len(V_A.cell_node_map().values)):
-        for cell_B in likely(cell_A):
-            if cell_B >= mesh_B.cell_set.size:
-                # In halo region
-                continue
-            simplex_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
-            simplex_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
-            lib(simplex_A.ctypes.data, simplex_B.ctypes.data, simplices_C.ctypes.data,
-                      node_locations_A.ctypes.data, node_locations_B.ctypes.data,
-                      M_SS.ctypes.data, outmat.ctypes.data)
-            print("outmat:\n", outmat)
-            print("dofs_A:\n", V_A.cell_node_list[cell_A])
-            print("dofs_B:\n", V_B.cell_node_list[cell_B])
-            mat.setValues(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
+    ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
+    # for cell_A in range(len(V_A.cell_node_map().values)):
+    #     for cell_B in likely(cell_A):
+    #         if cell_B >= mesh_B.cell_set.size:
+    #             # In halo region
+    #             continue
+    #         simplex_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
+    #         simplex_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
+    #         lib(simplex_A.ctypes.data, simplex_B.ctypes.data, simplices_C.ctypes.data,
+    #             node_locations_A.ctypes.data, node_locations_B.ctypes.data,
+    #             M_SS.ctypes.data, outmat.ctypes.data)
+    #         # print("outmat:\n", outmat)
+    #         # print("dofs_A:\n", V_A.cell_node_list[cell_A])
+    #         # print("dofs_B:\n", V_B.cell_node_list[cell_B])
+    #         mat.setValuesLocal(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
 
     # Compute M_AB:
     # For cell_A in mesh_A:
