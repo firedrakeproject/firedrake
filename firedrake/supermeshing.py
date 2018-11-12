@@ -1,4 +1,5 @@
 # Code for projections and other fun stuff involving supermeshes.
+import firedrake
 from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -21,6 +22,30 @@ from pyop2.utils import get_petsc_dir
 __all__ = ["assemble_mixed_mass_matrix"]
 
 
+class BlockMatrix(object):
+    def __init__(self, mat, dimension):
+        self.mat = mat
+        self.dimension = dimension
+        row_ises = []
+        rows, cols = mat.getLocalSize()
+        col_ises = []
+        for i in range(dimension):
+            start = i
+            stride = dimension
+            row_ises.append(PETSc.IS().createStride(rows, start, stride, comm=mat.comm))
+            col_ises.append(PETSc.IS().createStride(cols, start, stride, comm=mat.comm))
+        self.row_ises = tuple(row_ises)
+        self.col_ises = tuple(col_ises)
+
+    def mult(self, mat, x, y):
+        for row_is, col_is in zip(self.row_ises, self.col_ises):
+            xi = x.getSubVector(col_is)
+            yi = y.getSubVector(row_is)
+            self.mat.mult(xi, yi)
+            x.restoreSubVector(col_is, xi)
+            y.restoreSubVector(row_is, yi)
+
+
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
     Construct the mixed mass matrix of two function spaces,
@@ -38,9 +63,6 @@ import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
 each supermesh cell.
 """
         raise NotImplementedError(msg)
-
-    assert V_A.value_size == 1
-    assert V_B.value_size == 1
 
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
@@ -81,6 +103,16 @@ coverings that we fetch from the hierarchy.
 
             def likely(cell_A):
                 return cell_map[cell_A]
+
+    assert V_A.value_size == V_B.value_size
+    orig_value_size = V_A.value_size
+    if V_A.value_size > 1:
+        V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements()[0])
+    if V_B.value_size > 1:
+        V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements()[0])
+
+    assert V_A.value_size == 1
+    assert V_B.value_size == 1
 
     # for cell_A in range(mesh_A.num_cells()):
     #     print("likely(%s) = %s" % (cell_A, likely(cell_A)))
@@ -394,4 +426,17 @@ coverings that we fetch from the hierarchy.
     #             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
 
     mat.assemble()
-    return mat
+
+    if orig_value_size == 1:
+        return mat
+    else:
+        (lrows, grows), (lcols, gcols) = mat.getSizes()
+        lrows *= orig_value_size
+        grows *= orig_value_size
+        lcols *= orig_value_size
+        gcols *= orig_value_size
+        size = ((lrows, grows), (lcols, gcols))
+        context = BlockMatrix(mat, orig_value_size)
+        blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
+        blockmat.setUp()
+        return blockmat

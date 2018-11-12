@@ -11,6 +11,18 @@ def mesh(request):
         return UnitCubeMesh(3, 2, 1)
 
 
+@pytest.fixture(params=["scalar", "vector", "tensor"])
+def shapify(request):
+    if request.param == "scalar":
+        return lambda x: x
+    elif request.param == "vector":
+        return VectorElement
+    elif request.param == "tensor":
+        return TensorElement
+    else:
+        raise RuntimeError
+
+
 @pytest.fixture(params=["CG", "DG"])
 def family_A(request):
     return request.param
@@ -31,7 +43,7 @@ def degree_B(request):
     return request.param
 
 
-def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
+def test_galerkin_projection(mesh, shapify, family_A, family_B, degree_A, degree_B):
     if degree_A == 0 and family_A != "DG":
         return
     if degree_B == 0 and family_B != "DG":
@@ -47,9 +59,9 @@ def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
     mesh_A = mh[-2]
     mesh_B = mh[-1]
 
-    ele_A = FiniteElement(family_A, mesh_A.ufl_cell(), degree_A)
+    ele_A = shapify(FiniteElement(family_A, mesh_A.ufl_cell(), degree_A))
     V_A = FunctionSpace(mesh_A, ele_A)
-    ele_B = FiniteElement(family_B, mesh_B.ufl_cell(), degree_B)
+    ele_B = shapify(FiniteElement(family_B, mesh_B.ufl_cell(), degree_B))
     V_B = FunctionSpace(mesh_B, ele_B)
 
     f_A = Function(V_A)
@@ -82,4 +94,4 @@ if __name__ == "__main__":
     class ThereMustBeABetterWay(object):
         param = 2
 
-    test_galerkin_projection(mesh(ThereMustBeABetterWay()), "CG", "CG", 2, 3)
+    test_galerkin_projection(mesh(ThereMustBeABetterWay()), lambda x: x, "CG", "CG", 2, 3)
