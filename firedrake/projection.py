@@ -1,6 +1,8 @@
+import abc
 import ufl
 
 import firedrake
+from firedrake.utils import cached_property
 from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
@@ -52,11 +54,13 @@ def create_output(V, name=None):
 def check_meshes(source, target):
     source_mesh = source.ufl_domain()
     target_mesh = target.ufl_domain()
+    if source_mesh is None:
+        source_mesh = target_mesh
+    if target_mesh is None:
+        raise ValueError("Target space must have a mesh")
     if source_mesh.ufl_cell() != target_mesh.ufl_cell():
         raise ValueError("Mismatching cells in source (%r) and target (%r) meshes" %
                          (source_mesh.ufl_cell(), target_mesh.ufl_cell()))
-    if source_mesh != target_mesh:
-        raise ValueError("Can't projecting between non-matching meshes yet")
     return source_mesh, target_mesh
 
 
@@ -86,7 +90,121 @@ def project(v, V, bcs=None,
     return val
 
 
-class Projector(object):
+class Assigner(object):
+    def __init__(self, source, target):
+        self.source = source
+        self.target = target
+
+    def project(self):
+        self.target.assign(self.source)
+        return self.target
+
+
+class ProjectorBase(object, metaclass=abc.ABCMeta):
+    def __init__(self, source, target, bcs=None, solver_parameters=None,
+                 form_compiler_parameters=None, constant_jacobian=True):
+        if solver_parameters is None:
+            solver_parameters = {}
+        else:
+            solver_parameters = solver_parameters.copy()
+        solver_parameters.setdefault("ksp_type", "cg")
+        self.source = source
+        self.target = target
+        self.solver_parameters = solver_parameters
+        self.form_compiler_parameters = form_compiler_parameters
+        self.bcs = bcs
+        self.constant_jacobian = constant_jacobian
+
+    @cached_property
+    def is_DG(self):
+        element = self.target.function_space().finat_element
+        return element.entity_closure_dofs() == element.entity_dofs()
+
+    @cached_property
+    def A(self):
+        u = firedrake.TrialFunction(self.target.function_space())
+        v = firedrake.TestFunction(self.target.function_space())
+        a = firedrake.inner(u, v)*firedrake.dx
+        if self.is_DG and self.bcs is None:
+            a = firedrake.Tensor(a).inv
+        A = firedrake.assemble(a, bcs=self.bcs,
+                               form_compiler_parameters=self.form_compiler_parameters)
+        return A
+
+    @cached_property
+    def solver(self):
+        if self.is_DG and self.bcs is None:
+            class Dummy(object):
+                def __init__(self, A):
+                    self.A = A
+
+                def solve(self, x, b):
+                    self.A.force_evaluation()
+                    with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
+                        self.A.M.handle.mult(b_, x_)
+                    return x
+
+            return Dummy(self.A)
+        else:
+            solver = firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
+            return solver
+
+    @property
+    def apply_massinv(self):
+        if not self.constant_jacobian:
+            firedrake.assemble(self.A.a, tensor=self.A, bcs=self.bcs,
+                               form_compiler_parameters=self.form_compiler_parameters)
+        return self.solver.solve
+
+    @cached_property
+    def residual(self):
+        return firedrake.Function(self.target.function_space())
+
+    @abc.abstractproperty
+    def rhs(self):
+        pass
+
+    def project(self):
+        self.apply_massinv(self.target, self.rhs)
+        return self.target
+
+
+class BasicProjector(ProjectorBase):
+
+    @cached_property
+    def rhs_form(self):
+        v = firedrake.TestFunction(self.target.function_space())
+        form = firedrake.inner(self.source, v)*firedrake.dx
+        return form
+
+    @cached_property
+    def assembler(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.rhs_form, tensor=self.residual,
+                                        form_compiler_parameters=self.form_compiler_parameters)
+
+    @property
+    def rhs(self):
+        self.assembler()
+        return self.residual
+
+
+class SupermeshProjector(ProjectorBase):
+    @cached_property
+    def mixed_mass(self):
+        from firedrake.supermeshing import assemble_mixed_mass_matrix
+        return assemble_mixed_mass_matrix(self.source.function_space(),
+                                          self.target.function_space())
+
+    @property
+    def rhs(self):
+        with self.source.dat.vec_ro as u, self.residual.dat.vec_wo as v:
+            self.mixed_mass.mult(u, v)
+        return self.residual
+
+
+def Projector(v, v_out, bcs=None, solver_parameters=None,
+              form_compiler_parameters=None, constant_jacobian=True):
     """
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -101,52 +219,24 @@ class Projector(object):
               on the target function space.
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
+    :arg constant_jacobian: Is the projection matrix constant between calls?
+        Say False if you have moving meshes.
     """
-
-    def __init__(self, v, v_out, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, constant_jacobian=True):
-        target = create_output(v_out)
-        source = sanitise_input(v, target.function_space())
-        source_mesh, target_mesh = check_meshes(source, target)
-        if source.ufl_shape != target.ufl_shape:
-            raise ValueError("Shape mismatch between source %s and target %s in project" %
-                             (source.ufl_shape, target.ufl_shape))
-
-        self._use_assign = (isinstance(v, function.Function)
-                            and not self.bcs
-                            and v.function_space() == v_out.function_space())
-        self.source = source
-        self.target = target
-        self.bcs = bcs
-
-        if not self._use_assign:
-            V = target.function_space()
-
-            p = firedrake.TestFunction(V)
-            q = firedrake.TrialFunction(V)
-
-            a = ufl.inner(p, q)*ufl.dx
-            L = ufl.inner(p, source)*ufl.dx
-
-            problem = vs.LinearVariationalProblem(a, L, target, bcs=self.bcs,
-                                                  form_compiler_parameters=form_compiler_parameters,
-                                                  constant_jacobian=constant_jacobian)
-
-            if solver_parameters is None:
-                solver_parameters = {}
-            else:
-                solver_parameters = solver_parameters.copy()
-            solver_parameters.setdefault("ksp_type", "cg")
-
-            self.solver = vs.LinearVariationalSolver(problem,
-                                                     solver_parameters=solver_parameters)
-
-    def project(self):
-        """
-        Apply the projection.
-        """
-        if self._use_assign:
-            self.target.assign(self.source)
-        else:
-            self.solver.solve()
-        return self.target
+    target = create_output(v_out)
+    source = sanitise_input(v, target.function_space())
+    source_mesh, target_mesh = check_meshes(source, target)
+    if source.ufl_shape != target.ufl_shape:
+        raise ValueError("Shape mismatch between source %s and target %s in project" %
+                         (source.ufl_shape, target.ufl_shape))
+    if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
+        return Assigner(source, target)
+    elif source_mesh == target_mesh:
+        return BasicProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
+                              form_compiler_parameters=form_compiler_parameters,
+                              constant_jacobian=constant_jacobian)
+    else:
+        if bcs is not None:
+            raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
+        return SupermeshProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
+                                  form_compiler_parameters=form_compiler_parameters,
+                                  constant_jacobian=constant_jacobian)

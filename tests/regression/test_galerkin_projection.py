@@ -1,6 +1,5 @@
 from firedrake import *
 from firedrake.supermeshing import *
-import numpy as np
 import pytest
 
 @pytest.fixture(params=[2, 3])
@@ -47,13 +46,13 @@ def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
 
     with f_A.dat.vec_wo as x:
         x.setRandom()
-    #X = SpatialCoordinate(mesh_A)
-    #f_A.interpolate(X[0]**2)
 
     f_B_prolong = Function(V_B)
     prolong(f_A, f_B_prolong)
 
-    f_B_project = galerkin_projection(f_A, V_B)
+    solver_parameters = {"mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps"}
+    
+    f_B_project = project(f_A, V_B, solver_parameters=solver_parameters)
 
     diff = Function(V_B)
     diff.assign(f_B_prolong - f_B_project)
