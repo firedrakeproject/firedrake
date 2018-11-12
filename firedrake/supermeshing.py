@@ -18,6 +18,8 @@ from pyop2.datatypes import IntType, ScalarType
 from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
+from pyop2.utils import get_petsc_dir
+
 
 __all__ = ["assemble_mixed_mass_matrix", "galerkin_projection"]
 
@@ -185,31 +187,34 @@ coverings that we fetch from the hierarchy.
 
     supermesh_kernel_str = """
     #include "libsupermesh-c.h"
+    #include <petsc.h>
     %(to_reference)s
     %(evaluate_S)s
     %(evaluate_A)s
     %(evaluate_B)s
+
+    #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
     void print_array(double *arr, int d)
     {
         for(int j=0; j<d; j++)
-            printf("%%+.2f ", arr[j]);
+            PrintInfo("%%+.2f ", arr[j]);
     }
     void print_coordinates(double *simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
-            printf("\t");
+            PrintInfo("\t");
             print_array(&simplex[d*i], d);
-            printf("\\n");
+            PrintInfo("\\n");
         }
     }
     int supermesh_kernel(double* simplex_A, double* simplex_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
         int d = %(dim)s;
         double simplex_ref_measure;
-        printf("simplex_A coordinates\\n");
+        PrintInfo("simplex_A coordinates\\n");
         print_coordinates(simplex_A, d);
-        printf("simplex_B coordinates\\n");
+        PrintInfo("simplex_B coordinates\\n");
         print_coordinates(simplex_B, d);
         int num_elements;
 
@@ -229,7 +234,7 @@ coverings that we fetch from the hierarchy.
 
         %(libsupermesh_intersect_simplices)s(simplex_A, simplex_B, simplices_C, &num_elements);
 
-        printf("Supermesh consists of %%i elements\\n", num_elements);
+        PrintInfo("Supermesh consists of %%i elements\\n", num_elements);
 
         // would like to do this
         //double MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (double (*)[%(num_nodes_B)s])outptr;
@@ -249,58 +254,58 @@ coverings that we fetch from the hierarchy.
             double simplex_S_measure;
 
             %(libsupermesh_simplex_measure)s(simplex_S, &simplex_S_measure);
-            printf("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
+            PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
 
-            printf("Start mapping nodes for V_A\\n");
+            PrintInfo("Start mapping nodes for V_A\\n");
             double physical_nodes_A[num_nodes_A][d];
             for(int n=0; n < num_nodes_A; n++) {
                 double* reference_node_location = &nodes_A[n*d];
                 double* physical_node_location = &physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
-                printf("\\tNode ");
+                PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
-                printf(" mapped to ");
+                PrintInfo(" mapped to ");
                 print_array(physical_node_location, d);
-                printf("\\n");
+                PrintInfo("\\n");
             }
-            printf("Start mapping nodes for V_B\\n");
+            PrintInfo("Start mapping nodes for V_B\\n");
             double physical_nodes_B[num_nodes_B][d];
             for(int n=0; n < num_nodes_B; n++) {
                 double* reference_node_location = &nodes_B[n*d];
                 double* physical_node_location = &physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
-                printf("\\tNode ");
+                PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
-                printf(" mapped to ");
+                PrintInfo(" mapped to ");
                 print_array(physical_node_location, d);
-                printf("\\n");
+                PrintInfo("\\n");
             }
-            printf("==========================================================\\n");
-            printf("Start pulling back dof from S into reference space for A.\\n");
+            PrintInfo("==========================================================\\n");
+            PrintInfo("Start pulling back dof from S into reference space for A.\\n");
             for(int n=0; n < num_nodes_A; n++) {
                 for(int i=0; i<d; i++) reference_nodes_A[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_A[n], physical_nodes_A[n], simplex_A);
-                printf("Pulling back ");
+                PrintInfo("Pulling back ");
                 print_array(physical_nodes_A[n], d);
-                printf(" to ");
+                PrintInfo(" to ");
                 print_array(reference_nodes_A[n], d);
-                printf("\\n");
+                PrintInfo("\\n");
             }
-            printf("Start pulling back dof from S into reference space for B.\\n");
+            PrintInfo("Start pulling back dof from S into reference space for B.\\n");
             for(int n=0; n < num_nodes_B; n++) {
                 for(int i=0; i<d; i++) reference_nodes_B[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_B[n], physical_nodes_B[n], simplex_B);
-                printf("Pulling back ");
+                PrintInfo("Pulling back ");
                 print_array(physical_nodes_B[n], d);
-                printf(" to ");
+                PrintInfo(" to ");
                 print_array(reference_nodes_B[n], d);
-                printf("\\n");
+                PrintInfo("\\n");
             }
 
-            printf("Start evaluating basis functions of V_A at dofs for V_A on S\\n");
+            PrintInfo("Start evaluating basis functions of V_A at dofs for V_A on S\\n");
             for(int i=0; i<num_nodes_A; i++) {
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
@@ -308,10 +313,10 @@ coverings that we fetch from the hierarchy.
                     evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
                 }
                 print_array(R_AS[i], num_nodes_A);
-                printf("\\n");
+                PrintInfo("\\n");
                 coeffs_A[i] = 0.;
             }
-            printf("Start evaluating basis functions of V_B at dofs for V_B on S\\n");
+            PrintInfo("Start evaluating basis functions of V_B at dofs for V_B on S\\n");
             for(int i=0; i<num_nodes_B; i++) {
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
@@ -319,10 +324,10 @@ coverings that we fetch from the hierarchy.
                     evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
                 }
                 print_array(R_BS[i], num_nodes_B);
-                printf("\\n");
+                PrintInfo("\\n");
                 coeffs_B[i] = 0.;
             }
-            printf("Start doing the matmatmat mult\\n");
+            PrintInfo("Start doing the matmatmat mult\\n");
 
             for ( int i = 0; i < num_nodes_B; i++ ) {
                 for (int j = 0; j < num_nodes_A; j++) {
@@ -352,12 +357,13 @@ coverings that we fetch from the hierarchy.
 
     import ctypes
     import os
-    venv_dir = os.environ["VIRTUAL_ENV"]
-    include_path = "%s/include" % venv_dir
-    lib_path = "%s/lib" % venv_dir
+    dirs = get_petsc_dir() + (os.environ["VIRTUAL_ENV"], )
+    includes = ["-I%s/include" % d for d in dirs]
+    libs = ["-L%s/lib" % d for d in dirs]
+    libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
     lib = load(supermesh_kernel_str, "c", "supermesh_kernel",
-               cppargs=["-I" + include_path, "-v"],
-               ldargs=["-L" + lib_path, "-lsupermesh", "-Wl,-rpath=" + lib_path],
+               cppargs=includes,
+               ldargs=libs,
                argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
                restype=ctypes.c_int)
 
