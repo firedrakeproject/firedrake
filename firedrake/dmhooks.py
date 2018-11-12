@@ -50,9 +50,17 @@ def get_function_space(dm):
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
     """
-    V = dm.getAttr("__fs_info__")()
-    if V is None:
-        raise RuntimeError("FunctionSpace not found on DM")
+    info = dm.getAttr("__fs_info__")
+    meshref, element, indices, (name, names) = info
+    mesh = meshref()
+    if mesh is None:
+        raise RuntimeError("Somehow your mesh was collected, this should never happen")
+    V = firedrake.FunctionSpace(mesh, element, name=name)
+    if len(V) > 1:
+        for V_, name in zip(V, names):
+            V_.topological.name = name
+    for index in indices:
+        V = V.sub(index)
     return V
 
 
@@ -64,11 +72,27 @@ def set_function_space(dm, V):
 
     .. note::
 
-       This stores a weakref to the function space in the DM, so you
-       should hold a strong reference somewhere else.
+       This stores the information necessary to make a function space given a DM.
 
     """
-    dm.setAttr("__fs_info__", weakref.ref(V))
+    mesh = V.mesh()
+
+    indices = []
+    names = []
+    while V.parent is not None:
+        if V.index is not None:
+            assert V.component is None
+            indices.append(V.index)
+        if V.component is not None:
+            assert V.index is None
+            indices.append(V.component)
+        V = V.parent
+    if len(V) > 1:
+        names = tuple(V_.name for V_ in V)
+    element = V.ufl_element()
+
+    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    dm.setAttr("__fs_info__", info)
 
 
 def push_appctx(dm, ctx):
@@ -339,11 +363,6 @@ def create_subdm(dm, fields, *args, **kwargs):
 
     :arg DM: The DM.
     :arg fields: The fields in the new sub-DM.
-
-    .. note::
-
-       This should, but currently does not, transfer appropriately
-       split application contexts onto the sub-DMs.
     """
     W = get_function_space(dm)
     ctx = get_appctx(dm)
@@ -359,21 +378,12 @@ def create_subdm(dm, fields, *args, **kwargs):
             push_ctx_coarsener(subdm, coarsen)
         return iset, subdm
     else:
-        try:
-            # Look up the subspace in the cache
-            iset, subspace = W._subspaces[tuple(fields)]
-        except KeyError:
-            # Need to build an MFS for the subspace
-            subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
-            # Index set mapping from W into subspace.
-            iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                               for f in fields]),
-                                            comm=W.comm)
-            # Keep hold of strong reference to created subspace (given we
-            # only hold a weakref in the shell DM), and so we can
-            # reuse it later.
-            W._subspaces[tuple(fields)] = iset, subspace
-
+        # Need to build an MFS for the subspace
+        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        # Index set mapping from W into subspace.
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+                                                           for f in fields]),
+                                        comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
             push_appctx(subspace.dm, ctx)
@@ -392,35 +402,18 @@ def coarsen(dm, comm):
     """
     from firedrake.mg.utils import get_level
     V = get_function_space(dm)
-    if V is None:
-        raise RuntimeError("No functionspace found on DM")
     hierarchy, level = get_level(V.mesh())
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")
-    if hasattr(V, "_coarse"):
-        cdm = V._coarse.dm
-    else:
-        coarsen = get_ctx_coarsener(dm)
-        V._coarse = coarsen(V, coarsen)
-        cdm = V._coarse.dm
-
-    # In case transfer is attached to monolithic space
-    push_transfer_operators(cdm, *get_transfer_operators(dm))
-    if len(V) > 1:
-        # Transfer operators typically live on individual subspaces,
-        # not mixed spaces.
-        for V_, Vc_ in zip(V, V._coarse):
-            transfer = get_transfer_operators(V_.dm)
-            push_transfer_operators(Vc_.dm, *transfer)
-
     coarsen = get_ctx_coarsener(dm)
+    Vc = coarsen(V, coarsen)
+    cdm = Vc.dm
     push_ctx_coarsener(cdm, coarsen)
     ctx = get_appctx(dm)
     if ctx is not None:
         push_appctx(cdm, coarsen(ctx, coarsen))
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-    V._coarse._fine = V
     return cdm
 
 
