@@ -16,7 +16,7 @@ __all__ = ['project', 'Projector']
 _solve = solving.solve
 
 
-def project(v, V, bcs=None, mesh=None,
+def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
             name=None):
@@ -26,7 +26,6 @@ def project(v, V, bcs=None, mesh=None,
          :class:`.Function` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :arg bcs: boundary conditions to apply in the projection
-    :arg mesh: the mesh to project into
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler
@@ -37,7 +36,7 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    The ``mesh`` and ``form_compiler_parameters`` are currently ignored."""
+    The ``form_compiler_parameters`` are currently ignored."""
     from firedrake import function
 
     if isinstance(V, functionspaceimpl.WithGeometry):
