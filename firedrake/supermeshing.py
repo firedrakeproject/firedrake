@@ -2,19 +2,15 @@
 from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
-from firedrake.function import Function
 from firedrake.mg.kernels import to_reference_coordinates, compile_element
 from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
 from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
 from firedrake.ufl_expr import TestFunction, TrialFunction
-from firedrake.solving import solve
-from firedrake.slate.slate import Tensor
 import firedrake.mg.utils as utils
 import ufl
 from ufl import inner, dx
 import numpy
-from pyop2 import op2
 from pyop2.datatypes import IntType, ScalarType
 from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
@@ -22,12 +18,13 @@ from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
 
 
-__all__ = ["assemble_mixed_mass_matrix", "galerkin_projection"]
+__all__ = ["assemble_mixed_mass_matrix"]
+
 
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
     Construct the mixed mass matrix of two function spaces,
-    using the TrialFunction from V_A and the TestFunction 
+    using the TrialFunction from V_A and the TestFunction
     from V_B.
     """
 
@@ -75,21 +72,22 @@ coverings that we fetch from the hierarchy.
         # What are the cells of B that (probably) intersect with a given cell in A?
         if level_A > level_B:
             cell_map = mh_A.fine_to_coarse_cells[level_A]
-            def likely(cell_A):
-                return cell_map[cell_A]
-        elif level_A < level_B:
-            cell_map = mh_A.coarse_to_fine_cells[level_A]
+
             def likely(cell_A):
                 return cell_map[cell_A]
 
+        elif level_A < level_B:
+            cell_map = mh_A.coarse_to_fine_cells[level_A]
+
+            def likely(cell_A):
+                return cell_map[cell_A]
 
     # for cell_A in range(mesh_A.num_cells()):
     #     print("likely(%s) = %s" % (cell_A, likely(cell_A)))
 
-
     # Preallocate sparsity pattern for mixed mass matrix from likely() function:
     # For each cell_A, find dofs_A.
-    #   For each cell_B in likely(cell_B), 
+    #   For each cell_B in likely(cell_B),
     #     Find dofs_B.
     #     For dof_B in dofs_B:
     #         nnz[dof_B] += len(dofs_A)
@@ -175,12 +173,12 @@ coverings that we fetch from the hierarchy.
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS.force_evaluation()
-    M_SS = M_SS.M.handle[:,:]
+    M_SS = M_SS.M.handle[:, :]
 
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
     node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
-    num_nodes_A = node_locations_A.shape[0] 
-    num_nodes_B = node_locations_B.shape[0] 
+    num_nodes_A = node_locations_A.shape[0]
+    num_nodes_B = node_locations_B.shape[0]
 
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 

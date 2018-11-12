@@ -7,7 +7,6 @@ from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
-import firedrake.variational_solver as vs
 from pyop2.utils import as_tuple
 
 

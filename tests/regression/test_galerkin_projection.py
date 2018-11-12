@@ -2,6 +2,7 @@ from firedrake import *
 from firedrake.supermeshing import *
 import pytest
 
+
 @pytest.fixture(params=[2, 3])
 def mesh(request):
     if request.param == 2:
@@ -9,27 +10,36 @@ def mesh(request):
     if request.param == 3:
         return UnitCubeMesh(3, 2, 1)
 
+
 @pytest.fixture(params=["CG", "DG"])
 def family_A(request):
     return request.param
+
 
 @pytest.fixture(params=["CG", "DG"])
 def family_B(request):
     return request.param
 
+
 @pytest.fixture(params=[0, 1, 2, 3])
 def degree_A(request):
     return request.param
+
 
 @pytest.fixture(params=[0, 1, 2, 3])
 def degree_B(request):
     return request.param
 
+
 def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
-    if degree_A == 0 and family_A != "DG": return
-    if degree_B == 0 and family_B != "DG": return
-    if degree_B < degree_A: return
-    if family_A == "DG" and family_B == "CG": return
+    if degree_A == 0 and family_A != "DG":
+        return
+    if degree_B == 0 and family_B != "DG":
+        return
+    if degree_B < degree_A:
+        return
+    if family_A == "DG" and family_B == "CG":
+        return
 
     base = mesh
     mh = MeshHierarchy(base, 1)
@@ -50,8 +60,13 @@ def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
     f_B_prolong = Function(V_B)
     prolong(f_A, f_B_prolong)
 
-    solver_parameters = {"mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps"}
-    
+    solver_parameters = {
+        "mat_type": "aij",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+    }
+
     f_B_project = project(f_A, V_B, solver_parameters=solver_parameters)
 
     diff = Function(V_B)
@@ -61,7 +76,9 @@ def test_galerkin_projection(mesh, family_A, family_B, degree_A, degree_B):
     print("|f_B_prolong - f_B_project|: %s" % norm)
     assert norm < 1.0e-12
 
+
 if __name__ == "__main__":
+
     class ThereMustBeABetterWay(object):
         param = 2
 
