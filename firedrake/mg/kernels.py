@@ -1,5 +1,6 @@
 import numpy
 import string
+from fractions import Fraction
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
 from firedrake.functionspacedata import entity_dofs_key
@@ -198,6 +199,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 def prolong_kernel(expression):
     hierarchy, level = utils.get_level(expression.ufl_domain())
+    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
     key = (("prolong", )
@@ -243,7 +245,7 @@ def prolong_kernel(expression):
                "args": args,
                "R": R,
                "coarse": coarse,
-               "ncandidate": hierarchy.fine_to_coarse_cells[level+1].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -255,6 +257,7 @@ def prolong_kernel(expression):
 
 def restrict_kernel(Vf, Vc):
     hierarchy, level = utils.get_level(Vc.ufl_domain())
+    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
     key = (("restrict", )
@@ -293,7 +296,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
-               "ncandidate": hierarchy.fine_to_coarse_cells[level+1].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
