@@ -3,7 +3,9 @@ import numpy
 from firedrake import *
 
 
-@pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron",
+@pytest.fixture(params=["interval", "triangle",
+                        "triangle-nonnested",  # no parameterized fixtures, UGH!
+                        "quadrilateral", "tetrahedron",
                         "prism", "hexahedron"], scope="module")
 def cell(request):
     return request.param
@@ -22,11 +24,12 @@ def refinements_per_level(request):
     return request.param
 
 
+@pytest.fixture(scope="module")
 def hierarchy(cell, refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
         return MeshHierarchy(mesh, 2)
-    elif cell in {"triangle", "prism"}:
+    elif cell in {"triangle", "triangle-nonnested", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
     elif cell in {"quadrilateral", "hexahedron"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=True)
@@ -38,7 +41,20 @@ def hierarchy(cell, refinements_per_level):
 
     if cell in {"prism", "hexahedron"}:
         hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=3)
+    if cell == "triangle-nonnested":
+        c2f = {}
+        for k, v in hierarchy.coarse_to_fine_cells.items():
+            v = numpy.hstack([v, numpy.roll(v, 1, axis=0)])
+            c2f[k] = v
+        f2c = {}
 
+        for k, v in hierarchy.fine_to_coarse_cells.items():
+            if v is not None:
+                v = numpy.hstack([v, numpy.roll(v, 4, axis=0)])
+            f2c[k] = v
+        hierarchy = HierarchyBase(tuple(hierarchy), c2f, f2c,
+                                  refinements_per_level=refinements_per_level,
+                                  nested=False)
     return hierarchy
 
 
@@ -49,8 +65,11 @@ def vector(request):
 
 
 @pytest.fixture(params=["injection", "restriction", "prolongation"])
-def transfer_type(request):
-    return request.param
+def transfer_type(request, hierarchy):
+    if not hierarchy.nested and request.param == "injection":
+        return pytest.mark.xfail(reason="Supermesh projections not implemented yet")(request.param)
+    else:
+        return request.param
 
 
 @pytest.fixture
@@ -143,6 +162,8 @@ def run_restriction(hierarchy, vector, space, degrees):
 
 
 def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
+    if not hierarchy.nested and transfer_type == "injection":
+        pytest.skip("Not implemented")
     if transfer_type == "injection":
         run_injection(hierarchy, vector, space, degrees)
     elif transfer_type == "restriction":
@@ -156,6 +177,8 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
     space = "CG"
     degs = degrees(space)
     vector = False
+    if not hierarchy.nested and hierarchy.refinements_per_level > 1:
+        pytest.skip("Not implemented")
     if transfer_type == "injection":
         run_injection(hierarchy, vector, space, degs)
     elif transfer_type == "restriction":
