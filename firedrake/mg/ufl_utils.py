@@ -138,11 +138,22 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
     mesh = self(V.mesh(), self)
 
+    Vf = V
     V = firedrake.FunctionSpace(mesh, V.ufl_element())
+
+    from firedrake.dmhooks import get_transfer_operators, push_transfer_operators
+    transfer = get_transfer_operators(Vf.dm)
+    push_transfer_operators(V.dm, *transfer)
+    if len(V) > 1:
+        for V_, Vc_ in zip(Vf, V):
+            transfer = get_transfer_operators(V_.dm)
+            push_transfer_operators(Vc_.dm, *transfer)
+
     for i in reversed(indices):
         V = V.sub(i)
     V._fine = fine
     fine._coarse = V
+
     return V
 
 
