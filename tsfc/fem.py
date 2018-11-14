@@ -288,7 +288,8 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
-                  for name in ["ufl_cell", "precision", "index_cache"]}
+                  for name in ["ufl_cell", "precision", "index_cache",
+                               "integration_dim", "entity_ids"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, point_sum=True, **config)
