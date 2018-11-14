@@ -231,10 +231,13 @@ class DumbCheckpoint(object):
         group = self._get_data_group()
         with function.dat.vec_wo as v:
             self.vwr.pushGroup(group)
-            oname = v.getName()
-            v.setName(name)
-            v.load(self.vwr)
-            v.setName(oname)
+            # PETSc replaces the array in the Vec, which screws things
+            # up for us, so read into temporary Vec.
+            tmp = v.duplicate()
+            tmp.setName(name)
+            tmp.load(self.vwr)
+            tmp.copy(v)
+            tmp.destroy()
             self.vwr.popGroup()
 
     def write_attribute(self, obj, name, val):
