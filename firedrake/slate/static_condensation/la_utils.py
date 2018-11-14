@@ -81,3 +81,104 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     r = bf - Afe * Aee.inv * be
 
     return LAContext(lhs=S, rhs=r)
+
+
+def backward_substitution(A, b, x, reconstruct_fields):
+    """
+    """
+
+    all_fields = list(range(len(A.arg_function_spaces[0])))
+    nfields = len(all_fields)
+    reconstruct_fields = as_tuple(reconstruct_fields)
+
+    _A = A.blocks
+    _b = b.blocks
+    _x = x.blocks
+
+    # Ordering matters
+    systems = []
+
+    # Reconstruct one unknown from one determined field:
+    #
+    # | A_ee  A_ef || x_e |   | b_e |
+    # |            ||     | = |     |
+    # | A_fe  A_ff || x_f |   | b_f |
+    #
+    # where x_f is known from a previous computation.
+    # Returns the system:
+    #
+    # A_ee x_e = b_e - A_ef * x_f.
+    if nfields == 2:
+        id_e, = reconstruct_fields
+        id_f, = [idx for idx in all_fields if idx != id_e]
+
+        A_ee = _A[id_e, id_e]
+        A_ef = _A[id_e, id_f]
+        b_e = _b[id_e]
+        x_f = _x[id_f]
+
+        local_system = LAContext(lhs=A_ee, rhs=b_e - A_ef * x_f)
+
+        systems.append(local_system)
+
+    # Reconstruct two unknowns from one determined field:
+    #
+    # | A_e0e0  A_e0e1  A_e0f || x_e0 |   | b_e0 |
+    # | A_e1e0  A_e1e1  A_e1f || x_e1 | = | b_e1 |
+    # | A_fe0   A_fe1   A_ff  || x_f  |   | b_f  |
+    #
+    # where x_f is the known field. Returns two systems to be
+    # solved in order (determined from the reverse order of indices
+    # e0 and e1):
+    #
+    # Solve for e1 first (obtained from eliminating x_e0):
+    #
+    # S_e1 x_e1 = r_e1
+    #
+    # where
+    #
+    # S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1, and
+    # r_e1 = b_e1 - A_e1e0 * A_e0e0.inv * b_e0
+    #      - (A_e1f - A_e1e0 * A_e0e0.inv * A_e0f) * x_f,
+    #
+    # And then solve for x_e0 given x_f and x_e1:
+    #
+    # A_e0e0 x_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f.
+    elif nfields == 3:
+        if len(reconstruct_fields) != nfields - 1:
+            raise NotImplementedError("Implemented for 1 determined field")
+
+        # Order of reconstruction doesn't need to be in order
+        # of increasing indices
+        id_e0, id_e1 = reconstruct_fields
+        id_f, = [idx for idx in all_fields if idx != id_e]
+
+        A_e0e0 = _A[id_e0, id_e0]
+        A_e0e1 = _A[id_e0, id_e1]
+        A_e1e0 = _A[id_e1, id_e0]
+        A_e1e1 = _A[id_e1, id_e1]
+        A_e0f = _A[id_e0, id_f]
+        A_e1f = _A[id_e1, id_f]
+
+        x_e1 = _x[id_e1]
+        x_f = _x[id_f]
+
+        b_e0 = _b[id_e0]
+        b_e1 = _b[id_e1]
+
+        # Solve for e1
+        S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1
+        r_e1 = (b_e1 - A_e1e0 * A_e0e0.inv * b_e0
+                - (A_e1f - A_e1e0 * A_e0e0.inv * A_e0f) * x_f)
+        systems.append(LAContext(lhd=S_e1, rhs=r_e1))
+
+        # Solve for e0
+        S_e0 = A_e0e0
+        r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
+        systems.append(LAContext(lhd=S_e0, rhs=r_e0))
+
+    else:
+        msg = "Not implemented for systems with %s fields" % nfields
+        raise NotImplementedError(msg)
+
+    return systems
