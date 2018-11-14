@@ -83,7 +83,7 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     return LAContext(lhs=S, rhs=r)
 
 
-def backward_substitution(A, b, x, reconstruct_fields):
+def backward_solve(A, b, x, reconstruct_fields):
     """
     """
 
@@ -93,7 +93,7 @@ def backward_substitution(A, b, x, reconstruct_fields):
 
     _A = A.blocks
     _b = b.blocks
-    _x = x.blocks
+    _x = x.split()
 
     # Ordering matters
     systems = []
@@ -115,7 +115,7 @@ def backward_substitution(A, b, x, reconstruct_fields):
         A_ee = _A[id_e, id_e]
         A_ef = _A[id_e, id_f]
         b_e = _b[id_e]
-        x_f = _x[id_f]
+        x_f = slate.AssembledVector(_x[id_f])
 
         local_system = LAContext(lhs=A_ee, rhs=b_e - A_ef * x_f)
 
@@ -151,7 +151,7 @@ def backward_substitution(A, b, x, reconstruct_fields):
         # Order of reconstruction doesn't need to be in order
         # of increasing indices
         id_e0, id_e1 = reconstruct_fields
-        id_f, = [idx for idx in all_fields if idx != id_e]
+        id_f, = [idx for idx in all_fields if idx not in reconstruct_fields]
 
         A_e0e0 = _A[id_e0, id_e0]
         A_e0e1 = _A[id_e0, id_e1]
@@ -160,22 +160,22 @@ def backward_substitution(A, b, x, reconstruct_fields):
         A_e0f = _A[id_e0, id_f]
         A_e1f = _A[id_e1, id_f]
 
-        x_e1 = _x[id_e1]
-        x_f = _x[id_f]
+        x_e1 = slate.AssembledVector(_x[id_e1])
+        x_f = slate.AssembledVector(_x[id_f])
 
         b_e0 = _b[id_e0]
         b_e1 = _b[id_e1]
 
         # Solve for e1
+        Sf = A_e1f - A_e1e0 * A_e0e0.inv * A_e0f
         S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1
-        r_e1 = (b_e1 - A_e1e0 * A_e0e0.inv * b_e0
-                - (A_e1f - A_e1e0 * A_e0e0.inv * A_e0f) * x_f)
-        systems.append(LAContext(lhd=S_e1, rhs=r_e1))
+        r_e1 = b_e1 - A_e1e0 * A_e0e0.inv * b_e0 - Sf * x_f
+        systems.append(LAContext(lhs=S_e1, rhs=r_e1))
 
         # Solve for e0
         S_e0 = A_e0e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
-        systems.append(LAContext(lhd=S_e0, rhs=r_e0))
+        systems.append(LAContext(lhs=S_e0, rhs=r_e0))
 
     else:
         msg = "Not implemented for systems with %s fields" % nfields
