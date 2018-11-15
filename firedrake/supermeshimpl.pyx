@@ -10,13 +10,16 @@ include "dmplexinc.pxi"
 MAGIC = {2: (22, 3, 2),
          3: (81, 4, 3)}
 
+
 ctypedef int (*compiled_call)(const double *, const double *, const double *,
                                const double *, const double *,
                                const double *, double *)
 
+
 cdef extern from "petscmat.h" nogil:
     int MatSetValuesLocal(PETSc.PetscMat, PetscInt, const PetscInt[], PetscInt, const PetscInt[],
                           const PetscScalar[], PetscInt)
+
 
 def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                                numpy.ndarray[PetscReal, ndim=2, mode="c"] node_locations_A,
@@ -43,8 +46,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                           V_A.cell_node_map().arity), dtype=ScalarType)
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values
+    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
+    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
 
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension()
@@ -55,15 +58,12 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
 
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
-    V_A_cell_node_map = V_A.cell_node_map().values
-    V_B_cell_node_map = V_B.cell_node_map().values
+    V_A_cell_node_map = V_A.cell_node_map().values_with_halo
+    V_B_cell_node_map = V_B.cell_node_map().values_with_halo
     num_dof_A = V_A.cell_node_map().arity
     num_dof_B = V_B.cell_node_map().arity
     for cell_A in range(num_cell_A):
         for cell_B in candidates(cell_A):
-            if cell_B >= num_cell_B:
-                # In halo region
-                continue
             for i in range(num_vertices):
                 for j in range(gdim):
                     simplex_A[i, j] = vertices_A[vertex_map_A[cell_A, i], j]

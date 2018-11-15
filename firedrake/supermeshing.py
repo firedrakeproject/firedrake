@@ -1,5 +1,7 @@
 # Code for projections and other fun stuff involving supermeshes.
 import firedrake
+import ctypes
+import os
 from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -40,6 +42,7 @@ class BlockMatrix(object):
             yi = PETSc.Vec().createWithArray(ya, size=sizes[0], comm=y.comm)
             self.mat.mult(xi, yi)
             y.array[start::stride] = yi.array_r
+
 
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
@@ -134,10 +137,7 @@ coverings that we fetch from the hierarchy.
     zeros = numpy.zeros((V_B.cell_node_map().arity, V_A.cell_node_map().arity), dtype=ScalarType)
     for cell_A, dofs_A in enumerate(V_A.cell_node_map().values):
         for cell_B in likely(cell_A):
-            if cell_B >= mesh_B.cell_set.size:
-                # In halo region
-                continue
-            dofs_B = V_B.cell_node_map().values[cell_B, :]
+            dofs_B = V_B.cell_node_map().values_with_halo[cell_B, :]
             preallocator.setValuesLocal(dofs_B, dofs_A, zeros)
     preallocator.assemble()
 
@@ -174,9 +174,9 @@ coverings that we fetch from the hierarchy.
     mat.setUp()
 
     vertices_A = mesh_A.coordinates.dat._data
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values
+    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
     vertices_B = mesh_B.coordinates.dat._data
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values
+    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
     # Magic number! 22 in 2D, 81 in 3D
     # TODO: need to be careful in "complex" mode, libsupermesh needs real coordinates.
     bufsize = {2: 22, 3: 81}[dim]
@@ -379,8 +379,6 @@ coverings that we fetch from the hierarchy.
         "dim": dim
     }
 
-    import ctypes
-    import os
     dirs = get_petsc_dir() + (os.environ["VIRTUAL_ENV"], )
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
@@ -394,17 +392,14 @@ coverings that we fetch from the hierarchy.
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
     # for cell_A in range(len(V_A.cell_node_map().values)):
     #     for cell_B in likely(cell_A):
-    #         if cell_B >= mesh_B.cell_set.size:
-    #             # In halo region
-    #             continue
     #         simplex_A = vertices_A[vertex_map_A[cell_A, :], :].flatten()
     #         simplex_B = vertices_B[vertex_map_B[cell_B, :], :].flatten()
     #         lib(simplex_A.ctypes.data, simplex_B.ctypes.data, simplices_C.ctypes.data,
     #             node_locations_A.ctypes.data, node_locations_B.ctypes.data,
     #             M_SS.ctypes.data, outmat.ctypes.data)
-    #         # print("outmat:\n", outmat)
-    #         # print("dofs_A:\n", V_A.cell_node_list[cell_A])
-    #         # print("dofs_B:\n", V_B.cell_node_list[cell_B])
+    #         print("outmat:\n", outmat)
+    #         print("dofs_A:\n", V_A.cell_node_list[cell_A])
+    #         print("dofs_B:\n", V_B.cell_node_list[cell_B])
     #         mat.setValuesLocal(V_B.cell_node_list[cell_B], V_A.cell_node_list[cell_A], outmat, addv=PETSc.InsertMode.ADD_VALUES)
 
     # Compute M_AB:
