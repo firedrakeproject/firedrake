@@ -10,8 +10,7 @@ __all__ = ['SCPC']
 
 class SCPC(SCBase):
     """A Slate-based python preconditioner implementation of
-    static condensation for three-field problems. This also
-    includes the local recovery of the eliminated unknowns.
+    static condensation for problems with up to three fields.
     """
 
     @timed_function("SCPCInit")
@@ -108,6 +107,14 @@ class SCPC(SCBase):
         self._assemble_S()
         self.S.force_evaluation()
         Smat = self.S.petscmat
+
+        # Get nullspace for the condensed operator (if any).
+        # This is provided as a user-specified callback which
+        # returns the basis for the nullspace.
+        nullspace = self.ctx.appctx.get("condensed_field_nullspace", None)
+        if nullspace is not None:
+            nsp = nullspace(Vc)
+            Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
         # Set up ksp for the condensed problem
         c_ksp = PETSc.KSP().create(comm=pc.comm)
