@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.supermeshing import *
+from itertools import product
 import pytest
 
 
@@ -23,36 +24,29 @@ def shapify(request):
         raise RuntimeError
 
 
-@pytest.fixture(params=["CG", "DG"])
-def family_A(request):
+spaces = [("CG", 1), ("CG", 2)] + [("DG", 0), ("DG", 1), ("DG", 2)]
+
+
+@pytest.fixture(params=[(a, b) for a, b in product(spaces, spaces)
+                        if (a[1] <= b[1] and a[0] == b[0])],
+                ids=lambda x: "%s%s-%s%s" % (*x[0], *x[1]))
+def pairs(request):
     return request.param
 
 
-@pytest.fixture(params=["CG", "DG"])
-def family_B(request):
-    return request.param
+@pytest.fixture
+def A(pairs):
+    return pairs[0]
 
 
-@pytest.fixture(params=[0, 1, 2])
-def degree_A(request):
-    return request.param
+@pytest.fixture
+def B(pairs):
+    return pairs[1]
 
 
-@pytest.fixture(params=[0, 1, 2])
-def degree_B(request):
-    return request.param
-
-
-def test_galerkin_projection(mesh, shapify, family_A, family_B, degree_A, degree_B):
-    if degree_A == 0 and family_A != "DG":
-        return
-    if degree_B == 0 and family_B != "DG":
-        return
-    if degree_B < degree_A:
-        return
-    if family_A == "DG" and family_B == "CG":
-        return
-
+def test_galerkin_projection(mesh, shapify, A, B):
+    family_A, degree_A = A
+    family_B, degree_B = B
     base = mesh
     mh = MeshHierarchy(base, 1)
 
@@ -85,7 +79,6 @@ def test_galerkin_projection(mesh, shapify, family_A, family_B, degree_A, degree
     diff.assign(f_B_prolong - f_B_project)
     norm = sqrt(assemble(inner(diff, diff)*dx))
 
-    print("|f_B_prolong - f_B_project|: %s" % norm)
     assert norm < 1.0e-12
 
 
