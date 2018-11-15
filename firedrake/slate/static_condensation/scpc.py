@@ -22,6 +22,7 @@ class SCPC(SCBase):
         A KSP is created for the reduced system. The eliminated
         variables are recovered via back-substitution.
         """
+
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.bcs import DirichletBC
@@ -129,7 +130,11 @@ class SCPC(SCBase):
         self.local_solvers = self.local_solver_calls(A, elim_fields)
 
     def condensed_system(self, A, elim_fields):
-        """
+        """Forms the condensed linear system by eliminating
+        specified unknowns.
+
+        :arg A: A Slate Tensor containing the mixed bilinear form.
+        :arg elim_fields: An iterable of field indices to eliminate.
         """
 
         from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
@@ -137,7 +142,12 @@ class SCPC(SCBase):
         return condense_and_forward_eliminate(A, self.residual, elim_fields)
 
     def local_solver_calls(self, A, elim_fields):
-        """
+        """Provides solver callbacks for inverting local operators
+        and reconstructing eliminated fields.
+
+        :arg A: A Slate Tensor containing the mixed bilinear form.
+        :arg elim_fields: An iterable of eliminated field indices
+                          to recover.
         """
 
         from firedrake.slate.static_condensation.la_utils import backward_solve
@@ -170,7 +180,12 @@ class SCPC(SCBase):
         self.S.force_evaluation()
 
     def forward_elimination(self, pc, x):
-        """
+        """Perform the forward elimination of fields and
+        provide the reduced right-hand side for the condensed
+        system.
+
+        :arg pc: a Preconditioner instance.
+        :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
         with self.residual.dat.vec_wo as v:
@@ -180,7 +195,10 @@ class SCPC(SCBase):
         self._assemble_Srhs()
 
     def sc_solve(self, pc):
-        """
+        """Solve the condensed linear system for the
+        condensed field.
+
+        :arg pc: a Preconditioner instance.
         """
 
         with self.condensed_rhs.dat.vec_ro as rhs:
@@ -192,7 +210,10 @@ class SCPC(SCBase):
                 self.condensed_ksp.solve(rhs, sol)
 
     def backward_substitution(self, pc, y):
-        """
+        """Perform the backwards recovery of eliminated fields.
+
+        :arg pc: a Preconditioner instance.
+        :arg y: a PETSc vector for placing the resulting fields.
         """
 
         # Recover eliminated unknowns
