@@ -1,8 +1,7 @@
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
-from firedrake.slate.slate import Tensor, AssembledVector
-from firedrake.utils import cached_property
+from firedrake.slate.slate import Tensor
 from pyop2.profiling import timed_function
 
 
@@ -37,8 +36,10 @@ class SCPC(SCBase):
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
 
+        self.bilinear_form = self.cxt.a
+
         # Retrieve the mixed function space
-        W = self.cxt.a.arguments()[0].function_space()
+        W = self.bilinear_form.arguments()[0].function_space()
         if len(W) != 3:
             raise NotImplementedError("Only supports three function spaces.")
 
@@ -66,8 +67,12 @@ class SCPC(SCBase):
         self.residual = Function(W)
         self.solution = Function(W)
 
-        # Perform symbolics only once
-        S_expr, r_lambda_expr, u_h_expr, q_h_expr = self._slate_expressions
+        A = Tensor(self.bilinear_form)
+        reduced_sys = self.condensed_system(A, elim_fields=(0, 1))
+        S_expr = reduced_sys.lhs
+        r_lambda_expr = reduced_sys.rhs
+
+        self.local_solvers = self.local_solver_calls(A, reconstruct_fields=(0, 1))
 
         self.S = allocate_matrix(S_expr,
                                  bcs=bcs,
@@ -98,100 +103,38 @@ class SCPC(SCBase):
             tensor=self.r_lambda,
             form_compiler_parameters=self.cxt.fc_params)
 
-        q_h, u_h, lambda_h = self.solution.split()
-
-        # Assemble u_h using lambda_h
-        self._assemble_u = create_assembly_callable(
-            u_h_expr,
-            tensor=u_h,
-            form_compiler_parameters=self.cxt.fc_params)
-
-        # Recover q_h using both u_h and lambda_h
-        self._assemble_q = create_assembly_callable(
-            q_h_expr,
-            tensor=q_h,
-            form_compiler_parameters=self.cxt.fc_params)
-
-    @cached_property
-    def _slate_expressions(self):
-        """Returns all the relevant Slate expressions
-        for the static condensation and local recovery
-        procedures.
+    def condensed_system(self, A, elim_fields):
         """
-        # This operator has the form:
-        # | A  B  C |
-        # | D  E  F |
-        # | G  H  J |
-        # NOTE: It is often the case that D = B.T,
-        # G = C.T, H = F.T, and J = 0, but we're not making
-        # that assumption here.
-        _O = Tensor(self.cxt.a)
-        O = _O.blocks
+        """
 
-        # Extract sub-block:
-        # | A B |
-        # | D E |
-        # which has block row indices (0, 1) and block
-        # column indices (0, 1) as well.
-        M = O[:2, :2]
+        from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
 
-        # Extract sub-block:
-        # | C |
-        # | F |
-        # which has block row indices (0, 1) and block
-        # column indices (2,)
-        K = O[:2, 2]
+        return condense_and_forward_eliminate(A, self.residual, elim_fields)
 
-        # Extract sub-block:
-        # | G H |
-        # which has block row indices (2,) and block column
-        # indices (0, 1)
-        L = O[2, :2]
+    def local_solver_calls(self, A, reconstruct_fields):
+        """
+        """
 
-        # And the final block J has block row-column
-        # indices (2, 2)
-        J = O[2, 2]
+        from firedrake.slate.static_condensation.la_utils import backward_solve
+        from firedrake.assemble import create_assembly_callable
 
-        # Schur complement for traces
-        S = J - L * M.inv * K
+        fields = self.solution.split()
+        systems = backward_solve(A, self.residual, self.solution,
+                                 reconstruct_fields=reconstruct_fields)
 
-        # Create mixed function for residual computation.
-        # This projects the non-trace residual bits into
-        # the trace space:
-        # -L * M.inv * | v1 v2 |^T
-        _R = AssembledVector(self.residual)
-        R = _R.blocks
-        v1v2 = R[:2]
-        v3 = R[2]
-        r_lambda = v3 - L * M.inv * v1v2
+        local_solvers = []
+        for local_system in systems:
+            Ae = local_system.lhs
+            be = local_system.rhs
+            i, = local_system.field_idx
+            local_solve = Ae.solve(be, decomposition="PartialPivLU")
+            solve_call = create_assembly_callable(
+                local_solve,
+                tensor=fields[i],
+                form_compiler_parameters=self.cxt.fc_params)
+            local_solvers.append(solve_call)
 
-        # Reconstruction expressions
-        q_h, u_h, lambda_h = self.solution.split()
-
-        # Local tensors needed for reconstruction
-        A = O[0, 0]
-        B = O[0, 1]
-        C = O[0, 2]
-        D = O[1, 0]
-        E = O[1, 1]
-        F = O[1, 2]
-        Se = E - D * A.inv * B
-        Sf = F - D * A.inv * C
-
-        v1, v2, v3 = self.residual.split()
-
-        # Solve locally using LU (with partial pivoting)
-        u_h_expr = Se.solve(AssembledVector(v2) -
-                            D * A.inv * AssembledVector(v1) -
-                            Sf * AssembledVector(lambda_h),
-                            decomposition="PartialPivLU")
-
-        q_h_expr = A.solve(AssembledVector(v1) -
-                           B * AssembledVector(u_h) -
-                           C * AssembledVector(lambda_h),
-                           decomposition="PartialPivLU")
-
-        return (S, r_lambda, u_h_expr, q_h_expr)
+        return local_solvers
 
     @timed_function("SCPCUpdate")
     def update(self, pc):
@@ -228,8 +171,8 @@ class SCPC(SCBase):
         """
 
         # Recover eliminated unknowns
-        self._assemble_u()
-        self._assemble_q()
+        for local_solver_call in self.local_solvers:
+            local_solver_call()
 
         with self.solution.dat.vec_ro as w:
             w.copy(y)
