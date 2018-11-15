@@ -5,7 +5,7 @@ from firedrake.slate import slate
 
 
 LAContext = namedtuple("LAContext",
-                       ["lhs", "rhs"])
+                       ["lhs", "rhs", "field_idx"])
 LAContext.__doc__ = """\
 Context information for systems of equations after
 applying algebraic transformation via Slate-supported
@@ -16,6 +16,10 @@ for the transformed linear system of equations.
             left-hand side matrix.
 :param rhs: The resulting expression for the transformed
             right-hand side vector.
+:param field_idx: An integer or iterable of integers
+                  (if the system is mixed) denoting
+                  which field(s) the resulting solution
+                  is defined on.
 """
 
 
@@ -41,7 +45,8 @@ def condense_and_forward_eliminate(A, b, elim_fields):
 
     all_fields = list(range(len(A.arg_function_spaces[0])))
 
-    condensed_field = list(set(all_fields) - set(elim_fields))
+    condensed_fields = list(set(all_fields) - set(elim_fields))
+    condensed_fields.sort()
 
     _A = A.blocks
     _b = slate.AssembledVector(b).blocks
@@ -49,8 +54,8 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     # NOTE: Does not support non-contiguous field elimination
     e_idx0 = elim_fields[0]
     e_idx1 = elim_fields[-1]
-    f_idx0 = condensed_field[0]
-    f_idx1 = condensed_field[-1]
+    f_idx0 = condensed_fields[0]
+    f_idx1 = condensed_fields[-1]
 
     # Finite element systems where static condensation
     # is possible have the general form:
@@ -76,8 +81,9 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     # as show in Slate:
     S = Aff - Afe * Aee.inv * Aef
     r = bf - Afe * Aee.inv * be
+    field_idx = [idx for idx in range(f_idx0, f_idx1)]
 
-    return LAContext(lhs=S, rhs=r)
+    return LAContext(lhs=S, rhs=r, field_idx=field_idx)
 
 
 def backward_solve(A, b, x, reconstruct_fields):
@@ -127,7 +133,8 @@ def backward_solve(A, b, x, reconstruct_fields):
         b_e = slate.AssembledVector(_b[id_e])
         x_f = slate.AssembledVector(_x[id_f])
 
-        local_system = LAContext(lhs=A_ee, rhs=b_e - A_ef * x_f)
+        r_e = b_e - A_ef * x_f
+        local_system = LAContext(lhs=A_ee, rhs=r_e, field_idx=(id_e,))
 
         systems.append(local_system)
 
@@ -180,11 +187,11 @@ def backward_solve(A, b, x, reconstruct_fields):
         Sf = A_e1f - A_e1e0 * A_e0e0.inv * A_e0f
         S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1
         r_e1 = b_e1 - A_e1e0 * A_e0e0.inv * b_e0 - Sf * x_f
-        systems.append(LAContext(lhs=S_e1, rhs=r_e1))
+        systems.append(LAContext(lhs=S_e1, rhs=r_e1, field_idx=(id_e1,)))
 
         # Solve for e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
-        systems.append(LAContext(lhs=A_e0e0, rhs=r_e0))
+        systems.append(LAContext(lhs=A_e0e0, rhs=r_e0, field_idx=(id_e0,)))
 
     else:
         msg = "Not implemented for systems with %s fields" % nfields
