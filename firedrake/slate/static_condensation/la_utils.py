@@ -26,7 +26,7 @@ def condense_and_forward_eliminate(A, b, elim_fields):
 
     :arg A: a `slate.Tensor` corresponding to the
             mixed UFL operator.
-    :arg b: a `slate.AssembledVector` corresponding
+    :arg b: a `firedrake.Function` corresponding
             to the right-hand side.
     :arg elim_fields: a `tuple` of indices denoting
                       which fields to eliminate.
@@ -34,9 +34,6 @@ def condense_and_forward_eliminate(A, b, elim_fields):
 
     if not isinstance(A, slate.Tensor):
         raise ValueError("Left-hand operator must be a Slate Tensor")
-
-    if not isinstance(b, slate.AssembledVector):
-        raise ValueError("Right-hand side must be an AssembledVector")
 
     # Ensures field indices are in increasing order
     elim_fields = list(as_tuple(elim_fields))
@@ -47,7 +44,7 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     condensed_field = list(set(all_fields) - set(elim_fields))
 
     _A = A.blocks
-    _b = b.blocks
+    _b = slate.AssembledVector(b).blocks
 
     # NOTE: Does not support non-contiguous field elimination
     e_idx0 = elim_fields[0]
@@ -84,15 +81,28 @@ def condense_and_forward_eliminate(A, b, elim_fields):
 
 
 def backward_solve(A, b, x, reconstruct_fields):
+    """Returns a sequence of linear algebra contexts containing
+    Slate expressions for backwards substitution.
+
+    :arg A: a `slate.Tensor` corresponding to the
+            mixed UFL operator.
+    :arg b: a `firedrake.Function` corresponding
+            to the right-hand side.
+    :arg x: a `firedrake.Function` corresponding
+            to the solution.
+    :arg reconstruct_fields: a `tuple` of indices denoting
+                             which fields to reconstruct.
     """
-    """
+
+    if not isinstance(A, slate.Tensor):
+        raise ValueError("Left-hand operator must be a Slate Tensor")
 
     all_fields = list(range(len(A.arg_function_spaces[0])))
     nfields = len(all_fields)
     reconstruct_fields = as_tuple(reconstruct_fields)
 
     _A = A.blocks
-    _b = b.blocks
+    _b = b.split()
     _x = x.split()
 
     # Ordering matters
@@ -114,7 +124,7 @@ def backward_solve(A, b, x, reconstruct_fields):
 
         A_ee = _A[id_e, id_e]
         A_ef = _A[id_e, id_f]
-        b_e = _b[id_e]
+        b_e = slate.AssembledVector(_b[id_e])
         x_f = slate.AssembledVector(_x[id_f])
 
         local_system = LAContext(lhs=A_ee, rhs=b_e - A_ef * x_f)
@@ -163,8 +173,8 @@ def backward_solve(A, b, x, reconstruct_fields):
         x_e1 = slate.AssembledVector(_x[id_e1])
         x_f = slate.AssembledVector(_x[id_f])
 
-        b_e0 = _b[id_e0]
-        b_e1 = _b[id_e1]
+        b_e0 = slate.AssembledVector(_b[id_e0])
+        b_e1 = slate.AssembledVector(_b[id_e1])
 
         # Solve for e1
         Sf = A_e1f - A_e1e0 * A_e0e0.inv * A_e0f
@@ -173,9 +183,8 @@ def backward_solve(A, b, x, reconstruct_fields):
         systems.append(LAContext(lhs=S_e1, rhs=r_e1))
 
         # Solve for e0
-        S_e0 = A_e0e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
-        systems.append(LAContext(lhs=S_e0, rhs=r_e0))
+        systems.append(LAContext(lhs=A_e0e0, rhs=r_e0))
 
     else:
         msg = "Not implemented for systems with %s fields" % nfields
