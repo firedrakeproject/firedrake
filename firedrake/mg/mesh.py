@@ -21,6 +21,7 @@ class HierarchyBase(object):
        pair, mapping each fine cell into coarse cells it intersects.
     :arg refinements_per_level: number of mesh refinements each
        multigrid level should "see".
+    :arg nested: Is this mesh hierarchy nested?
 
     .. note::
 
@@ -29,7 +30,7 @@ class HierarchyBase(object):
        :func:`ExtrudedMeshHierarchy`, or :func:`NonNestedHierarchy`.
     """
     def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                 refinements_per_level=1):
+                 refinements_per_level=1, nested=False):
         from firedrake_citations import Citations
         Citations().register("Mitchell2016")
         self._meshes = tuple(meshes)
@@ -37,6 +38,7 @@ class HierarchyBase(object):
         self.coarse_to_fine_cells = coarse_to_fine_cells
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
+        self.nested = nested
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -166,7 +168,7 @@ def MeshHierarchy(mesh, refinement_levels,
     fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
                                 for i, f2c in enumerate(fine_to_coarse_cells))
     return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level)
+                         refinements_per_level, nested=True)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None,
@@ -191,8 +193,10 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
                          base_hierarchy.fine_to_coarse_cells,
-                         refinements_per_level=base_hierarchy.refinements_per_level)
+                         refinements_per_level=base_hierarchy.refinements_per_level,
+                         nested=base_hierarchy.nested)
 
 
 def NonNestedHierarchy(*meshes):
-    return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes])
+    return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes],
+                         nested=False)

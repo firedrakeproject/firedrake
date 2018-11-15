@@ -86,9 +86,13 @@ class AssembledPC(PCBase):
 
     def form(self, pc, test, trial):
         _, P = pc.getOperators()
-        assert P.type == "python"
-        context = P.getPythonContext()
-        return (context.a, context.row_bcs)
+        if P.getType() == "python":
+            context = P.getPythonContext()
+            return (context.a, context.row_bcs)
+        else:
+            from firedrake.dmhooks import get_appctx
+            context = get_appctx(pc.getDM())
+            return (context.Jp or context.J, context._problem.bcs)
 
     def apply(self, pc, x, y):
         self.pc.apply(x, y)

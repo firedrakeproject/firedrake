@@ -31,7 +31,8 @@ def prolong(coarse, fine):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(coarse.split(), fine.split()):
-            prolong(in_, out)
+            myprolong, _, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
+            myprolong(in_, out)
         return
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
@@ -91,7 +92,8 @@ def restrict(fine_dual, coarse_dual):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
-            restrict(in_, out)
+            _, myrestrict, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
+            myrestrict(in_, out)
         return
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
@@ -152,7 +154,8 @@ def inject(fine, coarse):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine.split(), coarse.split()):
-            inject(in_, out)
+            _, _, myinject = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
+            myinject(in_, out)
         return
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
@@ -175,6 +178,8 @@ def inject(fine, coarse):
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
     hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    if dg and not hierarchy.nested:
+        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
     _, fine_level = utils.get_level(fine.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
