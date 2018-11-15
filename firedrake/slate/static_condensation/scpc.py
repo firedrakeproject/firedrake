@@ -40,40 +40,60 @@ class SCPC(SCBase):
 
         # Retrieve the mixed function space
         W = self.bilinear_form.arguments()[0].function_space()
-        if len(W) != 3:
-            raise NotImplementedError("Only supports three function spaces.")
+        if len(W) > 3:
+            raise NotImplementedError("Only supports up to three function spaces.")
 
-        # Extract space of the condensed field
-        # TODO: Make more general.
-        T = W[2]
+        elim_fields = PETSc.Options().getString(pc.getOptionsPrefix()
+                                                + "pc_sc_eliminate_fields",
+                                                None)
+        if elim_fields:
+            elim_fields = [int(i) for i in elim_fields.split(',')]
+        else:
+            # By default, we condense down to the last field in the
+            # mixed space.
+            elim_fields = [i for i in range(0, len(W) - 1)]
+
+        condensed_fields = list(set(range(len(W))) - set(elim_fields))
+        if len(condensed_fields) != 1:
+            raise NotImplementedError("Cannot condense to more than one field")
+
+        c_field, = condensed_fields
 
         # Need to duplicate a space which is NOT
         # associated with a subspace of a mixed space.
-        Tr = FunctionSpace(T.mesh(), T.ufl_element())
+        Vc = FunctionSpace(W.mesh(), W[c_field].ufl_element())
         bcs = []
         cxt_bcs = self.cxt.row_bcs
         for bc in cxt_bcs:
-            assert bc.function_space() == T
+            if bc.function_space().index != c_field:
+                raise NotImplementedError("Strong BC set on unsupported space")
             if isinstance(bc.function_arg, Function):
-                bc_arg = interpolate(bc.function_arg, Tr)
+                bc_arg = interpolate(bc.function_arg, Vc)
             else:
                 # Constants don't need to be interpolated
                 bc_arg = bc.function_arg
-            bcs.append(DirichletBC(Tr, bc_arg, bc.sub_domain))
+            bcs.append(DirichletBC(Vc, bc_arg, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
-        self.r_lambda = Function(T)
+        self.c_field = c_field
+        self.condensed_rhs = Function(Vc)
         self.residual = Function(W)
         self.solution = Function(W)
 
+        # Get expressions for the condensed linear system
         A = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A, elim_fields=(0, 1))
+        reduced_sys = self.condensed_system(A, elim_fields)
         S_expr = reduced_sys.lhs
-        r_lambda_expr = reduced_sys.rhs
+        r_expr = reduced_sys.rhs
 
-        self.local_solvers = self.local_solver_calls(A, reconstruct_fields=(0, 1))
+        # Construct the condensed right-hand side
+        self._assemble_Srhs = create_assembly_callable(
+            r_expr,
+            tensor=self.condensed_rhs,
+            form_compiler_parameters=self.cxt.fc_params)
 
+        # Allocate and set the condensed operator
         self.S = allocate_matrix(S_expr,
                                  bcs=bcs,
                                  form_compiler_parameters=self.cxt.fc_params,
@@ -89,19 +109,17 @@ class SCPC(SCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # Set up ksp for the trace problem
-        trace_ksp = PETSc.KSP().create(comm=pc.comm)
-        trace_ksp.incrementTabLevel(1, parent=pc)
-        trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(Smat)
-        trace_ksp.setUp()
-        trace_ksp.setFromOptions()
-        self.trace_ksp = trace_ksp
+        # Set up ksp for the condensed problem
+        c_ksp = PETSc.KSP().create(comm=pc.comm)
+        c_ksp.incrementTabLevel(1, parent=pc)
+        c_ksp.setOptionsPrefix(prefix)
+        c_ksp.setOperators(Smat)
+        c_ksp.setUp()
+        c_ksp.setFromOptions()
+        self.condensed_ksp = c_ksp
 
-        self._assemble_Srhs = create_assembly_callable(
-            r_lambda_expr,
-            tensor=self.r_lambda,
-            form_compiler_parameters=self.cxt.fc_params)
+        # Set up local solvers for backwards substitution
+        self.local_solvers = self.local_solver_calls(A, elim_fields)
 
     def condensed_system(self, A, elim_fields):
         """
@@ -111,7 +129,7 @@ class SCPC(SCBase):
 
         return condense_and_forward_eliminate(A, self.residual, elim_fields)
 
-    def local_solver_calls(self, A, reconstruct_fields):
+    def local_solver_calls(self, A, elim_fields):
         """
         """
 
@@ -120,7 +138,7 @@ class SCPC(SCBase):
 
         fields = self.solution.split()
         systems = backward_solve(A, self.residual, self.solution,
-                                 reconstruct_fields=reconstruct_fields)
+                                 reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
@@ -158,13 +176,13 @@ class SCPC(SCBase):
         """
         """
 
-        with self.r_lambda.dat.vec_ro as b:
-            if self.trace_ksp.getInitialGuessNonzero():
-                acc = self.solution.split()[2].dat.vec
+        with self.condensed_rhs.dat.vec_ro as rhs:
+            if self.condensed_ksp.getInitialGuessNonzero():
+                acc = self.solution.split()[self.c_field].dat.vec
             else:
-                acc = self.solution.split()[2].dat.vec_wo
-            with acc as x_trace:
-                self.trace_ksp.solve(b, x_trace)
+                acc = self.solution.split()[self.c_field].dat.vec_wo
+            with acc as sol:
+                self.condensed_ksp.solve(rhs, sol)
 
     def backward_substitution(self, pc, y):
         """
@@ -180,4 +198,4 @@ class SCPC(SCBase):
     def view(self, pc, viewer=None):
         viewer.printfASCII("Static condensation preconditioner\n")
         viewer.printfASCII("KSP to solve the reduced system:\n")
-        self.trace_ksp.view(viewer=viewer)
+        self.c_ksp.view(viewer=viewer)
