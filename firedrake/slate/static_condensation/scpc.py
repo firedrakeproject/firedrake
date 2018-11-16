@@ -83,7 +83,7 @@ class SCPC(SCBase):
 
         # Get expressions for the condensed linear system
         A = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A, elim_fields)
+        reduced_sys = self.condensed_system(A, self.residual, elim_fields)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -112,7 +112,7 @@ class SCPC(SCBase):
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
         # returns the basis for the nullspace.
-        nullspace = self.ctx.appctx.get("condensed_field_nullspace", None)
+        nullspace = self.cxt.appctx.get("condensed_field_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
@@ -127,25 +127,30 @@ class SCPC(SCBase):
         self.condensed_ksp = c_ksp
 
         # Set up local solvers for backwards substitution
-        self.local_solvers = self.local_solver_calls(A, elim_fields)
+        self.local_solvers = self.local_solver_calls(A, self.residual,
+                                                     self.solution,
+                                                     elim_fields)
 
-    def condensed_system(self, A, elim_fields):
+    def condensed_system(self, A, rhs, elim_fields):
         """Forms the condensed linear system by eliminating
         specified unknowns.
 
         :arg A: A Slate Tensor containing the mixed bilinear form.
+        :arg rhs: A firedrake function for the right-hand side.
         :arg elim_fields: An iterable of field indices to eliminate.
         """
 
         from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
 
-        return condense_and_forward_eliminate(A, self.residual, elim_fields)
+        return condense_and_forward_eliminate(A, rhs, elim_fields)
 
-    def local_solver_calls(self, A, elim_fields):
+    def local_solver_calls(self, A, rhs, x, elim_fields):
         """Provides solver callbacks for inverting local operators
         and reconstructing eliminated fields.
 
         :arg A: A Slate Tensor containing the mixed bilinear form.
+        :arg rhs: A firedrake function for the right-hand side.
+        :arg x: A firedrake function for the solution.
         :arg elim_fields: An iterable of eliminated field indices
                           to recover.
         """
@@ -153,9 +158,8 @@ class SCPC(SCBase):
         from firedrake.slate.static_condensation.la_utils import backward_solve
         from firedrake.assemble import create_assembly_callable
 
-        fields = self.solution.split()
-        systems = backward_solve(A, self.residual, self.solution,
-                                 reconstruct_fields=elim_fields)
+        fields = x.split()
+        systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
@@ -176,6 +180,7 @@ class SCPC(SCBase):
         """Update by assembling into the KSP operator. No
         need to reconstruct symbolic objects.
         """
+
         self._assemble_S()
         self.S.force_evaluation()
 
@@ -224,6 +229,8 @@ class SCPC(SCBase):
             w.copy(y)
 
     def view(self, pc, viewer=None):
+        """Viewer calls for the various configurable objects in this PC."""
+
         viewer.printfASCII("Static condensation preconditioner\n")
         viewer.printfASCII("KSP to solve the reduced system:\n")
-        self.c_ksp.view(viewer=viewer)
+        self.condensed_ksp.view(viewer=viewer)
