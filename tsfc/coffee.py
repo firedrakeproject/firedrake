@@ -264,6 +264,7 @@ math_table = {
     'conj': (None, 'conj'),
     'erf': ('erf', None),
     'atan_2': ('atan2', None),
+    'atan2': ('atan2', None),
     'min_value': ('fmin', None),
     'max_value': ('fmax', None)
 }
