@@ -306,8 +306,8 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     domain = domain & (inames[0].le_set(inames[d.name])) & (inames[d.name].lt_set(inames[0] + dim))
     domain = domain & (inames[0].le_set(inames[i.name])) & (inames[i.name].lt_set(inames[0] + xndof))
 
-    data = [loopy.ArrayArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code))),
-            loopy.ArrayArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)),
+    data = [loopy.GlobalArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code))),
+            loopy.GlobalArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)),
             loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape,
                                     read_only=True, scope=loopy.AddressSpace.LOCAL),
             loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.AddressSpace.LOCAL)]
@@ -322,7 +322,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
             instructions.insert(0, user_arg_insn)
             insn0 = insn0.copy(depends_on=insn0.depends_on | frozenset([user_arg_insn.id]))
             data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), scope=loopy.AddressSpace.LOCAL))
-        data.append(loopy.ArrayArg(name, dtype=arg.dtype, shape=arg.shape))
+        data.append(loopy.GlobalArg(name, dtype=arg.dtype, shape=arg.shape))
 
     if any("pi" in str(_c) for _c in expression.code):
         data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
