@@ -73,7 +73,7 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def arg(self):
-        return loopy.ArrayArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
+        return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
 
 
 class AssignmentBase(Operator):
