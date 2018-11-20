@@ -15,15 +15,12 @@ from gem import gem, impero as imp
 
 from tsfc.parameters import is_complex
 
-# Satisfy import demands until complex branch is merged in Firedrake
-from tsfc.parameters import SCALAR_TYPE
-
 
 class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, precision, scalar_type=None):
+def generate(impero_c, index_names, precision, scalar_type):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -37,7 +34,7 @@ def generate(impero_c, index_names, precision, scalar_type=None):
     params.indices = impero_c.indices
     params.precision = precision
     params.epsilon = 10.0 * eval("1e-%d" % precision)
-    params.scalar_type = scalar_type or SCALAR_TYPE
+    params.scalar_type = scalar_type
 
     params.names = {}
     for i, temp in enumerate(impero_c.temporaries):

@@ -60,14 +60,11 @@ class Kernel(object):
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type=None, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        if scalar_type is None:
-            from tsfc.parameters import SCALAR_TYPE
-            scalar_type = SCALAR_TYPE
         super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
                                                 interior_facet=interior_facet)
 
@@ -173,7 +170,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None,
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type,
                  dont_split=()):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
