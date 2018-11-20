@@ -309,8 +309,8 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     data = [loopy.ArrayArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code))),
             loopy.ArrayArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)),
             loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape,
-                                    read_only=True, scope=loopy.temp_var_scope.LOCAL),
-            loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.temp_var_scope.LOCAL)]
+                                    read_only=True, scope=loopy.AddressSpace.LOCAL),
+            loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), scope=loopy.AddressSpace.LOCAL)]
 
     coefficients = [coords]
     for _i, (name, arg) in enumerate(expression._user_args):
@@ -321,12 +321,12 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
             user_arg_insn = loopy.Assignment(p.Variable(arg.name), p.Variable(name).index(0), id="user_arg_{0}".format(_i))
             instructions.insert(0, user_arg_insn)
             insn0 = insn0.copy(depends_on=insn0.depends_on | frozenset([user_arg_insn.id]))
-            data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), scope=loopy.temp_var_scope.LOCAL))
+            data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), scope=loopy.AddressSpace.LOCAL))
         data.append(loopy.ArrayArg(name, dtype=arg.dtype, shape=arg.shape))
 
     if any("pi" in str(_c) for _c in expression.code):
         data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
-                                            read_only=True, scope=loopy.temp_var_scope.LOCAL))
+                                            read_only=True, scope=loopy.AddressSpace.LOCAL))
 
     knl = loopy.make_kernel([domain], instructions, data, name="expression_kernel", lang_version=(2018, 2),
                             silenced_warnings=["summing_if_branches_ops"])
