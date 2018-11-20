@@ -72,7 +72,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+            kargs.append(loopy.ArrayArg(var, dtype=func.dat.dtype, shape=(ndof,)))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -84,7 +84,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim  # == 1
-                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    kargs.append(loopy.ArrayArg(var, dtype=func.dat.dtype, shape=(ndof,)))
                     continue
                 else:
                     if len(func.function_space()) > 1:
@@ -95,7 +95,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+            kargs.append(loopy.ArrayArg(var, dtype=dtype, shape=(ndof, cdim)))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
     if kernel_domains is "":
