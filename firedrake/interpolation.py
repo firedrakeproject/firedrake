@@ -328,7 +328,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
         data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
                                             read_only=True, scope=loopy.AddressSpace.LOCAL))
 
-    knl = loopy.make_kernel([domain], instructions, data, name="expression_kernel", lang_version=(2018, 2),
-                            silenced_warnings=["summing_if_branches_ops"])
+    knl = loopy.make_function([domain], instructions, data, name="expression_kernel",
+                              silenced_warnings=["summing_if_branches_ops"])
 
     return op2.Kernel(knl, knl.name), False, False, tuple(coefficients)

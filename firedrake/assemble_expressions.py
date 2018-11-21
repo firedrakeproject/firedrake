@@ -459,8 +459,7 @@ def expression_kernel(expr, args):
 
     insn = loopy_instructions(expr, context)
     data = [arg.arg for arg in args]
-    knl = loopy.make_kernel([domain], [insn], data, name="expression", lang_version=(2018, 2),
-                            silenced_warnings=["summing_if_branches_ops"])
+    knl = loopy.make_function([domain], [insn], data, name="expression", silenced_warnings=["summing_if_branches_ops"])
 
     return op2.Kernel(knl, "expression")
 
