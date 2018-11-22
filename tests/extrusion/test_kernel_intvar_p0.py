@@ -40,4 +40,4 @@ def test_firedrake_extrusion_var_p0():
     family = "DG"
     degree = 0
 
-    assert integrate_var_p0(family, degree) < 1.0e-14
+    assert integrate_var_p0(family, degree) < 1.0e-13
