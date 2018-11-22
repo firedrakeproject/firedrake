@@ -83,7 +83,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
                 dtype = c.dat[idx].dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
-                    ndof = func.function_space().dim  # == 1
+                    ndof = func.function_space().dim()  # == 1
                     kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
                     continue
                 else:
