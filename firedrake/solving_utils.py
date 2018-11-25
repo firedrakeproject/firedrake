@@ -6,6 +6,7 @@ from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
+from ufl import VectorElement
 
 
 def _make_reasons(reasons):
@@ -210,8 +211,12 @@ class _SNESContext(object):
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                index = bc.function_space().index
-                cmpt = bc.function_space().component
+                Vbc = bc.function_space()
+                if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
+                    index = Vbc.parent.index
+                else:
+                    index = Vbc.index
+                cmpt = Vbc.component
                 # TODO: need to test this logic
                 if index in field:
                     if len(field) == 1:
