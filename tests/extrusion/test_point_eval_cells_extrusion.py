@@ -51,16 +51,26 @@ def spherical_shell_mesh(request):
 
 
 @pytest.fixture
-def func2d(mesh2d):
+def expr2d():
+    return Expression("x[1]*(x[0] - 0.5*x[1])")
+
+
+@pytest.fixture
+def func2d(mesh2d, expr2d):
     V = FunctionSpace(mesh2d, "CG", 2)
-    f = Function(V).interpolate(Expression("x[1]*(x[0] - 0.5*x[1])"))
+    f = Function(V).interpolate(expr2d)
     return f
 
 
 @pytest.fixture
-def func3d(mesh3d):
+def expr3d():
+    return Expression("sin(pi*x[2])*(cos(pi*(x[0] - 0.5)) - sin(pi*x[1]))")
+
+
+@pytest.fixture
+def func3d(mesh3d, expr3d):
     V = FunctionSpace(mesh3d, "CG", 2)
-    f = Function(V).interpolate(Expression("sin(pi*x[2])*(cos(pi*(x[0] - 0.5)) - sin(pi*x[1]))"))
+    f = Function(V).interpolate(expr3d)
     return f
 
 
@@ -78,14 +88,15 @@ def test_3d(func3d):
 
 
 def test_cylinder(cylinder_mesh):
-    f = func3d(cylinder_mesh)
+    f = cylinder_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([0.70710678118, +0.70710678118, 0.0])
 
 
-def test_spherical_shell(spherical_shell_mesh):
-    f = func3d(spherical_shell_mesh)
+def test_spherical_shell(spherical_shell_mesh, expr3d):
+    V = FunctionSpace(spherical_shell_mesh, "CG", 2)
+    f = Function(V).interpolate(expr3d)
     expr = lambda x, y, z: sin(pi*z)*(cos(pi*(x - 0.5)) - sin(pi*y))
     for pt in [[+0.69282032302, 0.69282032302, +0.69282032302],
                [-0.72000000000, 1.06489436096, +1.26000000000],
