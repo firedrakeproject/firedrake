@@ -94,14 +94,14 @@ def test_3d(func3d):
 
 
 def test_circle(circle_mesh):
-    f = func2d(circle_mesh)
+    f = circle_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([0.70710678118, +0.70710678118])
 
 
 def test_sphere(sphere_mesh):
-    f = func3d(sphere_mesh)
+    f = sphere_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([+0.57735026919, 0.57735026919, +0.57735026919])

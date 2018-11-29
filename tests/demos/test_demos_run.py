@@ -36,7 +36,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
     for geo in geos:
         name = "%s.msh" % splitext(basename(geo))[0]
         try:
-            subprocess.check_call(["gmsh", geo, "-3", "-o", str(tmpdir.join(name))])
+            subprocess.check_call(["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))])
         except (subprocess.CalledProcessError, OSError):
             # Skip if unable to make mesh
             pytest.skip("Unable to generate mesh file, skipping test")
