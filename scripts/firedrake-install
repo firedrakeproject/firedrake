@@ -55,7 +55,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir",
                            "show_petsc_configure_options",
                            "slepc", "slope", "packages", "honour_pythonpath",
-                           "petsc_int_type", "cache_dir"]
+                           "petsc_int_type", "cache_dir", "complex"]
 
 
 def deep_update(this, that):
@@ -244,6 +244,8 @@ honoured.""",
     parser.add_argument("--cache-dir", type=str,
                         action="store",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    parser.add_argument("--complex", action="store_true",
+                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
 
@@ -314,6 +316,11 @@ else:
     parser.add_argument("--cache-dir", type=str,
                         action="store", default=config["options"].get("cache_dir", ""),
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    complex_group = parser.add_mutually_exclusive_group()
+    group.add_argument("--complex", action="store_true",
+                       help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
+    group.add_argument("--real", action="store_true",
+                       help="Updates to the real version of Firedrake; rebuilds PETSc in complex mode.")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
 
@@ -325,6 +332,14 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
+
+    petsc_complex_type_changed = False
+    previously_complex = config["options"].get("complex", False)
+    now_complex = not args.real and (args.complex or previously_complex)
+    if previously_complex != now_complex:
+        petsc_complex_type_changed = True
+        args.rebuild = True
+    args.complex = now_complex
 
     config = deep_update(config, FiredrakeConfiguration(args))
     if "mpicxx" not in config["options"]:
@@ -407,29 +422,32 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
-petsc_opts += "--with-fortran-bindings=0 "
+full_opts = '--download-chaco --download-metis --download-parmetis \
+--download-scalapack --download-hypre --download-mumps --with-zlib --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-fortran-bindings=0'
+
+split_opts = set(full_opts.split())
 
 if options["minimal_petsc"]:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
-else:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --with-zlib --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --with-zlib --download-netcdf --download-hdf5 --download-pnetcdf --download-exodusii"""
-
+    split_opts -= {'--with-zlib', '--download-netcdf', '--download-pnetcdf', '--download-exodusii'}
+if options["petsc_int_type"] == 'int64':
+    split_opts -= {'--download-chaco', '--download-scalapack', '--download-mumps'}
+    split_opts |= {'--with-64-bit-indices'}
+if options["complex"]:
+    split_opts -= {'--download-hypre'}
+    split_opts |= {'--with-scalar-type=complex'}
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(split_opts)
 else:
-    for opt in petsc_opts.split():
+    for opt in split_opts:
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
+
+if mode == "update" and petsc_complex_type_changed:
+    log.warning("""Force rebuilding all packages because PETSc scalar type changed between real and complex""")
 
 
 def check_call(arguments, env=None):
@@ -1104,6 +1122,20 @@ if mode == "install":
 
 os.chdir(firedrake_env)
 
+
+def write_configuration(config):
+    import json
+    with directory("firedrake/firedrake_configuration"):
+        try:
+            with open("configuration.json", "w") as f:
+                f.write(json.dumps(config))
+            log.info("Configuration saved to configuration.json")
+        except Exception as e:
+            log.warning("Unable to save configuration to a JSON file")
+            log.warning("Error Message:")
+            log.warning(str(e))
+
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1112,6 +1144,8 @@ if mode == "install":
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+
+    write_configuration(config)
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1164,6 +1198,8 @@ else:
         git_update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
+
+    write_configuration(config)
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
@@ -1240,15 +1276,6 @@ if options["slope"]:
     build_and_install_slope()
 if args.documentation_dependencies:
     install_documentation_dependencies()
-
-try:
-    import firedrake_configuration
-    firedrake_configuration.write_config(config)
-    log.info("Configuration saved to configuration.json")
-except Exception as e:
-    log.warning("Unable to save configuration to a JSON file")
-    log.warning("Error Message:")
-    log.warning(str(e))
 
 if mode == "update":
     try:
