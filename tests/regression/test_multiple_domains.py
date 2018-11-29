@@ -82,7 +82,8 @@ def test_functional(mesh1, mesh2):
 
 @pytest.mark.parametrize("form,expect", [
     (lambda v, mesh1, mesh2: v*dx(domain=mesh1), lambda vol, dim: vol),
-    pytest.mark.xfail(reason="UFL domain numbering error")((lambda v, mesh1, mesh2: v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim))),
+    pytest.param(lambda v, mesh1, mesh2: v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim),
+                 marks=pytest.mark.xfail(reason="UFL domain numbering error")),
     (lambda v, mesh1, mesh2: v*dx(domain=mesh1) + v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["v*dx(mesh1)", "v*dx(mesh2)", "v*(dx(mesh1) + dx(mesh2)"])
 def test_one_form(mesh1, mesh2, form, expect):
@@ -102,7 +103,8 @@ def test_one_form(mesh1, mesh2, form, expect):
 
 @pytest.mark.parametrize("form,expect", [
     (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1), lambda vol, dim: vol),
-    pytest.mark.xfail(reason="UFL domain numbering error")((lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim))),
+    pytest.param(lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim),
+                 marks=pytest.mark.xfail(reason="UFL domain numbering error")),
     (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1) + u*v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["u*v*dx(mesh1)", "u*v*dx(mesh2)", "u*v*(dx(mesh1) + dx(mesh2)"])
 def test_two_form(mesh1, mesh2, form, expect):

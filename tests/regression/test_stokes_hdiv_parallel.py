@@ -90,18 +90,22 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
             "pc_type": "fieldsplit",
             "pc_fieldsplit_type": "multiplicative",
 
-            "fieldsplit_0_ksp_type": "preonly",
-            "fieldsplit_0_pc_type": "python",
-            "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
-            "fieldsplit_0_assembled_pc_type": "lu",
-            "fieldsplit_0_assembled_pc_factor_mat_solver_type": "mumps",
-
-            "fieldsplit_1_ksp_type": "preonly",
-            "fieldsplit_1_pc_type": "python",
-            "fieldsplit_1_pc_python_type": "firedrake.MassInvPC",
-            "fieldsplit_1_Mp_ksp_type": "preonly",
-            "fieldsplit_1_Mp_pc_type": "lu",
-            "fieldsplit_1_Mp_pc_factor_mat_solver_type": "mumps"
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                # Avoid MUMPS segfaults
+                "assembled_pc_type": "redundant",
+                "assembled_redundant_pc_type": "lu",
+            },
+            "fieldsplit_1": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.MassInvPC",
+                "Mp_ksp_type": "preonly",
+                "Mp_pc_type": "lu",
+                "Mp_pc_factor_mat_solver_type": "mumps"
+            }
         }
 
         # Switch sign of pressure mass matrix

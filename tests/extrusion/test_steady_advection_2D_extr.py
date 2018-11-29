@@ -73,11 +73,8 @@ def test_left_to_right(mesh, DG0, W):
 
 
 @pytest.mark.parallel
-def test_left_to_right_parallel():
-    m = mesh()
-    dg0 = DG0(m)
-    w = W(m)
-    run_left_to_right(m, dg0, w)
+def test_left_to_right_parallel(mesh, DG0, W):
+    run_left_to_right(mesh, DG0, W)
 
 
 def run_right_to_left(mesh, DG1, W):
@@ -112,11 +109,8 @@ def test_right_to_left(mesh, DG1, W):
 
 
 @pytest.mark.parallel
-def test_right_to_left_parallel():
-    m = mesh()
-    dg1 = DG1(m)
-    w = W(m)
-    run_right_to_left(m, dg1, w)
+def test_right_to_left_parallel(mesh, DG1, W):
+    run_right_to_left(mesh, DG1, W)
 
 
 def run_bottom_to_top(mesh, DG0, W):
@@ -151,11 +145,8 @@ def test_bottom_to_top(mesh, DG0, W):
 
 
 @pytest.mark.parallel
-def test_bottom_to_top_parallel():
-    m = mesh()
-    dg0 = DG0(m)
-    w = W(m)
-    run_bottom_to_top(m, dg0, w)
+def test_bottom_to_top_parallel(mesh, DG0, W):
+    run_bottom_to_top(mesh, DG0, W)
 
 
 def run_top_to_bottom(mesh, DG1, W):
@@ -190,11 +181,8 @@ def test_top_to_bottom(mesh, DG1, W):
 
 
 @pytest.mark.parallel
-def test_top_to_bottom_parallel():
-    m = mesh()
-    dg1 = DG1(m)
-    w = W(m)
-    run_top_to_bottom(m, dg1, w)
+def test_top_to_bottom_parallel(mesh, DG1, W):
+    run_top_to_bottom(mesh, DG1, W)
 
 
 if __name__ == '__main__':

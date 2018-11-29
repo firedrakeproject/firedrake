@@ -4,11 +4,6 @@ import itertools
 from firedrake import *
 
 
-class Bunch(object):
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param
@@ -44,30 +39,14 @@ def test_dsn(one, domains):
 
 
 @pytest.mark.parallel
-def test_dsn_parallel():
-    c = one(mesh(Bunch(param=False)))
-
+def test_dsn_parallel(one):
     for d in domains:
-        assert np.allclose(assemble(c*ds(d)), len(d))
+        assert np.allclose(assemble(one*ds(d)), len(d))
 
     for domain in domains:
-        form = c*ds(domain[0])
+        form = one*ds(domain[0])
         for d in domain[1:]:
-            form += c*ds(d)
-        assert np.allclose(assemble(form), len(domain))
-
-
-@pytest.mark.parallel
-def test_dsn_parallel_on_quadrilaterals():
-    c = one(mesh(Bunch(param=True)))
-
-    for d in domains:
-        assert np.allclose(assemble(c*ds(d)), len(d))
-
-    for domain in domains:
-        form = c*ds(domain[0])
-        for d in domain[1:]:
-            form += c*ds(d)
+            form += one*ds(d)
         assert np.allclose(assemble(form), len(domain))
 
 
