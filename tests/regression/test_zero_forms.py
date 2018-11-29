@@ -4,11 +4,6 @@ import itertools
 from firedrake import *
 
 
-class Bunch(object):
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param
