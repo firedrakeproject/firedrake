@@ -175,13 +175,13 @@ def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
 @pytest.mark.parallel(nprocs=2)
 def test_grid_transfer_parallel(hierarchy, transfer_type):
     space = "CG"
-    degs = degrees(space)
+    degrees = (1, 2, 3)
     vector = False
     if not hierarchy.nested and hierarchy.refinements_per_level > 1:
         pytest.skip("Not implemented")
     if transfer_type == "injection":
-        run_injection(hierarchy, vector, space, degs)
+        run_injection(hierarchy, vector, space, degrees)
     elif transfer_type == "restriction":
-        run_restriction(hierarchy, vector, space, degs)
+        run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, vector, space, degs)
+        run_prolongation(hierarchy, vector, space, degrees)
