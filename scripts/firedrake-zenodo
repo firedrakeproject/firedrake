@@ -219,7 +219,7 @@ def check_github_token_scope(token):
 
 
 def check_tag(tag):
-    if re.match("Firedrake_20[0-9]{6,6}\.[0-9]+", tag) is None:
+    if re.match(r"Firedrake_20[0-9]{6,6}\.[0-9]+", tag) is None:
         log.error("Provided tag '{}' is not a legal Firedrake Zenodo release tag".format(tag))
         sys.exit(1)
 

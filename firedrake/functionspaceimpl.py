@@ -215,6 +215,9 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def collapse(self):
+        return type(self)(self.topological.collapse(), self.mesh())
+
 
 class FunctionSpace(object):
     r"""A representation of a function space.
@@ -247,7 +250,7 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
-    def __init__(self, mesh, element, name=None):
+    def __init__(self, mesh, element, name=None, real_tensorproduct=False):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -255,7 +258,7 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
-        sdata = get_shared_data(mesh, finat_element)
+        sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -513,6 +516,10 @@ class FunctionSpace(object):
         See also :class:`~.DirichletBC` for details of the arguments.
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
+
+    def collapse(self):
+        from firedrake import FunctionSpace
+        return FunctionSpace(self.mesh(), self.ufl_element())
 
 
 class MixedFunctionSpace(object):

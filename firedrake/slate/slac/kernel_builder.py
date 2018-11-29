@@ -53,6 +53,7 @@ class LocalKernelBuilder(object):
     cell_facet_sym = ast.Symbol("cell_facets")
     it_sym = ast.Symbol("i0")
     mesh_layer_sym = ast.Symbol("layer")
+    cell_size_sym = ast.Symbol("cell_sizes")
 
     # Supported integral types
     supported_integral_types = [
@@ -254,6 +255,7 @@ class LocalKernelBuilder(object):
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
                 kint_type = kinfo.integral_type
+                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
                 args = [c for i in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
@@ -266,6 +268,9 @@ class LocalKernelBuilder(object):
                                  "interior_facet_vert",
                                  "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
+
+                if kinfo.needs_cell_sizes:
+                    args.append(self.cell_size_sym)
 
                 # Assembly calls within the macro kernel
                 tensor = eigen_tensor(exp, self.temps[exp], indices)
@@ -291,7 +296,6 @@ class LocalKernelBuilder(object):
                 templated_subkernels.append(kast)
                 include_dirs.extend(kinfo.kernel._include_dirs)
                 oriented = oriented or kinfo.oriented
-                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
         # Add subdomain call to assembly dict
         assembly_calls.update(subdomain_calls)
@@ -330,7 +334,7 @@ class LocalKernelBuilder(object):
 
     @cached_property
     def context_kernels(self):
-        """Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
+        r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form

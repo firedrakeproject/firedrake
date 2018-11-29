@@ -1,4 +1,5 @@
 import pytest
+import os
 from firedrake import *
 import numpy as np
 from mpi4py import MPI
@@ -23,8 +24,8 @@ def fs(request):
 
 
 @pytest.fixture
-def dumpfile(tmpdir):
-    return str(tmpdir.join("dump.h5"))
+def dumpfile(dumpdir):
+    return os.path.join(dumpdir, "dump")
 
 
 @pytest.fixture(scope="module")
@@ -128,8 +129,3 @@ def test_multiple_timestamps(f, dumpfile):
         timestamps = h5.get_timestamps()
 
         assert np.allclose(timestamps, [0.1, 0.2])
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

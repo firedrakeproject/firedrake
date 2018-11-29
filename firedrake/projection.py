@@ -123,8 +123,8 @@ class Projector(object):
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
             raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
 
-        self._same_fspace = (isinstance(v, function.Function) and v.function_space() ==
-                             v_out.function_space())
+        self._same_fspace = (isinstance(v, function.Function) and v.function_space()
+                             == v_out.function_space())
         self.v = v
         self.v_out = v_out
         self.bcs = bcs

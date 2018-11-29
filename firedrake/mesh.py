@@ -143,8 +143,8 @@ class _Facets(object):
                              "interior_facet_horiz"):
             # these iterate over the base cell set
             return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
-        elif not (integral_type.startswith("exterior_") or
-                  integral_type.startswith("interior_")):
+        elif not (integral_type.startswith("exterior_")
+                  or integral_type.startswith("interior_")):
             raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
         if subdomain_id == "everywhere":
             return self.set
@@ -353,6 +353,7 @@ class MeshTopology(object):
         """
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
+        self._distribution_parameters = distribution_parameters.copy()
         if distribute is None:
             distribute = True
 
@@ -611,15 +612,15 @@ class MeshTopology(object):
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
-    def create_section(self, nodes_per_entity):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return dmplex.create_section(self, nodes_per_entity)
+        return dmplex.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
 
-    def node_classes(self, nodes_per_entity):
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
@@ -645,7 +646,7 @@ class MeshTopology(object):
         """
         return [len(entity_dofs[d][0]) for d in sorted(entity_dofs)]
 
-    def make_offset(self, entity_dofs, ndofs):
+    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns None (only for extruded use)."""
         return None
 
@@ -877,20 +878,24 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
-    def node_classes(self, nodes_per_entity):
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: the number of nodes in each of core, owned, and ghost classes.
         """
-        if self.variable_layers:
+        if real_tensorproduct:
+            nodes = np.asarray(nodes_per_entity)
+            nodes_per_entity = sum(nodes[:, i] for i in range(2))
+            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
+        elif self.variable_layers:
             return extnum.node_classes(self, nodes_per_entity)
         else:
             nodes = np.asarray(nodes_per_entity)
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    def make_offset(self, entity_dofs, ndofs):
+    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
 
@@ -902,10 +907,11 @@ class ExtrudedMeshTopology(MeshTopology):
             entity_offset[b] += len(entities[0])
 
         dof_offset = np.zeros(ndofs, dtype=IntType)
-        for (b, v), entities in entity_dofs.items():
-            for dof_indices in entities.values():
-                for i in dof_indices:
-                    dof_offset[i] = entity_offset[b]
+        if not real_tensorproduct:
+            for (b, v), entities in entity_dofs.items():
+                for dof_indices in entities.values():
+                    for i in dof_indices:
+                        dof_offset[i] = entity_offset[b]
         return dof_offset
 
     @utils.cached_property
@@ -1157,8 +1163,8 @@ values from f.)"""
 
             locator = compilation.load(src, "c", "locator",
                                        cppargs=["-I%s" % os.path.dirname(__file__),
-                                                "-I%s/include" % sys.prefix] +
-                                       ["-I%s/include" % d for d in get_petsc_dir()],
+                                                "-I%s/include" % sys.prefix]
+                                       + ["-I%s/include" % d for d in get_petsc_dir()],
                                        ldargs=["-L%s/lib" % sys.prefix,
                                                "-lspatialindex_c",
                                                "-Wl,-rpath,%s/lib" % sys.prefix])

@@ -90,6 +90,10 @@ def test_mixed_function_space_split(fs):
     assert fs.split() == tuple(fs)
 
 
+def test_function_space_collapse(cg1):
+    assert cg1 == cg1.collapse()
+
+
 @pytest.mark.parametrize("modifier",
                          [BrokenElement, FacetElement,
                           InteriorElement, HDivElement,

@@ -25,6 +25,8 @@ Former team members
 Other contributors
 ------------------
 
+Nicholas Barton
+
 Nicolas Loriant
 
 George Boutsioukis

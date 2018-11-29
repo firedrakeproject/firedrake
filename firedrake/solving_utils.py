@@ -1,5 +1,6 @@
 import numpy
 
+from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
@@ -48,10 +49,10 @@ class _SNESContext(object):
     :arg problem: a :class:`NonlinearVariationalProblem`.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -96,6 +97,7 @@ class _SNESContext(object):
         # context we could just require the user to pass in the
         # full state on the outside.
         appctx.setdefault("state", self._x)
+        appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self.appctx = appctx
         self.matfree = matfree
@@ -142,8 +144,9 @@ class _SNESContext(object):
             nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
-        from ufl import as_vector, replace
-        from firedrake import NonlinearVariationalProblem as NLVP, FunctionSpace
+        from firedrake import replace, as_vector, split
+        from firedrake import NonlinearVariationalProblem as NLVP
+        fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
         if splits is not None:
             return splits
@@ -152,20 +155,51 @@ class _SNESContext(object):
         problem = self._problem
         splitter = ExtractSubBlock()
         for field in fields:
-            try:
-                if len(field) > 1:
-                    raise NotImplementedError("Can't split into subblock")
-            except TypeError:
-                # Just a single field, we can handle that
-                pass
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u.split()
-            subu = us[field]
+            V = F.arguments()[0].function_space()
+            # Exposition:
+            # We are going to make a new solution Function on the sub
+            # mixed space defined by the relevant fields.
+            # But the form may refer to the rest of the solution
+            # anyway.
+            # So we pull it apart and will make a new function on the
+            # subspace that shares data.
+            pieces = [us[i].dat for i in field]
+            if len(pieces) == 1:
+                val, = pieces
+                subu = function.Function(V, val=val)
+                subsplit = (subu, )
+            else:
+                val = op2.MixedDat(pieces)
+                subu = function.Function(V, val=val)
+                # Split it apart to shove in the form.
+                subsplit = split(subu)
+            # Permutation from field indexing to indexing of pieces
+            field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(us):
-                for idx in numpy.ndindex(u.ufl_shape):
-                    vec.append(u[idx])
+                if i in field:
+                    # If this is a field we're keeping, get it from
+                    # the new function. Otherwise just point to the
+                    # old data.
+                    u = subsplit[field_renumbering[i]]
+                if u.ufl_shape == ():
+                    vec.append(u)
+                else:
+                    for idx in numpy.ndindex(u.ufl_shape):
+                        vec.append(u[idx])
+
+            # So now we have a new representation for the solution
+            # vector in the old problem. For the fields we're going
+            # to solve for, it points to a new Function (which wraps
+            # the original pieces). For the rest, it points to the
+            # pieces from the original Function.
+            # IOW, we've reinterpreted our original mixed solution
+            # function as being made up of some spaces we're still
+            # solving for, and some spaces that have just become
+            # coefficients in the new form.
             u = as_vector(vec)
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
@@ -176,9 +210,17 @@ class _SNESContext(object):
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                if bc.function_space().index == field:
-                    V = FunctionSpace(subu.ufl_domain(), subu.ufl_element())
-                    bcs.append(type(bc)(V,
+                index = bc.function_space().index
+                cmpt = bc.function_space().component
+                # TODO: need to test this logic
+                if index in field:
+                    if len(field) == 1:
+                        W = V
+                    else:
+                        W = V.sub(field_renumbering[index])
+                    if cmpt is not None:
+                        W = W.sub(cmpt)
+                    bcs.append(type(bc)(W,
                                         bc.function_arg,
                                         bc.sub_domain,
                                         method=bc.method))

@@ -49,6 +49,9 @@ venv_ as above and then run::
   cd firedrake/src/firedrake
   make alltest
 
+Note that there is currently an issue with the test harness on MacOS
+which causes the parallel tests to fail. Firedrake will still work in
+parallel, it is only the test system which is affected.
 
 System requirements
 -------------------
@@ -56,8 +59,13 @@ System requirements
 The installation script is tested on Ubuntu and MacOS X. Installation
 is likely to work well on other Linux platforms, although the script
 may stop to ask you to install some dependency packages. Installation
-on other Unix platforms may work but is untested. Installation on
-Windows is very unlikely to work.
+on other Unix platforms may work but is untested.
+
+Firedrake has been successfully installed on Windows 10 using the
+Windows Subsystem for Linux. There are more detailed
+`instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
+Installation on previous versions of Windows is unlikely to work.
+
 
 Supported Python distributions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

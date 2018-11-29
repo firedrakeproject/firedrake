@@ -51,8 +51,8 @@ cell_to_facets_dtype = np.dtype(np.int8)
 class SlateKernel(TSFCKernel):
     @classmethod
     def _cache_key(cls, expr, tsfc_parameters):
-        return md5((expr.expression_hash +
-                    str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+        return md5((expr.expression_hash
+                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
         if self._initialized:
@@ -209,6 +209,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # added as the final argument to the kernel.
     if builder.needs_mesh_layers:
         args.append(ast.Decl("int", builder.mesh_layer_sym))
+
+    # Cell size information
+    if builder.needs_cell_sizes:
+        args.append(ast.Decl(SCALAR_TYPE, builder.cell_size_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
 
     # Macro kernel
     macro_kernel_name = "compile_slate"

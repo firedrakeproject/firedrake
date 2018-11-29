@@ -68,6 +68,8 @@ def deep_update(this, that):
     return this
 
 
+invocation_directory = os.path.abspath(os.getcwd())
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
@@ -79,9 +81,10 @@ else:
 
 # Set up logging
 # Log to file at DEBUG level
+logfile = os.path.join(invocation_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)-6s %(message)s',
-                    filename='firedrake-%s.log' % mode,
+                    filename=logfile,
                     filemode='w')
 # Log to console at INFO level
 console = logging.StreamHandler()
@@ -363,7 +366,7 @@ where shortname is one of the names given below:
 
 @atexit.register
 def print_log_location():
-    log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
+    log.info("\n\n%s log saved in %s" % (mode.capitalize(), logfile))
 
 
 class directory(object):
@@ -541,7 +544,7 @@ def git_clone(url):
         log.info("Successfully cloned repository %s" % name)
     except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
-            log.warn("Failed to clone %s using ssh, falling back to https." % name)
+            log.warning("Failed to clone %s using ssh, falling back to https." % name)
         try:
             check_call(["git", "clone", "-q", git_url(plain_url, "https")])
             log.info("Successfully cloned repository %s." % name)
@@ -628,6 +631,18 @@ def pip_requirements(package):
             # FIXME: Horrible hack to work around
             # https://github.com/coin-or/pulp/issues/123
             run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
+        elif package == "pyadjoint":
+            with open("%s/requirements.txt" % package, "r") as f:
+                reqs = f.readlines()
+            for req in reqs:
+                req = req.strip()
+                try:
+                    run_pip_install([req])
+                except subprocess.CalledProcessError as e:
+                    if req == "tensorflow":
+                        log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
+                    else:
+                        raise e
         else:
             run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
@@ -689,8 +704,8 @@ def get_petsc_dir():
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
         try:
-            petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
+            petsc_dir = check_output(python
+                                     + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
 
             petsc_arch = ""
         except subprocess.CalledProcessError:
@@ -707,8 +722,8 @@ def get_slepc_dir():
             raise InstallError("Need to set SLEPC_DIR for --slepc with --honour-petsc-dir")
     else:
         try:
-            slepc_dir = check_output(python +
-                                     ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
+            slepc_dir = check_output(python
+                                     + ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
         except subprocess.CalledProcessError:
             raise InstallError("Unable to find installed SLEPc")
     return slepc_dir, petsc_arch
@@ -1039,10 +1054,10 @@ if mode == "install" or not args.update_script:
                             "git",
                             "libblas-dev",
                             "liblapack-dev",
-                            "libopenmpi-dev",
+                            "libmpich-dev",
                             "libtool",
                             "mercurial",
-                            "openmpi-bin",
+                            "mpich",
                             "python3-dev",
                             "python3-pip",
                             "python3-tk",
@@ -1069,7 +1084,7 @@ if mode == "install" or not args.update_script:
             log.info("* zlib")
 
     else:
-        log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+        log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
 if mode == "install":
@@ -1219,7 +1234,7 @@ else:
             git_update(p, deps.get(p, None))
         except OSError as e:
             if e.errno == 2:
-                log.warn("%s missing, cloning anew.\n" % p)
+                log.warning("%s missing, cloning anew.\n" % p)
                 git_clone(deps[p])
             else:
                 raise

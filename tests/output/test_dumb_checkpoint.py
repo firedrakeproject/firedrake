@@ -1,4 +1,5 @@
 import pytest
+import os
 from firedrake import *
 import numpy as np
 
@@ -21,8 +22,8 @@ def fs(request):
 
 
 @pytest.fixture
-def dumpfile(tmpdir):
-    return str(tmpdir.join("dump"))
+def dumpfile(dumpdir):
+    return os.path.join(dumpdir, "dump")
 
 
 @pytest.fixture(scope="module")
@@ -158,8 +159,3 @@ def test_new_file_valueerror(f, dumpfile):
         chk.store(f)
         with pytest.raises(ValueError):
             chk.new_file()
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

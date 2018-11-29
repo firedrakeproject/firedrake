@@ -60,10 +60,12 @@ def test_interval_vector(mesh_interval, family, degree):
 
 @pytest.mark.parametrize(('family', 'degree'),
                          [('CG', 2),
-                          ('DG', 2)])
+                          ('DG', 2),
+                          ('Bernstein', 2)])
 def test_triangle(mesh_triangle, family, degree):
     V = FunctionSpace(mesh_triangle, family, degree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[1] - 0.2)"))
+    # Bernstein currently requires projection
+    f = Function(V).project(Expression("(x[0] - 0.5)*(x[1] - 0.2)"))
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
 
