@@ -15,6 +15,8 @@ cdef extern from "petscsys.h" nogil:
    int PetscMalloc1(PetscInt,void*)
    int PetscFree(void*)
    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
+   int PetscCommBuildTwoSided(MPI.MPI_Comm,int,MPI.MPI_Datatype,int,const int *, const void *,
+                              int *, int **, void *)
 
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)

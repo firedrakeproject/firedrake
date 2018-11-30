@@ -2254,6 +2254,35 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
                                <void *>buf.data))
 
 
+def build_two_sided(MPI.Comm comm, count, MPI.Datatype dtype,
+                    np.ndarray[int, ndim=1, mode="c"] toranks,
+                    np.ndarray[int, ndim=1, mode="c"] todata):
+    cdef:
+        int *fromranks
+        int nto, nfrom
+        int ccount = count
+        int i
+        int *fromdata
+        np.ndarray[int, ndim=1, mode="c"] pyfromdata
+        np.ndarray[int, ndim=1, mode="c"] pyfromranks
+
+    nto = len(toranks)
+    CHKERR(PetscCommBuildTwoSided(comm.ob_mpi, ccount,
+                                  dtype.ob_mpi, nto,
+                                  <const int *>toranks.data,
+                                  <const void *>todata.data,
+                                  &nfrom, &fromranks,
+                                  <void *>&fromdata))
+    pyfromdata = np.empty(nfrom, dtype=todata.dtype)
+    pyfromranks = np.empty(nfrom, dtype=toranks.dtype)
+    for i in range(nfrom):
+        pyfromdata[i] = fromdata[i]
+        pyfromranks[i] = fromranks[i]
+    CHKERR(PetscFree(fromdata))
+    CHKERR(PetscFree(fromranks))
+    return pyfromranks, pyfromdata
+
+
 cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
