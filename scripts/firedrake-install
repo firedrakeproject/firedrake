@@ -522,19 +522,14 @@ def git_clone(url):
     try:
         if options["disable_ssh"]:
             raise InstallError("Skipping ssh clone because --disable-ssh")
-        if name == "loopy":
-            check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "ssh")])
-        else:
-            check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
+        # note: so far only loopy requires submodule
+        check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "ssh")])
         log.info("Successfully cloned repository %s" % name)
     except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
             log.warning("Failed to clone %s using ssh, falling back to https." % name)
         try:
-            if name == "loopy":
-                check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "https")])
-            else:
-                check_call(["git", "clone", "-q", git_url(plain_url, "https")])
+            check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "https")])
             log.info("Successfully cloned repository %s." % name)
         except subprocess.CalledProcessError:
             log.error("Failed to clone %s branch %s." % (name, branch))
@@ -1152,13 +1147,13 @@ if mode == "install":
     pipinstall.append("--no-deps")
     for p in packages:
         if p == "loopy":
-            # install loopy dependencies in setup.py
+            # loopy dependencies are handled in setup.py, pop --no-deps
             pipinstall.pop()
             install(p + "/")
             pipinstall.append("--no-deps")
-            continue
-        install(p+"/")
-        sys.path.append(os.getcwd() + "/" + p)
+        else:
+            install(p+"/")
+            sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
     try:

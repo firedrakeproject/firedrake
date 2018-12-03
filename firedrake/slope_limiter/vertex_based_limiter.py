@@ -40,8 +40,8 @@ class VertexBasedLimiter(Limiter):
         domain = "{[i]: 0 <= i < maxq.dofs}"
         instructions = """
         for i
-            maxq[i, 0] = fmax(maxq[i, 0], q[0, 0])
-            minq[i, 0] = fmin(minq[i, 0], q[0, 0])
+            maxq[i] = fmax(maxq[i], q[0])
+            minq[i] = fmin(minq[i], q[0])
         end
         """
         self._min_max_loop = (domain, instructions)
@@ -52,12 +52,12 @@ class VertexBasedLimiter(Limiter):
         <float64> alpha = 1
         <float64> qavg = qbar[0, 0]
         for i
-            <float64> _alpha1 = fmin(alpha, fmin(1, (qmax[i, 0] - qavg)/(q[i, 0] - qavg)))
-            <float64> _alpha2 = fmin(alpha, fmin(1, (qavg - qmin[i, 0])/(qavg - q[i, 0])))
-            alpha = if(q[i, 0] > qavg, _alpha1, if(q[i, 0] < qavg, _alpha2, alpha))
+            <float64> _alpha1 = fmin(alpha, fmin(1, (qmax[i] - qavg)/(q[i] - qavg)))
+            <float64> _alpha2 = fmin(alpha, fmin(1, (qavg - qmin[i])/(qavg - q[i])))
+            alpha = if(q[i] > qavg, _alpha1, if(q[i] < qavg, _alpha2, alpha))
         end
         for ii
-            q[ii, 0] = qavg + alpha * (q[ii, 0] - qavg)
+            q[ii] = qavg + alpha * (q[ii] - qavg)
         end
         """
         self._limit_kernel = (domain, instructions)
