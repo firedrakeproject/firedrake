@@ -22,7 +22,7 @@ def run_test(degree):
     l2error = []
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
-    for n in range(5, 11):
+    for n in range(5, 10):
         mesh = PeriodicUnitIntervalMesh(2**n)
         x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, 'DG', degree)
@@ -84,7 +84,6 @@ def run_test(degree):
 
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)
-    print(l2error)
     convergence = np.log2(l2error[:-1] / l2error[1:])
 
     assert np.all(convergence > threshold)
