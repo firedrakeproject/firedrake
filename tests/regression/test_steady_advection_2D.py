@@ -36,9 +36,8 @@ def run_left_to_right(mesh, DG0, W):
     velocity = Expression(("1.0", "0.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("if(x[1] > 0.25 and x[1] < 0.75, 1, 0.5)")
-    inflow = Function(DG0)
-    inflow.interpolate(inflowexpr)
+    x = SpatialCoordinate(mesh)
+    inflow = interpolate(conditional(And(x[1] > 0.25, x[1] < 0.75), 1, 0.5), DG0)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))

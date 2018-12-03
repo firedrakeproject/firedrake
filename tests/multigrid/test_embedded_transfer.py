@@ -105,7 +105,7 @@ def solver(V, space, solver_parameters):
     return solver
 
 
-@pytest.mark.skip("Pending update based on new PyOP2")  # FIXME: preconditioners/patch.py not ported to loopy yet
+@pytest.mark.skip("preconditioners/patch.py are not updated to loopy codegen yet")  # FIXME: fix this before merging
 def test_riesz(V, solver, transfer):
     solver.set_transfer_operators(dmhooks.transfer_operators(V,
                                                              prolong=transfer.prolong,
@@ -116,7 +116,7 @@ def test_riesz(V, solver, transfer):
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
-@pytest.mark.skip("Pending update based on new PyOP2")  # FIXME: preconditioners/patch.py not ported to loopy yet
+@pytest.mark.skip("preconditioners/patch.py are not updated to loopy codegen yet")  # FIXME: fix this before merging
 @pytest.mark.parallel(nprocs=3)
 def test_riesz_parallel(V, solver, transfer):
     solver.set_transfer_operators(dmhooks.transfer_operators(V,

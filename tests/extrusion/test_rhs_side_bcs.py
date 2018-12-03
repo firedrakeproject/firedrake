@@ -20,8 +20,9 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
            DirichletBC(V, 42, 2)]
     for bc in bcs:
         bc.apply(u)
-    v = Function(V)
-    v.interpolate(Expression("if(x[0] < 0.05, 10, if(x[0] > 0.95, 42, 0))"))
+
+    x = SpatialCoordinate(mesh)
+    v = interpolate(conditional(x[0] < 0.05, 10, conditional(x[0] > 0.95, 42, 0)), V)
     res = sqrt(assemble(dot(u - v, u - v) * dx))
 
     u1 = Function(V, name="computed")
