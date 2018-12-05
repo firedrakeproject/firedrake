@@ -240,6 +240,11 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         rec(spaces.sub_elements())
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
+    # Allow a singleton space to mean "just a FunctionSpace"
+    spaces = tuple(spaces)
+    if len(spaces) == 1:
+        space, = spaces
+        return FunctionSpace(space.mesh(), space.ufl_element())
     # Check that function spaces are on the same mesh
     meshes = [space.mesh() for space in spaces]
     for i in range(1, len(meshes)):
