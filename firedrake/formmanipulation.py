@@ -1,92 +1,56 @@
-
+from pyop2.utils import as_tuple
 import numpy
 import collections
-
-from ufl import as_vector
-from ufl.classes import Zero
-from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.corealg.map_dag import MultiFunction
-
-from firedrake.ufl_expr import Argument
+import firedrake
 
 
-class ExtractSubBlock(MultiFunction):
+def extract_sub_block(form, argument_indices):
+    """Extract a subblock from a form.
 
-    """Extract a sub-block from a form."""
+    :arg form: the form to extract from.
+    :arg argument_indices: indices of test and trial spaces to extract.
+        This should be 0-, 1-, or 2-tuple (whose length is the
+        same as the number of arguments as the ``form``) whose
+        entries are either an integer index, or else an iterable
+        of indices.
 
-    def split(self, form, argument_indices):
-        """Split a form.
+    Returns a new :class:`ufl.classes.Form` on the selected subspace.
+    """
+    argument_indices = tuple(as_tuple(i) for i in argument_indices)
+    args = form.arguments()
+    if all(len(a.function_space()) == 1 for a in args):
+        for indices in argument_indices:
+            idx, = indices      # assert singleton
+            assert idx == 0
+        return form
+    slices = []
+    for arg in args:
+        start = 0
+        slicez = []
+        for a in firedrake.split(arg):
+            end = start + numpy.prod(a.ufl_shape, dtype=int)
+            slicez.append(slice(start, end))
+            start = end
+        slices.append(tuple(slicez))
 
-        :arg form: the form to split.
-        :arg argument_indices: indices of test and trial spaces to extract.
-            This should be 0-, 1-, or 2-tuple (whose length is the
-            same as the number of arguments as the ``form``) whose
-            entries are either an integer index, or else an iterable
-            of indices.
-
-        Returns a new :class:`ufl.classes.Form` on the selected subspace.
-        """
-        args = form.arguments()
-        self._arg_cache = {}
-        self.blocks = dict(zip((0, 1), argument_indices))
-        if len(args) == 0:
-            # Functional can't be split
-            return form
-        if all(len(a.function_space()) == 1 for a in args):
-            assert (len(idx) == 1 for idx in self.blocks.values())
-            assert (idx[0] == 0 for idx in self.blocks.values())
-            return form
-        f = map_integrand_dags(self, form)
-        return f
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def multi_index(self, o):
-        return o
-
-    def argument(self, o):
-        from ufl import split
-        from firedrake import MixedFunctionSpace, FunctionSpace
-        V = o.function_space()
+    mapping = {}
+    for (idx, arg, slicez) in zip(argument_indices, args, slices):
+        # Default every piece to zero.
+        replacement = numpy.full(arg.ufl_shape, firedrake.zero(), dtype=object)
+        W = arg.function_space()
+        V = firedrake.MixedFunctionSpace(W[i] for i in idx)
+        A = firedrake.Argument(V, arg.number(), part=arg.part())
         if len(V) == 1:
-            # Not on a mixed space, just return ourselves.
-            return o
-
-        if o in self._arg_cache:
-            return self._arg_cache[o]
-
-        V_is = V.split()
-        indices = self.blocks[o.number()]
-
-        try:
-            indices = tuple(indices)
-            nidx = len(indices)
-        except TypeError:
-            # Only one index provided.
-            indices = (indices, )
-            nidx = 1
-
-        if nidx == 1:
-            W = V_is[indices[0]]
-            W = FunctionSpace(W.mesh(), W.ufl_element())
-            a = (Argument(W, o.number(), part=o.part()), )
+            A = (A, )
         else:
-            W = MixedFunctionSpace([V_is[i] for i in indices])
-            a = split(Argument(W, o.number(), part=o.part()))
-        args = []
-        for i in range(len(V_is)):
-            if i in indices:
-                c = indices.index(i)
-                a_ = a[c]
-                if len(a_.ufl_shape) == 0:
-                    args += [a_]
-                else:
-                    args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
-            else:
-                args += [Zero()
-                         for j in numpy.ndindex(
-                         V_is[i].ufl_element().value_shape())]
-        return self._arg_cache.setdefault(o, as_vector(args))
+            A = firedrake.split(A)
+        # For the pieces we're selecting, replace the zero with the relevant indexed slice.
+        for i, a in zip(idx, A):
+            sub = replacement[slicez[i]].reshape(a.ufl_shape)
+            for j in numpy.ndindex(a.ufl_shape):
+                sub[j] = a[j]
+        mapping[arg] = firedrake.as_vector(replacement)
+    return firedrake.replace(form, mapping)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
@@ -120,12 +84,11 @@ def split_form(form):
     compiler will remove these in its more complex simplification
     stages.
     """
-    splitter = ExtractSubBlock()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     for idx in numpy.ndindex(shape):
-        f = splitter.split(form, idx)
+        f = extract_sub_block(form, idx)
         if len(f.integrals()) > 0:
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)

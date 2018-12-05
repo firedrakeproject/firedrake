@@ -4,7 +4,7 @@ from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
-from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.formmanipulation import extract_sub_block
 from firedrake.utils import cached_property
 from ufl import VectorElement
 
@@ -154,10 +154,9 @@ class _SNESContext(object):
 
         splits = []
         problem = self._problem
-        splitter = ExtractSubBlock()
         for field in fields:
-            F = splitter.split(problem.F, argument_indices=(field, ))
-            J = splitter.split(problem.J, argument_indices=(field, field))
+            F = extract_sub_block(problem.F, argument_indices=(field, ))
+            J = extract_sub_block(problem.J, argument_indices=(field, field))
             us = problem.u.split()
             V = F.arguments()[0].function_space()
             # Exposition:
@@ -204,9 +203,13 @@ class _SNESContext(object):
             u = as_vector(vec)
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
+            if len(J.integrals()) == 0:
+                J = None
             if problem.Jp is not None:
-                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+                Jp = extract_sub_block(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u: u})
+                if len(Jp.integrals()) == 0:
+                    Jp = None
             else:
                 Jp = None
             bcs = []

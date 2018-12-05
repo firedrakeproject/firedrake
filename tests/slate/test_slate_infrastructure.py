@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.formmanipulation import extract_sub_block
 import math
 
 
@@ -230,7 +230,6 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     F = mixed_vector
     a = M.form
     L = F.form
-    splitter = ExtractSubBlock()
     _M = M.blocks
     M00 = _M[0, 0]
     M11 = _M[1, 1]
@@ -285,17 +284,17 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F2.blocks[0] == F2
 
     # Test arguments
-    assert M00.arguments() == splitter.split(a, (0, 0)).arguments()
-    assert M11.arguments() == splitter.split(a, (1, 1)).arguments()
-    assert M22.arguments() == splitter.split(a, (2, 2)).arguments()
-    assert F0.arguments() == splitter.split(L, (0,)).arguments()
-    assert F1.arguments() == splitter.split(L, (1,)).arguments()
-    assert F2.arguments() == splitter.split(L, (2,)).arguments()
-    assert M0101.arguments() == splitter.split(a, ((0, 1), (0, 1))).arguments()
-    assert M012.arguments() == splitter.split(a, ((0, 1), (2,))).arguments()
-    assert M201.arguments() == splitter.split(a, ((2,), (0, 1))).arguments()
-    assert F01.arguments() == splitter.split(L, ((0, 1),)).arguments()
-    assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
+    assert M00.arguments() == extract_sub_block(a, (0, 0)).arguments()
+    assert M11.arguments() == extract_sub_block(a, (1, 1)).arguments()
+    assert M22.arguments() == extract_sub_block(a, (2, 2)).arguments()
+    assert F0.arguments() == extract_sub_block(L, (0,)).arguments()
+    assert F1.arguments() == extract_sub_block(L, (1,)).arguments()
+    assert F2.arguments() == extract_sub_block(L, (2,)).arguments()
+    assert M0101.arguments() == extract_sub_block(a, ((0, 1), (0, 1))).arguments()
+    assert M012.arguments() == extract_sub_block(a, ((0, 1), (2,))).arguments()
+    assert M201.arguments() == extract_sub_block(a, ((2,), (0, 1))).arguments()
+    assert F01.arguments() == extract_sub_block(L, ((0, 1),)).arguments()
+    assert F12.arguments() == extract_sub_block(L, ((1, 2),)).arguments()
 
 
 def test_illegal_add_sub():
