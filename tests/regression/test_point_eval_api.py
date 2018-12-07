@@ -132,7 +132,8 @@ def test_dont_raise_mixed():
 def test_nascent_parallel_support():
     mesh = UnitSquareMesh(8, 8)
     V = FunctionSpace(mesh, "CG", 2)
-    f = Function(V).interpolate(Expression("(x[0] + 0.2)*x[1]"))
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(Expression((x + 0.2) * y))
 
     assert np.allclose(0.0576, f.at([0.12, 0.18]))
     assert np.allclose(1.0266, f.at([0.98, 0.87]))
