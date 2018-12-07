@@ -636,7 +636,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
                                             forward_args=["double*", "double*"],
                                             kernel_name="evaluate_kernel",
                                             wrapper_name="wrap_evaluate",
-                                            restart_counter=False))
+                                            restart_counter=True))
 
     src = "\n".join(src)
 
