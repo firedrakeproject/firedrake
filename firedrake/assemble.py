@@ -281,20 +281,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 else:
                     raise ValueError('Unknown integral type "%s"' % integral_type)
 
-            # To avoid an extra check for extruded domains, the maps that are being passed in
-            # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
-            # space over which we iterate as the domains are dropped at Sparsity construction
-            # time. In the extruded case the cell domains are used to identify the regions of the
-            # mesh which require allocation in the sparsity.
+            # Used for the sparsity construction
+            iteration_regions = []
             if cell_domains:
-                map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
-                                  op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
+                map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
+                iteration_regions.append(tuple(cell_domains))
             if exterior_facet_domains:
-                map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
-                                  op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+                map_pairs.append((test.exterior_facet_node_map(), trial.exterior_facet_node_map()))
+                iteration_regions.append(tuple(exterior_facet_domains))
             if interior_facet_domains:
-                map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
-                                  op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
+                map_pairs.append((test.interior_facet_node_map(), trial.interior_facet_node_map()))
+                iteration_regions.append(tuple(exterior_facet_domains))
 
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
@@ -304,7 +301,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
                                         map_pairs,
-                                        "%s_%s_sparsity" % fs_names,
+                                        iteration_regions=iteration_regions,
+                                        name="%s_%s_sparsity" % fs_names,
                                         nest=nest,
                                         block_sparse=baij)
             except SparsityFormatError:
@@ -467,13 +465,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                    sdata is not None:
                     raise ValueError("Cannot use subdomain data and subdomain_id")
 
-                def get_map(x, decoration=None):
+                def get_map(x):
                     return x.cell_node_map()
 
             elif integral_type in ("exterior_facet", "exterior_facet_vert"):
                 extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
-                def get_map(x, decoration=None):
+                def get_map(x):
                     return x.exterior_facet_node_map()
 
             elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
@@ -484,35 +482,29 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                               "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
                 kwargs["iterate"] = decoration
 
-                def get_map(x, decoration=None):
-                    map_ = x.cell_node_map()
-                    if decoration is not None:
-                        return op2.DecoratedMap(map_, decoration)
-                    return map_
+                def get_map(x):
+                    return x.cell_node_map()
 
             elif integral_type in ("interior_facet", "interior_facet_vert"):
                 extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
-                def get_map(x, decoration=None):
+                def get_map(x):
                     return x.interior_facet_node_map()
 
             elif integral_type == "interior_facet_horiz":
                 decoration = op2.ON_INTERIOR_FACETS
                 kwargs["iterate"] = decoration
 
-                def get_map(x, decoration=None):
-                    map_ = x.cell_node_map()
-                    if decoration is not None:
-                        return op2.DecoratedMap(map_, decoration)
-                    return map_
+                def get_map(x):
+                    return x.cell_node_map()
 
             else:
                 raise ValueError("Unknown integral type '%s'" % integral_type)
 
             # Output argument
             if is_mat:
-                tensor_arg = mat(lambda s: get_map(s, decoration),
-                                 lambda s: get_map(s, decoration),
+                tensor_arg = mat(lambda s: get_map(s),
+                                 lambda s: get_map(s),
                                  tsbc, trbc,
                                  i, j)
             elif is_vec:
