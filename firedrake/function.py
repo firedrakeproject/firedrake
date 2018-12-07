@@ -147,16 +147,16 @@ class CoordinatelessFunction(ufl.Coefficient):
         this :class:`Function`."""
         return self.function_space().dof_dset
 
-    def cell_node_map(self, bcs=None):
-        return self.function_space().cell_node_map(bcs)
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
     cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
 
-    def interior_facet_node_map(self, bcs=None):
-        return self.function_space().interior_facet_node_map(bcs)
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map()
     interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
 
-    def exterior_facet_node_map(self, bcs=None):
-        return self.function_space().exterior_facet_node_map(bcs)
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map()
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def vector(self):

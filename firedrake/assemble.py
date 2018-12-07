@@ -327,12 +327,27 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        def mat(testmap, trialmap, i, j):
+        def mat(testmap, trialmap, rowbc, colbc, i, j):
             m = testmap(test.function_space()[i])
             n = trialmap(trial.function_space()[j])
             maps = (m if m else None,
                     n if n else None)
-            return tensor[i, j](op2.INC, maps)
+
+            # TODO: avoid this isinstance check.
+            # Get mask indices from V and lgmap from Mat.
+            from pyop2.petsc_base import MatBlock
+            if isinstance(tensor[i, j], MatBlock):
+                rmap, cmap = tensor[i, j].handle.getLGMap()
+            else:
+                rmap = None
+                cmap = None
+
+            V = test.function_space()[i]
+            rmap = V._shared_data.lgmap(V, rowbc, lgmap=rmap)
+            V = trial.function_space()[j]
+            cmap = V._shared_data.lgmap(V, colbc, lgmap=cmap)
+            return tensor[i, j](op2.INC, maps, lgmaps=(rmap, cmap))
+
         result = lambda: result_matrix
         if allocate_only:
             result_matrix._assembly_callback = None
@@ -452,14 +467,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                    sdata is not None:
                     raise ValueError("Cannot use subdomain data and subdomain_id")
 
-                def get_map(x, bcs=None, decoration=None):
-                    return x.cell_node_map(bcs)
+                def get_map(x, decoration=None):
+                    return x.cell_node_map()
 
             elif integral_type in ("exterior_facet", "exterior_facet_vert"):
                 extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
-                def get_map(x, bcs=None, decoration=None):
-                    return x.exterior_facet_node_map(bcs)
+                def get_map(x, decoration=None):
+                    return x.exterior_facet_node_map()
 
             elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
                 # In the case of extruded meshes with horizontal facet integrals, two
@@ -469,8 +484,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                               "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
                 kwargs["iterate"] = decoration
 
-                def get_map(x, bcs=None, decoration=None):
-                    map_ = x.cell_node_map(bcs)
+                def get_map(x, decoration=None):
+                    map_ = x.cell_node_map()
                     if decoration is not None:
                         return op2.DecoratedMap(map_, decoration)
                     return map_
@@ -478,15 +493,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             elif integral_type in ("interior_facet", "interior_facet_vert"):
                 extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
-                def get_map(x, bcs=None, decoration=None):
-                    return x.interior_facet_node_map(bcs)
+                def get_map(x, decoration=None):
+                    return x.interior_facet_node_map()
 
             elif integral_type == "interior_facet_horiz":
                 decoration = op2.ON_INTERIOR_FACETS
                 kwargs["iterate"] = decoration
 
-                def get_map(x, bcs=None, decoration=None):
-                    map_ = x.cell_node_map(bcs)
+                def get_map(x, decoration=None):
+                    map_ = x.cell_node_map()
                     if decoration is not None:
                         return op2.DecoratedMap(map_, decoration)
                     return map_
@@ -496,8 +511,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             # Output argument
             if is_mat:
-                tensor_arg = mat(lambda s: get_map(s, tsbc, decoration),
-                                 lambda s: get_map(s, trbc, decoration),
+                tensor_arg = mat(lambda s: get_map(s, decoration),
+                                 lambda s: get_map(s, decoration),
+                                 tsbc, trbc,
                                  i, j)
             elif is_vec:
                 tensor_arg = vec(lambda s: get_map(s), i)

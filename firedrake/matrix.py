@@ -45,7 +45,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         Note that this does not guarantee that those calculations are
         executed.  If you want the latter, see :meth:`force_evaluation`.
         """
-        self._bcs_at_point_of_assembly = list(self._bcs)
+        self._bcs_at_point_of_assembly = tuple(self._bcs)
 
     @abc.abstractmethod
     def force_evaluation(self):

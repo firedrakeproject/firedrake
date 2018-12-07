@@ -432,78 +432,38 @@ class FunctionSpace(object):
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
-    def cell_node_map(self, bcs=None):
-        r"""Return the :class:`pyop2.Map` from interior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-
-        if bcs:
-            parent = self.cell_node_map()
-        else:
-            parent = None
-
+    def cell_node_map(self):
+        r"""Return the :class:`pyop2.Map` from cels to
+        function space nodes."""
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().cell_set,
                              self.finat_element.space_dimension(),
-                             bcs,
                              "cell_node",
-                             self.offset,
-                             parent)
+                             self.offset)
 
-    def interior_facet_node_map(self, bcs=None):
+    def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.Map` from interior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-
-        if bcs:
-            parent = self.interior_facet_node_map()
-        else:
-            parent = None
-
+        function space nodes."""
         sdata = self._shared_data
         offset = self.cell_node_map().offset
         if offset is not None:
             offset = numpy.append(offset, offset)
-        map = sdata.get_map(self,
-                            self.mesh().interior_facets.set,
-                            2*self.finat_element.space_dimension(),
-                            bcs,
-                            "interior_facet_node",
-                            offset,
-                            parent,
-                            kind="interior_facet")
-        map.factors = (self.mesh().interior_facets.facet_cell_map,
-                       self.cell_node_map())
-        return map
+        return sdata.get_map(self,
+                             self.mesh().interior_facets.set,
+                             2*self.finat_element.space_dimension(),
+                             "interior_facet_node",
+                             offset)
 
-    def exterior_facet_node_map(self, bcs=None):
+    def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.Map` from exterior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-
-        if bcs:
-            parent = self.exterior_facet_node_map()
-        else:
-            parent = None
-
+        function space nodes."""
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().exterior_facets.set,
                              self.finat_element.space_dimension(),
-                             bcs,
                              "exterior_facet_node",
-                             self.offset,
-                             parent)
+                             self.offset)
 
     def boundary_nodes(self, sub_domain, method):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
@@ -658,50 +618,24 @@ class MixedFunctionSpace(object):
         composed."""
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
-    def cell_node_map(self, bcs=None):
+    def cell_node_map(self):
         r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
         underlying mesh to the :attr:`node_set` of this
         :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        # FIXME: these want caching of sorts
-        bc_list = [[] for _ in self]
-        if bcs:
-            for bc in bcs:
-                bc_list[bc.function_space().index].append(bc)
-        return op2.MixedMap(s.cell_node_map(bc_list[i])
-                            for i, s in enumerate(self._spaces))
+        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
 
-    def interior_facet_node_map(self, bcs=None):
+    def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.MixedMap` from interior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-        # FIXME: these want caching of sorts
-        bc_list = [[] for _ in self]
-        if bcs:
-            for bc in bcs:
-                bc_list[bc.function_space().index].append(bc)
-        return op2.MixedMap(s.interior_facet_node_map(bc_list[i])
-                            for i, s in enumerate(self._spaces))
+        function space nodes."""
+        return op2.MixedMap(s.interior_facet_node_map() for s in self)
 
-    def exterior_facet_node_map(self, bcs=None):
+    def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.Map` from exterior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-        # FIXME: these want caching of sorts
-        bc_list = [[] for _ in self]
-        if bcs:
-            for bc in bcs:
-                bc_list[bc.function_space().index].append(bc)
-        return op2.MixedMap(s.exterior_facet_node_map(bc_list[i])
-                            for i, s in enumerate(self._spaces))
+        function space nodes."""
+        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
