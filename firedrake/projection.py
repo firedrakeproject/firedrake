@@ -116,8 +116,15 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
 
     @cached_property
     def is_DG(self):
-        element = self.target.function_space().finat_element
-        return element.entity_closure_dofs() == element.entity_dofs()
+        V = self.target.function_space()
+        if isinstance(V.ufl_element(), firedrake.MixedElement) and not isinstance(V.ufl_element(), firedrake.VectorElement):
+            return False
+            # Should return
+            # return all(sub.finat_element.entity_closure_dofs() == sub.finat_element.entity_dofs() for sub in V)
+            # but it yields NotImplementedError: Compiling mixed slate expressions in SLATE
+        else:
+            element = self.target.function_space().finat_element
+            return element.entity_closure_dofs() == element.entity_dofs()
 
     @cached_property
     def A(self):
