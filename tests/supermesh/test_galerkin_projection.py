@@ -12,7 +12,7 @@ def mesh(request):
         return UnitCubeMesh(3, 2, 1)
 
 
-@pytest.fixture(params=["scalar", "vector", pytest.mark.skip(reason="Prolongation fails for tensors")("tensor")])
+@pytest.fixture(params=["scalar", "vector", pytest.param("tensor", marks=pytest.mark.skip(reason="Prolongation fails for tensors"))])
 def shapify(request):
     if request.param == "scalar":
         return lambda x: x
