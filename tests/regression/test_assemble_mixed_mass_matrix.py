@@ -1,7 +1,6 @@
 from firedrake import *
 from firedrake.petsc import PETSc
 from firedrake.supermeshing import *
-import numpy as np
 import pytest
 
 
@@ -57,11 +56,3 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
     nrm = M_ex.norm(PETSc.NormType.NORM_INFINITY)
     print("nrm: %s" % nrm)
     assert nrm < 1.0e-10
-
-
-if __name__ == "__main__":
-
-    class ThereMustBeABetterWay(object):
-        param = 3
-
-    test_assemble_mixed_mass_matrix(mesh(ThereMustBeABetterWay()), "CG", "CG", 1, 1)

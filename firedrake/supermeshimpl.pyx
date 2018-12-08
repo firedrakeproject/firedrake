@@ -19,8 +19,23 @@ ctypedef int (*compiled_call)(const double *, const double *, const double *,
 cdef extern from "petscmat.h" nogil:
     int MatSetValuesLocal(PETSc.PetscMat, PetscInt, const PetscInt[], PetscInt, const PetscInt[],
                           const PetscScalar[], PetscInt)
+    int MatAssemblyBegin(PETSc.PetscMat, PetscInt)
+    int MatAssemblyEnd(PETSc.PetscMat, PetscInt)
+    PetscInt MAT_FINAL_ASSEMBLY = 0
 
 
+# Compute M_AB:
+# For cell_A in mesh_A:
+#     For cell_B in likely(cell_A):
+#         mesh_S = supermesh(cell_A, cell_B)
+#         if mesh_S is empty: continue
+#         For cell_S in mesh_S:
+#             evaluate basis functions of cell_A at dofs(A) of cell_S -> R_AS matrix
+#             scale precomputed mass matrix to get M_SS
+#                   (or mixed mass matrix if V_A, V_B have different finite elements)
+#             evaluate basis functions of cell_B at dofs(B) of cell_S -> R_BS matrix
+#             compute out = R_BS^T @ M_SS @ R_AS with dense matrix triple product
+#             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
 def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                                numpy.ndarray[PetscReal, ndim=2, mode="c"] node_locations_A,
                                numpy.ndarray[PetscReal, ndim=2, mode="c"] node_locations_B,
@@ -80,3 +95,6 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                                      num_dof_B, V_B_map,
                                      num_dof_A, V_A_map,
                                      <const PetscScalar *>outmat.data, insert_mode))
+
+    CHKERR(MatAssemblyBegin(mat.mat, MAT_FINAL_ASSEMBLY))
+    CHKERR(MatAssemblyEnd(mat.mat, MAT_FINAL_ASSEMBLY))
