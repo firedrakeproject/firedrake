@@ -233,6 +233,7 @@ def test_trivial_projector():
     assert(np.abs(mass1-mass2) < 1.0e-10)
 
 
+@pytest.mark.skip("C Expressions about to be deleted")
 def test_projector_expression():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
