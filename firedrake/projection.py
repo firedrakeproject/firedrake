@@ -117,8 +117,10 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     @cached_property
     def is_DG(self):
         ele = self.target.function_space().ufl_element()
-        if isinstance(ele, firedrake.MixedElement): return False
-        if isinstance(ele, firedrake.VectorElement): ele = ele.sub_elements()[0]
+        if isinstance(ele, firedrake.MixedElement):
+            return False
+        if isinstance(ele, firedrake.VectorElement):
+            ele = ele.sub_elements()[0]
         return (ele._short_name == "DG")
 
     @cached_property
