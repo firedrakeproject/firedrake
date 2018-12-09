@@ -8,6 +8,8 @@ from ufl import VectorElement, MixedElement
 from pyop2 import op2
 from pyop2 import base as pyop2
 from pyop2 import sequential as seq
+from pyop2.codegen.builder import MatPack
+from pyop2.codegen.rep2loopy import register_petsc_function
 from pyop2.datatypes import IntType
 
 __all__ = ("PatchPC", "PlaneSmoother")
@@ -26,59 +28,28 @@ class DenseSparsity(object):
         return self
 
 
-class MatArg(seq.Arg):
-    def c_addto(self, i, j, buf_name, tmp_name, tmp_decl,
-                extruded=None, is_facet=False, applied_blas=False):
-        # Override global c_addto to index the map locally rather than globally.
-        # Replaces MatSetValuesLocal with MatSetValues
-        from pyop2.utils import as_tuple
-        rmap, cmap = as_tuple(self.map, op2.Map)
-        rset, cset = self.data.sparsity.dsets
-        nrows = sum(m.arity*s.cdim for m, s in zip(rmap, rset))
-        ncols = sum(m.arity*s.cdim for m, s in zip(cmap, cset))
-        rows_str = "%s + n * %s" % (self.c_map_name(0, i), nrows)
-        cols_str = "%s + n * %s" % (self.c_map_name(1, j), ncols)
+class LocalMatPack(MatPack):
 
-        if extruded is not None:
-            raise NotImplementedError("Not for extruded right now")
+    insertion_names = {False: "MatSetValues",
+                       True: "MatSetValues"}
 
-        if is_facet:
-            raise NotImplementedError("Not for interior facets and extruded")
-
-        ret = []
-        addto_name = buf_name
-        if rmap.vector_index is not None or cmap.vector_index is not None:
-            raise NotImplementedError
-        ret.append("""MatSetValues(%(mat)s, %(nrows)s, %(rows)s,
-                                         %(ncols)s, %(cols)s,
-                                         (const PetscScalar *)%(vals)s,
-                                         %(insert)s);""" %
-                   {'mat': self.c_arg_name(i, j),
-                    'vals': addto_name,
-                    'nrows': nrows,
-                    'ncols': ncols,
-                    'rows': rows_str,
-                    'cols': cols_str,
-                    'insert': "INSERT_VALUES" if self.access == op2.WRITE else "ADD_VALUES"})
-        return "\n".join(ret)
+    def pick_loop_indices(self, loop_index, layer_index, entity_index):
+        return (entity_index, layer_index)
 
 
-class DenseMat(pyop2.Mat):
-    def __init__(self, dset):
-        self._sparsity = DenseSparsity(dset, dset)
-        self.dtype = numpy.dtype(PETSc.ScalarType)
+class LocalMat(pyop2.Mat):
+
+    pack = LocalMatPack
+
+    def __init__(self, sparsity, dtype=PETSc.ScalarType):
+        self._sparsity = sparsity
+        self.dtype = dtype
 
     def __call__(self, access, path):
-        path_maps = [arg.map for arg in path]
-        path_idxs = [arg.idx for arg in path]
-        return MatArg(self, path_maps, path_idxs, access)
+        return seq.Arg(self, path, access)
 
 
-class JITModule(seq.JITModule):
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        # No caching
-        return None
+register_petsc_function("MatSetValues")
 
 
 def matrix_funptr(form):
@@ -107,28 +78,26 @@ def matrix_funptr(form):
     cell_node_map = op2.Map(iterset,
                             toset, arity,
                             values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    mat = DenseMat(dofset)
+    mat = LocalMat(DenseSparsity(dofset, dofset))
 
-    arg = mat(op2.INC, (cell_node_map[op2.i[0]],
-                        cell_node_map[op2.i[1]]))
+    arg = mat(op2.INC, (cell_node_map, cell_node_map))
     arg.position = 0
     args.append(arg)
 
     mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
     arg.position = 1
     args.append(arg)
     for n in kinfo.coefficient_map:
         c = form.coefficients()[n]
         for (i, c_) in enumerate(c.split()):
             map_ = c_.cell_node_map()
-            if map_ is not None:
-                map_ = map_[op2.i[0]]
             arg = c_.dat(op2.READ, map_)
             arg.position = len(args)
             args.append(arg)
 
     iterset = op2.Subset(mesh.cell_set, [0])
+    from pyop2.sequential import JITModule
     mod = JITModule(kinfo.kernel, iterset, *args)
     return mod._fun, kinfo
 
