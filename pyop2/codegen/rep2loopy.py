@@ -68,7 +68,7 @@ class PetscCallable(loopy.ScalarCallable):
         return
 
 
-petsc_functions = set(['MatSetValuesBlockedLocal', 'MatSetValuesLocal'])
+petsc_functions = set()
 
 
 def register_petsc_function(name):

@@ -304,14 +304,6 @@ class Arg(object):
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
 
-        # Determine the iteration space extents, if any
-        if self._is_mat:
-            self._block_shape = tuple(tuple((mr.arity, mc.arity)
-                                      for mc in map[1])
-                                      for mr in map[0])
-        else:
-            self._block_shape = None
-
     @cached_property
     def _kernel_args_(self):
         return self.data._kernel_args_
@@ -3082,7 +3074,7 @@ class MixedMap(Map, ObjectCached):
 
     @cached_property
     def _wrapper_cache_key_(self):
-        raise NotImplementedError
+        return tuple(m._wrapper_cache_key_ for m in self)
 
     @cached_property
     def split(self):
@@ -3536,6 +3528,10 @@ class Mat(DataCarrier):
        before using it (for example to view its values), you must call
        :meth:`assemble` to finalise the writes.
     """
+    @cached_property
+    def pack(self):
+        from pyop2.codegen.builder import MatPack
+        return MatPack
 
     ASSEMBLED = "ASSEMBLED"
     INSERT_VALUES = "INSERT_VALUES"

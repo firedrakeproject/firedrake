@@ -74,6 +74,7 @@ Example usage::
   #  [ 3.  0.]]
 """
 
+from operator import attrgetter
 import numpy as np
 from pyop2 import base
 
@@ -132,7 +133,8 @@ class ParLoop(base.ParLoop):
                         raise NotImplementedError
                     if arg._is_mixed_mat:
                         raise ValueError("Mixed Mats must be split before assembly")
-                    args.append(np.zeros(arg._block_shape[0][0], dtype=arg.data.dtype))
+                    shape = tuple(map(attrgetter("arity"), arg.map_tuple))
+                    args.append(np.zeros(shape, dtype=arg.data.dtype))
                 if args[-1].shape == ():
                     args[-1] = args[-1].reshape(1)
             self._kernel(*args)
