@@ -431,6 +431,8 @@ class PatchSNES(SNESBase):
             mat.assemble()
 
         # FIXME: make the relevant function pointer for the residual assembly
+        def Fop(pc, point, vec, out, cellIS, cell_difmap):
+            out.zeroEntries()
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -445,8 +447,14 @@ class PatchSNES(SNESBase):
                                          ghost_bc_nodes,
                                          global_bc_nodes)
         patch.setPatchComputeOperator(Jop)
+        patch.setPatchComputeFunction(Fop)
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON,
                                     operator=self.user_construction_op)
+
+        (f, residual) = snes.getFunction()
+        (fun, args, kargs) = residual
+        patch.setFunction(fun, f.duplicate(), args=args, kargs=kargs)
+
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=snes)
         patch.setFromOptions()
@@ -473,6 +481,7 @@ class PatchSNES(SNESBase):
 
     def solve(self, snes, b, x):
         self.patch.solve(b, x)
+        snes.setConvergedReason(self.patch.getConvergedReason())
 
     def view(self, pc, viewer=None):
         self.patch.view(viewer=viewer)
