@@ -546,8 +546,8 @@ class PatchSNES(SNESBase):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            PETSc.Sys.Print("-"*80)
-            vec.view()
+            #PETSc.Sys.Print("-"*80)
+            #vec.view()
             out.set(0)
             outdata = out.array
             # FIXME: this should probably go faster, need to think how.
@@ -571,9 +571,9 @@ class PatchSNES(SNESBase):
                     if i >= 0:
                         gstate.dat._data[j] = oldstate[i]
             out.assemble()
-            out.view()
-            PETSc.Sys.Print("residual norm: %s" % out.norm())
-            PETSc.Sys.Print("-"*80)
+            #out.view()
+            #PETSc.Sys.Print("residual norm: %s" % out.norm())
+            #PETSc.Sys.Print("-"*80)
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -629,7 +629,7 @@ class PatchSNES(SNESBase):
     def step(self, snes, x, f, y):
         x.copy(y)
         self.patch.solve(self.dummy, y)
-        # y.axpy(-1, x)
+        y.axpy(-1, x)
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
 
