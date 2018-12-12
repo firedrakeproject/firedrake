@@ -3,6 +3,7 @@ from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx
+from firedrake.function import Function
 
 from functools import partial
 import numpy
@@ -455,6 +456,7 @@ class PatchSNES(SNESBase):
             raise ValueError("Don't know how to get form from %r", ctx)
         F = ctx.F
         state = ctx._problem.u
+        orig_state = Function(state.function_space())
 
         pc = snes.ksp.pc
         A, P = pc.getOperators()
@@ -506,28 +508,25 @@ class PatchSNES(SNESBase):
                     Jop_args.append(c_map._values.ctypes.data)
 
         def Jop(pc, point, vec, mat, cellIS, cell_dofmap):
+            with orig_state.dat.vec_wo as orig, state.dat.vec_ro as stat:
+                stat.copy(orig)
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
             # # FIXME: this should probably go faster, need to think how.
-            gstate = state
-            gmap = gstate.cell_node_map().values_with_halo
+            gmap = state.cell_node_map().values_with_halo
             lmap = cell_dofmap.reshape(ncell, -1)
             lstate = vec.array_r
-            oldstate = numpy.empty_like(vec.array_r)
             for loc, glob in zip(lmap, gmap[cells]):
                 for i, j in zip(loc, glob):
                     if i >= 0:
-                        oldstate[i] = gstate.dat._data[j]
-                        gstate.dat._data[j] = lstate[i]
+                        state.dat._data[j] = lstate[i]
             mat.zeroEntries()
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
-            for loc, glob in zip(lmap, gmap[cells]):
-                for i, j in zip(loc, glob):
-                    if i >= 0:
-                        gstate.dat._data[j] = oldstate[i]
+            with state.dat.vec_wo as stat, orig_state.dat.vec_ro as orig:
+                orig.copy(stat)
 
         Ffunptr, Fkinfo = residual_funptr(F)
         Fop_coeffs = [mesh.coordinates]
@@ -543,6 +542,8 @@ class PatchSNES(SNESBase):
                     Fop_args.append(c_map._values.ctypes.data)
 
         def Fop(pc, point, vec, out, cellIS, cell_dofmap):
+            with orig_state.dat.vec_wo as orig, state.dat.vec_ro as stat:
+                stat.copy(orig)
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
@@ -552,28 +553,20 @@ class PatchSNES(SNESBase):
             outdata = out.array
             # FIXME: this should probably go faster, need to think how.
             # FIXME: this will not work for mixed spaces.
-            gstate = state
-            gmap = gstate.cell_node_map().values_with_halo
+            gmap = state.cell_node_map().values_with_halo
             lmap = cell_dofmap.reshape(ncell, -1)
             lstate = vec.array_r
-            oldstate = numpy.empty_like(vec.array_r)
             for loc, glob in zip(lmap, gmap[cells]):
                 for i, j in zip(loc, glob):
                     if i >= 0:
-                        oldstate[i] = gstate.dat._data[j]
-                        gstate.dat._data[j] = lstate[i]
+                        state.dat._data[j] = lstate[i]
 
             lctx = ctx
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
-            for loc, glob in zip(lmap, gmap[cells]):
-                for i, j in zip(loc, glob):
-                    if i >= 0:
-                        gstate.dat._data[j] = oldstate[i]
             out.assemble()
-            #out.view()
-            #PETSc.Sys.Print("residual norm: %s" % out.norm())
-            #PETSc.Sys.Print("-"*80)
+            with state.dat.vec_wo as stat, orig_state.dat.vec_ro as orig:
+                orig.copy(stat)
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
