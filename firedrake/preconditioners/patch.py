@@ -78,6 +78,41 @@ class DenseMat(pyop2.Mat):
         return MatArg(self, path_maps, path_idxs, access)
 
 
+class DatArg(seq.Arg):
+
+    def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name, extruded=False):
+        dim = self.data.split[i].cdim
+        ind = self.c_kernel_arg(count, i, j, extruded=extruded)
+        ind = ind.replace("[i *", "[n *")
+        map_val = "%(map_name)s[%(var)s * %(arity)s + %(idx)s]" % \
+            {'name': self.c_arg_name(i),
+             'map_name': self.c_map_name(i, 0),
+             'var': "n",
+             'arity': self.map.split[i].arity,
+             'idx': "i_%d" % self.idx.index}
+
+        val = "\n".join(["if (%(map_val)s >= 0) {*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s];}" %
+                         {"ind": ind,
+                          "op": "=" if self.access == op2.WRITE else "+=",
+                          "name": buf_name,
+                          "dim": dim,
+                          "nfofs": " + %d" % o if o else "",
+                          "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else "",
+                          "map_val": map_val}
+                         for o in range(dim)])
+        return val
+
+
+class DenseDat(pyop2.Dat):
+    def __init__(self, dset):
+        self._dataset = dset
+        self.dtype = numpy.dtype(PETSc.ScalarType)
+        self._soa = False
+
+    def __call__(self, access, path):
+        return DatArg(self, map=path.map, idx=path.idx, access=access)
+
+
 class JITModule(seq.JITModule):
     @classmethod
     def _cache_key(cls, *args, **kwargs):
@@ -115,6 +150,53 @@ def matrix_funptr(form):
 
     arg = mat(op2.INC, (cell_node_map[op2.i[0]],
                         cell_node_map[op2.i[1]]))
+    arg.position = 0
+    args.append(arg)
+
+    mesh = form.ufl_domains()[kinfo.domain_number]
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
+    arg.position = 1
+    args.append(arg)
+    for n in kinfo.coefficient_map:
+        c = form.coefficients()[n]
+        for (i, c_) in enumerate(c.split()):
+            map_ = c_.cell_node_map()
+            if map_ is not None:
+                map_ = map_[op2.i[0]]
+            arg = c_.dat(op2.READ, map_)
+            arg.position = len(args)
+            args.append(arg)
+
+    iterset = op2.Subset(mesh.cell_set, [0])
+    mod = JITModule(kinfo.kernel, iterset, *args)
+    return mod._fun, kinfo
+
+
+def residual_funptr(form):
+    from firedrake.tsfc_interface import compile_form
+    test, = map(operator.methodcaller("function_space"), form.arguments())
+    kernel, = compile_form(form, "subspace_form", split=False)
+
+    kinfo = kernel.kinfo
+
+    if kinfo.subdomain_id != "otherwise":
+        raise NotImplementedError("Only for full domain integrals")
+    if kinfo.integral_type != "cell":
+        raise NotImplementedError("Only for cell integrals")
+    args = []
+
+    toset = op2.Set(1, comm=test.comm)
+    dofset = op2.DataSet(toset, 1)
+    arity = sum(m.arity*s.cdim
+                for m, s in zip(test.cell_node_map(),
+                                test.dof_dset))
+    iterset = test.cell_node_map().iterset
+    cell_node_map = op2.Map(iterset,
+                            toset, arity,
+                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+    dat = DenseDat(dofset)
+
+    arg = dat(op2.INC, cell_node_map[op2.i[0]])
     arg.position = 0
     args.append(arg)
 
@@ -363,6 +445,7 @@ class PatchPC(PCBase):
     def view(self, pc, viewer=None):
         self.patch.view(viewer=viewer)
 
+
 class PatchSNES(SNESBase):
     def initialize(self, snes):
         ctx = get_appctx(snes.getDM())
@@ -409,30 +492,50 @@ class PatchSNES(SNESBase):
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         Jfunptr, Jkinfo = matrix_funptr(J)
-        op_coeffs = [mesh.coordinates]
+        Jop_coeffs = [mesh.coordinates]
         for n in Jkinfo.coefficient_map:
-            op_coeffs.append(J.coefficients()[n])
+            Jop_coeffs.append(J.coefficients()[n])
 
-        op_args = []
-        for c in op_coeffs:
+        Jop_args = []
+        for c in Jop_coeffs:
             for c_ in c.split():
-                op_args.append(c_.dat._data.ctypes.data)
+                Jop_args.append(c_.dat._data.ctypes.data)
                 c_map = c_.cell_node_map()
                 if c_map is not None:
-                    op_args.append(c_map._values.ctypes.data)
+                    Jop_args.append(c_map._values.ctypes.data)
 
         def Jop(pc, point, vec, mat, cellIS, cell_dofmap):
-            # FIXME: is it right to ignore the state vector x?
+            # FIXME: is it right to ignore the state vector x? No
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
-                   dofs, dofs, *op_args)
+                    dofs, dofs, *Jop_args)
             mat.assemble()
 
+        Ffunptr, Fkinfo = residual_funptr(F)
+        Fop_coeffs = [mesh.coordinates]
+        for n in Fkinfo.coefficient_map:
+            Fop_coeffs.append(F.coefficients()[n])
+
+        Fop_args = []
+        for c in Fop_coeffs:
+            for c_ in c.split():
+                Fop_args.append(c_.dat._data.ctypes.data)
+                c_map = c_.cell_node_map()
+                if c_map is not None:
+                    Fop_args.append(c_map._values.ctypes.data)
+
         # FIXME: make the relevant function pointer for the residual assembly
-        def Fop(pc, point, vec, out, cellIS, cell_difmap):
-            out.zeroEntries()
+        def Fop(pc, point, vec, out, cellIS, cell_dofmap):
+            # FIXME: need to update the global state vector
+            cells = cellIS.indices
+            ncell = len(cells)
+            dofs = cell_dofmap.ctypes.data
+            out.set(0)
+            outdata = out.array
+            Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
+                    dofs, *Fop_args)
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
