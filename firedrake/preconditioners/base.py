@@ -122,13 +122,13 @@ class SNESBase(object, metaclass=abc.ABCMeta):
         viewer.printfASCII("Firedrake custom nonlinear solver %s\n" %
                            type(self).__name__)
 
-    @abc.abstractmethod
-    def solve(self, snes, B, X):
-        """Approximately solve F(X) = B.
+    # @abc.abstractmethod
+    # def step(self, snes, B, X):
+    #     """Approximately solve F(X) = B.
 
-        Both B and X are PETSc Vecs, B is often not zero.
-        """
-        pass
+    #     Both B and X are PETSc Vecs, B is often not zero.
+    #     """
+    #     pass
 
     @staticmethod
     def get_appctx(snes):

@@ -509,18 +509,24 @@ class PatchSNES(SNESBase):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            # FIXME: this should probably go faster, need to think how.
+            # # FIXME: this should probably go faster, need to think how.
             gstate = state
             gmap = gstate.cell_node_map().values_with_halo
             lmap = cell_dofmap.reshape(ncell, -1)
             lstate = vec.array_r
+            oldstate = numpy.empty_like(vec.array_r)
             for loc, glob in zip(lmap, gmap[cells]):
                 for i, j in zip(loc, glob):
                     if i >= 0:
+                        oldstate[i] = gstate.dat._data[j]
                         gstate.dat._data[j] = lstate[i]
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
+            for loc, glob in zip(lmap, gmap[cells]):
+                for i, j in zip(loc, glob):
+                    if i >= 0:
+                        gstate.dat._data[j] = oldstate[i]
 
         Ffunptr, Fkinfo = residual_funptr(F)
         Fop_coeffs = [mesh.coordinates]
@@ -539,6 +545,7 @@ class PatchSNES(SNESBase):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
+            vec.view()
             out.set(0)
             outdata = out.array
             # FIXME: this should probably go faster, need to think how.
@@ -547,12 +554,22 @@ class PatchSNES(SNESBase):
             gmap = gstate.cell_node_map().values_with_halo
             lmap = cell_dofmap.reshape(ncell, -1)
             lstate = vec.array_r
+            oldstate = numpy.empty_like(vec.array_r)
             for loc, glob in zip(lmap, gmap[cells]):
                 for i, j in zip(loc, glob):
                     if i >= 0:
+                        oldstate[i] = gstate.dat._data[j]
                         gstate.dat._data[j] = lstate[i]
+
+            lctx = ctx
+            from IPython import embed; embed()
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
+            for loc, glob in zip(lmap, gmap[cells]):
+                for i, j in zip(loc, glob):
+                    if i >= 0:
+                        gstate.dat._data[j] = oldstate[i]
+            out.view()
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -577,6 +594,8 @@ class PatchSNES(SNESBase):
 
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=snes)
+        patch.setTolerances(max_it=1)
+        patch.setConvergenceTest("skip") 
         patch.setFromOptions()
         patch.setUp()
         self.patch = patch
@@ -599,8 +618,11 @@ class PatchSNES(SNESBase):
     def update(self, pc):
         self.patch.setUp()
 
-    def solve(self, snes, b, x):
-        self.patch.solve(b, x)
+    def step(self, snes, x, f, y):
+        x.copy(y)
+        self.patch.solve(f, y)
+        # y.axpy(-1, x)
+        y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
 
     def view(self, pc, viewer=None):
