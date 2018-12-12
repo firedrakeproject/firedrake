@@ -520,6 +520,7 @@ class PatchSNES(SNESBase):
                     if i >= 0:
                         oldstate[i] = gstate.dat._data[j]
                         gstate.dat._data[j] = lstate[i]
+            mat.zeroEntries()
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
@@ -545,6 +546,7 @@ class PatchSNES(SNESBase):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
+            PETSc.Sys.Print("-"*80)
             vec.view()
             out.set(0)
             outdata = out.array
@@ -562,14 +564,16 @@ class PatchSNES(SNESBase):
                         gstate.dat._data[j] = lstate[i]
 
             lctx = ctx
-            from IPython import embed; embed()
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
             for loc, glob in zip(lmap, gmap[cells]):
                 for i, j in zip(loc, glob):
                     if i >= 0:
                         gstate.dat._data[j] = oldstate[i]
+            out.assemble()
             out.view()
+            PETSc.Sys.Print("residual norm: %s" % out.norm())
+            PETSc.Sys.Print("-"*80)
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -600,6 +604,10 @@ class PatchSNES(SNESBase):
         patch.setUp()
         self.patch = patch
 
+        # Need an empty RHS for the solve,
+        # PCApply can't deal with RHS = NULL
+        self.dummy = f.duplicate()
+
     @staticmethod
     def user_construction_op(pc, *args, **kwargs):
         prefix = pc.getOptionsPrefix()
@@ -620,7 +628,7 @@ class PatchSNES(SNESBase):
 
     def step(self, snes, x, f, y):
         x.copy(y)
-        self.patch.solve(f, y)
+        self.patch.solve(self.dummy, y)
         # y.axpy(-1, x)
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
