@@ -454,18 +454,19 @@ class PatchSNES(SNESBase):
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r", ctx)
         F = ctx.F
+        state = ctx._problem.u
 
         pc = snes.ksp.pc
         A, P = pc.getOperators()
         if P.getType() == "python":
-            ctx = P.getPythonContext()
-            if ctx is None:
+            ictx = P.getPythonContext()
+            if ictx is None:
                 raise ValueError("No context found on matrix")
-            if not isinstance(ctx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ctx)
-            J = ctx.a
-            bcs = ctx.row_bcs
-            if bcs != ctx.col_bcs:
+            if not isinstance(ictx, ImplicitMatrixContext):
+                raise ValueError("Don't know how to get form from %r", ictx)
+            J = ictx.a
+            bcs = ictx.row_bcs
+            if bcs != ictx.col_bcs:
                 raise NotImplementedError("Row and column bcs must match")
         else:
             J = ctx.Jp or ctx.J
@@ -505,10 +506,18 @@ class PatchSNES(SNESBase):
                     Jop_args.append(c_map._values.ctypes.data)
 
         def Jop(pc, point, vec, mat, cellIS, cell_dofmap):
-            # FIXME: is it right to ignore the state vector x? No
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
+            # FIXME: this should probably go faster, need to think how.
+            gstate = state
+            gmap = gstate.cell_node_map().values_with_halo
+            lmap = cell_dofmap.reshape(ncell, -1)
+            lstate = vec.array_r
+            for loc, glob in zip(lmap, gmap[cells]):
+                for i, j in zip(loc, glob):
+                    if i >= 0:
+                        gstate.dat._data[j] = lstate[i]
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
@@ -526,14 +535,22 @@ class PatchSNES(SNESBase):
                 if c_map is not None:
                     Fop_args.append(c_map._values.ctypes.data)
 
-        # FIXME: make the relevant function pointer for the residual assembly
         def Fop(pc, point, vec, out, cellIS, cell_dofmap):
-            # FIXME: need to update the global state vector
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
             out.set(0)
             outdata = out.array
+            # FIXME: this should probably go faster, need to think how.
+            # FIXME: this will not work for mixed spaces.
+            gstate = state
+            gmap = gstate.cell_node_map().values_with_halo
+            lmap = cell_dofmap.reshape(ncell, -1)
+            lstate = vec.array_r
+            for loc, glob in zip(lmap, gmap[cells]):
+                for i, j in zip(loc, glob):
+                    if i >= 0:
+                        gstate.dat._data[j] = lstate[i]
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
 
