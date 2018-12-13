@@ -586,6 +586,7 @@ class PatchSNES(SNESBase):
                                     operator=self.user_construction_op)
 
         (f, residual) = snes.getFunction()
+        assert residual is not None
         (fun, args, kargs) = residual
         patch.setFunction(fun, f.duplicate(), args=args, kargs=kargs)
 
@@ -621,7 +622,7 @@ class PatchSNES(SNESBase):
 
     def step(self, snes, x, f, y):
         x.copy(y)
-        self.patch.solve(self.dummy, y)
+        self.patch.solve(snes.vec_rhs or self.dummy, y)
         y.axpy(-1, x)
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
