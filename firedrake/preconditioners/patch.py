@@ -3,12 +3,12 @@ from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.function import Function
 
 from functools import partial
 import numpy
 import operator
-from ufl import VectorElement, MixedElement
+from ufl import VectorElement, MixedElement, Coefficient, FunctionSpace
+from tsfc.kernel_interface.firedrake import KernelBuilder as FiredrakeKernelBuilder
 
 from pyop2 import op2
 from pyop2 import base as pyop2
@@ -16,6 +16,60 @@ from pyop2 import sequential as seq
 from pyop2.datatypes import IntType
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
+
+
+class PatchKernelBuilder(FiredrakeKernelBuilder):
+    """Custom kernel interface for patch assembly.
+
+    Ensures that a provided set of coefficients are not split apart if they are mixed.
+
+    This is necessary because PETSc provides the state vector (which
+    may be mixed) as one concatenated vector, rather than the
+    Firedrake convention of one vector per subspace."""
+    def __init__(self, *unsplit_coefficients):
+        self.unsplit_coefficients = frozenset(unsplit_coefficients)
+        self.KernelBuilder = self
+
+    # TSFC makes the kernel builder by calling "interface.KernelBuilder(...)"
+    # on the provided interface object. So mock that with this __call__ method.
+    def __call__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        return self
+
+    def set_coefficients(self, integral_data, form_data):
+        """Prepare the coefficients of the form.
+
+        :arg integral_data: UFL integral data
+        :arg form_data: UFL form data
+        """
+        coefficients = []
+        coefficient_numbers = []
+        # enabled_coefficients is a boolean array that indicates which
+        # of reduced_coefficients the integral requires.
+        for i in range(len(integral_data.enabled_coefficients)):
+            if integral_data.enabled_coefficients[i]:
+                orig = form_data.reduced_coefficients[i]
+                coefficient = form_data.function_replace_map[orig]
+                if type(coefficient.ufl_element()) == MixedElement:
+                    if orig in self.unsplit_coefficients:
+                        coefficients.append(coefficient)
+                        self.coefficient_split[coefficient] = [coefficient]
+                    else:
+                        split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
+                                 for element in coefficient.ufl_element().sub_elements()]
+                        coefficients.extend(split)
+                        self.coefficient_split[coefficient] = split
+                else:
+                    coefficients.append(coefficient)
+                # This is which coefficient in the original form the
+                # current coefficient is.
+                # Consider f*v*dx + g*v*ds, the full form contains two
+                # coefficients, but each integral only requires one.
+                coefficient_numbers.append(form_data.original_coefficient_positions[i])
+        for i, coefficient in enumerate(coefficients):
+            self.coefficient_args.append(
+                self._coefficient(coefficient, "w_%d" % i))
+        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
 
 class DenseSparsity(object):
@@ -136,7 +190,9 @@ def matrix_funptr(form, state):
     test, trial = map(operator.methodcaller("function_space"), form.arguments())
     if test != trial:
         raise NotImplementedError("Only for matching test and trial spaces")
-    kernel, = compile_form(form, "subspace_form", split=False)
+
+    interface = PatchKernelBuilder(state)
+    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
 
     kinfo = kernel.kinfo
 
@@ -192,7 +248,13 @@ def matrix_funptr(form, state):
 def residual_funptr(form, state):
     from firedrake.tsfc_interface import compile_form
     test, = map(operator.methodcaller("function_space"), form.arguments())
-    kernel, = compile_form(form, "subspace_form", split=False)
+
+    if state.function_space() != test:
+        raise NotImplementedError("State and test space must be dual to one-another")
+
+    interface = PatchKernelBuilder(state)
+
+    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
 
     kinfo = kernel.kinfo
 
@@ -622,7 +684,7 @@ class PatchSNES(SNESBase):
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=snes)
         patch.setTolerances(max_it=1)
-        patch.setConvergenceTest("skip") 
+        patch.setConvergenceTest("skip")
         patch.setFromOptions()
         patch.setUp()
         self.patch = patch
