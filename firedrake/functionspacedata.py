@@ -456,29 +456,38 @@ class FunctionSpaceData(object):
     def lgmap(self, V, bcs, lgmap=None):
         assert len(V) == 1, "lgmap should not be called on MixedFunctionSpace"
         V = V.topological
-        if lgmap is None:
-            lgmap = V.dof_dset.lgmap
         if bcs is None or len(bcs) == 0:
-            return lgmap
-        for bc in bcs:
-            fs = bc.function_space()
-            # Unwind proxies for ComponentFunctionSpace, but not
-            # IndexedFunctionSpace.
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != V:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            return lgmap or V.dof_dset.lgmap
+
         # Boundary condition list *must* be collectively ordered already.
         # Key is a sorted list of bc subdomain, bc method, bc component.
         bc_key = []
         for bc in bcs:
-            bc_key.append(bc.domain_args + (bc.method, ) + (bc.function_space().component, ))
+            fs = bc.function_space()
+            while fs.component is not None and fs.parent is not None:
+                fs = fs.parent
+            if fs.topological != V:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            bc_key.append(bc._cache_key)
         bc_key = tuple(sorted(bc_key))
+        node_set = V.node_set
+        key = (node_set, bc_key)
+        try:
+            return self.map_cache[key]
+        except KeyError:
+            pass
         unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if unblocked:
-            indices = lgmap.indices.copy()
-            bsize = 1
+        if lgmap is None:
+            lgmap = V.dof_dset.lgmap
+            if unblocked:
+                indices = lgmap.indices.copy()
+                bsize = 1
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                assert bsize == V.value_size
         else:
+            # MatBlock case, LGMap is somehow already unrolled.
             indices = lgmap.block_indices.copy()
             bsize = lgmap.getBlockSize()
         nodes = []
@@ -493,7 +502,7 @@ class FunctionSpaceData(object):
                 nodes.append(bc.nodes)
         nodes = numpy.unique(numpy.concatenate(nodes))
         indices[nodes] = -1
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
+        return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
 
     def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to

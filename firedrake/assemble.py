@@ -332,19 +332,20 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     n if n else None)
 
             # TODO: avoid this isinstance check.
-            # Get mask indices from V and lgmap from Mat.
+            # Get lgmap from Mat?
             from pyop2.petsc_base import MatBlock
             if isinstance(tensor[i, j], MatBlock):
                 rmap, cmap = tensor[i, j].handle.getLGMap()
             else:
-                rmap = None
-                cmap = None
+                rmap = cmap = None
 
             V = test.function_space()[i]
-            rmap = V._shared_data.lgmap(V, rowbc, lgmap=rmap)
+            rmap = V.local_to_global_map(rowbc, lgmap=rmap)
             V = trial.function_space()[j]
-            cmap = V._shared_data.lgmap(V, colbc, lgmap=cmap)
-            return tensor[i, j](op2.INC, maps, lgmaps=(rmap, cmap))
+            cmap = V.local_to_global_map(colbc, lgmap=cmap)
+            unroll = any(bc.function_space().component is not None
+                         for bc in chain(rowbc, colbc) if bc is not None)
+            return tensor[i, j](op2.INC, maps, lgmaps=(rmap, cmap), unroll_map=unroll)
 
         result = lambda: result_matrix
         if allocate_only:

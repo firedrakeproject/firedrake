@@ -66,8 +66,16 @@ class WithGeometry(ufl.FunctionSpace):
         r"""Split into a tuple of constituent spaces."""
         return self._split
 
+    @utils.cached_property
+    def _components(self):
+        if len(self) == 1:
+            return tuple(WithGeometry(self.topological.sub(i), self.mesh())
+                         for i in range(self.value_size))
+        else:
+            return self._split
+
     def sub(self, i):
-        return type(self)(self.topological.sub(i), self.mesh())
+        return self._components[i]
 
     @utils.cached_property
     def dm(self):
@@ -358,7 +366,7 @@ class FunctionSpace(object):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
-    @property
+    @utils.cached_property
     def topological(self):
         r"""Function space on a mesh topology."""
         return self
@@ -395,11 +403,16 @@ class FunctionSpace(object):
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
 
+    @utils.cached_property
+    def _components(self):
+        return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
+
     def sub(self, i):
         r"""Return a view into the ith component."""
-        if self.rank != 1:
-            raise ValueError("Can only take sub of FS with VectorElement")
-        return ComponentFunctionSpace(self, i)
+        if self.rank == 0:
+            assert i == 0
+            return self
+        return self._components[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -477,6 +490,12 @@ class FunctionSpace(object):
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
 
+    def local_to_global_map(self, bcs, lgmap=None):
+        r"""Return a map from process local dof numbering to global dof numbering.
+
+        If BCs is provided, mask out those dofs which match the BC nodes."""
+        return self._shared_data.lgmap(self, bcs, lgmap=lgmap)
+
     def collapse(self):
         from firedrake import FunctionSpace
         return FunctionSpace(self.mesh(), self.ufl_element())
@@ -545,7 +564,7 @@ class MixedFunctionSpace(object):
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        return self[i]
+        return self._spaces[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
@@ -636,6 +655,12 @@ class MixedFunctionSpace(object):
         r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
+
+    def local_to_global_map(self, bcs):
+        r"""Return a map from process local dof numbering to global dof numbering.
+
+        If BCs is provided, mask out those dofs which match the BC nodes."""
+        raise NotImplementedError("Not for mixed maps right now sorry!")
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
@@ -746,20 +771,18 @@ def IndexedFunctionSpace(index, space, parent):
 def ComponentFunctionSpace(parent, component):
     r"""Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
-    components of a :func:`.VectorFunctionSpace`.
+    components of a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace`.
 
     :arg parent: The parent space (a FunctionSpace with a
-        VectorElement).
+        VectorElement or TensorElement).
     :arg component: The component to represent.
     :returns: A new :class:`ProxyFunctionSpace` with the component set.
     """
     element = parent.ufl_element()
-    assert type(element) is ufl.VectorElement
+    assert type(element) in {ufl.VectorElement, ufl.TensorElement}
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    if component > 2:
-        raise NotImplementedError("Indexing component > 2 not implemented")
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0],
                              name=parent.name)
     new.identifier = "component"
