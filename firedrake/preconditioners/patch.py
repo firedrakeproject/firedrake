@@ -588,7 +588,6 @@ class PatchSNES(SNESBase):
         Jop_state_slot = None
         for c in Jop_coeffs:
             if c is state:
-                assert len(c.function_space()) == 1, "Not for mixed state yet, sorry!"
                 Jop_state_slot = len(Jop_args)
                 Jop_args.append(None)
                 Jop_args.append(None)
@@ -626,7 +625,6 @@ class PatchSNES(SNESBase):
         Fop_state_slot = None
         for c in Fop_coeffs:
             if c is state:
-                assert len(c.function_space()) == 1, "Not for mixed state yet, sorry!"
                 Fop_state_slot = len(Fop_args)
                 Fop_args.append(None)
                 Fop_args.append(None)
