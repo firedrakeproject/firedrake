@@ -581,22 +581,12 @@ class PatchSNES(SNESBase):
             outdata = out.array
             # FIXME: this should probably go faster, need to think how.
             # FIXME: this will not work for mixed spaces.
-            gmap = state.cell_node_map().values_with_halo
-            lmap = cell_dofmap.reshape(ncell, -1)
-            lstate = vec.array_r
-            for loc, glob in zip(lmap, gmap[cells]):
-                for i, j in zip(loc, glob):
-                    if i >= 0:
-                        state.dat._data[j] = lstate[i]
-
-            lctx = ctx
             Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
             Fop_args[Fop_state_slot + 1] = dofs
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
+            # FIXME: Do we need this, I think not.
             out.assemble()
-            with state.dat.vec_wo as stat, orig_state.dat.vec_ro as orig:
-                orig.copy(stat)
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
