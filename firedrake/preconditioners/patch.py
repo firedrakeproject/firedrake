@@ -388,7 +388,7 @@ class PatchPC(PCBase):
         patch.setOptionsPrefix(pc.getOptionsPrefix() + "patch_")
         patch.setOperators(A, P)
         patch.setType("patch")
-        funptr, kinfo = matrix_funptr(J)
+        funptr, kinfo = matrix_funptr(J, None)
         V, _ = map(operator.methodcaller("function_space"), J.arguments())
         mesh = V.ufl_domain()
 
@@ -413,7 +413,7 @@ class PatchPC(PCBase):
                 if c_map is not None:
                     op_args.append(c_map._values.ctypes.data)
 
-        def op(pc, point, vec, mat, cellIS, cell_dofmap):
+        def op(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithArtificial):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
