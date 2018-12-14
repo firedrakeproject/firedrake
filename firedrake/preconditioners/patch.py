@@ -2,7 +2,7 @@ from firedrake.preconditioners.base import PCBase, SNESBase
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.matrix_free.operators import ImplicitMatrixContext
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.function import Function
 
 from functools import partial
@@ -475,6 +475,7 @@ class PatchSNES(SNESBase):
             bcs = ctx._problem.bcs
 
         mesh = J.ufl_domain()
+        push_appctx(mesh._plex, ctx)
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
@@ -629,3 +630,7 @@ class PatchSNES(SNESBase):
 
     def view(self, pc, viewer=None):
         self.patch.view(viewer=viewer)
+
+    def reset(self):
+        plex = self.patch.getDM()
+        pop_appctx(plex)
