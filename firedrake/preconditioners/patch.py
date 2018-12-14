@@ -541,9 +541,13 @@ class PatchSNES(SNESBase):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
+            if cell_dofmapWithArtificial is not None:
+                dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
+            else:
+                dofsWithArtificial = None
             mat.zeroEntries()
             if Jop_state_slot is not None:
+                assert dofsWithArtificial is not None
                 Jop_args[Jop_state_slot] = vec.array_r.ctypes.data
                 Jop_args[Jop_state_slot + 1] = dofsWithArtificial
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
