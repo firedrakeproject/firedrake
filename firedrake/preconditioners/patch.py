@@ -81,6 +81,16 @@ class DenseMat(pyop2.Mat):
 
 class DatArg(seq.Arg):
 
+    def c_buffer_gather(self, size, idx, buf_name, extruded=False):
+        dim = self.data.cdim
+        val = ";\n".join(["%(name)s[i_0*%(dim)d%(ofs)s] = *(%(ind)s%(ofs)s);\n" %
+                          {"name": buf_name,
+                           "dim": dim,
+                           "ind": self.c_kernel_arg(idx, extruded=extruded),
+                           "ofs": " + %s" % j if j else ""} for j in range(dim)])
+        val = val.replace("[i *", "[n *")
+        return val
+
     def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name, extruded=False):
         dim = self.data.split[i].cdim
         ind = self.c_kernel_arg(count, i, j, extruded=extruded)
@@ -173,7 +183,7 @@ def matrix_funptr(form):
     return mod._fun, kinfo
 
 
-def residual_funptr(form):
+def residual_funptr(form, state):
     from firedrake.tsfc_interface import compile_form
     test, = map(operator.methodcaller("function_space"), form.arguments())
     kernel, = compile_form(form, "subspace_form", split=False)
@@ -197,6 +207,9 @@ def residual_funptr(form):
                             values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
     dat = DenseDat(dofset)
 
+    statedat = DenseDat(dofset)
+    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
+
     arg = dat(op2.INC, cell_node_map[op2.i[0]])
     arg.position = 0
     args.append(arg)
@@ -207,6 +220,10 @@ def residual_funptr(form):
     args.append(arg)
     for n in kinfo.coefficient_map:
         c = form.coefficients()[n]
+        if c is state:
+            statearg.position = len(args)
+            args.append(statearg)
+            continue
         for (i, c_) in enumerate(c.split()):
             map_ = c_.cell_node_map()
             if map_ is not None:
@@ -529,18 +546,28 @@ class PatchSNES(SNESBase):
             with state.dat.vec_wo as stat, orig_state.dat.vec_ro as orig:
                 orig.copy(stat)
 
-        Ffunptr, Fkinfo = residual_funptr(F)
+        Ffunptr, Fkinfo = residual_funptr(F, state)
         Fop_coeffs = [mesh.coordinates]
         for n in Fkinfo.coefficient_map:
             Fop_coeffs.append(F.coefficients()[n])
+        assert any(c is state for c in Fop_coeffs), "Couldn't find state vector in F.coefficients()"
 
         Fop_args = []
+        Fop_state_slot = None
         for c in Fop_coeffs:
+            if c is state:
+                assert len(c.function_space()) == 1, "Not for mixed state yet, sorry!"
+                Fop_state_slot = len(Fop_args)
+                Fop_args.append(None)
+                Fop_args.append(None)
+                continue
             for c_ in c.split():
                 Fop_args.append(c_.dat._data.ctypes.data)
                 c_map = c_.cell_node_map()
                 if c_map is not None:
                     Fop_args.append(c_map._values.ctypes.data)
+
+        assert Fop_state_slot is not None
 
         def Fop(pc, point, vec, out, cellIS, cell_dofmap):
             with orig_state.dat.vec_wo as orig, state.dat.vec_ro as stat:
@@ -563,6 +590,8 @@ class PatchSNES(SNESBase):
                         state.dat._data[j] = lstate[i]
 
             lctx = ctx
+            Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
+            Fop_args[Fop_state_slot + 1] = dofs
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
             out.assemble()
