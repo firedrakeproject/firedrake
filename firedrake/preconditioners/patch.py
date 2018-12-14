@@ -131,7 +131,7 @@ class JITModule(seq.JITModule):
         return None
 
 
-def matrix_funptr(form):
+def matrix_funptr(form, state):
     from firedrake.tsfc_interface import compile_form
     test, trial = map(operator.methodcaller("function_space"), form.arguments())
     if test != trial:
@@ -163,6 +163,8 @@ def matrix_funptr(form):
                         cell_node_map[op2.i[1]]))
     arg.position = 0
     args.append(arg)
+    statedat = DenseDat(dofset)
+    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
 
     mesh = form.ufl_domains()[kinfo.domain_number]
     arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
@@ -170,6 +172,10 @@ def matrix_funptr(form):
     args.append(arg)
     for n in kinfo.coefficient_map:
         c = form.coefficients()[n]
+        if c is state:
+            statearg.position = len(args)
+            args.append(statearg)
+            continue
         for (i, c_) in enumerate(c.split()):
             map_ = c_.cell_node_map()
             if map_ is not None:
@@ -473,7 +479,6 @@ class PatchSNES(SNESBase):
             raise ValueError("Don't know how to get form from %r", ctx)
         F = ctx.F
         state = ctx._problem.u
-        orig_state = Function(state.function_space())
 
         pc = snes.ksp.pc
         A, P = pc.getOperators()
@@ -512,12 +517,19 @@ class PatchSNES(SNESBase):
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        Jfunptr, Jkinfo = matrix_funptr(J)
+        Jfunptr, Jkinfo = matrix_funptr(J, state)
         Jop_coeffs = [mesh.coordinates]
         for n in Jkinfo.coefficient_map:
             Jop_coeffs.append(J.coefficients()[n])
 
         Jop_args = []
+        Jop_state_slot = None
+        for c in Jop_coeffs:
+            if c is state:
+                assert len(c.function_space()) == 1, "Not for mixed state yet, sorry!"
+                Jop_state_slot = len(Jop_args)
+                Jop_args.append(None)
+                Jop_args.append(None)
         for c in Jop_coeffs:
             for c_ in c.split():
                 Jop_args.append(c_.dat._data.ctypes.data)
@@ -525,26 +537,18 @@ class PatchSNES(SNESBase):
                 if c_map is not None:
                     Jop_args.append(c_map._values.ctypes.data)
 
-        def Jop(pc, point, vec, mat, cellIS, cell_dofmap):
-            with orig_state.dat.vec_wo as orig, state.dat.vec_ro as stat:
-                stat.copy(orig)
+        def Jop(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithArtificial):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            # # FIXME: this should probably go faster, need to think how.
-            gmap = state.cell_node_map().values_with_halo
-            lmap = cell_dofmap.reshape(ncell, -1)
-            lstate = vec.array_r
-            for loc, glob in zip(lmap, gmap[cells]):
-                for i, j in zip(loc, glob):
-                    if i >= 0:
-                        state.dat._data[j] = lstate[i]
+            dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
             mat.zeroEntries()
+            if Jop_state_slot is not None:
+                Jop_args[Jop_state_slot] = vec.array_r.ctypes.data
+                Jop_args[Jop_state_slot + 1] = dofsWithArtificial
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
-            with state.dat.vec_wo as stat, orig_state.dat.vec_ro as orig:
-                orig.copy(stat)
 
         Ffunptr, Fkinfo = residual_funptr(F, state)
         Fop_coeffs = [mesh.coordinates]
