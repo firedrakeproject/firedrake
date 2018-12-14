@@ -569,20 +569,21 @@ class PatchSNES(SNESBase):
 
         assert Fop_state_slot is not None
 
-        def Fop(pc, point, vec, out, cellIS, cell_dofmap):
-            with orig_state.dat.vec_wo as orig, state.dat.vec_ro as stat:
-                stat.copy(orig)
+        def Fop(pc, point, vec, out, cellIS, cell_dofmap, cell_dofmapWithArtificial):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
+            dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
             #PETSc.Sys.Print("-"*80)
+            #PETSc.Sys.Print("Computing residual around:")
             #vec.view()
+            #PETSc.Sys.Print("-"*80)
             out.set(0)
             outdata = out.array
             # FIXME: this should probably go faster, need to think how.
             # FIXME: this will not work for mixed spaces.
             Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
-            Fop_args[Fop_state_slot + 1] = dofs
+            Fop_args[Fop_state_slot + 1] = dofsWithArtificial
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
             # FIXME: Do we need this, I think not.
