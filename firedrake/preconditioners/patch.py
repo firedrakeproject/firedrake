@@ -475,7 +475,7 @@ class PatchPC(PCBase):
                 if c_map is not None:
                     op_args.append(c_map._values.ctypes.data)
 
-        def op(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithArtificial):
+        def op(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithAll):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
@@ -598,19 +598,19 @@ class PatchSNES(SNESBase):
                 if c_map is not None:
                     Jop_args.append(c_map._values.ctypes.data)
 
-        def Jop(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithArtificial):
+        def Jop(pc, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithAll):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            if cell_dofmapWithArtificial is not None:
-                dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
+            if cell_dofmapWithAll is not None:
+                dofsWithAll = cell_dofmapWithAll.ctypes.data
             else:
-                dofsWithArtificial = None
+                dofsWithAll = None
             mat.zeroEntries()
             if Jop_state_slot is not None:
-                assert dofsWithArtificial is not None
+                assert dofsWithAll is not None
                 Jop_args[Jop_state_slot] = vec.array_r.ctypes.data
-                Jop_args[Jop_state_slot + 1] = dofsWithArtificial
+                Jop_args[Jop_state_slot + 1] = dofsWithAll
             Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
                     dofs, dofs, *Jop_args)
             mat.assemble()
@@ -637,21 +637,15 @@ class PatchSNES(SNESBase):
 
         assert Fop_state_slot is not None
 
-        def Fop(pc, point, vec, out, cellIS, cell_dofmap, cell_dofmapWithArtificial):
+        def Fop(pc, point, vec, out, cellIS, cell_dofmap, cell_dofmapWithAll):
             cells = cellIS.indices
             ncell = len(cells)
             dofs = cell_dofmap.ctypes.data
-            dofsWithArtificial = cell_dofmapWithArtificial.ctypes.data
-            #PETSc.Sys.Print("-"*80)
-            #PETSc.Sys.Print("Computing residual around:")
-            #vec.view()
-            #PETSc.Sys.Print("-"*80)
+            dofsWithAll = cell_dofmapWithAll.ctypes.data
             out.set(0)
             outdata = out.array
-            # FIXME: this should probably go faster, need to think how.
-            # FIXME: this will not work for mixed spaces.
             Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
-            Fop_args[Fop_state_slot + 1] = dofsWithArtificial
+            Fop_args[Fop_state_slot + 1] = dofsWithAll
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
             # FIXME: Do we need this, I think not.
