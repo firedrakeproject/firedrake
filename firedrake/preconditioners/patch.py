@@ -689,9 +689,9 @@ class PatchSNES(SNESBase):
     def user_construction_op(pc, *args, **kwargs):
         prefix = pc.getOptionsPrefix()
         sentinel = object()
-        usercode = PETSc.Options(prefix).getString("pc_patch_construct_python_type", default=sentinel)
+        usercode = PETSc.Options(prefix).getString("snes_patch_construct_python_type", default=sentinel)
         if usercode == sentinel:
-            raise ValueError("Must set %spc_patch_construct_python_type" % prefix)
+            raise ValueError("Must set %ssnes_patch_construct_python_type" % prefix)
 
         (modname, funname) = usercode.rsplit('.', 1)
         mod = __import__(modname)
