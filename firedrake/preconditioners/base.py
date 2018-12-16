@@ -76,6 +76,7 @@ class PCBase(object, metaclass=abc.ABCMeta):
         from firedrake.dmhooks import get_appctx
         return get_appctx(pc.getDM()).appctx
 
+
 class SNESBase(object, metaclass=abc.ABCMeta):
 
     def __init__(self):

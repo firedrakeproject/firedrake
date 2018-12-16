@@ -446,6 +446,13 @@ class PatchPC(PCBase):
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
+        if "overlap_type" not in mesh._distribution_parameters:
+            if mesh.mpi_comm().size > 1:
+                # Want to do
+                # warnings.warn("You almost surely want to set an overlap_type in your mesh's distribution_parameters.")
+                # but doesn't warn!
+                PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
+
         patch = PETSc.PC().create(comm=pc.comm)
         patch.setOptionsPrefix(pc.getOptionsPrefix() + "patch_")
         patch.setOperators(A, P)
@@ -562,6 +569,13 @@ class PatchSNES(SNESBase):
         push_appctx(mesh._plex, ctx)
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
+
+        if "overlap_type" not in mesh._distribution_parameters:
+            if mesh.mpi_comm().size > 1:
+                # Want to do
+                # warnings.warn("You almost surely want to set an overlap_type in your mesh's distribution_parameters.")
+                # but doesn't warn!
+                PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
         patch = PETSc.SNES().create(comm=snes.comm)
         patch.setOptionsPrefix(snes.getOptionsPrefix() + "patch_")
