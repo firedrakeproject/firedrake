@@ -591,7 +591,7 @@ class PatchSNES(SNESBase):
                 Jop_state_slot = len(Jop_args)
                 Jop_args.append(None)
                 Jop_args.append(None)
-        for c in Jop_coeffs:
+                continue
             for c_ in c.split():
                 Jop_args.append(c_.dat._data.ctypes.data)
                 c_map = c_.cell_node_map()
