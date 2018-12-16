@@ -727,6 +727,6 @@ class PatchSNES(SNESBase):
     def view(self, pc, viewer=None):
         self.patch.view(viewer=viewer)
 
-    def reset(self):
+    def reset(self, snes):
         plex = self.patch.getDM()
         pop_appctx(plex)
