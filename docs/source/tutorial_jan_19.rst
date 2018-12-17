@@ -1,6 +1,6 @@
-.. title:: Learn Firedrake 12 January 2018.
+.. title:: Learn Firedrake 12 January 2019.
 
-Firedrake Tutorial 11 January 2018.
+Firedrake Tutorial 11 January 2019.
 -----------------------------------
 
 The Firedrake team will once again offer a half day Firedrake tutorial
