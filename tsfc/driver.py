@@ -31,7 +31,7 @@ from tsfc.parameters import default_parameters, is_complex
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
 
-def compile_form(form, prefix="form", parameters=None):
+def compile_form(form, prefix="form", parameters=None, interface=None):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
@@ -43,6 +43,8 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
+    if interface is None:
+        interface = firedrake_interface
     # Determine whether in complex mode:
     # complex nodes would break the refactoriser.
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
@@ -58,7 +60,7 @@ def compile_form(form, prefix="form", parameters=None):
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters)
+        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
