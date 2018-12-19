@@ -320,7 +320,7 @@ def get_boundary_nodes(mesh, key, V):
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)
-    d.data_with_halos[indices] = 1
+    d._data[indices] = 1
     d.global_to_local_begin(op2.READ)
     d.global_to_local_end(op2.READ)
     indices, = numpy.where(d.data_ro_with_halos == 1)
