@@ -267,13 +267,13 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
 
     if context._nullspace:
         coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
-        coarse.set_nullspace(coarse._nullspace, transpose=False, near=False)
+        coarse.set_nullspace(coarse._nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=False)
     if context._nullspace_T:
         coarse._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
-        coarse.set_nullspace(coarse._nullspace_T, transpose=True, near=False)
+        coarse.set_nullspace(coarse._nullspace_T, problem.J.arguments()[0].function_space()._ises, transpose=True, near=False)
     if context._near_nullspace:
         coarse._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
-        coarse.set_nullspace(coarse._near_nullspace, transpose=False, near=True)
+        coarse.set_nullspace(coarse._near_nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=True)
 
     return coarse
 
