@@ -12,6 +12,7 @@
 /firedrake/extrusion_numbering.c
 /firedrake/spatialindex.c
 /firedrake/hdf5interface.c
+/firedrake/preconditioners/geneoimpl.c
 /docs/build/
 /docs/source/firedrake.mg.rst
 /docs/source/firedrake.slope_limiter.rst

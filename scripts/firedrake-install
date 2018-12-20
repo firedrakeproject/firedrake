@@ -53,7 +53,7 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
                            "honour_petsc_dir",
-                           "show_petsc_configure_options",
+                           "show_petsc_configure_options", "with_geneo",
                            "slepc", "slope", "packages", "honour_pythonpath",
                            "petsc_int_type", "cache_dir"]
 
@@ -247,8 +247,16 @@ honoured.""",
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
 
+    parser.add_argument("--with-geneo", action="store_true",
+                        help="Download and install the geneo4PETSc preconditioner")
+
     args = parser.parse_args()
 
+    if args.with_geneo:
+        if args.honour_petsc_dir and os.environ.get("SLEPC_DIR") is None:
+            raise InstallError("geneo4PETSc requires SLEPc, you must set SLEPC_DIR if you said --honour-petsc-dir")
+        args.slepc = True
+        log.info("Ensuring that SLEPc is installed for use with geneo4PETSc")
     if args.package_branch:
         branches = {package.lower(): branch for package, branch in args.package_branch}
     if args.test_doi_resolution:
@@ -317,7 +325,15 @@ else:
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
 
+    parser.add_argument("--with-geneo", action="store_true",
+                        help="Download and install the geneo4PETSc preconditioner")
+
     args = parser.parse_args()
+    if args.with_geneo:
+        if args.honour_petsc_dir and os.environ.get("SLEPC_DIR") is None:
+            raise InstallError("geneo4PETSc requires SLEPc, you must set SLEPC_DIR if you said --honour-petsc-dir")
+        args.slepc = True
+        log.info("Ensuring that SLEPc is installed for use with geneo4PETSc")
 
     args.packages = list(set(args.packages))  # remove duplicates
 
@@ -865,16 +881,16 @@ def build_and_install_slepc():
     if os.path.exists("slepc4py"):
         slepc4py_changed = False
         with directory("slepc4py"):
-                plain_url = split_requirements_url(url)[1]
-                current_remote = check_output(["git", "remote", "-v"]).split()[1]
-                proto = "https" if current_remote.startswith("https") else "ssh"
-                new_remote = git_url(plain_url, proto)
-                if new_remote != current_remote:
-                    log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
-                    check_call(["git", "remote", "set-url", "origin", new_remote])
-                    check_call(["git", "fetch", "-p", "origin"])
-                    check_call(["git", "checkout", "firedrake"])
-                    slepc4py_changed = True
+            plain_url = split_requirements_url(url)[1]
+            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            proto = "https" if current_remote.startswith("https") else "ssh"
+            new_remote = git_url(plain_url, proto)
+            if new_remote != current_remote:
+                log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
+                check_call(["git", "remote", "set-url", "origin", new_remote])
+                check_call(["git", "fetch", "-p", "origin"])
+                check_call(["git", "checkout", "firedrake"])
+                slepc4py_changed = True
         slepc4py_changed |= git_update("slepc4py")
     else:
         git_clone(url)
@@ -883,6 +899,39 @@ def build_and_install_slepc():
         install("slepc4py/")
     else:
         log.info("No need to rebuild slepc4py")
+
+
+def build_and_install_geneo():
+    log.info("Installing geneo4PETSc")
+    if os.path.exists("geneo4PETSc"):
+        changed = git_update("geneo4PETSc")
+    else:
+        git_clone("git+https://github.com/wence-/geneo4PETSc.git@cmake-install")
+        changed = True
+    if changed:
+        with directory("geneo4PETSc"):
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            check_call(["mkdir", "build"])
+            oldenv = os.environ.copy()
+            petsc_dir, petsc_arch = get_petsc_dir()
+            try:
+                slepc_dir, slepc_arch = get_slepc_dir()
+            except InstallError:
+                raise InstallError("--with-geneo requires SLEPc which does not appear to be installed")
+            metis_dir = os.path.join(petsc_dir, petsc_arch)
+            petsc_pkg_config = os.path.join(petsc_dir, petsc_arch, "lib", "pkgconfig")
+            slepc_pkg_config = os.path.join(slepc_dir, slepc_arch, "lib", "pkgconfig")
+            os.environ["PKG_CONFIG_PATH"] = os.environ["PKG_CONFIG_PATH"] + ":" + petsc_pkg_config + ":" + slepc_pkg_config
+            os.environ["Metis_DIR"] = metis_dir
+            with directory("build"):
+                check_call(["cmake", "../", "-DCMAKE_INSTALL_PREFIX=%s" % sys.prefix])
+                check_call(["make"])
+                check_call(["make", "install"])
+            os.environ.clear()
+            os.environ.update(oldenv)
+    else:
+        log.info("No need to rebuild geneo4PETSc")
 
 
 def build_and_install_slope():
@@ -989,6 +1038,9 @@ log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
 
+if options["with_geneo"]:
+    os.environ["WITH_GENEO"] = "1"
+
 if mode == "install" or not args.update_script:
     # Check operating system.
     osname = platform.uname()[0]
@@ -1018,6 +1070,8 @@ if mode == "install" or not args.update_script:
             brew_install("libtool")
             brew_install("mercurial")
             brew_install("boost")
+            if options["with_geneo"]:
+                brew_install("boost-mpi")
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
 
@@ -1047,6 +1101,8 @@ if mode == "install" or not args.update_script:
                             "zlib1g-dev",
                             "libboost-dev"]  # For ROL in pyadjoint
 
+            if options["with_geneo"]:
+                apt_packages.append("libboost-mpi-dev")
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:
                 apt_install(missing_packages)
@@ -1138,6 +1194,10 @@ if mode == "install":
     for p in packages:
         pip_requirements(p)
 
+    if options["slepc"]:
+        build_and_install_slepc()
+    if options["with_geneo"]:
+        build_and_install_geneo()
     build_and_install_h5py()
     build_and_install_libspatialindex()
     pipinstall.append("--no-deps")
@@ -1217,6 +1277,10 @@ else:
         clean("petsc4py/")
         install("petsc4py/")
 
+    if options["slepc"]:
+        build_and_install_slepc()
+    if options["with_geneo"]:
+        build_and_install_geneo()
     # Always rebuild h5py.
     build_and_install_h5py()
     build_and_install_libspatialindex()
@@ -1234,8 +1298,6 @@ else:
     # Ensure pytest is at the latest version
     run_pip(["install", "-U", "pytest"])
 
-if options["slepc"]:
-    build_and_install_slepc()
 if options["slope"]:
     build_and_install_slope()
 if args.documentation_dependencies:

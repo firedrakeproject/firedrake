@@ -2,14 +2,15 @@ cimport petsc4py.PETSc as PETSc
 cimport mpi4py.MPI as MPI
 
 cdef extern from "petsc.h":
-   ctypedef long PetscInt
-   ctypedef double PetscReal
-   ctypedef enum PetscBool:
-       PETSC_TRUE, PETSC_FALSE
-   ctypedef enum PetscCopyMode:
-       PETSC_COPY_VALUES,
-       PETSC_OWN_POINTER,
-       PETSC_USE_POINTER
+    ctypedef long PetscInt
+    ctypedef double PetscReal
+    ctypedef enum PetscBool:
+        PETSC_TRUE, PETSC_FALSE
+    ctypedef enum PetscCopyMode:
+        PETSC_COPY_VALUES,
+        PETSC_OWN_POINTER,
+        PETSC_USE_POINTER
+    int PCRegister(const char*, int (*)(PETSc.PetscPC))
 
 cdef extern from "petscsys.h" nogil:
    int PetscMalloc1(PetscInt,void*)
