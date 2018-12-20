@@ -191,7 +191,11 @@ def matrix_funptr(form, state):
     if test != trial:
         raise NotImplementedError("Only for matching test and trial spaces")
 
-    interface = PatchKernelBuilder(state)
+    if state is not None:
+        interface = PatchKernelBuilder(state)
+    else:
+        interface = None
+
     kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
 
     kinfo = kernel.kinfo
@@ -252,7 +256,10 @@ def residual_funptr(form, state):
     if state.function_space() != test:
         raise NotImplementedError("State and test space must be dual to one-another")
 
-    interface = PatchKernelBuilder(state)
+    if state is not None:
+        interface = PatchKernelBuilder(state)
+    else:
+        interface = None
 
     kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
 
