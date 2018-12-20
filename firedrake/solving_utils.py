@@ -300,10 +300,18 @@ class _SNESContext(object):
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()
+
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
+
+        if ctx._nullspace:
+            ctx.set_nullspace(ctx._nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=False)
+        if ctx._nullspace_T:
+            ctx.set_nullspace(ctx._nullspace_T, problem.J.arguments()[0].function_space()._ises, transpose=True, near=False)
+        if ctx._near_nullspace:
+            ctx.set_nullspace(ctx._near_nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=True)
 
     @staticmethod
     def compute_operators(ksp, J, P):
