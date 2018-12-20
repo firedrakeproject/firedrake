@@ -573,7 +573,8 @@ class PatchSNES(SNESBase):
             bcs = ctx._problem.bcs
 
         mesh = J.ufl_domain()
-        push_appctx(mesh._plex, ctx)
+        self.plex = mesh._plex
+        self.ctx = ctx
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
@@ -725,16 +726,13 @@ class PatchSNES(SNESBase):
         self.patch.setUp()
 
     def step(self, snes, x, f, y):
+        push_appctx(self.plex, self.ctx)
         x.copy(y)
         self.patch.solve(snes.vec_rhs or self.dummy, y)
         y.axpy(-1, x)
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
+        pop_appctx(self.plex)
 
     def view(self, pc, viewer=None):
         self.patch.view(viewer=viewer)
-
-    def reset(self, snes):
-        if hasattr(self, "patch"):
-            plex = self.patch.getDM()
-            pop_appctx(plex)
