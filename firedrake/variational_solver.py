@@ -221,8 +221,13 @@ class NonlinearVariationalSolver(OptionsManager):
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         # Apply the boundary conditions to the initial guess.
+        from firedrake.bcs import DirichletBC, FormBC
         for bc in self._problem.bcs:
-            bc.apply(self._problem.u)
+            if isinstance(bc,DirichletBC):
+                bc.apply(self._problem.u)
+            elif isinstance(bc,FormBC):
+                bc.apply(self._problem.u)
+                #pass
 
         if bounds is not None:
             lower, upper = bounds

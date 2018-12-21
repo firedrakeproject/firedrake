@@ -1,0 +1,12 @@
+Metadata-Version: 1.0
+Name: firedrake
+Version: 0.13.0+2409.g011aa013
+Summary: Firedrake is an automated system for the portable solution
+          of partial differential equations using the finite element method
+          (FEM)
+Home-page: http://firedrakeproject.org
+Author: Imperial College London and others
+Author-email: firedrake@imperial.ac.uk
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN

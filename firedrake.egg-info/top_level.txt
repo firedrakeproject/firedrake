@@ -1,0 +1,3 @@
+firedrake
+firedrake_citations
+firedrake_configuration

@@ -258,8 +258,13 @@ class _SNESContext(object):
         ctx._assemble_residual()
 
         # no mat_type -- it's a vector!
+        from firedrake.bcs import DirichletBC, FormBC
         for bc in problem.bcs:
-            bc.zero(ctx._F)
+            if isinstance(bc,DirichletBC):
+                bc.zero(ctx._F)
+            elif isinstance(bc,FormBC):
+                bc.zero(ctx._F)
+                #pass
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -324,8 +329,13 @@ class _SNESContext(object):
         if fine is not None:
             _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
+            from firedrake.bcs import DirichletBC, FormBC
             for bc in ctx._problem.bcs:
-                bc.apply(ctx._x)
+                if isinstance(bc,DirichletBC):
+                    bc.apply(ctx._x)
+                elif isinstance(bc,FormBC):
+                    bc.apply(ctx._x)
+                    #pass
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()

@@ -16,6 +16,7 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
+from firedrake.bcs import DirichletBC, FormBC
 
 
 __all__ = ["assemble"]
@@ -162,7 +163,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
-    :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
+    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.FormBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
@@ -250,7 +251,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor.assemble()
             return tensor
         test, trial = f.arguments()
-
+        
         map_pairs = []
         cell_domains = []
         exterior_facet_domains = []
@@ -445,10 +446,16 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         fs = fs.parent
                     if fs.index == i:
                         tsbc.append(bc)
-                    if fs.index == j:
+                    if fs.index == j and isinstance(bc,DirichletBC):
                         trbc.append(bc)
             elif is_mat:
-                tsbc, trbc = bcs, bcs
+                #tsbc, trbc = bcs, bcs
+                tsbc = []
+                trbc = []
+                for bc in bcs:
+                    tsbc.append(bc)
+                    if isinstance(bc,DirichletBC):
+                        trbc.append(bc)
 
             # Now build arguments for the par_loop
             kwargs = {}
@@ -546,43 +553,83 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # therefore does not have an associated kernel.
         if bcs is not None and is_mat:
             for bc in bcs:
-                fs = bc.function_space()
-                # Evaluate this outwith a "collecting_loops" block,
-                # since creation of the bc nodes actually can create a
-                # par_loop.
-                nodes = bc.nodes
-                if len(fs) > 1:
-                    raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                shape = result_matrix.block_shape
-                with collecting_loops(collect_loops):
-                    for i in range(shape[0]):
-                        for j in range(shape[1]):
-                            # Set diagonal entries on bc nodes to 1 if the current
-                            # block is on the matrix diagonal and its index matches the
-                            # index of the function space the bc is defined on.
-                            if i != j:
-                                continue
-                            if fs.component is None and fs.index is not None:
-                                # Mixed, index (no ComponentFunctionSpace)
-                                if fs.index == i:
+                if isinstance(bc,DirichletBC):
+                    fs = bc.function_space()
+                    # Evaluate this outwith a "collecting_loops" block,
+                    # since creation of the bc nodes actually can create a
+                    # par_loop.
+                    nodes = bc.nodes
+                    if len(fs) > 1:
+                        raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                    shape = result_matrix.block_shape
+                    with collecting_loops(collect_loops):
+                        for i in range(shape[0]):
+                            for j in range(shape[1]):
+                                # Set diagonal entries on bc nodes to 1 if the current
+                                # block is on the matrix diagonal and its index matches the
+                                # index of the function space the bc is defined on.
+                                if i != j:
+                                    continue
+                                if fs.component is None and fs.index is not None:
+                                    # Mixed, index (no ComponentFunctionSpace)
+                                    if fs.index == i:
+                                        loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
+                                elif fs.component is not None:
+                                    # ComponentFunctionSpace, check parent index
+                                    if fs.parent.index is not None:
+                                        # Mixed, index doesn't match
+                                        if fs.parent.index != i:
+                                            continue
+                                    # Index matches
+                                    loops.append(tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component))
+                                elif fs.index is None:
                                     loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
-                            elif fs.component is not None:
-                                # ComponentFunctionSpace, check parent index
-                                if fs.parent.index is not None:
-                                    # Mixed, index doesn't match
-                                    if fs.parent.index != i:
-                                        continue
-                                # Index matches
-                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component))
-                            elif fs.index is None:
-                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
-                            else:
-                                raise RuntimeError("Unhandled BC case")
+                                else:
+                                    raise RuntimeError("Unhandled BC case")
+                elif isinstance(bc,FormBC):
+                    fs = bc.function_space()
+                    # Evaluate this outwith a "collecting_loops" block,
+                    # since creation of the bc nodes actually can create a
+                    # par_loop.
+                    nodes = bc.nodes
+                    if len(fs) > 1:
+                        raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                    shape = result_matrix.block_shape
+                    with collecting_loops(collect_loops):
+                        for i in range(shape[0]):
+                            for j in range(shape[1]):
+                                # Set diagonal entries on bc nodes to 1 if the current
+                                # block is on the matrix diagonal and its index matches the
+                                # index of the function space the bc is defined on.
+                                if i != j:
+                                    continue
+                                if fs.component is None and fs.index is not None:
+                                    # Mixed, index (no ComponentFunctionSpace)
+                                    if fs.index == i:
+                                        loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
+                                elif fs.component is not None:
+                                    # ComponentFunctionSpace, check parent index
+                                    if fs.parent.index is not None:
+                                        # Mixed, index doesn't match
+                                        if fs.parent.index != i:
+                                            continue
+                                    # Index matches
+                                    loops.append(tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component))
+                                elif fs.index is None:
+                                    loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
+                                else:
+                                    raise RuntimeError("Unhandled BC case")
+                else:
+                    raise NotImplementedError("Undefined type of bcs class provided.")
         if bcs is not None and is_vec:
             if len(bcs) > 0 and collect_loops:
                 raise NotImplementedError("Loop collection not handled in this case")
             for bc in bcs:
-                bc.apply(result_function)
+                if isinstance(bc,DirichletBC):
+                    bc.apply(result_function)
+                elif isinstance(bc,FormBC):
+                    bc.apply(result_function)
+                    #pass
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             loops.append(tensor.assemble())

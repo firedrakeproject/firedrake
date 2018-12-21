@@ -45,7 +45,8 @@ def solve(*args, **kwargs):
 
     where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
     If present, `bcs` should be a list of :class:`.DirichletBC`\s
-    specifying the strong boundary conditions to apply.  For the
+    specifying the strong boundary conditions to apply and/or :class:`.FormBC`\s 
+    specifying PDEs to be solved on the boundaries.  For the
     format of `solver_parameters` see below.
 
     *2. Solving linear variational problems*
@@ -178,7 +179,7 @@ def _la_solve(A, x, b, **kwargs):
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg bcs: an optional list of :class:`.DirichletBC`\s to apply.
+    :kwarg bcs: an optional list of :class:`.DirichletBC`\s and/or :class:`.FormBC`\s to apply.
     :kwarg solver_parameters: optional solver parameters.
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
@@ -319,7 +320,7 @@ def _extract_args(*args, **kwargs):
 
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
-    from firedrake.bcs import DirichletBC
+    from firedrake.bcs import DirichletBC, FormBC
     if bcs is None:
         return ()
     try:
@@ -327,6 +328,6 @@ def _extract_bcs(bcs):
     except TypeError:
         bcs = (bcs,)
     for bc in bcs:
-        if not isinstance(bc, DirichletBC):
-            raise TypeError("Provided boundary condition is a '%s', not a DirichletBC" % type(bc).__name__)
+        if not isinstance(bc, DirichletBC) and not isinstance(bc,FormBC):
+            raise TypeError("Provided boundary condition is a '%s', not a DirichletBC or FormBC" % type(bc).__name__)
     return bcs
