@@ -113,3 +113,4 @@ element systems.
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
    Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>
    Linear mixed fluid-structure interaction system.<demos/linear_fluid_structure_interaction.py>
+   Preconditioning heterogeneous SPD problems using GenEO.<demos/geneo.py>
