@@ -157,7 +157,7 @@ def mds(dtoset, set):
                         ('mds', 'dtoset', 'mmap', 'm_iterset_toset'),
                         ('dtoset', 'mds', 'm_iterset_toset', 'mmap')])
 def ms(request):
-    rds, cds, rm, cm = [request.getfuncargvalue(p) for p in request.param]
+    rds, cds, rm, cm = [request.getfixturevalue(p) for p in request.param]
     return op2.Sparsity((rds, cds), (rm, cm))
 
 

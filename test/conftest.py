@@ -66,10 +66,10 @@ def pytest_addoption(parser):
     parser.addoption("--greedy", action="store_true", help="Only run greedy mode")
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def initializer(request):
     lazy = request.param
-    op2.init(lazy_evaluation=(lazy == "lazy"))
+    op2.configuration["lazy_evaluation"] = (lazy == "lazy")
     return lazy
 
 

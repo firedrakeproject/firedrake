@@ -389,8 +389,7 @@ void comp_vol(double A[1], double *x[], double *y[])
         end = layers - 1
         start = 0
         ref = np.arange(start, end)
-        assert [dat_f.data[end*n:end*(n+1)] == ref
-                for n in range(len(dat_f.data) + 1)]
+        assert np.allclose(dat_f.data.reshape(-1, (end - start)), ref)
 
     def test_write_data_field(self, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
         kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = 42.0; }\n"
