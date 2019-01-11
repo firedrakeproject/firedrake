@@ -22,7 +22,7 @@ def check_arguments(coarse, fine):
         raise ValueError("Can't transfer between functions from different hierarchies")
     if coarse.ufl_shape != fine.ufl_shape:
         raise ValueError("Mismatching function space shapes")
-    if coarse.ufl_element().family() not in native:
+    if coarse.ufl_element().family() not in native or fine.ufl_element().family() not in native:
         raise ValueError("Function space doesn't allow native transfer operators, consider using EmbeddedProlongation instead")
 
 def prolong(coarse, fine):
