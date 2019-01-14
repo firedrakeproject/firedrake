@@ -8,10 +8,8 @@ from . import kernels
 __all__ = ["prolong", "restrict", "inject"]
 
 
-native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
-
-
 def check_arguments(coarse, fine):
+    from .embedded import native
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
@@ -25,7 +23,7 @@ def check_arguments(coarse, fine):
     if coarse.ufl_shape != fine.ufl_shape:
         raise ValueError("Mismatching function space shapes")
     if coarse.ufl_element().family() not in native or fine.ufl_element().family() not in native:
-        raise ValueError("Function space doesn't allow native transfer operators, consider using EmbeddedProlongation instead")
+        raise ValueError("Function space doesn't allow native transfer operators, consider using EmbeddedDGTransfer instead")
 
 
 def prolong(coarse, fine):
