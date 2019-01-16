@@ -73,6 +73,7 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
         from firedrake.assemble import create_assembly_callable
+        from firedrake.bcs import DirichletBC, FormBC
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -105,20 +106,52 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.FormBC_F  = []
+        self.FormBC_J  = []
+        if problem.bcs is not None:
+            for bc in problem.bcs:
+                if isinstance(bc,DirichletBC):
+                    self.FormBC_F.append(None)
+                    self.FormBC_J.append(None)
+                elif isinstance(bc,FormBC):
+                    self.FormBC_F.append(bc.F)
+                    self.FormBC_J.append(bc.J)
 
-        if mat_type != pmat_type or problem.Jp is not None:
+        self.FormBC_Jp = []
+        Jp_neq_J = problem.Jp is not None
+        if problem.bcs is not None:
+            for bc in problem.bcs:
+                if isinstance(bc,FormBC):
+                    Jp_neq_J = Jp_neq_J or bc.Jp is not None
+
+        if mat_type != pmat_type or Jp_neq_J:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
             if problem.Jp is None:
                 self.Jp = self.J
             else:
                 self.Jp = problem.Jp
+            # Repeat thte same for FormBCs
+            if problem.bcs is not None:
+                for bc in problem.bcs:
+                    if isinstance(bc,DirichletBC):
+                        self.FormBC_Jp.append(None)
+                    elif isinstance(bc,FormBC):
+                        if bc.Jp is None:
+                            self.FormBC_Jp.append(bc.J)
+                        else:
+                            self.FormBC_Jp.append(bc.Jp)
         else:
             # pmat_type == mat_type and Jp is None
             self.Jp = None
 
+        #self._assemble_residual = create_assembly_callable(self.F,
+        #                                                   tensor=self._F,
+        #                                                   form_compiler_parameters=self.fcp)
         self._assemble_residual = create_assembly_callable(self.F,
+                                                           FormBC_f=self.FormBC_F,
                                                            tensor=self._F,
+                                                           bcs=self._problem.bcs,
                                                            form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
@@ -263,8 +296,7 @@ class _SNESContext(object):
             if isinstance(bc,DirichletBC):
                 bc.zero(ctx._F)
             elif isinstance(bc,FormBC):
-                bc.zero(ctx._F)
-                #pass
+                pass
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -334,8 +366,7 @@ class _SNESContext(object):
                 if isinstance(bc,DirichletBC):
                     bc.apply(ctx._x)
                 elif isinstance(bc,FormBC):
-                    bc.apply(ctx._x)
-                    #pass
+                    pass
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()
@@ -347,7 +378,9 @@ class _SNESContext(object):
     @cached_property
     def _jac(self):
         from firedrake.assemble import allocate_matrix
-        return allocate_matrix(self.J, bcs=self._problem.bcs,
+        return allocate_matrix(self.J,
+                               FormBC_f=self.FormBC_J,
+                               bcs=self._problem.bcs,
                                form_compiler_parameters=self.fcp,
                                mat_type=self.mat_type,
                                appctx=self.appctx,
@@ -356,7 +389,12 @@ class _SNESContext(object):
     @cached_property
     def _assemble_jac(self):
         from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
+        return create_assembly_callable(self.J,
+                                        FormBC_f=self.FormBC_J,
+                                        tensor=self._jac,
+                                        bcs=self._problem.bcs,
+                                        form_compiler_parameters=self.fcp,
+                                        mat_type=self.mat_type)
 
     @cached_property
     def is_mixed(self):
@@ -366,14 +404,25 @@ class _SNESContext(object):
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             from firedrake.assemble import allocate_matrix
-            return allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
+            return allocate_matrix(self.Jp,
+                                   FormBC_f=self.FormBC_Jp,
+                                   bcs=self._problem.bcs,
+                                   form_compiler_parameters=self.fcp,
+                                   mat_type=self.pmat_type,
+                                   appctx=self.appctx,
+                                   options_prefix=self.options_prefix)
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
         from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
+        return create_assembly_callable(self.Jp,
+                                        FormBC_f=self.FormBC_Jp,
+                                        tensor=self._pjac,
+                                        bcs=self._problem.bcs,
+                                        form_compiler_parameters=self.fcp,
+                                        mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):
