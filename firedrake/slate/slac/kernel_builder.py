@@ -30,8 +30,6 @@ Context information for creating coefficient temporaries.
 :param vector: The :class:`slate.AssembledVector` containing the
                relevant data to be placed into the temporary.
 :param local_temp: The local temporary for the coefficient vector.
-                   If the coefficient comes from a mixed space, then
-                   local temporaries may be shared by multiple vectors.
 """
 
 
