@@ -3,7 +3,7 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.mark.parametrize('degree', range(1, 4))
+@pytest.mark.parametrize('degree', [1, 2])
 def test_lvp_equiv_hdg(degree):
     """Runs an HDG problem and checks that passing
     a Slate-defined problem into a variational problem
@@ -81,8 +81,3 @@ def test_lvp_equiv_hdg(degree):
     solver.solve()
 
     assert np.allclose(uhat_ref.dat.data, t.dat.data, rtol=1.E-12)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
