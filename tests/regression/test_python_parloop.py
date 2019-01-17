@@ -91,8 +91,3 @@ def test_python_parloop_vector_user_kwarg():
     exact.interpolate(Expression(("1.0", "2.0")))
 
     assert np.allclose(assemble((f - exact)**2*dx), 0.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -32,8 +32,3 @@ def test_kernel_with_det_of_tensor_of_derivatives_of_field():
     D0 = Function(V2)
     solve(phi*p*detJ*dx == phi*Dexpr*detJ*dx, D0)
     assert errornorm(Dexpr, D0, degree_rise=0) < 1e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

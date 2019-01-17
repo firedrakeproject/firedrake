@@ -413,8 +413,3 @@ def test_changing_default_reorder_works(reorder):
         assert m._did_reordering == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

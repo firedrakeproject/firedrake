@@ -35,8 +35,3 @@ def mass_matrix(mass):
 def test_assemble_zany_tensor(mass_matrix):
     M = assemble(mass_matrix)
     assert np.allclose(M.M.values, assemble(mass_matrix.form).M.values, rtol=1e-14)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -60,8 +60,3 @@ def test_callbacks():
     solver.solve()
 
     assert np.allclose(u.dat.data, 2.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

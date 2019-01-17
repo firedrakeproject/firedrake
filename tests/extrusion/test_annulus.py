@@ -52,7 +52,3 @@ def test_poisson():
     # we seem to get second-order convergence...
     for i in range(len-1):
         assert ln(errors[i]/errors[i+1])/ln(2) > 1.7
-
-
-if __name__ == '__main__':
-    pytest.main(os.path.abspath(__file__))

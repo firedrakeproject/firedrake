@@ -208,8 +208,3 @@ def test_top_to_bottom(mesh, DG0, W):
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

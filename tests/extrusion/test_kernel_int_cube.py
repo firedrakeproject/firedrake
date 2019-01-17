@@ -47,8 +47,3 @@ def test_firedrake_extrusion_unit_cube():
     degree = 1
 
     assert integrate_unit_cube(family, degree) < 1.0e-12
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -42,8 +42,3 @@ def test_mfs(mesh2D):
          + 10*u[1]('+')*n[0]('-') + 10*u[2]('-')*n[1]('-'))*dS
 
     assert abs(assemble(a) - 22.0) < 1e-9
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

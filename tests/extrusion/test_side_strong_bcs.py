@@ -132,8 +132,3 @@ def test_get_all_bc_nodes():
     # And there is 1 base facet with the "1" marker.  So we expect to
     # see 15 dofs in the bc object.
     assert len(bc.nodes) == 15
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

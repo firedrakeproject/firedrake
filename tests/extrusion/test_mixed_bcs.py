@@ -159,8 +159,3 @@ def test_stokes_taylor_hood_parallel():
 @pytest.mark.parallel
 def test_stokes_taylor_hood_parallel_monolithic():
     test_stokes_taylor_hood("aij")
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

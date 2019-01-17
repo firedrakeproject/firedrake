@@ -51,8 +51,3 @@ def test_sphere_project():
     assert np.allclose(out.dat.data[0], f.dat.data[0], rtol=1e-5)
     assert np.allclose(out.dat.data[1], f.dat.data[1], rtol=1e-5)
     assert np.allclose(out.dat.data[2], f.dat.data[2], rtol=1e-5)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -41,8 +41,3 @@ def test_to_expression_2D():
             and np.allclose(f2.dat.data_ro, f3.dat.data_ro)
             and (f1.dat.data_ro[:, 0] == 1).all()
             and (f1.dat.data_ro[:, 1] == 2).all())
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

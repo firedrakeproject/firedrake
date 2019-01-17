@@ -110,8 +110,3 @@ def test_hcurl_convergence(extmesh, testcase, convrate):
         solve(dot(u, v)*dx == dot(exact, v)*dx, out)
         l2err[ii] = sqrt(assemble(dot((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

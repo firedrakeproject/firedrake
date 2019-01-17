@@ -94,8 +94,3 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

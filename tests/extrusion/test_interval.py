@@ -68,8 +68,3 @@ def test_periodic_interval_div_free():
 
     # Check pointwise div-free
     assert np.allclose(f.dat.data, 0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

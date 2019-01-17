@@ -115,8 +115,3 @@ def test_validation(modifier, element):
             FunctionSpace(UnitSquareMesh(1, 1), VectorElement(element))
         with pytest.raises(ValueError):
             FunctionSpace(UnitSquareMesh(1, 1), modifier(element))
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

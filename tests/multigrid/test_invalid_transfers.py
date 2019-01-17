@@ -15,8 +15,3 @@ def test_transfer_invalid_level_combo(transfer):
         input, output = coarse, fine
     with pytest.raises(ValueError):
         transfer(input, output)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -24,8 +24,3 @@ def test_coefficient_derivatives():
     assert np.allclose(assemble(wrong).dat.data_ro, assemble(v*dx).dat.data_ro)
 
     assert np.allclose(assemble(manual).dat.data_ro, assemble(correct).dat.data_ro)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

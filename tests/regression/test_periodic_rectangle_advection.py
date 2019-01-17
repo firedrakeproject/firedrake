@@ -107,8 +107,3 @@ def test_periodic_rectangle_advection(degree, threshold,
 @pytest.mark.parallel(nprocs=3)
 def test_parallel_periodic_rectangle_advection():
     test_periodic_rectangle_advection(1, 1.8, "x", False)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

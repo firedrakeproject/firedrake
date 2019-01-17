@@ -86,8 +86,3 @@ def test_box_1d_2form():
 @pytest.mark.parallel(nprocs=2)
 def test_box_1d_2form_parallel():
     run_box_1d_2form()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -46,8 +46,3 @@ def test_BDFM():
     assert abs(a[0] + 6.75) < 1e-12
     assert abs(a[7] - 6.75) < 1e-12
     assert abs(a[8] - 13.5) < 1e-12
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -79,8 +79,3 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
 
     assert sigma_err < 1e-11
     assert u_err < 1e-11
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

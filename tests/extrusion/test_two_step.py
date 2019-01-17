@@ -75,8 +75,3 @@ def test_firedrake_extrusion_two_step():
 
 def test_firedrake_extrusion_two_step_quadrilateral():
     assert two_step(quadrilateral=True) < 1.0e-4
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

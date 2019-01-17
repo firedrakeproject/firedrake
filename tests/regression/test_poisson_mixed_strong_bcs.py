@@ -94,8 +94,3 @@ def test_poisson_mixed_parallel_fieldsplit():
 @pytest.mark.parametrize('quadrilateral', [False, True])
 def test_poisson_mixed_parallel(quadrilateral):
     assert poisson_mixed(3, quadrilateral=quadrilateral) < 2e-5
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

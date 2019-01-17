@@ -25,8 +25,3 @@ def test_empty_integrand():
     solve(F == 0, sol)
 
     assert np.allclose(u.dat.data_ro, sol.dat.data_ro)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

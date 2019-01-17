@@ -127,8 +127,3 @@ def test_covariant_piola_facet_integral(space):
 
     assert np.allclose(assemble(pos) + assemble(neg), 0, atol=1e-7)
     assert np.allclose(assemble(pos + neg), 0, atol=1e-7)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

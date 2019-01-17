@@ -27,8 +27,3 @@ def test_int_type():
     actual = {4: "int32", 8: "int64"}[IntType.itemsize]
 
     assert expected == actual
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

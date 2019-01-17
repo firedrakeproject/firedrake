@@ -76,8 +76,3 @@ def test_cell_facet_subdomains(square, forms):
     full_mat = assemble(full).M.values
     part_mat = reduce(add, map(lambda x: assemble(x).M.values, forms))
     assert np.allclose(part_mat, full_mat)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

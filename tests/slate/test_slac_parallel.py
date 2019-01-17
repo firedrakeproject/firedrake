@@ -1,4 +1,3 @@
-
 from firedrake import *
 import pytest
 
@@ -46,8 +45,3 @@ def test_parallel_kernel_on_sphere():
     solve(A, x, b)
 
     assert errornorm(x, expr) < 1e-10
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

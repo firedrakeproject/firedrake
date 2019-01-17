@@ -57,8 +57,3 @@ def test_firedrake_extrusion_var_p0():
     degree = 0
 
     assert integrate_var_p0(family, degree) < 1.0e-14
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

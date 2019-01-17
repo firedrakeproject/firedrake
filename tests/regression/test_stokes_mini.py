@@ -75,8 +75,3 @@ def test_stokes_mini(mat_type):
     p_err = np.asarray(p_err)
     assert (np.log2(u_err[:-1] / u_err[1:]) > 2).all()
     assert (np.log2(p_err[:-1] / p_err[1:]) > 1.5).all()
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

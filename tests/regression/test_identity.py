@@ -125,8 +125,3 @@ def test_tensor_identity_parallel():
 @pytest.mark.parallel(nprocs=2)
 def test_tensor_identity_nonstandard_shape_parallel():
     assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

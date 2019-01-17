@@ -40,8 +40,3 @@ def test_jac_invalid():
 
     # correct answer produced
     assert np.allclose(out.dat.data, 1.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

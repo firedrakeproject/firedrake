@@ -87,8 +87,3 @@ def test_identity_hcurl(extmesh, hfamily, hdegree, vfamily, vdegree):
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
