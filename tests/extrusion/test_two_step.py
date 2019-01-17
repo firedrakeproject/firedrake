@@ -1,6 +1,5 @@
 """Testing extruded RT elements."""
 
-import pytest
 import numpy as np
 from firedrake import *
 

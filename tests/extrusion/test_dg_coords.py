@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 
 
 def test_extruded_interval_area():

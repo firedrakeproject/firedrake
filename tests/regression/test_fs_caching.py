@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 from firedrake.mesh import MeshTopology, MeshGeometry
 import gc

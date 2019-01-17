@@ -15,7 +15,6 @@ This has the analytical solution
   u(x, y, z) = 42*z
 
 """
-import pytest
 from firedrake import *
 
 

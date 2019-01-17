@@ -1,7 +1,5 @@
 """Test bubble function space"""
 
-import pytest
-
 from firedrake import *
 
 

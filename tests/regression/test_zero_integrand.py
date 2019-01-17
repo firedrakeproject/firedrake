@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 import numpy as np
 
 

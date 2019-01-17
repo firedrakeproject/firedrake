@@ -2,7 +2,6 @@
 of an extruded unit square. We then check against the actual solution
 of the equation.
 """
-import pytest
 from firedrake import *
 
 

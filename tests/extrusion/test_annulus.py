@@ -1,7 +1,5 @@
 from firedrake import *
 import numpy as np
-import pytest
-import os
 
 
 def test_pi():

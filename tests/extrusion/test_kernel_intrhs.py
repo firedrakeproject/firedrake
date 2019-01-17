@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from firedrake import *
 import pyop2 as op2
