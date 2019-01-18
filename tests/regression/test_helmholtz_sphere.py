@@ -103,8 +103,3 @@ def test_helmholtz_mixed_cubedsphere_parallel():
     l2conv = np.log2(errors[:-1] / errors[1:])
 
     assert (l2conv > 2.7).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -136,8 +136,3 @@ def test_assemble_with_bcs_multiple_subdomains(a, V, mat_type):
     A.assemble()
     assert A.assembled
     assert not A._needs_reassembly
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -102,8 +102,3 @@ def test_spherical_shell(spherical_shell_mesh, expr3d):
                [-0.72000000000, 1.06489436096, +1.26000000000],
                [-0.54000000000, 0.00000000000, -0.96000000000]]:
         assert np.allclose(expr(*pt), f(pt), rtol=5e-2)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

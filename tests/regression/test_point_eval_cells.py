@@ -105,8 +105,3 @@ def test_sphere(sphere_mesh):
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([+0.57735026919, 0.57735026919, +0.57735026919])
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

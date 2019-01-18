@@ -195,8 +195,3 @@ def test_near_nullspace(tmpdir):
 
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

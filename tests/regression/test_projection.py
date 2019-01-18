@@ -294,8 +294,3 @@ def test_projector_bcs(tensor, same_fspace):
                                                    "pc_type": "lu"})
 
     assert errornorm(ret, ref) < 1.0e-10
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -183,8 +183,3 @@ def test_top_to_bottom(mesh, DG1, W):
 @pytest.mark.parallel
 def test_top_to_bottom_parallel(mesh, DG1, W):
     run_top_to_bottom(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

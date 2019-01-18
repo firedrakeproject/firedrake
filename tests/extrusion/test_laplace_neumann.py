@@ -144,8 +144,3 @@ def test_2D_left_right(P2_2D):
     u_exact.interpolate(bc_expr)
 
     assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

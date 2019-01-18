@@ -34,8 +34,3 @@ def test_trace_galerkin_projection_extr(degree, quad):
 
     trace_error = sqrt(assemble(error))
     assert trace_error < 1e-12
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -152,8 +152,3 @@ def test_parallel_gather():
 
     gathered = v.gather([0])
     assert len(gathered) == 1 and gathered[0] == 0
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

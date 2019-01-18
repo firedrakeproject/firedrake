@@ -162,8 +162,3 @@ def test_poisson_analytic_linear_parallel():
     error = run_test_linear(1, 1)
     print('[%d]' % MPI.COMM_WORLD.rank, 'error:', error)
     assert error < 5e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

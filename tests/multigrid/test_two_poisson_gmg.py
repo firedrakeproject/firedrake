@@ -126,8 +126,3 @@ def test_two_poisson_gmg_parallel_fas():
     P2, P1 = run_two_poisson("fas")
     assert P2 < 4e-6
     assert P1 < 1e-3
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -522,8 +522,3 @@ def test_math_functions(expr, value):
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

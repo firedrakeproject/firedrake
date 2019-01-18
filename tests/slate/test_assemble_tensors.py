@@ -248,8 +248,3 @@ def test_matrix_subblocks(mesh):
     for tensor, form in items:
         ref = assemble(form).M.values
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

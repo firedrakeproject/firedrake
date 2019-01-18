@@ -62,8 +62,3 @@ def test_hcurl_convergence(testcase, convrate):
     for ii in [i + start for i in range(len(l2err))]:
         l2err[ii - start, :] = vector_laplace(2 ** ii, degree)
     assert (np.log2(l2err[:-1, :] / l2err[1:, :]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

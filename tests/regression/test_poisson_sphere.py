@@ -63,8 +63,3 @@ def test_hdiv_l2_cubedsphere_parallel():
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     assert (l2conv > 1.7).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

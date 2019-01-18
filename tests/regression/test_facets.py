@@ -166,8 +166,3 @@ def test_mesh_with_no_facet_markers():
     mesh.init()
     with pytest.raises(LookupError):
         mesh.exterior_facets.subset((10,))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

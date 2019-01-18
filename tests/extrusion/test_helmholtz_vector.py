@@ -61,8 +61,3 @@ def test_scalar_convergence(extmesh, testcase, convrate):
                                               'fieldsplit_1_ksp_type': 'cg'})
         l2err[ii - start] = sqrt(assemble((out[3]-exact)*(out[3]-exact)*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

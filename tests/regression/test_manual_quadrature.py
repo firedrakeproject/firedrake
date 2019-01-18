@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from firedrake import *
 
@@ -19,8 +18,3 @@ def test_manual_quadrature():
     assert np.allclose(assemble(f2), 0.244791666666)
 
     assert np.allclose(assemble(f1) + assemble(f2), assemble(f1 + f2))
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

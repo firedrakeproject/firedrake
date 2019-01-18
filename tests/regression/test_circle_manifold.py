@@ -24,7 +24,3 @@ def test_pi():
     # circumference converges quadratically to 2*pi
     for i in range(len-1):
         assert ln(errors[i]/errors[i+1])/ln(2) > 1.95
-
-
-if __name__ == '__main__':
-    pytest.main(os.path.abspath(__file__))

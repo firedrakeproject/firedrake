@@ -93,8 +93,3 @@ def test_periodic_1d_advection_parallel(degree, threshold):
     convergence = np.log2(l2error[:-1] / l2error[1:])
 
     assert np.all(convergence > threshold)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

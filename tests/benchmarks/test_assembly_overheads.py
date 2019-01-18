@@ -155,8 +155,3 @@ def test_apply_bc(val, benchmark):
     bc = DirichletBC(V, val(V), (1, 2, 3, 4))
     f = Function(V)
     benchmark(lambda: bc.apply(f))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

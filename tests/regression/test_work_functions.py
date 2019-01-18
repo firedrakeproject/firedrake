@@ -141,8 +141,3 @@ def test_max_work_functions_shared_across_instances(V, Q):
     g = V2.get_work_function()
 
     assert f is g
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

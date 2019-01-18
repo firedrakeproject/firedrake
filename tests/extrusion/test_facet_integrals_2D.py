@@ -79,8 +79,3 @@ def test_exterior_vertical_normals(RT2):
     f = project(Expression(("0.0", "1.0")), RT2)
     assert abs(assemble(dot(f, n)*ds_v(1)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(2)) - 0.0) < 1e-7
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

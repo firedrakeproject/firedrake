@@ -203,8 +203,3 @@ def test_point_reset_works():
     f.assign(1)
     m.clear_spatial_index()
     assert np.allclose([1.0], f.at((0.3, 0.3)))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

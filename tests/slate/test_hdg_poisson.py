@@ -102,8 +102,3 @@ def test_hdg_convergence(degree, quads, rate):
     diff = np.array([run_LDG_H_problem(r, degree, quads) for r in range(2, 5)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > rate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

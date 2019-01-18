@@ -79,8 +79,3 @@ def test_dg_advection_cubed_sphere():
 @pytest.mark.parallel(nprocs=3)
 def test_dg_advection_cubed_sphere_parallel():
     run_test(UnitCubedSphereMesh(refinement_level=4))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

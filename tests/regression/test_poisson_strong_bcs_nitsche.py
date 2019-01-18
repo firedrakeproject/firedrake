@@ -83,8 +83,3 @@ def run_test(x, degree, quadrilateral=False):
 @pytest.mark.parametrize('degree', (1, 2))
 def test_poisson_nitsche(degree, quadrilateral):
     assert run_test(2, degree, quadrilateral=quadrilateral) < 1e-3
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

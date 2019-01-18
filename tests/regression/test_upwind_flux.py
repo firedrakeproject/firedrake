@@ -110,8 +110,3 @@ def test_upwind_flux_cubed_sphere():
 @pytest.mark.parallel
 def test_upwind_flux_cubed_sphere_parallel():
     run_test(quadrilateral=True)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
