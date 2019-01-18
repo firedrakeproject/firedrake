@@ -81,6 +81,10 @@ from firedrake.logging import *
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
+# Turn off loopy caching since we cache the JITModule already
+import loopy
+loopy.set_caching_enabled(False)
+
 check()
 del check
 
