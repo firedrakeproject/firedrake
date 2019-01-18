@@ -655,7 +655,7 @@ def install(package):
     elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
-        run_pip_install(["--ignore-installed", package])
+        run_pip_install(["--ignore-installed", "--no-deps", package])
 
 
 def clean(package):
@@ -922,7 +922,7 @@ def build_and_install_geneo():
             metis_dir = os.path.join(petsc_dir, petsc_arch)
             petsc_pkg_config = os.path.join(petsc_dir, petsc_arch, "lib", "pkgconfig")
             slepc_pkg_config = os.path.join(slepc_dir, slepc_arch, "lib", "pkgconfig")
-            os.environ["PKG_CONFIG_PATH"] = os.environ["PKG_CONFIG_PATH"] + ":" + petsc_pkg_config + ":" + slepc_pkg_config
+            os.environ["PKG_CONFIG_PATH"] = os.environ.get("PKG_CONFIG_PATH", "") + ":" + petsc_pkg_config + ":" + slepc_pkg_config
             os.environ["Metis_DIR"] = metis_dir
             with directory("build"):
                 check_call(["cmake", "../", "-DCMAKE_INSTALL_PREFIX=%s" % sys.prefix])
@@ -1193,6 +1193,11 @@ if mode == "install":
 
     for p in packages:
         pip_requirements(p)
+
+    pipinstall.append("--no-deps")
+    packages.remove("petsc4py")
+    install("petsc4py/")
+    pipinstall.pop()
 
     if options["slepc"]:
         build_and_install_slepc()
