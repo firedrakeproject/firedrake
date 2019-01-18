@@ -306,12 +306,10 @@ class _SNESContext(object):
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
 
-        if ctx._nullspace:
-            ctx.set_nullspace(ctx._nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=False)
-        if ctx._nullspace_T:
-            ctx.set_nullspace(ctx._nullspace_T, problem.J.arguments()[0].function_space()._ises, transpose=True, near=False)
-        if ctx._near_nullspace:
-            ctx.set_nullspace(ctx._near_nullspace, problem.J.arguments()[0].function_space()._ises, transpose=False, near=True)
+        ises = problem.J.arguments()[0].function_space()._ises
+        ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
+        ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
+        ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
     @staticmethod
     def compute_operators(ksp, J, P):
