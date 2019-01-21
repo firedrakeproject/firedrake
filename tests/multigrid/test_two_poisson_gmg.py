@@ -30,7 +30,7 @@ def run_two_poisson(typ):
                       "fieldsplit_pc_type": "mg",
                       "fieldsplit_pc_mg_type": "full",
                       "fieldsplit_mg_levels_ksp_type": "chebyshev",
-                      "fieldsplit_mg_levels_ksp_max_it": 2,
+                      "fieldsplit_mg_levels_ksp_max_it": 3,
                       "fieldsplit_mg_levels_pc_type": "jacobi",
                       "snes_convergence_test": "skip"}
     elif typ == "fas":
@@ -47,7 +47,7 @@ def run_two_poisson(typ):
                       "fas_levels_snes_linesearch_type": "basic",
                       "fas_levels_snes_max_it": 1,
                       "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
+                      "fas_levels_ksp_max_it": 3,
                       "fas_levels_pc_type": "fieldsplit",
                       "fas_levels_pc_fieldsplit_type": "additive",
                       "fas_levels_fieldsplit_pc_type": "jacobi",
