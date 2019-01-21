@@ -2,6 +2,7 @@ import numpy
 import ufl
 from collections import defaultdict
 from itertools import chain
+import functools
 
 from pyop2 import op2
 from pyop2.base import collecting_loops
@@ -21,14 +22,13 @@ from firedrake.bcs import DirichletBC, FormBC
 __all__ = ["assemble"]
 
 
-def assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=None,
+def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
              inverse=False, mat_type=None, sub_mat_type=None,
              appctx={}, options_prefix=None, **kwargs):
     r"""Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
             a :class:`~slate.TensorBase` expression.
-    :arg FormBC_f: a list of f defined in the FormBC objects.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
@@ -95,7 +95,7 @@ def assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=N
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
-        return _assemble(f, FormBC_f=FormBC_f, tensor=tensor, bcs=solving._extract_bcs(bcs),
+        return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
                          inverse=inverse, mat_type=mat_type,
                          sub_mat_type=sub_mat_type, appctx=appctx,
@@ -108,7 +108,7 @@ def assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=N
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def allocate_matrix(f, FormBC_f=None, bcs=None, form_compiler_parameters=None,
+def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
                     inverse=False, mat_type=None, sub_mat_type=None, appctx={},
                     options_prefix=None):
     r"""Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
@@ -117,13 +117,13 @@ def allocate_matrix(f, FormBC_f=None, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    return _assemble(f, FormBC_f=FormBC_f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+    return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                      appctx=appctx, allocate_only=True,
                      options_prefix=options_prefix)
 
 
-def create_assembly_callable(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=None,
+def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
     r"""Create a callable object than be used to assemble f into a tensor.
 
@@ -139,7 +139,7 @@ def create_assembly_callable(f, FormBC_f=None, tensor=None, bcs=None, form_compi
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops = _assemble(f, FormBC_f=FormBC_f, tensor=tensor, bcs=bcs,
+    loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
@@ -152,7 +152,7 @@ def create_assembly_callable(f, FormBC_f=None, tensor=None, bcs=None, form_compi
 
 
 @utils.known_pyop2_safe
-def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=None,
+def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
               appctx={},
               options_prefix=None,
@@ -165,7 +165,6 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.FormBC`\s to be applied.
-    :arg FormBC_f: a list of f defined in the FormBC objects.
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
@@ -218,17 +217,20 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
         if bcs is not None:
-            for ibc, bc in enumerate(bcs):
-                if isinstance(bc,FormBC):
-                    integral_types+=[integral.integral_type() for integral in FormBC_f[ibc].integrals()]
+            for bc in bcs:
+                if isinstance(bc, FormBC):
+                    integral_types += [integral.integral_type() for integral in bc.f.integrals()]
     rank = len(f.arguments())
 
     is_mat = rank == 2
     is_vec = rank == 1
 
-    first_call=False
+    # FormBCs requre recursive calls of _assemble(...), and kernels keep
+    # being appended to a sigle list ("loops") at all levels of recursion.
+    # The first level call of _assemble(...) is identified by "loops is None."
+    first_call = False
     if loops is None:
-        loops=[]
+        loops = []
         first_call = True
 
     if any((coeff.function_space() and coeff.function_space().component is not None)
@@ -247,12 +249,13 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
             baij = sub_mat_type == "baij"
         else:
             baij = mat_type == "baij"
-        if matfree:  # intercept matrix-free matrices here
+        # intercept matrix-free matrices here
+        if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
             if collect_loops:
                 raise NotImplementedError("Can't collect loops with matfree")
-            if bcs is not None and any([isinstance(bc,FormBC) for bc in bcs]):
+            if bcs is not None and any([isinstance(bc, FormBC) for bc in bcs]):
                 raise NotImplementedError("FormBC not implemented with matfree")
             if tensor is None:
                 return matrix.ImplicitMatrix(f, bcs,
@@ -264,7 +267,7 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
             tensor.assemble()
             return tensor
         test, trial = f.arguments()
-        
+
         map_pairs = []
         cell_domains = []
         exterior_facet_domains = []
@@ -414,7 +417,6 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
     # In collecting loops mode, we collect the loops, and assume the
     # boundary conditions provided are the ones we want.  It therefore
     # is only used inside residual and jacobian assembly.
-    #loops = []
 
     def thunk(bcs):
         if collect_loops:
@@ -462,16 +464,15 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
                             fs = fs.parent
                         if fs.index == i:
                             tsbc.append(bc)
-                        if fs.index == j and isinstance(bc,DirichletBC):
+                        if fs.index == j and isinstance(bc, DirichletBC):
                             trbc.append(bc)
             elif is_mat:
-                #tsbc, trbc = bcs, bcs
                 tsbc = []
                 trbc = []
                 if bcs is not None:
                     for bc in bcs:
                         tsbc.append(bc)
-                        if isinstance(bc,DirichletBC):
+                        if isinstance(bc, DirichletBC):
                             trbc.append(bc)
 
             # Now build arguments for the par_loop
@@ -495,6 +496,7 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
 
             elif integral_type in ("exterior_facet", "exterior_facet_vert"):
                 extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
+
                 def get_map(x):
                     return x.exterior_facet_node_map()
 
@@ -568,8 +570,8 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
         # to apply bcs to a block which is otherwise zero, and
         # therefore does not have an associated kernel.
         if bcs is not None and is_mat:
-            for ibc, bc in enumerate(bcs):
-                if isinstance(bc,DirichletBC):
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
                     fs = bc.function_space()
                     # Evaluate this outwith a "collecting_loops" block,
                     # since creation of the bc nodes actually can create a
@@ -602,15 +604,11 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
                                     loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
                                 else:
                                     raise RuntimeError("Unhandled BC case")
-                elif isinstance(bc,FormBC):
+                elif isinstance(bc, FormBC):
                     fs = bc.function_space()
-                    # Evaluate this outwith a "collecting_loops" block,
-                    # since creation of the bc nodes actually can create a
-                    # par_loop.
-                    #nodes = bc.nodes
                     if len(fs) > 1:
                         raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                    _assemble(FormBC_f[ibc], FormBC_f=None, tensor=result_matrix, bcs=None,
+                    _assemble(bc.f, tensor=result_matrix, bcs=None,
                               form_compiler_parameters=form_compiler_parameters,
                               inverse=inverse, mat_type=mat_type,
                               sub_mat_type=sub_mat_type,
@@ -618,27 +616,22 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
                               collect_loops=collect_loops,
                               allocate_only=False,
                               loops=loops)
-                              #option_prefix=option_prefix,
                 else:
                     raise NotImplementedError("Undefined type of bcs class provided.")
         if bcs is not None and is_vec:
-            #if len(bcs) > 0 and collect_loops:
-            #    raise NotImplementedError("Loop collection not handled in this case")
-
             # Zero residual here to deal with intersecting FormBCs
-            import functools
             for bc in bcs:
-                if isinstance(bc,FormBC):
-                    loops.append(functools.partial(bc.zero,result_function))
-            # 
-            for ibc, bc in enumerate(bcs):
-                if isinstance(bc,DirichletBC):
+                if isinstance(bc, FormBC):
+                    loops.append(functools.partial(bc.zero, result_function))
+            # Populate boundary boundary condition rows
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
                     if collect_loops:
                         pass
                     else:
                         bc.apply(result_function)
-                elif isinstance(bc,FormBC):
-                    _assemble(FormBC_f[ibc], FormBC_f=None, tensor=result_function, bcs=None,
+                elif isinstance(bc, FormBC):
+                    _assemble(bc.f, tensor=result_function, bcs=None,
                               form_compiler_parameters=form_compiler_parameters,
                               inverse=inverse, mat_type=mat_type,
                               sub_mat_type=sub_mat_type,
@@ -646,7 +639,6 @@ def _assemble(f, FormBC_f=None, tensor=None, bcs=None, form_compiler_parameters=
                               collect_loops=collect_loops,
                               allocate_only=False,
                               loops=loops)
-                              #option_prefix=option_prefix,
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             if first_call:

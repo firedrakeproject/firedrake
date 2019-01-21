@@ -81,7 +81,6 @@ finite element problems in Firedrake.
    variational-problems
    solving-interface
    boundary_conditions
-   form_boundary_conditions
    r-space
    extruded-meshes
    mesh-coordinates

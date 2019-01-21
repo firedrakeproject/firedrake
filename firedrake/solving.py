@@ -44,9 +44,9 @@ def solve(*args, **kwargs):
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
     where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
-    If present, `bcs` should be a list of :class:`.DirichletBC`\s and 
-    :class:`.FormBC`\s specifying, respectively, the strong boundary conditions 
-    to apply and PDEs to solve on the boundaries. 
+    If present, `bcs` should be a list of :class:`.DirichletBC`\s and
+    :class:`.FormBC`\s specifying, respectively, the strong boundary conditions
+    to apply and PDEs to solve on the boundaries.
     For the format of `solver_parameters` see below.
 
     *2. Solving linear variational problems*
@@ -139,60 +139,25 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
 
-    # Make a list of domain/boundary form equations
-    from firedrake.bcs import DirichletBC, FormBC
-    eq_list=[eq]
-    if bcs is not None:
-        for bc in bcs:
-            if isinstance(bc,FormBC):
-                eq_list.append(bc.eq)
-
-    # Check if the problem is linear
-    is_lvp=True
-    for eq_ in eq_list:
-        is_lvp=is_lvp and (isinstance(eq_.lhs, ufl.Form) and isinstance(eq_.rhs, ufl.Form))
-
-    is_nlvp=True
-    for eq_ in eq_list:
-        is_nlvp=is_nlvp and not (isinstance(eq_.lhs, ufl.Form) and isinstance(eq_.rhs, ufl.Form))
-
-    # Solve linear variational problem
-    if is_lvp:
-
-        # Create problem
-        problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              form_compiler_parameters=form_compiler_parameters)
-
-        # Create solver and call solve
+    # VariationalProblem checks if the problem is posed appropriately.
+    # Linearity/Nonlinearity is also checked there.
+    problem = vs.VariationalProblem(eq, u, bcs=bcs, J=J, Jp=Jp,
+                                    form_compiler_parameters=form_compiler_parameters)
+    if problem.is_linear:
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
                                             transpose_nullspace=nullspace_T,
                                             near_nullspace=near_nullspace,
                                             options_prefix=options_prefix,
                                             appctx=appctx)
-        solver.solve()
-
-    # Solve nonlinear variational problem
-    elif is_nlvp:
-
-        if eq.rhs != 0:
-            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
-        # Create problem
-        problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
-                                                 form_compiler_parameters=form_compiler_parameters)
-
-        # Create solver and call solve
+    else:
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
                                                transpose_nullspace=nullspace_T,
                                                near_nullspace=near_nullspace,
                                                options_prefix=options_prefix,
                                                appctx=appctx)
-
-        solver.solve()
-    
-    else:
-        raise NotImplementedError("Currently only supports cases where all domain/boundary forms are linear or all domain/boundary forms are nonlinear.")
+    solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):
@@ -239,10 +204,10 @@ def _la_solve(A, x, b, **kwargs):
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
 
-    from firedrake.bcs import DirichletBC, FormBC
+    from firedrake.bcs import FormBC
     if bcs is not None:
         for bc in bcs:
-            if isinstance(bc,FormBC) and not (isinstance(bc.eq.lhs, ufl.Form) and isinstance(bc.eq.rhs, ufl.Form)):
+            if isinstance(bc, FormBC) and not (isinstance(bc.formeq.lhs, ufl.Form) and isinstance(bc.formeq.rhs, ufl.Form)):
                 raise RuntimeError("FormBC must also be linear when solving linear system.")
 
     if bcs is not None:
@@ -357,6 +322,6 @@ def _extract_bcs(bcs):
     except TypeError:
         bcs = (bcs,)
     for bc in bcs:
-        if not isinstance(bc, DirichletBC) and not isinstance(bc,FormBC):
+        if not isinstance(bc, DirichletBC) and not isinstance(bc, FormBC):
             raise TypeError("Provided boundary condition is a '%s', not a DirichletBC or FormBC" % type(bc).__name__)
     return bcs

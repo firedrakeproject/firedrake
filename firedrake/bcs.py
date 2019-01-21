@@ -14,24 +14,15 @@ import firedrake.matrix as matrix
 import firedrake.projection as projection
 import firedrake.utils as utils
 
-import ufl
-from firedrake import ufl_expr
 
 __all__ = ['DirichletBC', 'homogenize', 'FormBC']
 
 
-class DirichletBC(object):
-    r'''Implementation of a strong Dirichlet boundary condition.
+class BCObject(object):
+    r'''Implementation of a base class of Dirichlet-like boundary conditions.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
-        iterable of literal constants (converted to an
-        :class:`.Expression`), or a literal constant which can be
-        pointwise evaluated at the nodes of
-        ``V``. :class:`.Expression`\s are projected onto ``V`` if it
-        does not support pointwise evaluation.
     :arg sub_domain: the integer id(s) of the boundary region over which the
         boundary condition should be applied. The string "on_boundary" may be used
         to indicate all of the boundaries of the domain. In the case of extrusion
@@ -44,31 +35,18 @@ class DirichletBC(object):
         vanish on the boundary will be included. This can be used to impose
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
+    def __init__(self, V, sub_domain, method="topological"):
 
-    def __init__(self, V, g, sub_domain, method="topological"):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
-
         self._function_space = V
-        # Save the original value the user passed in.  If the user
-        # passed in an Expression that has user-defined variables in
-        # it, we need to remember it so that we can re-interpolate it
-        # onto the function_arg if its state has changed.  Note that
-        # the function_arg assignment is actually a property setter
-        # which in the case of expressions interpolates it onto a
-        # function and then throws the expression away.
-        self._original_val = g
-        self.function_arg = g
         self.comm = V.comm
-        self._original_arg = self.function_arg
         self.sub_domain = sub_domain
-        self._currently_zeroed = False
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
-
         if V.extruded and V.component is not None:
             raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
         # If this BC is defined on a subspace (IndexedFunctionSpace or
@@ -96,6 +74,92 @@ class DirichletBC(object):
         self._indices = tuple(reversed(indices))
         # Used for finding local to global maps with boundary conditions applied
         self._cache_key = (self.domain_args + (self.method, ) + tuple(indexing), tuple(components))
+
+    def function_space(self):
+        '''The :class:`.FunctionSpace` on which this boundary condition should
+        be applied.'''
+
+        return self._function_space
+
+    @utils.cached_property
+    def domain_args(self):
+        r"""The sub_domain the BC applies to."""
+        if isinstance(self.sub_domain, str):
+            return (self.sub_domain, )
+        return (as_tuple(self.sub_domain), )
+
+    @utils.cached_property
+    def nodes(self):
+        '''The list of nodes at which this boundary condition applies.'''
+        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
+        if isinstance(self._function_space.finat_element, finat.Hermite) and \
+           self._function_space.mesh().topological_dimension() == 1:
+            bcnodes = bcnodes[::2]  # every second dof is the vertex value
+        return bcnodes
+
+    @utils.cached_property
+    def node_set(self):
+        '''The subset corresponding to the nodes at which this
+        boundary condition applies.'''
+
+        return op2.Subset(self._function_space.node_set, self.nodes)
+
+    def zero(self, r):
+        r"""Zero the boundary condition nodes on ``r``.
+
+        :arg r: a :class:`.Function` to which the
+            boundary condition should be applied.
+
+        """
+        if isinstance(r, matrix.MatrixBase):
+            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+
+        for idx in self._indices:
+            r = r.sub(idx)
+        try:
+            r.dat.zero(subset=self.node_set)
+        except exceptions.MapValueError:
+            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+
+class DirichletBC(BCObject):
+    r'''Implementation of a strong Dirichlet boundary condition.
+
+    :arg V: the :class:`.FunctionSpace` on which the boundary condition
+        should be applied.
+    :arg g: the boundary condition values. This can be a :class:`.Function` on
+        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
+        iterable of literal constants (converted to an
+        :class:`.Expression`), or a literal constant which can be
+        pointwise evaluated at the nodes of
+        ``V``. :class:`.Expression`\s are projected onto ``V`` if it
+        does not support pointwise evaluation.
+    :arg sub_domain: the integer id(s) of the boundary region over which the
+        boundary condition should be applied. The string "on_boundary" may be used
+        to indicate all of the boundaries of the domain. In the case of extrusion
+        the ``top`` and ``bottom`` strings are used to flag the bcs application on
+        the top and bottom boundaries of the extruded mesh respectively.
+    :arg method: the method for determining boundary nodes. The default is
+        "topological", indicating that nodes topologically associated with a
+        boundary facet will be included. The alternative value is "geometric",
+        which indicates that nodes associated with basis functions which do not
+        vanish on the boundary will be included. This can be used to impose
+        strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
+    '''
+
+    def __init__(self, V, g, sub_domain, method="topological"):
+        super().__init__(V, sub_domain, method="topological")
+        # Save the original value the user passed in.  If the user
+        # passed in an Expression that has user-defined variables in
+        # it, we need to remember it so that we can re-interpolate it
+        # onto the function_arg if its state has changed.  Note that
+        # the function_arg assignment is actually a property setter
+        # which in the case of expressions interpolates it onto a
+        # function and then throws the expression away.
+        self._original_val = g
+        self.function_arg = g
+        self._original_arg = self.function_arg
+        self._currently_zeroed = False
 
     @property
     def function_arg(self):
@@ -149,12 +213,6 @@ class DirichletBC(object):
         self._function_arg = g
         self._currently_zeroed = False
 
-    def function_space(self):
-        '''The :class:`.FunctionSpace` on which this boundary condition should
-        be applied.'''
-
-        return self._function_space
-
     def homogenize(self):
         '''Convert this boundary condition into a homogeneous one.
 
@@ -180,29 +238,6 @@ class DirichletBC(object):
         self.function_arg = val
         self._original_arg = self.function_arg
         self._original_val = val
-
-    @utils.cached_property
-    def domain_args(self):
-        r"""The sub_domain the BC applies to."""
-        if isinstance(self.sub_domain, str):
-            return (self.sub_domain, )
-        return (as_tuple(self.sub_domain), )
-
-    @utils.cached_property
-    def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
-        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
-        if isinstance(self._function_space.finat_element, finat.Hermite) and \
-           self._function_space.mesh().topological_dimension() == 1:
-            bcnodes = bcnodes[::2]  # every second dof is the vertex value
-        return bcnodes
-
-    @utils.cached_property
-    def node_set(self):
-        '''The subset corresponding to the nodes at which this
-        boundary condition applies.'''
-
-        return op2.Subset(self._function_space.node_set, self.nodes)
 
     @timed_function('ApplyBC')
     def apply(self, r, u=None):
@@ -257,23 +292,6 @@ class DirichletBC(object):
         else:
             r.assign(self.function_arg, subset=self.node_set)
 
-    def zero(self, r):
-        r"""Zero the boundary condition nodes on ``r``.
-
-        :arg r: a :class:`.Function` to which the
-            boundary condition should be applied.
-
-        """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
-
-        for idx in self._indices:
-            r = r.sub(idx)
-        try:
-            r.dat.zero(subset=self.node_set)
-        except exceptions.MapValueError:
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
-
     def set(self, r, val):
         r"""Set the boundary nodes to a prescribed (external) value.
         :arg r: the :class:`Function` to which the value should be applied.
@@ -299,7 +317,7 @@ def homogenize(bc):
         return DirichletBC(bc.function_space(), 0, bc.sub_domain)
 
 
-class FormBC(object):
+class FormBC(BCObject):
     r'''Implementation of a form boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -324,115 +342,13 @@ class FormBC(object):
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
 
-    def __init__(self, V, eq, sub_domain, method="topological"):
-        # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
-
-        self._function_space = V
-        # Save the original value the user passed in.  If the user
-        # passed in an Expression that has user-defined variables in
-        # it, we need to remember it so that we can re-interpolate it
-        # onto the function_arg if its state has changed.  Note that
-        # the function_arg assignment is actually a property setter
-        # which in the case of expressions interpolates it onto a
-        # function and then throws the expression away.
-        self.eq   = eq
-        self.F    = None
-        self.J    = None
-        self.Jp   = None
-        self.comm = V.comm
-        self.sub_domain = sub_domain
-        if method not in ["topological", "geometric"]:
-            raise ValueError("Unknown boundary condition method %s" % method)
-        self.method = method
-
-        if V.extruded and V.component is not None:
-            raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
-        # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
-        # indices.
-        components = []
-        indexing = []
-        indices = []
-        fs = self._function_space
-        while True:
-            # Add index to indices if found
-            if fs.index is not None:
-                indexing.append(fs.index)
-                indices.append(fs.index)
-            if fs.component is not None:
-                components.append(fs.component)
-                indices.append(fs.component)
-            # Now try the parent
-            if fs.parent is not None:
-                fs = fs.parent
-            else:
-                # All done
-                break
-        # Used for indexing functions passed in.
-        self._indices = tuple(reversed(indices))
-        # Used for finding local to global maps with boundary conditions applied
-        self._cache_key = (self.domain_args + (self.method, ) + tuple(indexing), tuple(components))
-
-    def reconstruct(self, *, V=None, g=None, sub_domain=None, method=None):
-        if V is None:
-            V = self.function_space()
-        if g is None:
-            g = self._original_arg
-        if sub_domain is None:
-            sub_domain = self.sub_domain
-        if method is None:
-            method = self.method
-        if V == self.function_space() and g == self._original_arg and \
-           sub_domain == self.sub_domain and method == self.method:
-            return self
-        return type(self)(V, g, sub_domain, method=method)
-
-    def function_space(self):
-        '''The :class:`.FunctionSpace` on which this boundary condition should
-        be applied.'''
-
-        return self._function_space
-
-    @utils.cached_property
-    def domain_args(self):
-        r"""The sub_domain the BC applies to."""
-        if isinstance(self.sub_domain, str):
-            return (self.sub_domain, )
-        return (as_tuple(self.sub_domain), )
-
-    @utils.cached_property
-    def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
-        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
-        if isinstance(self._function_space.finat_element, finat.Hermite) and \
-           self._function_space.mesh().topological_dimension() == 1:
-            bcnodes = bcnodes[::2]  # every second dof is the vertex value
-        return bcnodes
-
-    @utils.cached_property
-    def node_set(self):
-        '''The subset corresponding to the nodes at which this
-        boundary condition applies.'''
-
-        return op2.Subset(self._function_space.node_set, self.nodes)
-
-    def zero(self, r):
-        r"""Zero the boundary condition nodes on ``r``.
-
-        :arg r: a :class:`.Function` to which the
-            boundary condition should be applied.
-
-        """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
-
-        for idx in self._indices:
-            r = r.sub(idx)
-        try:
-            r.dat.zero(subset=self.node_set)
-        except exceptions.MapValueError:
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
-
+    def __init__(self, V, eq, sub_domain, J=None, Jp=None, method="topological"):
+        super().__init__(V, sub_domain, method="topological")
+        self.formeq = eq
+        self.F = None
+        self.J = J
+        self.Jp = Jp
+        # f (= F, J or Jp) is set right before calling "asesmble(...),"
+        # telling the function which one of residual, Jacobian, or
+        # Preconditionar is to be assembled.
+        self.f = None
