@@ -20,7 +20,6 @@ def problem_type(request):
     return request.param
 
 
-<<<<<<< HEAD
 @pytest.fixture(params=[True, False])
 def multiplicative(request):
     return request.param
