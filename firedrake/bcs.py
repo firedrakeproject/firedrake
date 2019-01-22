@@ -352,3 +352,35 @@ class FormBC(BCObject):
         # telling the function which one of residual, Jacobian, or
         # Preconditionar is to be assembled.
         self.f = None
+
+    @property
+    def formeq(self):
+        return self._formeq
+
+    @formeq.setter
+    def formeq(self, v):
+        self._formeq = v
+
+    @property
+    def F(self):
+        return self._F
+
+    @F.setter
+    def F(self, v):
+        self._F = v
+
+    @property
+    def J(self):
+        return self._J
+
+    @J.setter
+    def J(self, v):
+        self._J = v
+
+    @property
+    def Jp(self):
+        return self._Jp
+
+    @Jp.setter
+    def Jp(self, v):
+        self._Jp = v
