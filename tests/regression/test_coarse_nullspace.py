@@ -1,5 +1,6 @@
 from firedrake import *
 
+
 def test_coarse_nullspace():
     base = UnitSquareMesh(10, 10)
     mh = MeshHierarchy(base, 1)
@@ -35,6 +36,7 @@ def test_coarse_nullspace():
     vecs = nsp.getVecs()
     assert len(vecs) == 1
     assert abs(vecs[0].dot(vecs[0]) - 1) < 1.0e-12
+
 
 if __name__ == "__main__":
     test_coarse_nullspace()
