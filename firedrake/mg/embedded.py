@@ -289,17 +289,28 @@ class MixedTransfer(object):
 
     This just makes :class:`SingleTransfer` objects for each sub element."""
     def __init__(self, element, use_fortin_interpolation=True):
-        self.transfers = tuple(SingleTransfer(e, use_fortin_interpolation=use_fortin_interpolation)
+        self._transfers = {}
+        self._use_fortin_interpolation = use_fortin_interpolation
+
+    def transfers(self, element):
+        try:
+            return self._transfers[element]
+        except KeyError:
+            transfers = tuple(SingleTransfer(e, use_fortin_interpolation=self._use_fortin_interpolation)
                                for e in element.sub_elements())
+            return self._transfers.setdefault(element, transfers)
 
     def prolong(self, uc, uf):
-        for c, f, t in zip(uc.split(), uf.split(), self.transfers):
+        element = uc.function_space().ufl_element()
+        for c, f, t in zip(uc.split(), uf.split(), self.transfers(element)):
             t.prolong(c, f)
 
     def inject(self, uf, uc):
-        for f, c, t in zip(uf.split(), uc.split(), self.transfers):
+        element = uf.function_space().ufl_element()
+        for f, c, t in zip(uf.split(), uc.split(), self.transfers(element)):
             t.inject(f, c)
 
     def restrict(self, uf_dual, uc_dual):
-        for f, c, t in zip(uf_dual.split(), uc_dual.split(), self.transfers):
+        element = uf_dual.function_space().ufl_element()
+        for f, c, t in zip(uf_dual.split(), uc_dual.split(), self.transfers(element)):
             t.restrict(f, c)

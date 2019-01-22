@@ -380,6 +380,11 @@ def create_subdm(dm, fields, *args, **kwargs):
     else:
         # Need to build an MFS for the subspace
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+
+        # Pass any transfer operators over
+        prolong, restrict, inject = get_transfer_operators(dm)
+        push_transfer_operators(subspace.dm, prolong, restrict, inject)
+
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
                                                            for f in fields]),
