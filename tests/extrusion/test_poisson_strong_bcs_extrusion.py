@@ -15,7 +15,6 @@ This has the analytical solution
   u(x, y, z) = 42*z
 
 """
-import pytest
 from firedrake import *
 
 
@@ -50,8 +49,3 @@ def test_extrusion_poisson_strong_bcs():
 def test_extrusion_poisson_strong_bcs_quadrilateral():
     for layers in [1, 2, 10]:
         assert (run_test(layers, quadrilateral=True) < 1.e-6)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

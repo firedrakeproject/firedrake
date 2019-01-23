@@ -450,8 +450,3 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1])
     else:
         assert np.allclose(bc.nodes, [1, 2])
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -39,8 +39,3 @@ def test_locate_cell_not_found(meshdata):
     m, f = meshdata
 
     assert m.locate_cell((0.2, -0.4)) is None
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -78,8 +78,3 @@ def test_determinism_and_caching(tensor):
 
     for k1, k2 in zip(kernel1, kernel3):
         assert k1 is not k2
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

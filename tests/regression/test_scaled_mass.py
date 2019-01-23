@@ -182,8 +182,3 @@ def test_tensor_scaled_mass(m, value, typ, degree):
     scaled_sum = assemble(c*inner(u, v)*dx + inner(u, v)*dx)
 
     assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

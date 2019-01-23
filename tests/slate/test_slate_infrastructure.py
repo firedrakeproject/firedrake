@@ -384,8 +384,3 @@ def test_illegal_compile():
     form = v * dx
     with pytest.raises(ValueError):
         compile_slate(form)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

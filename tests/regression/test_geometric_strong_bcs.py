@@ -33,8 +33,3 @@ def test_dg_advection(degree, quadrilateral, direction):
     solve(F == 0, t, bcs=bc)
 
     assert errornorm(Constant(1.0), t) < 1.e-12
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

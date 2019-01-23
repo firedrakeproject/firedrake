@@ -46,8 +46,3 @@ def test_mass_mixed_tensor(W):
         for j in range(3):
             if i != j:
                 assert np.allclose(A[i, j].values, 0)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

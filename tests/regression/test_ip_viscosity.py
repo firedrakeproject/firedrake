@@ -162,8 +162,3 @@ def test_stress_form_ip_penalty_term(space):
     assert(err < 1e-12)
     err = numpy.abs(M-Ms).max()
     assert(err < 1e-12)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

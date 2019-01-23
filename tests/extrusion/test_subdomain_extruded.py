@@ -31,8 +31,3 @@ def test_base_box_3d():
 @pytest.mark.parallel(nprocs=3)
 def test_base_box_3d_parallel():
     run_base_box_3d()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

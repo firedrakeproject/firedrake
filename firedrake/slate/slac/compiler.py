@@ -339,11 +339,11 @@ def coefficient_temporaries(builder, declared_temps):
             c_shape = cinfo.shape
             vector = cinfo.vector
             function = vector._function
+            t = cinfo.local_temp
 
             if vector not in declared_temps:
                 # Declare and initialize coefficient temporary
                 c_type = eigen_matrixbase_type(shape=c_shape)
-                t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
                 declared_temps[vector] = t
 

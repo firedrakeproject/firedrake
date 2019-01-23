@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from firedrake import *
 
@@ -169,8 +168,3 @@ def test_lvalue_rvalue():
     u.assign(1.0)
     u.interpolate(u + 1.0)
     assert np.allclose(u.dat.data_ro, 2.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

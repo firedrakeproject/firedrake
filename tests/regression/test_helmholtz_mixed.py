@@ -55,8 +55,3 @@ def test_firedrake_helmholtz(V1, V2, threshold, action):
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > threshold).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

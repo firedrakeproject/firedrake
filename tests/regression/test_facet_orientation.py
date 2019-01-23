@@ -37,8 +37,3 @@ def test_consistent_facet_orientation(mesh_thunk):
         ''', dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
 
     assert np.allclose(q.dat.data, 0.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

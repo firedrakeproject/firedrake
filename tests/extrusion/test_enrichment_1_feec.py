@@ -165,8 +165,3 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     solve(a == L, u, solver_parameters=parms)
     maxcoeff = max(abs(u.dat.data))
     assert maxcoeff < 3e-11
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

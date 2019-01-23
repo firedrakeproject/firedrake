@@ -20,7 +20,7 @@ def run_poisson(typ):
                       "fas_coarse_redundant_pc_type": "lu",
                       "fas_levels_snes_type": "ksponly",
                       "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
+                      "fas_levels_ksp_max_it": 3,
                       "fas_levels_pc_type": "jacobi",
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
@@ -94,8 +94,3 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

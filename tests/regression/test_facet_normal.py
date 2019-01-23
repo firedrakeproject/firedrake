@@ -66,8 +66,3 @@ def test_facet_normal_unit_cube():
     assert abs(assemble(dot(z_hat, n)*ds(4)) - 0.0) < 1e-14  # y = 1
     assert abs(assemble(dot(z_hat, n)*ds(5)) + 1.0) < 1e-14  # z = 0
     assert abs(assemble(dot(z_hat, n)*ds(6)) - 1.0) < 1e-14  # z = 1
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

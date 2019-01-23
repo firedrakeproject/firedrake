@@ -67,8 +67,3 @@ def test_periodic_helmholtz(direction, quadrilateral):
 @pytest.mark.parallel(nprocs=3)
 def test_periodic_helmholtz_parallel(direction, quadrilateral):
     run_periodic_helmholtz(direction, quadrilateral)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

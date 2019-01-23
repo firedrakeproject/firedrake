@@ -57,8 +57,3 @@ def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
     assert l2conv > 1.8
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -98,8 +98,3 @@ def test_3d_up_to_down(mesh, DG1, W):
 @pytest.mark.parallel
 def test_3d_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -148,8 +148,3 @@ def test_copy(V):
     assert np.allclose(f.dat.data_ro, 3.0)
 
     assert h.name() == "foo"
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

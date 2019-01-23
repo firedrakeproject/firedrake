@@ -194,7 +194,3 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
 
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 1)
-
-
-if __name__ == '__main__':
-    pytest.main(os.path.abspath(__file__))

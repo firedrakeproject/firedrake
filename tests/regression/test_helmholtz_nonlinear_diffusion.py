@@ -88,8 +88,3 @@ def test_l2_conv_on_quadrilaterals_serial():
 @pytest.mark.parallel
 def test_l2_conv_on_quadrilaterals_parallel():
     run_l2_conv_on_quadrilaterals()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

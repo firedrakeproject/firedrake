@@ -1,4 +1,3 @@
-
 import pytest
 from firedrake import *
 import numpy as np
@@ -35,8 +34,3 @@ def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     assert np.allclose(A.M.values, refA.M.values, rtol=1e-13)
     assert np.allclose(B.dat.data, refB.dat.data, rtol=1e-13)
     assert np.allclose(C.dat.data, refC.dat.data, rtol=1e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -248,8 +248,3 @@ def test_component_full_bcs_overlap(V):
     A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
 
     assert np.allclose(A_1, A_2)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -183,8 +183,3 @@ def test_betti2(space, mesh):
 
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 1)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
