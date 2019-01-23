@@ -1,4 +1,5 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+import ufl
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
 import finat
@@ -13,12 +14,14 @@ import firedrake.function as function
 import firedrake.matrix as matrix
 import firedrake.projection as projection
 import firedrake.utils as utils
+from firedrake import ufl_expr
+from firedrake import slate
 
 
-__all__ = ['DirichletBC', 'homogenize', 'FormBC']
+__all__ = ['DirichletBC', 'homogenize', 'EquationBC', 'EquationBCSplit']
 
 
-class BCObject(object):
+class BCBase(object):
     r'''Implementation of a base class of Dirichlet-like boundary conditions.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -122,7 +125,7 @@ class BCObject(object):
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
 
-class DirichletBC(BCObject):
+class DirichletBC(BCBase):
     r'''Implementation of a strong Dirichlet boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -317,7 +320,7 @@ def homogenize(bc):
         return DirichletBC(bc.function_space(), 0, bc.sub_domain)
 
 
-class FormBC(BCObject):
+class EquationBC(BCBase):
     r'''Implementation of a form boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -342,16 +345,49 @@ class FormBC(BCObject):
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
 
-    def __init__(self, V, eq, sub_domain, J=None, Jp=None, method="topological"):
+    def __init__(self, V, eq, u, sub_domain, J=None, Jp=None, method="topological"):
         super().__init__(V, sub_domain, method="topological")
-        self.formeq = eq
-        self.F = None
-        self.J = J
-        self.Jp = Jp
-        # f (= F, J or Jp) is set right before calling "asesmble(...),"
-        # telling the function which one of residual, Jacobian, or
-        # Preconditionar is to be assembled.
+        #self.formeq = eq
+        self.u = u
         self.f = None
+        self.bcs = None
+
+        self.Jp_eq_J = Jp is None
+
+        # linear
+        if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
+            self.J = eq.lhs
+            self.Jp = Jp or self.J
+            if eq.rhs is 0:
+                self.F = ufl_expr.action(self.J, self.u)
+            else:
+                if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
+                    raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(eq.rhs).__name__)
+                if len(eq.rhs.arguments()) != 1:
+                    raise ValueError("Provided BC RHS is not a linear form")
+                self.F = ufl_expr.action(self.J, self.u) - eq.rhs
+            self.is_linear = True
+        # nonlinear
+        else:
+            if eq.rhs != 0:
+                raise TypeError("RHS of a nonlinear form equation has to be 0")
+            if not isinstance(eq.lhs, (ufl.Form, slate.slate.TensorBase)):
+                raise TypeError("Provided BC residual is a '%s', not a Form or Slate Tensor" % type(eq.lhs).__name__)
+            if len(eq.lhs.arguments()) != 1:
+                raise ValueError("Provided BC residual is not a linear form")
+            self.F = eq.lhs
+            if J is not None and not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
+                raise TypeError("Provided BC Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+            if J is not None and len(J.arguments()) != 2:
+                raise ValueError("Provided BC Jacobian is not a bilinear form")
+            self.J = J or ufl_expr.derivative(self.F, self.u)
+            if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
+                raise TypeError("Provided BC preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+            if Jp is not None and len(Jp.arguments()) != 2:
+                raise ValueError("Provided BC preconditioner is not a bilinear form")
+            self.Jp = Jp or self.J
+            self.is_linear = False
+
 
     @property
     def formeq(self):
@@ -384,3 +420,21 @@ class FormBC(BCObject):
     @Jp.setter
     def Jp(self, v):
         self._Jp = v
+
+
+class EquationBCSplit(BCBase):
+    def __init__(self, ebc, form_str):
+        if not isinstance(ebc, EquationBC):
+            raise TypeError("Expected an instance of EquationBC")
+        super(EquationBCSplit, self).__init__(ebc._function_space, ebc.sub_domain, method="topological")
+        self.u = ebc.u
+        if form_str == 'F':
+            self.f = ebc.F
+        elif form_str == 'J':
+            self.f = ebc.J
+        elif form_str == 'Jp':
+            self.f = ebc.Jp
+        else:
+            raise TypeError("Undefined form type provided by form_str")
+
+        self.bcs = None

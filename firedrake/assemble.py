@@ -17,7 +17,7 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
-from firedrake.bcs import DirichletBC, FormBC
+from firedrake.bcs import DirichletBC, EquationBCSplit
 
 __all__ = ["assemble"]
 
@@ -95,13 +95,22 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
-        return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
+        loops = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
                          inverse=inverse, mat_type=mat_type,
                          sub_mat_type=sub_mat_type, appctx=appctx,
-                         collect_loops=collect_loops,
+                         collect_loops=True,
                          allocate_only=allocate_only,
                          options_prefix=options_prefix)
+        if allocate_only:
+            return loops[0]()
+        elif collect_loops:
+            return loops
+        else:
+            for kernel in loops:
+                m = kernel()
+            return m
+
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -117,11 +126,14 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+    loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                      appctx=appctx, allocate_only=True,
                      options_prefix=options_prefix)
 
+    #for kernel in loops:
+    #    return kernel()
+    return loops[0]()
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
@@ -164,7 +176,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
-    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.FormBC`\s to be applied.
+    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.EquationBCSplit`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
@@ -218,14 +230,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         if bcs is not None:
             for bc in bcs:
-                if isinstance(bc, FormBC):
+                if isinstance(bc, EquationBCSplit):
                     integral_types += [integral.integral_type() for integral in bc.f.integrals()]
     rank = len(f.arguments())
 
     is_mat = rank == 2
     is_vec = rank == 1
 
-    # FormBCs requre recursive calls of _assemble(...), and kernels keep
+    # EquationBCSplits requre recursive calls of _assemble(...), and kernels keep
     # being appended to a sigle list ("loops") at all levels of recursion.
     # The first level call of _assemble(...) is identified by "loops is None."
     first_call = False
@@ -253,19 +265,23 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
-            if collect_loops:
-                raise NotImplementedError("Can't collect loops with matfree")
-            if bcs is not None and any([isinstance(bc, FormBC) for bc in bcs]):
-                raise NotImplementedError("FormBC not implemented with matfree")
+            # if collect_loops:
+            #     raise NotImplementedError("Can't collect loops with matfree")
+            if bcs is not None and any([isinstance(bc, EquationBCSplit) for bc in bcs]):
+                raise NotImplementedError("EquationBCSplit not implemented with matfree")
             if tensor is None:
-                return matrix.ImplicitMatrix(f, bcs,
-                                             fc_params=form_compiler_parameters,
-                                             appctx=appctx,
-                                             options_prefix=options_prefix)
+                result_matrix = matrix.ImplicitMatrix(f, bcs,
+                                                      fc_params=form_compiler_parameters,
+                                                      appctx=appctx,
+                                                      options_prefix=options_prefix)
+                loops.append(lambda: result_matrix)
+                return loops
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
-            return tensor
+            loops.append(lambda: tensor)
+            return loops
+
         test, trial = f.arguments()
 
         map_pairs = []
@@ -367,7 +383,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: result_matrix
         if allocate_only:
             result_matrix._assembly_callback = None
-            return result_matrix
+            loops.append(result)
+            return loops
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
@@ -604,7 +621,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                     loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
                                 else:
                                     raise RuntimeError("Unhandled BC case")
-                elif isinstance(bc, FormBC):
+                elif isinstance(bc, EquationBCSplit):
                     fs = bc.function_space()
                     if len(fs) > 1:
                         raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
@@ -619,9 +636,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 else:
                     raise NotImplementedError("Undefined type of bcs class provided.")
         if bcs is not None and is_vec:
-            # Zero residual here to deal with intersecting FormBCs
+            # Zero residual here to deal with intersecting EquationBCSplits
             for bc in bcs:
-                if isinstance(bc, FormBC):
+                if isinstance(bc, EquationBCSplit):
                     loops.append(functools.partial(bc.zero, result_function))
             # Populate boundary boundary condition rows
             for bc in bcs:
@@ -630,7 +647,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         pass
                     else:
                         bc.apply(result_function)
-                elif isinstance(bc, FormBC):
+                elif isinstance(bc, EquationBCSplit):
                     _assemble(bc.f, tensor=result_function, bcs=None,
                               form_compiler_parameters=form_compiler_parameters,
                               inverse=inverse, mat_type=mat_type,
@@ -643,28 +660,30 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Queue up matrix assembly (after we've done all the other operations)
             if first_call:
                 loops.append(tensor.assemble())
+        loops.append(result)
         return result()
+
 
     if first_call:
         if collect_loops:
             thunk(bcs)
             return loops
-        if is_mat:
-            result_matrix._assembly_callback = thunk
-            return result()
-        else:
-            return thunk(bcs)
+        #if is_mat:
+        #    result_matrix._assembly_callback = thunk
+        #    return result()
+        #else:
+        #    return thunk(bcs)
     else:
         if collect_loops:
             thunk(bcs)
             return None
-        if is_mat:
-            # TODO: Have to check
-            raise NotImplementedError("Recursion in this case has not been implemented.")
-            result_matrix._assembly_callback = thunk
-            return None
-        else:
-            # TODO: Have to check
-            raise NotImplementedError("Recursion in this case has not been implemented.")
-            return thunk(bcs)
-        return None
+        #if is_mat:
+        #    # TODO: Have to check
+        #    raise NotImplementedError("Recursion in this case has not been implemented.")
+        #    result_matrix._assembly_callback = thunk
+        #    return None
+        #else:
+        #    # TODO: Have to check
+        #    raise NotImplementedError("Recursion in this case has not been implemented.")
+        #    return thunk(bcs)
+        #return None

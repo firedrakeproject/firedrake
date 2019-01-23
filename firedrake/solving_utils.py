@@ -73,7 +73,7 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import FormBC
+        from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 
         if pmat_type is None:
             pmat_type = mat_type
@@ -108,35 +108,44 @@ class _SNESContext(object):
         self.F = problem.F
         self.J = problem.J
 
-        Jp_neq_J = problem.Jp is not None
+        Jp_eq_J = problem.Jp is None
         if problem.bcs is not None:
             for bc in problem.bcs:
-                if isinstance(bc, FormBC):
-                    Jp_neq_J = Jp_neq_J or bc.Jp is not None
+                if isinstance(bc, EquationBC):
+                    Jp_eq_J = Jp_eq_J and bc.Jp_eq_J
 
-        if mat_type != pmat_type or Jp_neq_J:
+        if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
             if problem.Jp is None:
                 self.Jp = self.J
             else:
                 self.Jp = problem.Jp
-            # repeat the same for FormBCs
-            if problem.bcs is not None:
-                for bc in problem.bcs:
-                    if bc.Jp is None:
-                        bc.Jp = bc.J
         else:
             # pmat_type == mat_type and not Jp_neq_J
             self.Jp = None
 
-        if problem.bcs is not None:
+        if problem.bcs is None:
+            self.bcs_F = None
+            self.bcs_J = None
+            self.bcs_Jp = None
+        else:
+            self.bcs_F = []
+            self.bcs_J = []
+            self.bcs_Jp = []
             for bc in self._problem.bcs:
-                if isinstance(bc, FormBC):
-                    bc.f = bc.F
+                if isinstance(bc, DirichletBC):
+                    self.bcs_F.append(bc)
+                    self.bcs_J.append(bc)
+                    self.bcs_Jp.append(bc)
+                elif isinstance(bc, EquationBC):
+                    self.bcs_F.append(EquationBCSplit(bc, 'F'))
+                    self.bcs_J.append(EquationBCSplit(bc, 'J'))
+                    self.bcs_Jp.append(EquationBCSplit(bc, 'Jp'))
+
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
-                                                           bcs=self._problem.bcs,
+                                                           bcs=self.bcs_F,
                                                            form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
@@ -360,13 +369,13 @@ class _SNESContext(object):
     @cached_property
     def _jac(self):
         from firedrake.assemble import allocate_matrix
-        from firedrake.bcs import FormBC
+        from firedrake.bcs import EquationBC
         if self._problem.bcs is not None:
             for bc in self._problem.bcs:
-                if isinstance(bc, FormBC):
+                if isinstance(bc, EquationBC):
                     bc.f = bc.J
         return allocate_matrix(self.J,
-                               bcs=self._problem.bcs,
+                               bcs=self.bcs_J,
                                form_compiler_parameters=self.fcp,
                                mat_type=self.mat_type,
                                appctx=self.appctx,
@@ -375,14 +384,14 @@ class _SNESContext(object):
     @cached_property
     def _assemble_jac(self):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import FormBC
+        from firedrake.bcs import EquationBC
         if self._problem.bcs is not None:
             for bc in self._problem.bcs:
-                if isinstance(bc, FormBC):
+                if isinstance(bc, EquationBC):
                     bc.f = bc.J
         return create_assembly_callable(self.J,
                                         tensor=self._jac,
-                                        bcs=self._problem.bcs,
+                                        bcs=self.bcs_J,
                                         form_compiler_parameters=self.fcp,
                                         mat_type=self.mat_type)
 
@@ -394,13 +403,13 @@ class _SNESContext(object):
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             from firedrake.assemble import allocate_matrix
-            from firedrake.bcs import FormBC
+            from firedrake.bcs import EquationBC
             if self._problem.bcs is not None:
                 for bc in self._problem.bcs:
-                    if isinstance(bc, FormBC):
+                    if isinstance(bc, EquationBC):
                         bc.f = bc.Jp
             return allocate_matrix(self.Jp,
-                                   bcs=self._problem.bcs,
+                                   bcs=self.bcs_Jp,
                                    form_compiler_parameters=self.fcp,
                                    mat_type=self.pmat_type,
                                    appctx=self.appctx,
@@ -411,14 +420,14 @@ class _SNESContext(object):
     @cached_property
     def _assemble_pjac(self):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import FormBC
+        from firedrake.bcs import EquationBC
         if self._problem.bcs is not None:
             for bc in self._problem.bcs:
-                if isinstance(bc, FormBC):
+                if isinstance(bc, EquationBC):
                     bc.f = bc.Jp
         return create_assembly_callable(self.Jp,
                                         tensor=self._pjac,
-                                        bcs=self._problem.bcs,
+                                        bcs=self.bcs_Jp,
                                         form_compiler_parameters=self.fcp,
                                         mat_type=self.pmat_type)
 

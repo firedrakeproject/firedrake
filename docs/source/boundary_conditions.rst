@@ -315,9 +315,9 @@ solved with boundary conditions as follows:
 Form boundary conditions
 =============================
 
-Form boundary conditions :class:`~.FormBC` can be regarded as a
+Form boundary conditions :class:`~.EquationBC` can be regarded as a
 generalization of Dirichlet boundary conditions :class:`~.DirichletBC`. 
-For :class:`~.FormBC`, instead of prescribing the values of the solution 
+For :class:`~.EquationBC`, instead of prescribing the values of the solution 
 on a boundary, we prescribe equations to be satisfied on the boundary.  
 This document explains the mathematical formulation of the form boundary 
 conditions, and their implementation.
@@ -326,7 +326,7 @@ conditions, and their implementation.
 Mathematical background
 -----------------------
 
-The discussion given here for :class:`~.FormBC` is similar to that for 
+The discussion given here for :class:`~.EquationBC` is similar to that for 
 :class:`~.DirichletBC`, but we make appropriate changes emphasizing the 
 difference between these two.
 We again consider a nonlinear variational problem 
@@ -467,7 +467,7 @@ systems, a single step of Newton is employed.
 In the following we will use ``F`` for the residual :class:`~ufl.form.Form`
 and ``J`` for the Jacobian :class:`~ufl.form.Form`. In both cases these
 forms do not include the boundary conditions. 
-A Form boundary condition :class:`~.FormBC` object separately carries ``F_{Form}`` 
+A Form boundary condition :class:`~.EquationBC` object separately carries ``F_{Form}`` 
 for the boundary residual :class:`~ufl.form.Form` and ``J_{Form}`` for the 
 boundary Jacobian :class:`~ufl.form.Form`.
 Additionally ``u`` will be the solution :class:`~.Function`.
