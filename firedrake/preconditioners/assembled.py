@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.dmhooks import get_function_space, get_appctx, push_appctx, pop_appctx
 
-__all__ = ("AssembledPC", "ExplicitSchurPC")
+__all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 
 
 class AssembledPC(PCBase):
@@ -121,12 +121,12 @@ class AssembledPC(PCBase):
             self.pc.view(viewer)
 
 
-class ExplicitSchurPC(AssembledPC):
+class AuxiliaryOperatorPC(AssembledPC):
     """A preconditioner that builds a PC on a specified form.
     Mainly used for describing approximations to Schur complements.
     """
 
-    _prefix = "schur_"
+    _prefix = "aux_"
 
     @abc.abstractmethod
     def form(self, pc, test, trial):

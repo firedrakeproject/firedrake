@@ -2,7 +2,7 @@ from firedrake.petsc import *
 from firedrake import *
 distribution_parameters={"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
-class ApproximateSchur(ExplicitSchurPC):
+class ApproximateSchur(AuxiliaryOperatorPC):
     def form(self, pc, test, trial):
         Z = test.function_space()
         (v, w) = split(trial)
@@ -107,21 +107,21 @@ def test_auxiliary_dm():
        "fieldsplit_1_ksp_monitor_true_residual": None,
        "fieldsplit_1_pc_type": "python",
        "fieldsplit_1_pc_python_type": "test_auxiliary_dm.ApproximateSchur",
-       "fieldsplit_1_schur_pc_type": "mg",
-       "fieldsplit_1_schur_mg_levels_ksp_type": "richardson",
-       "fieldsplit_1_schur_mg_levels_ksp_richardson_scale": 1/3,
-       "fieldsplit_1_schur_mg_levels_pc_type": "python",
-       "fieldsplit_1_schur_mg_levels_pc_python_type": "firedrake.PatchPC",
-       "fieldsplit_1_schur_mg_levels_patch_pc_patch_save_operators": True,
-       "fieldsplit_1_schur_mg_levels_patch_pc_patch_partition_of_unity": False,
-       "fieldsplit_1_schur_mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-       "fieldsplit_1_schur_mg_levels_patch_pc_patch_construct_dim": 0,
-       "fieldsplit_1_schur_mg_levels_patch_pc_patch_construct_type": "star",
-       "fieldsplit_1_schur_mg_levels_patch_sub_ksp_type": "preonly",
-       "fieldsplit_1_schur_mg_levels_patch_sub_pc_type": "svd",
-       "fieldsplit_1_schur_mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
-       "fieldsplit_1_schur_mg_coarse_pc_type": "lu",
-       "fieldsplit_1_schur_mg_coarse_pc_factor_mat_solver_type": "mumps",
+       "fieldsplit_1_aux_pc_type": "mg",
+       "fieldsplit_1_aux_mg_levels_ksp_type": "richardson",
+       "fieldsplit_1_aux_mg_levels_ksp_richardson_scale": 1/3,
+       "fieldsplit_1_aux_mg_levels_pc_type": "python",
+       "fieldsplit_1_aux_mg_levels_pc_python_type": "firedrake.PatchPC",
+       "fieldsplit_1_aux_mg_levels_patch_pc_patch_save_operators": True,
+       "fieldsplit_1_aux_mg_levels_patch_pc_patch_partition_of_unity": False,
+       "fieldsplit_1_aux_mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+       "fieldsplit_1_aux_mg_levels_patch_pc_patch_construct_dim": 0,
+       "fieldsplit_1_aux_mg_levels_patch_pc_patch_construct_type": "star",
+       "fieldsplit_1_aux_mg_levels_patch_sub_ksp_type": "preonly",
+       "fieldsplit_1_aux_mg_levels_patch_sub_pc_type": "svd",
+       "fieldsplit_1_aux_mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
+       "fieldsplit_1_aux_mg_coarse_pc_type": "lu",
+       "fieldsplit_1_aux_mg_coarse_pc_factor_mat_solver_type": "mumps",
                  }
 
     # Solve variational form
