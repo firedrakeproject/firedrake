@@ -1104,7 +1104,7 @@ class DataSet(ObjectCached):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
         self._dim = as_tuple(dim, numbers.Integral)
-        self._cdim = np.asscalar(np.prod(self._dim))
+        self._cdim = np.prod(self._dim).item()
         self._name = name or "dset_%d" % DataSet._globalcount
         DataSet._globalcount += 1
         self._initialized = True
@@ -2425,7 +2425,7 @@ class Global(DataCarrier, _EmptyDataMixin):
             dim.copy(self)
             return
         self._dim = as_tuple(dim, int)
-        self._cdim = np.asscalar(np.prod(self._dim))
+        self._cdim = np.prod(self._dim).item()
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_%d" % Global._globalcount
