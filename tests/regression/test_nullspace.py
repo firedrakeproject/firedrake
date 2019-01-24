@@ -172,6 +172,7 @@ def test_near_nullspace(tmpdir):
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
+        'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'}, near_nullspace=nsp)
 
     w2 = Function(V)
@@ -179,6 +180,7 @@ def test_near_nullspace(tmpdir):
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
+        'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
