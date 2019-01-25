@@ -183,6 +183,9 @@ class NonlinearVariationalSolver(OptionsManager):
                           transpose=True, near=False)
         ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=True)
+        ctx._nullspace = nullspace
+        ctx._nullspace_T = nullspace_T
+        ctx._near_nullspace = near_nullspace
 
         # Set from options now, so that people who want to noodle with
         # the snes object directly (mostly Patrick), can.  We need the
