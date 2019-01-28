@@ -5,7 +5,8 @@ from firedrake import *
 def test_manual_quadrature():
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 3)
-    f = Function(V).interpolate(Expression("pow(x[0], 3)"))
+    x = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x[0]**3)
 
     f1 = f*dx(degree=3)
     f2 = f*dx(degree=1)
