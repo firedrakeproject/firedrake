@@ -46,7 +46,7 @@ def test_init_bcs(V, v):
 @pytest.mark.parametrize('v', [(0, 0)])
 def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
