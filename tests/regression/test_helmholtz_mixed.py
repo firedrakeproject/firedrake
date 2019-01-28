@@ -40,7 +40,7 @@ def helmholtz_mixed(r, V1, V2, action=False):
                                           'fieldsplit_P_ksp_type': 'cg'})
 
     # Analytical solution
-    f.interpolate(Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+    f.interpolate(sin(x[0]*pi*2)*sin(x[1]*pi*2))
     return sqrt(assemble(dot(sol[2] - f, sol[2] - f) * dx))
 
 
