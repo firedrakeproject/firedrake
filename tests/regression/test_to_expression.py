@@ -1,4 +1,3 @@
-from firedrake import *
 import firedrake.expression as expression
 import pytest
 
