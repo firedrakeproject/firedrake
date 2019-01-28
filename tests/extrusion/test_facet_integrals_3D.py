@@ -50,7 +50,7 @@ def test_scalar_expression(f):
 
 
 def test_hdiv_area(RT2):
-    f = project(Expression(("0.0", "0.8", "0.6")), RT2)
+    f = project(Expression(as_vector([0.0, 0.8, 0.6])), RT2)
     assert abs(assemble(dot(f, f)*ds_t) - 1.0) < 1e-7
     assert abs(assemble(dot(f, f)*ds_b) - 1.0) < 1e-7
     assert abs(assemble(dot(f, f)*ds_tb) - 2.0) < 1e-7
@@ -65,27 +65,27 @@ def test_hdiv_area(RT2):
 
 def test_exterior_horizontal_normals(RT2):
     n = FacetNormal(RT2.mesh())
-    f = project(Expression(("1.0", "0.0", "0.0")), RT2)
+    f = project(Expression(as_vector([1.0, 0.0, 0.0])), RT2)
     assert abs(assemble(dot(f, n)*ds_t) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_b) - 0.0) < 1e-7
-    f = project(Expression(("0.0", "0.0", "1.0")), RT2)
+    f = project(Expression(as_vector([0.0, 0.0, 1.0])), RT2)
     assert abs(assemble(dot(f, n)*ds_t) - 1.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_b) - (-1.0)) < 1e-7
 
 
 def test_exterior_vertical_normals(RT2):
     n = FacetNormal(RT2.mesh())
-    f = project(Expression(("1.0", "0.0", "0.0")), RT2)
+    f = project(Expression(as_vector([1.0, 0.0, 0.0])), RT2)
     assert abs(assemble(dot(f, n)*ds_v(1)) - (-1.0)) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(2)) - 1.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(3)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(4)) - 0.0) < 1e-7
-    f = project(Expression(("0.0", "1.0", "0.0")), RT2)
+    f = project(Expression(as_vector([0.0, 1.0, 0.0])), RT2)
     assert abs(assemble(dot(f, n)*ds_v(1)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(2)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(3)) - (-1.0)) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(4)) - 1.0) < 1e-7
-    f = project(Expression(("0.0", "0.0", "1.0")), RT2)
+    f = project(Expression(as_vector([0.0, 0.0, 1.0])), RT2)
     assert abs(assemble(dot(f, n)*ds_v(1)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(2)) - 0.0) < 1e-7
     assert abs(assemble(dot(f, n)*ds_v(3)) - 0.0) < 1e-7
