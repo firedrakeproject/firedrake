@@ -42,11 +42,11 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         f = Function(V2)
         exact = Function(V2)
         if ori == "h":
-            f.interpolate(Expression((1+8*np.pi*np.pi)*sin(2*np.pi*x)*sin(2*np.pi*y)))
-            exact.interpolate(Expression(sin(2*np.pi*x)*sin(2*np.pi*y)))
+            f.interpolate((1+8*np.pi*np.pi)*sin(2*np.pi*x)*sin(2*np.pi*y))
+            exact.interpolate(sin(2*np.pi*x)*sin(2*np.pi*y))
         elif ori == "v":
-            f.interpolate(Expression((1+4*np.pi*np.pi)*sin(2*np.pi*z)))
-            exact.interpolate(Expression(sin(2*np.pi*z)))
+            f.interpolate((1+4*np.pi*np.pi)*sin(2*np.pi*z))
+            exact.interpolate(sin(2*np.pi*z))
 
         W = V1 * V2
         u, p = TrialFunctions(W)
