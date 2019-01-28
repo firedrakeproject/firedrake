@@ -28,7 +28,7 @@ def test_dg_advection(degree, quadrilateral, direction):
 
     F = -dot(grad(v), u) * t * dx + dot(jump(v), upw(t, un)) * dS + dot(v, un*t) * ds
 
-    bc = DirichletBC(V, 1., bc_domain, method="geometric")
+    bc = DirichletBC(V, Constant(1.), bc_domain, method="geometric")
 
     solve(F == 0, t, bcs=bc)
 
