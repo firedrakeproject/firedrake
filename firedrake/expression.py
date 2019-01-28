@@ -7,7 +7,6 @@ from pyop2 import op2
 from pyop2.datatypes import ScalarType
 
 import firedrake.utils as utils
-from firedrake.logging import warning
 
 
 __all__ = ['Expression']
