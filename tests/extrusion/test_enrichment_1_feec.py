@@ -107,7 +107,9 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
 
     # TEST DIV(CURL(v)) = 0, for v in W1
 
-    v = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W1)
+    x, y, z = SpatialCoordinate(mesh)
+    v = project(Expression((x*y, -y*z, x*z)), W1)
+    # v = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W1)
 
     w1 = TrialFunction(W2)
     w2 = TestFunction(W2)
