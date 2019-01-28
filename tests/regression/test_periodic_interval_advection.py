@@ -24,6 +24,7 @@ def run_test(degree):
     # timesteps (dt = 5e-5)
     for n in range(5, 11):
         mesh = PeriodicUnitIntervalMesh(2**n)
+        x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, 'DG', degree)
         u = Constant((1, ))
         D = TrialFunction(V)
@@ -38,7 +39,8 @@ def run_test(degree):
         dD1 = Function(V)
         D1 = Function(V)
 
-        exact = Expression("sin(2*pi*(x[0] - t))", t=0)
+        t = Constant(0)
+        exact = sin(2*pi*(x[0] - t))
         D = Function(V).interpolate(exact)
 
         nstep = 200
@@ -71,7 +73,7 @@ def run_test(degree):
 
         D1.assign(D)
 
-        exact.t = float(dt) * nstep
+        t.assign(float(dt) * nstep)
 
         D.interpolate(exact)
 
