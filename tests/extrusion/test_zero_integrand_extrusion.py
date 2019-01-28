@@ -12,7 +12,7 @@ def test_empty_integrand():
     v = TestFunction(P1)
     sol = Function(P1)
     f = Function(P1)
-    f.interpolate(Expression("4.5"))
+    f.interpolate(Constant(4.5))
 
     A = inner(u, v)*dx
     L = inner(f, v)*dx + inner(f, v)*ds_v

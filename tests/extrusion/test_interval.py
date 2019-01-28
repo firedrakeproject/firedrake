@@ -26,9 +26,10 @@ def test_interval_div_free():
 
     V = VectorFunctionSpace(mesh, 'CG', 3)
 
-    u = Function(V)
+    x, y = SpatialCoordinate(mesh)
 
-    u.interpolate(Expression(('x[0]*x[0]*x[1]', '-x[0]*x[1]*x[1]')))
+    u = Function(V)
+    u.interpolate(Expression(as_vector([x*x*y, -x*y*y])))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.
@@ -50,10 +51,10 @@ def test_periodic_interval_div_free():
 
     V = VectorFunctionSpace(mesh, 'CG', 3)
 
+    x, y = SpatialCoordinate(mesh
+                             )
     u = Function(V)
-
-    u.interpolate(Expression(('sin(2*pi*x[0])',
-                              '-2*pi*x[1]*cos(2*pi*x[0])')))
+    u.interpolate(Expression(as_vector([sin(2*np.pi*x), -2*np.pi*y*cos(2*np.pi*x)])))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.

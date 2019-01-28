@@ -146,9 +146,8 @@ def test_assign_complicated(fresh_expr, benchmark):
 @benchmark
 @pytest.mark.parametrize("val",
                          [lambda V: Constant(0),
-                          lambda V: Expression("0"),
                           lambda V: Function(V)],
-                         ids=["Constant", "Expression", "Function"])
+                         ids=["Constant", "Function"])
 def test_apply_bc(val, benchmark):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, 'CG', 1)

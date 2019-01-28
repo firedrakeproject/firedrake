@@ -27,8 +27,9 @@ def two_step(quadrilateral):
     X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
 
     # Define starting field
+    xs = SpatialCoordinate(mesh)
     f0 = Function(V)
-    f0.interpolate(Expression("1 + x[0]*x[0] + x[1]*x[1]"))
+    f0.interpolate(1 + xs[0]*xs[0] + xs[1]*xs[1])
 
     # DO IN ONE STEP
     u = TrialFunction(X)
