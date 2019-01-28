@@ -12,7 +12,7 @@ def test_parallel_kernel_on_sphere():
     domain.
     """
     mesh = UnitIcosahedralSphereMesh(refinement_level=1)
-    mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     x, y, z = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)

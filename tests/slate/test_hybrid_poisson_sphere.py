@@ -6,7 +6,7 @@ import numpy as np
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     """Test hybridizing lowest order mixed methods on a sphere."""
     mesh = MeshClass(refinement_level=refinement)
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     x, y, z = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, hdiv_space, 1)

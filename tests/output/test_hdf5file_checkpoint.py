@@ -33,7 +33,8 @@ def f():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     f = Function(V, name="f")
-    f.interpolate(Expression("x[0]*x[1]"))
+    x = SpatialCoordinate(m)
+    f.interpolate(x[0]*x[1])
     return f
 
 
@@ -42,12 +43,11 @@ def run_write_read(mesh, fs, degree, dumpfile):
     V = FunctionSpace(mesh, fs, degree)
 
     f = Function(V, name="f")
-    expr = Expression("x[0]*x[1]")
-    f.interpolate(expr)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0]*x[1])
 
     g = Function(V, name="g")
-    expr = Expression("1+x[0]*x[1]")
-    g.interpolate(expr)
+    g.interpolate(1+x[0]*x[1])
 
     f2 = Function(V, name="f")
     g2 = Function(V, name="g")
