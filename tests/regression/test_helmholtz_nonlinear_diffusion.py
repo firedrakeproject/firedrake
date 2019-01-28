@@ -53,7 +53,7 @@ def helmholtz(r, quadrilateral=False, parameters={}):
 
     solve(a - L == 0, u, solver_parameters=parameters)
 
-    f.interpolate(Expression("cos(x[0]*2*pi)*cos(x[1]*2*pi)"))
+    f.interpolate(cos(x[0]*2*pi)*cos(x[1]*2*pi))
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 

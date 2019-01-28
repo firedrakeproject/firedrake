@@ -26,7 +26,8 @@ def test_project():
 
 def test_sphere_project():
     mesh = UnitIcosahedralSphereMesh(0)
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
     U1 = FunctionSpace(mesh, "RT", 1)
     U2 = FunctionSpace(mesh, "CG", 2)
     U3 = FunctionSpace(mesh, "N1curl", 1)
