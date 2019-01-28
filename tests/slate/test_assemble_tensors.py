@@ -73,7 +73,6 @@ def g(function_space):
     return g
 
 
-
 @pytest.fixture
 def mass(function_space):
     """Generate a generic mass form."""
