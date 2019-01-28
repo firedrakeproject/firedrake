@@ -67,9 +67,12 @@ class Expression(ufl.Coefficient):
                 return (2,)
 
     """
-    def __init__(self, code=None, element=None, cell=None, degree=None):
+    def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
         r"""
         C string expressions have now been removed from Firedrake, so passing ``code`` into this constructor will trigger an exception.
+        :param kwargs: user-defined values that are accessible in the
+                       Expression code.  These values maybe updated by
+                       accessing the property of the same name.
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         if code is not None:
@@ -85,6 +88,63 @@ class Expression(ufl.Coefficient):
         self._element = element
         self._repr = None
         self._count = 0
+
+        self._user_args = []
+        # Changing counter used to record when user changes values
+        self._state = 0
+
+        # Save the kwargs so that when we rebuild an expression we can
+        # reconstruct the user arguments.
+        self._kwargs = {}
+        if len(kwargs) == 0:
+            # No need for magic, since there are no user arguments.
+            return
+
+        # We have to build a new class to add these properties to
+        # since properties work on classes not instances and we don't
+        # want every Expression to have all the properties of all
+        # Expressions.
+        cls = type(self.__class__.__name__, (self.__class__, ), {})
+        for slot, val in sorted(kwargs.items(), key=itemgetter(0)):
+            # Save the argument for later reconstruction
+            self._kwargs[slot] = val
+            # Scalar arguments have to be treated specially
+            val = np.array(val, dtype=np.float64)
+            shape = val.shape
+            rank = len(shape)
+            if rank == 0:
+                shape = 1
+            val = op2.Global(shape, val, dtype=ScalarType, name=slot)
+            # Record the Globals in a known order (for later passing
+            # to a par_loop).  Remember their "name" too, so we can
+            # construct a kwarg dict when applying python expressions.
+            self._user_args.append((slot, val))
+            # And save them as an attribute
+            setattr(self, '_%s' % slot, val)
+
+            # We have to do this because of the worthlessness of
+            # Python's support for closing over variables.
+            def make_getx(slot):
+                def getx(self):
+                    glob = getattr(self, '_%s' % slot)
+                    return glob.data_ro
+                return getx
+
+            def make_setx(slot):
+                def setx(self, value):
+                    glob = getattr(self, '_%s' % slot)
+                    glob.data = value
+                    self._kwargs[slot] = value
+                    # Bump state
+                    self._state += 1
+                return setx
+
+            # Add public properties for the user-defined variables
+            prop = property(make_getx(slot), make_setx(slot))
+            setattr(cls, slot, prop)
+        # Set the class on this instance to the newly built class with
+        # properties attached.
+        self.__class__ = cls
 
     def rank(self):
         r"""Return the rank of this :class:`Expression`"""
