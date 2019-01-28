@@ -9,7 +9,8 @@ def test_Taylor():
     VT = FunctionSpace(mesh, "TDG", 2)
     V1 = FunctionSpace(mesh, "DG", 2)
     V0 = FunctionSpace(mesh, "DG", 0)
-    v = Function(V1).interpolate(Expression("sin(2*pi*x[0])"))
+    x = SpatialCoordinate(mesh)
+    v = Function(V1).interpolate(sin(2*pi*x[0]))
     v0 = Function(V0).project(v)
     vt = Function(VT).project(v)
 
