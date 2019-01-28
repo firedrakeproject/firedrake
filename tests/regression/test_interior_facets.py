@@ -6,13 +6,14 @@ from firedrake import *
 
 def run_test():
     mesh = UnitSquareMesh(10, 10)
+    x = SpatialCoordinate(mesh)
     U = VectorFunctionSpace(mesh, 'DG', 1)
     H = FunctionSpace(mesh, 'CG', 2)
     W = MixedFunctionSpace([U, H])
     f = Function(H)
     sol = Function(W)
     u, eta = split(sol)
-    f.interpolate(Expression('-x[0]'))
+    f.interpolate(-x[0])
 
     test = TestFunction(W)
     test_U, test_H = TestFunctions(W)
