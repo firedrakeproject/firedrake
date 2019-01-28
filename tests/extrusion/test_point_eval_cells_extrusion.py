@@ -51,26 +51,18 @@ def spherical_shell_mesh(request):
 
 
 @pytest.fixture
-def expr2d():
-    return Expression("x[1]*(x[0] - 0.5*x[1])")
-
-
-@pytest.fixture
-def func2d(mesh2d, expr2d):
+def func2d(mesh2d):
     V = FunctionSpace(mesh2d, "CG", 2)
-    f = Function(V).interpolate(expr2d)
+    x, y = SpatialCoordinate(mesh2d)
+    f = Function(V).interpolate(y*(x - 0.5*y))
     return f
 
 
 @pytest.fixture
-def expr3d():
-    return Expression("sin(pi*x[2])*(cos(pi*(x[0] - 0.5)) - sin(pi*x[1]))")
-
-
-@pytest.fixture
-def func3d(mesh3d, expr3d):
+def func3d(mesh3d):
     V = FunctionSpace(mesh3d, "CG", 2)
-    f = Function(V).interpolate(expr3d)
+    x, y, z = SpatialCoordinate(mesh3d)
+    f = Function(V).interpolate(sin(np.pi*z)*(cos(np.pi*(x-0.5)) - sin(np.pi*y)))
     return f
 
 
