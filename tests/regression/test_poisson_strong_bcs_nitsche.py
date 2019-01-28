@@ -75,7 +75,8 @@ def run_test(x, degree, quadrilateral=False):
     solve(B == F, u)
 
     f = Function(V)
-    f.interpolate(Expression("42*x[1]"))
+    x = SpatialCoordinate(mesh)
+    f.interpolate(42*x[1])
     return sqrt(assemble(dot(u - f, u - f)*dx))
 
 
