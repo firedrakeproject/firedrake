@@ -343,25 +343,6 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
-def test_shared_expression_bc(mesh):
-    V = FunctionSpace(mesh, "CG", 2)
-    f = Function(V)
-    g = Function(V)
-    expr = Expression("t", t=1)
-
-    bc = DirichletBC(V, expr, (1, 2, 3, 4))
-
-    for t in range(4):
-        expr.t = t
-        bc.zero(f)
-        bc.apply(f)
-        bc.zero(g)
-        bc.apply(g)
-
-        assert np.allclose(np.unique(f.dat.data), [0, t])
-        assert np.allclose(g.dat.data, f.dat.data)
-
-
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
