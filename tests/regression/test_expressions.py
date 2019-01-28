@@ -404,6 +404,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     with pytest.raises(ValueError):
         v.assign(w1)
 
+
 @pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
                          ids=lambda v: "(f = %d)" % v)
 @pytest.mark.parametrize('expr', ['f',

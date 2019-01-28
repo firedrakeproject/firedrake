@@ -81,7 +81,7 @@ def test_poisson_in_components(V):
     expect = Function(V)
 
     x = SpatialCoordinate(V.mesh())
-    expect.interpolate(as_vector((42*x[0],5*x[1] + 10)))
+    expect.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
