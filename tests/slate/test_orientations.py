@@ -9,7 +9,7 @@ import numpy as np
                           (UnitCubedSphereMesh, 'RTCF', 1)])
 def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     mesh = Mesh(refinement_level=2)
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     n = FacetNormal(mesh)
     V = FunctionSpace(mesh, hdiv_space, degree)
 
