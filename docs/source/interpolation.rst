@@ -98,9 +98,9 @@ C string expressions
 
 .. warning::
 
-   This is a deprecated feature, which will be removed from Firedrake
-   in January 2019. This section only remains to assist users to
-   transition existing code.
+   C string expressions were a FEniCS compatibility feature which has
+   now been removed. Users should use UFL expressions instead. This
+   section only remains to assist in the transition of existing code.
 
 Here are a couple of old-style C string expressions, and their modern replacements.   
 

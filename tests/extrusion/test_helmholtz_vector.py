@@ -37,14 +37,16 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         product_elt = TensorProductElement(horiz_elt, vert_elt)
         V2 = FunctionSpace(mesh, product_elt)
 
+        x, y, z = SpatialCoordinate(mesh)
+
         f = Function(V2)
         exact = Function(V2)
         if ori == "h":
-            f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
-            exact.interpolate(Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+            f.interpolate(Expression((1+8*np.pi*np.pi)*sin(2*np.pi*x)*sin(2*np.pi*y)))
+            exact.interpolate(Expression(sin(2*np.pi*x)*sin(2*np.pi*y)))
         elif ori == "v":
-            f.interpolate(Expression("(1+4*pi*pi)*sin(x[2]*pi*2)"))
-            exact.interpolate(Expression("sin(x[2]*pi*2)"))
+            f.interpolate(Expression((1+4*np.pi*np.pi)*sin(2*np.pi*z)))
+            exact.interpolate(Expression(sin(2*np.pi*z)))
 
         W = V1 * V2
         u, p = TrialFunctions(W)
