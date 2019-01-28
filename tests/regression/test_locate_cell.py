@@ -12,7 +12,8 @@ def meshdata(request):
         m = UnitSquareMesh(3, 3, quadrilateral=True)
     V = FunctionSpace(m, 'DG', 0)
     f = Function(V)
-    f.interpolate(Expression("3*x[0] + 9*x[1] - 1"))
+    x = SpatialCoordinate(m)
+    f.interpolate(3*x[0] + 9*x[1] - 1)
     return m, f
 
 

@@ -59,7 +59,8 @@ The corresponding Python code is:
   solve(a == L, w)
   u, s = split(w)
   exact = Function(V)
-  exact.interpolate(Expression('x[1] - 0.5'))
+  x, y = SpatialCoordinate(m)
+  exact.interpolate(y - 0.5)
   print sqrt(assemble((u - exact)*(u - exact)*dx))
 
 

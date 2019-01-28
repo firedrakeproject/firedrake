@@ -50,12 +50,13 @@ def test_quad(mesh_quad, family, degree, vfamily, vdegree):
                           ('RTCF', 2),
                           ('RTCE', 2)])
 def test_quad_vector(mesh_quad, family, degree):
+    x, y = SpatialCoordinate(mesh_quad)
     if family in ['CG', 'DG']:
         V = VectorFunctionSpace(mesh_quad, family, degree)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).interpolate(Expression(as_vector([0.2 + y, 0.8*x + 0.2*y])))
     else:
         V = FunctionSpace(mesh_quad, family, degree)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).project(Expression(as_vector([0.2 + y, 0.8*x + 0.2*y])))
 
     assert np.allclose([0.6, 0.56], f([0.6, 0.4]))
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
@@ -65,8 +66,9 @@ def test_quad_vector(mesh_quad, family, degree):
                          [('CG', 3, 'DG', 2),
                           ('DG', 3, 'CG', 2)])
 def test_prism(mesh_prism, family, degree, vfamily, vdegree):
+    x, y, z = SpatialCoordinate(mesh_prism)
     V = FunctionSpace(mesh_prism, family, degree, vfamily=vfamily, vdegree=vdegree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[1] - x[2])"))
+    f = Function(V).interpolate(Expression((x - 0.5)*(y - z)))
     assert np.allclose(0.01, f([0.6, 0.4, 0.3]))
     assert np.allclose(0.06, f([0.2, 0.6, 0.8]))
 
@@ -89,12 +91,14 @@ def test_prism(mesh_prism, family, degree, vfamily, vdegree):
                                   FiniteElement('CG', triangle, 2),
                                   FiniteElement('DG', interval, 1))))])
 def test_prism_vector(mesh_prism, args):
+
+    x, y, z = SpatialCoordinate(mesh_prism)
     if isinstance(args, tuple):
         V = VectorFunctionSpace(mesh_prism, *args)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).interpolate(Expression(as_vector([0.2 + y, 0.8*x + 0.2*z, y])))
     else:
         V = FunctionSpace(mesh_prism, args)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).project(Expression(as_vector([0.2 + y, 0.8*x + 0.2*z, y])))
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.8, 0.32, 0.6], f([0.2, 0.6, 0.8]))
@@ -104,8 +108,9 @@ def test_prism_vector(mesh_prism, args):
                          [('CG', 2),
                           ('DG', 2)])
 def test_hex(mesh_hex, family, degree):
+    x, y, z = SpatialCoordinate(mesh_hex)
     V = FunctionSpace(mesh_hex, family, degree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[1] - x[2])"))
+    f = Function(V).interpolate(Expression((x - 0.5)*(y - z)))
     assert np.allclose(+0.01, f([0.6, 0.4, 0.3]))
     assert np.allclose(-0.06, f([0.4, 0.7, 0.1]))
 
@@ -116,12 +121,14 @@ def test_hex(mesh_hex, family, degree):
                           ('NCF', 2),
                           ('NCE', 2)])
 def test_hex_vector(mesh_hex, family, degree):
+
+    x, y, z = SpatialCoordinate(mesh_hex)
     if family in ['CG', 'DG']:
         V = VectorFunctionSpace(mesh_hex, family, degree)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).interpolate(Expression(as_vector([0.2 + y, 0.8*x + 0.2*z, y])))
     else:
         V = FunctionSpace(mesh_hex, family, degree)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).project(Expression(as_vector([0.2 + y, 0.8*x + 0.2*z, y])))
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.9, 0.34, 0.7], f([0.4, 0.7, 0.1]))
