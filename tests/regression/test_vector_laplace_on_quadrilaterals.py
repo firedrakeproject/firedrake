@@ -20,9 +20,10 @@ def vector_laplace(n, degree):
     k = 1.0
     l = 2.0
 
-    f_expr = Expression(("pi*pi*(kk*kk + ll*ll)*sin(kk*pi*x[0])*cos(ll*pi*x[1])", "pi*pi*(kk*kk + ll*ll)*cos(kk*pi*x[0])*sin(ll*pi*x[1])"), kk=k, ll=l)
-    exact_s_expr = Expression("-(kk+ll)*pi*cos(kk*pi*x[0])*cos(ll*pi*x[1])", kk=k, ll=l)
-    exact_u_expr = Expression(("sin(kk*pi*x[0])*cos(ll*pi*x[1])", "cos(kk*pi*x[0])*sin(ll*pi*x[1])"), kk=k, ll=l)
+    xs = SpatialCoordinate(mesh)
+    f_expr = as_vector([pi*pi*(k*k + l*l)*sin(k*pi*xs[0])*cos(l*pi*xs[1]), pi*pi*(k*k + l*l)*cos(k*pi*xs[0])*sin(l*pi*xs[1])])
+    exact_s_expr = -(k+l)*pi*cos(k*pi*xs[0])*cos(l*pi*xs[1])
+    exact_u_expr = as_vector([sin(k*pi*xs[0])*cos(l*pi*xs[1]), cos(k*pi*xs[0])*sin(l*pi*xs[1])])
 
     f = Function(W1).interpolate(f_expr)
     exact_s = Function(W0).interpolate(exact_s_expr)
