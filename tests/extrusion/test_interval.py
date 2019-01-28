@@ -11,7 +11,7 @@ def integrate_one(intervals):
 
     u = Function(V)
 
-    u.interpolate(Expression("1"))
+    u.interpolate(Constant(1))
 
     return assemble(u * dx)
 
@@ -29,7 +29,7 @@ def test_interval_div_free():
     x, y = SpatialCoordinate(mesh)
 
     u = Function(V)
-    u.interpolate(Expression(as_vector([x*x*y, -x*y*y])))
+    u.interpolate(as_vector([x*x*y, -x*y*y]))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.
@@ -54,7 +54,7 @@ def test_periodic_interval_div_free():
     x, y = SpatialCoordinate(mesh
                              )
     u = Function(V)
-    u.interpolate(Expression(as_vector([sin(2*np.pi*x), -2*np.pi*y*cos(2*np.pi*x)])))
+    u.interpolate(as_vector([sin(2*np.pi*x), -2*np.pi*y*cos(2*np.pi*x)]))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.

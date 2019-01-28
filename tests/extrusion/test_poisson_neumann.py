@@ -25,7 +25,7 @@ def test_bottom(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 20*v*ds_b
-    bc_expr = Expression(10*(xs[2]-1)*(xs[2]-1))
+    bc_expr = 10*(xs[2]-1)*(xs[2]-1)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -47,7 +47,7 @@ def test_top(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 20*v*ds_t
-    bc_expr = Expression(10*xs[2]*xs[2])
+    bc_expr = 10*xs[2]*xs[2]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -69,7 +69,7 @@ def test_topbottom(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 10*v*ds_tb
-    bc_expr = Expression(10*(xs[2]-0.5)*(xs[2]-0.5))
+    bc_expr = 10*(xs[2]-0.5)*(xs[2]-0.5)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),

@@ -20,7 +20,8 @@ def test_identity_scalar(extmesh, hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    f = project(Expression("x[2]-x[0]"), fspace)
+    xs = SpatialCoordinate(mesh)
+    f = project(xs[2]-xs[0], fspace)
 
     out = Function(fspace)
     solve(u*v*dx == f*v*dx, out, solver_parameters=params)
@@ -38,7 +39,7 @@ def test_identity_vector(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(Expression(as_vector([z-x, y-z, x-y])), fspace)
+    f = project(as_vector([z-x, y-z, x-y]), fspace)
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
@@ -63,7 +64,7 @@ def test_identity_hdiv(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(Expression(as_vector([y, -x, z])), fspace)
+    f = project(as_vector([y, -x, z]), fspace)
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
@@ -88,7 +89,7 @@ def test_identity_hcurl(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(Expression(as_vector([y, -x, z])), fspace)
+    f = project(as_vector([y, -x, z]), fspace)
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
