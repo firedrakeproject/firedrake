@@ -62,7 +62,7 @@ def func2d(mesh2d):
 def func3d(mesh3d):
     V = FunctionSpace(mesh3d, "CG", 2)
     x, y, z = SpatialCoordinate(mesh3d)
-    f = Function(V).interpolate(sin(np.pi*z)*(cos(np.pi*(x-0.5)) - sin(np.pi*y)))
+    f = Function(V).interpolate(sin(pi*z)*(cos(pi*(x-0.5)) - sin(pi*y)))
     return f
 
 
@@ -86,9 +86,10 @@ def test_cylinder(cylinder_mesh):
         f([0.70710678118, +0.70710678118, 0.0])
 
 
-def test_spherical_shell(spherical_shell_mesh, expr3d):
+def test_spherical_shell(spherical_shell_mesh):
     V = FunctionSpace(spherical_shell_mesh, "CG", 2)
-    f = Function(V).interpolate(expr3d)
+    x, y, z = SpatialCoordinate(spherical_shell_mesh)
+    f = Function(V).interpolate(sin(pi*z)*(cos(pi*(x-0.5)) - sin(pi*y)))
     expr = lambda x, y, z: sin(pi*z)*(cos(pi*(x - 0.5)) - sin(pi*y))
     for pt in [[+0.69282032302, 0.69282032302, +0.69282032302],
                [-0.72000000000, 1.06489436096, +1.26000000000],
