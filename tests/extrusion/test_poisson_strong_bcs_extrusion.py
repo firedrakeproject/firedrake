@@ -35,7 +35,8 @@ def run_test(layers, quadrilateral):
     L = v * f * dx
     u = Function(V)
     exact = Function(V)
-    exact.interpolate(Expression('42*x[2]'))
+    xs = SpatialCoordinate(mesh)
+    exact.interpolate(42*xs[2])
     solve(a == L, u, bcs=bcs)
     res = sqrt(assemble(dot(u - exact, u - exact) * dx))
     return res

@@ -21,9 +21,9 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
         bc.apply(u)
     v = Function(V)
     xs = SpatialCoordinate(mesh)
-    v.interpolate(Expression(conditional(xs[0] < 0.05,
-                                         10,
-                                         conditional(xs[0] > 0.95, 42.0, 0.0))))
+    v.interpolate(conditional(xs[0] < 0.05,
+                              10,
+                              conditional(xs[0] > 0.95, 42.0, 0.0)))
     res = sqrt(assemble(dot(u - v, u - v) * dx))
 
     u1 = Function(V, name="computed")
@@ -32,9 +32,9 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     for bc in bcs1:
         bc.apply(u1)
     v1 = Function(V, name="expected")
-    v1.interpolate(Expression(conditional(xs[1] < 0.05,
-                                          10.0,
-                                          conditional(xs[1] > 0.95, 42.0, 0.0))))
+    v1.interpolate(conditional(xs[1] < 0.05,
+                               10.0,
+                               conditional(xs[1] > 0.95, 42.0, 0.0)))
     res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
 
     if not test_mode:
