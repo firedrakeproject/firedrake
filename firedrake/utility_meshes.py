@@ -794,7 +794,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
         COMM_WORLD).
     """
     if refinement_level < 0 or refinement_level % 1:
-            raise RuntimeError("Number of refinements must be a non-negative integer")
+        raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
@@ -1150,7 +1150,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         COMM_WORLD).
     """
     if refinement_level < 0 or refinement_level % 1:
-            raise RuntimeError("Number of refinements must be a non-negative integer")
+        raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
