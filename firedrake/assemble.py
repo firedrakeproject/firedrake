@@ -107,6 +107,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             for l in loops:
                 m = l()
+                print(m)
             return m
 
     elif isinstance(f, ufl.core.expr.Expr):
@@ -129,8 +130,8 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
                       appctx=appctx, allocate_only=True,
                       options_prefix=options_prefix)
     # has only one entry
-    return next(loops)()
-    
+    #return next(loops)()
+    return loops[0]()
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
@@ -153,9 +154,9 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
                       inverse=inverse, mat_type=mat_type,
                       sub_mat_type=sub_mat_type)
 
-    loops = [l for l in loops_]
+    #loops = [l for l in loops_]
     def thunk():
-        for kernel in loops:
+        for kernel in loops_:
             kernel()
     return thunk
 
@@ -167,7 +168,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               options_prefix=None,
               collect_loops=False,
               allocate_only=False,
-              zero_tensor=True):
+              zero_tensor=True, loops=None):
     r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
@@ -242,6 +243,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     zero_tensor_parloop = lambda: None
 
+    if zero_tensor:
+        loops = []
+
     if is_mat:
         matfree = mat_type == "matfree"
         nest = mat_type == "nest"
@@ -260,13 +264,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                                       fc_params=form_compiler_parameters,
                                                       appctx=appctx,
                                                       options_prefix=options_prefix)
-                yield lambda: result_matrix
-                raise StopIteration()
+                #yield lambda: result_matrix
+                #raise StopIteration()
+                loops.append(lambda: result_matrix)
+                return loops
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
-            yield lambda: tensor
-            raise StopIteration()
+            #yield lambda: tensor
+            #raise StopIteration()
+            loops.append(lambda: tensor)
+            return loops
 
         test, trial = f.arguments()
 
@@ -369,8 +377,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: result_matrix
         if allocate_only:
             result_matrix._assembly_callback = None
-            yield result
-            raise StopIteration()
+            #yield result
+            #raise StopIteration()
+            loops.append(result)
+            return loops
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
@@ -410,7 +420,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # is only used inside residual and jacobian assembly.
 
     if zero_tensor:
-        yield zero_tensor_parloop
+        #yield zero_tensor_parloop
+        loops.append(zero_tensor_parloop)
     for indices, kinfo in kernels:
         kernel = kinfo.kernel
         integral_type = kinfo.integral_type
@@ -545,13 +556,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
-
         try:
-            # if is_mat or is_vec:
             with collecting_loops(True):
-               yield op2.par_loop(*args, **kwargs)
-            # else:
-            #     yield op2.par_loop(*args, **kwargs)
+                #yield op2.par_loop(*args, **kwargs)
+                loops.append(op2.par_loop(*args, **kwargs))
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -580,7 +588,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             if fs.component is None and fs.index is not None:
                                 # Mixed, index (no ComponentFunctionSpace)
                                 if fs.index == i:
-                                    yield tensor[i, j].set_local_diagonal_entries(nodes)
+                                    #yield tensor[i, j].set_local_diagonal_entries(nodes)
+                                    loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
                             elif fs.component is not None:
                                 # ComponentFunctionSpace, check parent index
                                 if fs.parent.index is not None:
@@ -588,47 +597,54 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                     if fs.parent.index != i:
                                         continue
                                 # Index matches
-                                yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
+                                #yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
+                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component))
                             elif fs.index is None:
-                                yield tensor[i, j].set_local_diagonal_entries(nodes)
+                                #yield tensor[i, j].set_local_diagonal_entries(nodes)
+                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
                             else:
                                 raise RuntimeError("Unhandled BC case")
             elif isinstance(bc, EquationBCSplit):
                 fs = bc.function_space()
                 if len(fs) > 1:
                     raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
+                _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
                                      collect_loops=True,
                                      allocate_only=False,
-                                     zero_tensor=False)
+                                     zero_tensor=False, loops=loops)
             else:
                 raise NotImplementedError("Undefined type of bcs class provided.")
     if bcs is not None and is_vec:
         # Zero residual here to deal with intersecting EquationBCSplits
         for bc in bcs:
             if isinstance(bc, EquationBCSplit):
-                yield functools.partial(bc.zero, result_function)
+                #yield functools.partial(bc.zero, result_function)
+                loops.append(functools.partial(bc.zero, result_function))
         # Populate boundary condition rows
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 if not collect_loops:
-                    yield functools.partial(bc.apply, result_function)
+                    #yield functools.partial(bc.apply, result_function)
+                    loops.append(functools.partial(bc.apply, result_function))
             elif isinstance(bc, EquationBCSplit):
-                yield from _assemble(bc.f, tensor=result_function, bcs=None,
+                _assemble(bc.f, tensor=result_function, bcs=None,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
                                      collect_loops=True,
                                      allocate_only=False,
-                                     zero_tensor=False)
+                                     zero_tensor=False, loops=loops)
     if zero_tensor:
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
-            yield tensor.assemble()
+            #yield tensor.assemble()
+            loops.append(tensor.assemble())
         else:
-            yield result
+            #yield result
+            loops.append(result)
+        return loops
