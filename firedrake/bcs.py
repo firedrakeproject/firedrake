@@ -124,6 +124,9 @@ class BCBase(object):
         except exceptions.MapValueError:
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
+    def integrals(self):
+        raise NotImplementedError("integrals() method has to be overwritten")
+
 
 class DirichletBC(BCBase):
     r'''Implementation of a strong Dirichlet boundary condition.
@@ -305,6 +308,9 @@ class DirichletBC(BCBase):
             val = val.sub(idx)
         r.assign(val, subset=self.node_set)
 
+    def integrals(self):
+        return []
+
 
 def homogenize(bc):
     r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
@@ -345,15 +351,23 @@ class EquationBC(BCBase):
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
 
-    def __init__(self, V, eq, u, sub_domain, J=None, Jp=None, method="topological"):
-        super().__init__(V, sub_domain, method="topological")
-        #self.formeq = eq
+    def __init__(self, eq, u, sub_domain, J=None, Jp=None, method="topological"):
+        super().__init__(eq.lhs.arguments()[0].function_space(), sub_domain, method="topological")
         self.u = u
         self.f = None
         self.bcs = None
+        # This nested structure will enable recursive application of boundary conditions.
+        #
+        # def _assemble(..., bcs, ...)
+        #     ...
+        #     for bc in bcs:
+        #         # boundary conditions for boundary conditions for boun...
+        #         _assemble(..., bc.bcs, ...)
+        #     ...
 
         self.Jp_eq_J = Jp is None
 
+        #self.sub_domain = None
         # linear
         if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
             self.J = eq.lhs
@@ -389,39 +403,6 @@ class EquationBC(BCBase):
             self.is_linear = False
 
 
-    @property
-    def formeq(self):
-        return self._formeq
-
-    @formeq.setter
-    def formeq(self, v):
-        self._formeq = v
-
-    @property
-    def F(self):
-        return self._F
-
-    @F.setter
-    def F(self, v):
-        self._F = v
-
-    @property
-    def J(self):
-        return self._J
-
-    @J.setter
-    def J(self, v):
-        self._J = v
-
-    @property
-    def Jp(self):
-        return self._Jp
-
-    @Jp.setter
-    def Jp(self, v):
-        self._Jp = v
-
-
 class EquationBCSplit(BCBase):
     def __init__(self, ebc, form_str):
         if not isinstance(ebc, EquationBC):
@@ -438,3 +419,6 @@ class EquationBCSplit(BCBase):
             raise TypeError("Undefined form type provided by form_str")
 
         self.bcs = None
+
+    def integrals(self):
+        return self.f.integrals()

@@ -369,11 +369,6 @@ class _SNESContext(object):
     @cached_property
     def _jac(self):
         from firedrake.assemble import allocate_matrix
-        from firedrake.bcs import EquationBC
-        if self._problem.bcs is not None:
-            for bc in self._problem.bcs:
-                if isinstance(bc, EquationBC):
-                    bc.f = bc.J
         return allocate_matrix(self.J,
                                bcs=self.bcs_J,
                                form_compiler_parameters=self.fcp,
@@ -384,11 +379,6 @@ class _SNESContext(object):
     @cached_property
     def _assemble_jac(self):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import EquationBC
-        if self._problem.bcs is not None:
-            for bc in self._problem.bcs:
-                if isinstance(bc, EquationBC):
-                    bc.f = bc.J
         return create_assembly_callable(self.J,
                                         tensor=self._jac,
                                         bcs=self.bcs_J,
@@ -403,11 +393,6 @@ class _SNESContext(object):
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             from firedrake.assemble import allocate_matrix
-            from firedrake.bcs import EquationBC
-            if self._problem.bcs is not None:
-                for bc in self._problem.bcs:
-                    if isinstance(bc, EquationBC):
-                        bc.f = bc.Jp
             return allocate_matrix(self.Jp,
                                    bcs=self.bcs_Jp,
                                    form_compiler_parameters=self.fcp,
@@ -420,11 +405,6 @@ class _SNESContext(object):
     @cached_property
     def _assemble_pjac(self):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import EquationBC
-        if self._problem.bcs is not None:
-            for bc in self._problem.bcs:
-                if isinstance(bc, EquationBC):
-                    bc.f = bc.Jp
         return create_assembly_callable(self.Jp,
                                         tensor=self._pjac,
                                         bcs=self.bcs_Jp,

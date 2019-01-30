@@ -332,7 +332,7 @@ def _extract_args(*args, **kwargs):
 
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
-    from firedrake.bcs import DirichletBC, EquationBC
+    from firedrake.bcs import BCBase
     if bcs is None:
         return ()
     try:
@@ -340,6 +340,6 @@ def _extract_bcs(bcs):
     except TypeError:
         bcs = (bcs,)
     for bc in bcs:
-        if not isinstance(bc, DirichletBC) and not isinstance(bc,EquationBC):
-            raise TypeError("Provided boundary condition is a '%s', not a DirichletBC or EquationBC" % type(bc).__name__)
+        if not isinstance(bc, BCBase):
+            raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
     return bcs
