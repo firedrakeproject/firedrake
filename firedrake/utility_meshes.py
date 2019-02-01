@@ -360,20 +360,41 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
     ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
-
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
-    cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
-    cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
-    if not quadrilateral:
-        if diagonal == "left":
-            idx = [0, 1, 3, 1, 2, 3]
-        elif diagonal == "right":
-            idx = [0, 1, 2, 0, 2, 3]
-        else:
-            raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-        # two cells per cell above...
+    if not quadrilateral and diagonal == "crossed":
+        dx = Lx * 0.5 / nx
+        dy = Ly * 0.5 / ny
+        xs = np.linspace(dx, Lx - dx, nx, dtype=np.double)
+        ys = np.linspace(dy, Ly - dy, ny, dtype=np.double)
+        extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
+        coords = np.vstack([coords, extra])
+        #
+        # 2-----3
+        # | \ / |
+        # |  4  |
+        # | / \ |
+        # 0-----1
+        cells = [i*(ny+1) + j,
+                 i*(ny+1) + j+1,
+                 (i+1)*(ny+1) + j,
+                 (i+1)*(ny+1) + j+1,
+                 (nx+1)*(ny+1) + i*ny + j]
+        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 5)
+        idx = [0, 1, 4, 0, 2, 4, 2, 3, 4, 3, 1, 4]
         cells = cells[:, idx].reshape(-1, 3)
+    else:
+        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
+        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+        if not quadrilateral:
+            if diagonal == "left":
+                idx = [0, 1, 3, 1, 2, 3]
+            elif diagonal == "right":
+                idx = [0, 1, 2, 0, 2, 3]
+            else:
+                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+            # two cells per cell above...
+            cells = cells[:, idx].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
