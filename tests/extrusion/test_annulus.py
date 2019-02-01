@@ -43,7 +43,8 @@ def test_poisson():
         solve(dot(grad(u), grad(v))*dx == f*v*dx, out, bcs=bcs)
 
         exactfs = FunctionSpace(mesh, "CG", 2)
-        exact = Function(exactfs).interpolate(Expression("x[0]*x[0] + x[1]*x[1]"))
+        xs = SpatialCoordinate(mesh)
+        exact = Function(exactfs).interpolate(xs[0]*xs[0] + xs[1]*xs[1])
 
         errors[i-4] = sqrt(assemble((out-exact)*(out-exact)*dx))/sqrt(21*np.pi)  # normalised
 

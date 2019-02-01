@@ -10,14 +10,15 @@ def test_constant():
 
 def test_function():
     m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
     V1 = FunctionSpace(m, 'P', 1)
     V2 = FunctionSpace(m, 'P', 2)
 
-    f = interpolate(Expression("x[0]*x[0]"), V1)
+    f = interpolate(x[0]*x[0], V1)
     g = interpolate(f, V2)
 
     # g shall be equivalent to:
-    h = interpolate(Expression("x[0]"), V2)
+    h = interpolate(x[0], V2)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -39,7 +40,8 @@ def test_inner():
 
 def test_coordinates():
     cg2 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 2)
-    f = interpolate(Expression("x[0]*x[0]"), cg2)
+    x = SpatialCoordinate(cg2.mesh())
+    f = interpolate(x[0]*x[0], cg2)
 
     x = SpatialCoordinate(cg2.mesh())
     g = interpolate(x[0]*x[0], cg2)
@@ -49,10 +51,11 @@ def test_coordinates():
 
 def test_piola():
     m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
     U = FunctionSpace(m, 'RT', 1)
     V = FunctionSpace(m, 'P', 2)
 
-    f = project(Expression(("x[0]", "0.0")), U)
+    f = project(as_vector((x[0], Constant(0.0))), U)
     g = interpolate(f[0], V)
 
     # g shall be equivalent to:
@@ -63,10 +66,11 @@ def test_piola():
 
 def test_vector():
     m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
     U = FunctionSpace(m, 'RT', 1)
     V = VectorFunctionSpace(m, 'P', 2)
 
-    f = project(Expression(("x[0]", "0.0")), U)
+    f = project(as_vector((x[0], Constant(0.0))), U)
     g = interpolate(f, V)
 
     # g shall be equivalent to:
@@ -77,10 +81,11 @@ def test_vector():
 
 def test_constant_expression():
     m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
     U = FunctionSpace(m, 'RT', 1)
     V = FunctionSpace(m, 'P', 2)
 
-    f = project(Expression(("x[0]", "x[1]")), U)
+    f = project(as_vector((x[0], x[1])), U)
     g = interpolate(div(f), V)
 
     assert np.allclose(2.0, g.dat.data)
@@ -92,18 +97,19 @@ def test_compound_expression():
     U = FunctionSpace(m, 'RT', 2)
     V = FunctionSpace(m, 'P', 2)
 
-    f = project(Expression(("x[0]", "x[1]")), U)
+    f = project(as_vector((x[0], x[1])), U)
     g = interpolate(Constant(1.5)*div(f) + sin(x[0] * np.pi), V)
 
     # g shall be equivalent to:
-    h = interpolate(Expression("3.0 + sin(pi * x[0])"), V)
+    h = interpolate(3.0 + sin(pi * x[0]), V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
 
 def test_cell_orientation():
     m = UnitCubedSphereMesh(2)
-    m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
     x = m.coordinates
     U = FunctionSpace(m, 'RTCF', 1)
     V = VectorFunctionSpace(m, 'DQ', 1)

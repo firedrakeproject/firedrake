@@ -4,11 +4,12 @@ import numpy as np
 
 def test_coefficient_derivatives():
     m = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(m)
     V = FunctionSpace(m, "CG", 1)
     f = Function(V)
     g = Function(V)
 
-    f.interpolate(Expression("1 + x[0] + x[1]"))
+    f.interpolate(1 + x[0] + x[1])
     g.assign(f + 1)
 
     # Derivative of g wrt to f is 1.
