@@ -1,5 +1,5 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-from ufl import as_ufl, SpatialCoordinate, UFLException
+from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
 from ufl.algorithms.analysis import has_type
 import finat
 
@@ -126,8 +126,8 @@ class DirichletBC(object):
             except UFLException:
                 try:
                     # List of bare constants? Convert to Expression
-                    g = expression.to_expression(g)
-                except ValueError:
+                    g = as_ufl(as_tensor(g))
+                except UFLException:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
             if isinstance(g, expression.Expression):
