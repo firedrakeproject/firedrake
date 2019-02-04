@@ -8,6 +8,15 @@ __all__ = ("PCBase", )
 
 class PCBase(object, metaclass=abc.ABCMeta):
 
+    needs_python_amat = False
+    """Set this to True if the A matrix needs to be Python (matfree)."""
+
+    needs_python_pmat = True
+    """Set this to False if the P matrix needs to be Python (matfree).
+
+    If the preconditioner also works with assembled matrices, then use False here.
+    """
+
     def __init__(self):
         """Create a PC context suitable for PETSc.
 
@@ -39,6 +48,15 @@ class PCBase(object, metaclass=abc.ABCMeta):
 
         Subclasses should probably not override this and instead
         implement :meth:`update` and :meth:`initialize`."""
+        A, P = pc.getOperators()
+        Atype = A.getType()
+        Ptype = P.getType()
+
+        if self.needs_python_amat and Atype != PETSc.Mat.Type.PYTHON:
+            raise ValueError("PC needs amat to have type python, but it is %s" % Atype)
+        if self.needs_python_pmat and Ptype != PETSc.Mat.Type.PYTHON:
+            raise ValueError("PC needs pmat to have type python, but it is %s" % Ptype)
+
         if self.initialized:
             self.update(pc)
         else:

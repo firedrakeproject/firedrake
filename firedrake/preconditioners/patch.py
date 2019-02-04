@@ -249,6 +249,9 @@ class PlaneSmoother(object):
 
 
 class PatchPC(PCBase):
+
+    needs_python_pmat = False
+
     def initialize(self, pc):
         A, P = pc.getOperators()
         if P.getType() == "python":

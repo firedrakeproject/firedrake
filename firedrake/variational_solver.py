@@ -149,12 +149,6 @@ class NonlinearVariationalSolver(OptionsManager):
         matfree = mat_type == "matfree"
         pmatfree = pmat_type == "matfree"
 
-        pc_type = self.parameters.get("pc_type", "none")
-        if pc_type == "python":
-            # mat_type or pmat_type must be 'matfree' when using Python PCs
-            if not any(mtype == "matfree" for mtype in (mat_type, pmat_type)):
-                raise ValueError("Must set mat_type or pmat_type to 'matfree' when using Python PCs")
-
         appctx = kwargs.get("appctx")
 
         ctx = solving_utils._SNESContext(problem,

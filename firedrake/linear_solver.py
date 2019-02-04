@@ -45,14 +45,6 @@ class LinearSolver(OptionsManager):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
         if P is not None and not isinstance(P, matrix.MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
-        solver_parameters = solver_parameters or {}
-        pc_type = solver_parameters.get("pc_type", "none")
-        mat_type = solver_parameters.get("mat_type", "aij")
-        pmat_type = solver_parameters.get("pmat_type", "aij")
-        if pc_type == "python":
-            # mat_type or pmat_type must be 'matfree' when using Python PCs
-            if not any(mtype == "matfree" for mtype in (mat_type, pmat_type)):
-                raise ValueError("Must set mat_type or pmat_type to 'matfree' when using Python PCs")
 
         self.A = A
         self.comm = A.comm
