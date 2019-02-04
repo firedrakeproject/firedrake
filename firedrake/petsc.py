@@ -193,12 +193,13 @@ class OptionsManager(object):
             for k, v in self.parameters.items():
                 key = self.options_prefix + k
                 if type(v) is bool:
-                    warning("""Firedrake will stop translating True/False options soon.\n"""
-                            """This is to allow controlling boolean options with a default value of True.\n"""
-                            """To obtain the old behaviour you should translate:\n"""
-                            """  {"option": True} => {"option": None}\n"""
-                            """and\n"""
-                            """  {"option": False} => {}\n""")
+                    if "monitor" in k or "view" in k:
+                        warning("""Firedrake will stop translating True/False options soon.\n"""
+                                """This is to allow controlling boolean options with a default value of True.\n"""
+                                """To obtain the old behaviour you should translate:\n"""
+                                """  {%r: True} => {"option": None}\n"""
+                                """and\n"""
+                                """  {%r: False} => {}\n""" % (k, k))
                     if v:
                         self.options_object[key] = None
                 else:

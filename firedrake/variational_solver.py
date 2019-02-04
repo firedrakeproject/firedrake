@@ -107,12 +107,13 @@ class NonlinearVariationalSolver(OptionsManager):
 
             {'snes_type': 'ksponly'}
 
-        PETSc flag options should be specified with `bool` values.
+        PETSc flag options (where the presence of the option means something) should
+        be specified with ``None``.
         For example:
 
         .. code-block:: python
 
-            {'snes_monitor': True}
+            {'snes_monitor': None}
 
         To use the ``pre_jacobian_callback`` or ``pre_function_callback``
         functionality, the user-defined function must accept the current

@@ -165,7 +165,7 @@ remembering to tell PETSc to use pivoting in the factorisation. ::
   solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                "pc_type": "lu",
                                                "pc_factor_shift_type": "inblocks",
-                                               "ksp_monitor": True,
+                                               "ksp_monitor": None,
                                                "pmat_type": "aij"})
 
 Next we'll use a Schur complement solver, using geometric multigrid to
@@ -183,7 +183,7 @@ bilinear form to the solver ourselves: ::
 
   parameters = {
       "ksp_type": "gmres",
-      "ksp_monitor": True,
+      "ksp_monitor": None,
       "pc_type": "fieldsplit",
       "pc_fieldsplit_type": "schur",
       "pc_fieldsplit_schur_fact_type": "lower",
@@ -216,7 +216,7 @@ approximations.
 
   parameters = {
         "ksp_type": "gcr",
-        "ksp_monitor": True,
+        "ksp_monitor": None,
         "mat_type": "nest",
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
@@ -237,12 +237,12 @@ approximations.
         "mg_levels_fieldsplit_0_ksp_type": "richardson",
         "mg_levels_fieldsplit_0_ksp_convergence_test": "skip",
         "mg_levels_fieldsplit_0_ksp_max_it": 2,
-        "mg_levels_fieldsplit_0_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_0_ksp_richardson_self_scale": None,
         "mg_levels_fieldsplit_0_pc_type": "bjacobi",
         "mg_levels_fieldsplit_0_sub_pc_type": "ilu",
         "mg_levels_fieldsplit_1_ksp_type": "richardson",
         "mg_levels_fieldsplit_1_ksp_convergence_test": "skip",
-        "mg_levels_fieldsplit_1_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_1_ksp_richardson_self_scale": None,
         "mg_levels_fieldsplit_1_ksp_max_it": 3,
         "mg_levels_fieldsplit_1_pc_type": "python",
         "mg_levels_fieldsplit_1_pc_python_type": "__main__.Mass",
