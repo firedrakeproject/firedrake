@@ -1,6 +1,5 @@
 import numpy as np
 from operator import itemgetter
-import collections
 import ufl
 
 from pyop2 import op2
@@ -161,4 +160,3 @@ class Expression(ufl.Coefficient):
     @property
     def ufl_shape(self):
         return self.value_shape()
-
