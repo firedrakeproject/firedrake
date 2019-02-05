@@ -421,7 +421,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -441,11 +441,12 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribution_parame
     """
     return RectangleMesh(nx, ny, L, L, reorder=reorder,
                          quadrilateral=quadrilateral,
+                         diagonal=diagonal,
                          distribution_parameters=distribution_parameters,
                          comm=comm)
 
 
-def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -464,6 +465,7 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribution_param
     """
     return SquareMesh(nx, ny, 1, reorder=reorder,
                       quadrilateral=quadrilateral,
+                      diagonal=diagonal,
                       distribution_parameters=distribution_parameters,
                       comm=comm)
 
