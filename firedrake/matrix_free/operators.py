@@ -77,8 +77,20 @@ class ImplicitMatrixContext(object):
         self.fc_params = fc_params
         self.appctx = appctx
 
-        self.row_bcs = row_bcs
-        self.col_bcs = col_bcs
+        # Collect all DirichletBC instances such as
+        # DirichletBCs for an EquationBC.
+        from firedrake.bcs import DirichletBC, EquationBCSplit
+        self.row_bcs = []
+        self.col_bcs = []
+        def collect_DirichletBCs(lst, bcs):
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
+                    lst.append(bc)
+                elif isinstance(bc, EquationBCSplit):
+                    collect_DirichletBCs(lst, bc.bcs)
+        collect_DirichletBCs(self.row_bcs, row_bcs)
+        collect_DirichletBCs(self.col_bcs, col_bcs)
+        self.bcs = row_bcs
 
         # create functions from test and trial space to help
         # with 1-form assembly
@@ -106,15 +118,56 @@ class ImplicitMatrixContext(object):
 
         self.block_size = (test_vec.getBlockSize(), trial_vec.getBlockSize())
 
+        # Create EquationBC recursive structure "ebc" 
+        # to be passed to create_assembly_callable(...).
+        # Recursion is necessary to take into accout that
+        # an EquationBC itself might have DirichletBCs/EquationBCs.
+
         self.action = action(self.a, self._x)
-        self.actionT = action(self.aT, self._y)
 
         from firedrake.assemble import create_assembly_callable
-        self._assemble_action = create_assembly_callable(self.action, tensor=self._y,
+
+        # For assembling action(f, self._x)
+
+        def get_ebc_tree(ebc0):
+            # create an instance of EquationBCSplit
+            ebc1 = EquationBCSplit(ebc0, action(ebc0.f, self._x))
+            # store boundary conditions for ebc1
+            for bbc0 in ebc0.bcs:
+                # only collect EquationBCSplit instances as
+                # DirichletBCs are treated separately in self.mult
+                if isinstance(bbc0, EquationBCSplit):
+                    ebc1.bcs.append(get_ebc_tree(bbc0))
+            return ebc1
+
+        row_ebcs = []
+        for bc in row_bcs:
+            if isinstance(bc, EquationBCSplit):
+                row_ebcs.append(get_ebc_tree(bc))
+
+        self._assemble_action = create_assembly_callable(self.action, tensor=self._y, bcs=row_ebcs,
                                                          form_compiler_parameters=self.fc_params)
 
-        self._assemble_actionT = create_assembly_callable(self.actionT, tensor=self._x,
-                                                          form_compiler_parameters=self.fc_params)
+        # For assembling action(adjoint(f), self._y)
+
+        # Each par_loop is to run with appropriate masks on self._y
+        self._assemble_actionT = [create_assembly_callable(action(adjoint(self.a), self._y),
+                                                           tensor=self._x,
+                                                           bcs=None,
+                                                           form_compiler_parameters=self.fc_params)]
+        def collect_assembly_callableT(bc):
+            self._assemble_actionT.append(
+                    create_assembly_callable(action(adjoint(bc.f), self._y),
+                                             tensor=self._x,
+                                             bcs=None,
+                                             form_compiler_parameters=self.fc_params))
+            for bbc in bc.bcs:
+                if isinstance(bbc, EquationBCSplit):
+                    collect_assembly_callableT(bbc)
+
+        for bc in row_bcs:
+            if isinstance(bc, EquationBCSplit):
+                collect_assembly_callableT(bc)
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
@@ -153,27 +206,77 @@ class ImplicitMatrixContext(object):
             v.copy(Y)
 
     def multTranspose(self, mat, Y, X):
-        # As for mult, just everything swapped round.
-        with self._y.dat.vec_wo as v:
-            Y.copy(v)
+        # EquationBC makes the treatment of Transpose
+        # different from the above.
+        #
+        # Decompose M^T into bundles of columns associated with
+        # the rows of M corresponding to cell, facet,
+        # edge, and vertice equations (if exist) and work with
+        # them separately.
+        #
+        #
+        # Order of 1-form assembly
+        #
+        #  first --------> last
+        #
+        # cell facet edge vertex
+        #
+        #   E
+        #   E
+        #   E
+        #   E
+        #   E
+        #   E
+        #   E    D <- DirichletBC for facet EquationBC
+        #   E    D
+        #   E    E    D <- DirichletBC for edge EquationBC
+        #   E    E    D
+        #   E    E    E    
+        #   E    E    E
+        #   E    E    E
+        #   E    E    E    E 
+        #
+        # E: indices associated with Equation(BC)
+        # D:                         DirichletBC
 
-        for bc in self.row_bcs:
-            bc.zero(self._y)
+        iter_assemble_actionT = iter(self.list_assemble_actionT)
 
-        self._assemble_actionT()
+        # accumulate values in self._xbc for convenience
+        with self._xbc.dat.vec_wo as v:
+            v.zero()
 
+        def multTranposePart(bc):
+
+            with self._y.dat.vec_wo as v:
+                Y.copy(v)
+
+            # zero columns associated with DirichletBCs/EquationBCs
+            for bbc in bc.bcs:
+                bbc.zero(self._y)
+
+            next(iter_assemble_actionT)()
+
+            self._xbc += self._x
+
+            # recursion
+            for bbc in bc.bcs:
+                if isinstance(bbc, EquationBCSplit):
+                    multTransposePart(bbc)
+
+        multTransposePart(self)
+            
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
             for bc in self.col_bcs:
-                bc.set(self._x, self._ybc)
+                bc.set(self._xbc, self._ybc)
         else:
             for bc in self.col_bcs:
-                bc.zero(self._x)
+                bc.zero(self._xbc)
 
-        with self._x.dat.vec_ro as v:
+        with self._xbc.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):
@@ -215,7 +318,9 @@ class ImplicitMatrixContext(object):
             # actually assemble in here.
             target.assemble()
             return target
-        from firedrake import DirichletBC
+        from firedrake import DirichletBC, EquationBCSplit
+        if any([isinstance(bc, EquationBCSplit) for bc in self.bcs]):
+            raise NotImplementedError("ImplicitMatrixContext.createSubMatrix is not yet implemented for EquationBC")
 
         # These are the sets of ISes of which the the row and column
         # space consist.

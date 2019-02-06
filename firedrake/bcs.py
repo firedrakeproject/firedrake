@@ -367,7 +367,6 @@ class EquationBC(BCBase):
 
         self.Jp_eq_J = Jp is None
 
-        #self.sub_domain = None
         # linear
         if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
             self.J = eq.lhs
@@ -404,21 +403,13 @@ class EquationBC(BCBase):
 
 
 class EquationBCSplit(BCBase):
-    def __init__(self, ebc, form_str):
-        if not isinstance(ebc, EquationBC):
-            raise TypeError("Expected an instance of EquationBC")
+    def __init__(self, ebc, form, bcs=[]):
+        if not isinstance(ebc, (EquationBC, EquationBCSplit)):
+            raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
         super(EquationBCSplit, self).__init__(ebc._function_space, ebc.sub_domain, method="topological")
-        self.u = ebc.u
-        if form_str == 'F':
-            self.f = ebc.F
-        elif form_str == 'J':
-            self.f = ebc.J
-        elif form_str == 'Jp':
-            self.f = ebc.Jp
-        else:
-            raise TypeError("Undefined form type provided by form_str")
-
-        self.bcs = None
+        #self.u = ebc.u
+        self.f = form
+        self.bcs = bcs
 
     def integrals(self):
         return self.f.integrals()

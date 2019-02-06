@@ -4,13 +4,14 @@
 import pytest
 
 from firedrake import *
+import math
 
 
-def test_nonlinear_EquationBC():
+def nonlinear_poisson(mat_type, mesh_num, porder):
 
-    mesh = UnitSquareMesh(20, 20)
+    mesh = UnitSquareMesh(mesh_num, mesh_num)
 
-    V = FunctionSpace(mesh, "CG", 3)
+    V = FunctionSpace(mesh, "CG", porder)
 
     u = Function(V)
     v = TestFunction(V)
@@ -33,19 +34,17 @@ def test_nonlinear_EquationBC():
     bc3 = EquationBC(v * (u - g3) * ds(3) == 0, u, 3)
     bc4 = DirichletBC(V, cos(2 * pi * x), 4)
 
-    solve(a - L == 0, u, bcs=[bc1, bc2, bc3, bc4], solver_parameters={'ksp_type': 'gmres', 'ksp_atol': 1e-12, 'ksp_rtol': 1e-20, 'ksp_divtol': 1e8})
+    solve(a - L == 0, u, bcs=[bc1], solver_parameters={'ksp_type': 'gmres', 'ksp_atol': 1e-10, 'ksp_rtol': 1e-10, 'ksp_max_it': 200000, 'ksp_divtol': 1e8, 'mat_type': mat_type})
 
     f.interpolate(cos(x * pi * 2)*cos(y * pi * 2))
-    err = sqrt(assemble(dot(u - f, u - f) * dx))
-
-    assert(err < 3.e-5)
+    return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def test_linear_EquationBC():
+def linear_poisson(mat_type, mesh_num, porder):
 
-    mesh = UnitSquareMesh(20, 20)
+    mesh = UnitSquareMesh(mesh_num, mesh_num)
 
-    V = FunctionSpace(mesh, "CG", 3)
+    V = FunctionSpace(mesh, "CG", porder)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -70,9 +69,29 @@ def test_linear_EquationBC():
     bc3 = EquationBC(v * u * ds(3) == v * g3 * ds(3), u_, 3)
     bc4 = DirichletBC(V, cos(2 * pi * x), 4)
 
-    solve(a == L, u_, bcs=[bc1, bc2, bc3, bc4], solver_parameters={'ksp_type': 'gmres', 'ksp_atol': 1e-12, 'ksp_rtol': 1e-20, 'ksp_divtol': 1e8})
+    solve(a == L, u_, bcs=[bc1], solver_parameters={'ksp_type': 'gmres', 'ksp_atol': 1e-10, 'ksp_rtol': 1e-10, 'ksp_divtol': 1e8, 'ksp_max_it': 100000, 'mat_type': mat_type})
 
     f.interpolate(cos(x * pi * 2) * cos(y * pi * 2))
-    err = sqrt(assemble(dot(u_ - f, u_ - f) * dx))
+    return sqrt(assemble(dot(u_ - f, u_ - f) * dx))
 
-    assert(err < 3.e-5)
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+@pytest.mark.parametrize("porder", [3])
+def test_nonlinear_EquationBC(mat_type, porder):
+
+    err=[]
+    for mesh_num in [8, 16]:
+        err.append(nonlinear_poisson(mat_type, mesh_num, porder))
+
+    assert(abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01)
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+@pytest.mark.parametrize("porder", [3])
+def test_linear_EquationBC(mat_type, porder):
+
+    err=[]
+    for mesh_num in [8, 16]:
+        err.append(linear_poisson(mat_type, mesh_num, porder))
+
+    assert(abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01)

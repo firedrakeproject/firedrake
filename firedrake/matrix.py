@@ -270,8 +270,8 @@ class ImplicitMatrix(MatrixBase):
 
         from firedrake.matrix_free.operators import ImplicitMatrixContext
         ctx = ImplicitMatrixContext(a,
-                                    row_bcs=self.bcs,
-                                    col_bcs=self.bcs,
+                                    row_bcs=bcs,
+                                    col_bcs=bcs,
                                     fc_params=kwargs["fc_params"],
                                     appctx=appctx)
         self.petscmat = PETSc.Mat().create(comm=self.comm)
@@ -289,9 +289,11 @@ class ImplicitMatrix(MatrixBase):
         # Ensures that if the matrix changed, the preconditioner is
         # updated if necessary.
         if self._needs_reassembly:
+            from firedrake.bcs import DirichletBC
+            dbcs = [bc for bc in self.bcs if isinstance(bc, DirichletBC)]
             ctx = self.petscmat.getPythonContext()
-            ctx.row_bcs = self.bcs
-            ctx.col_bcs = self.bcs
+            ctx.row_bcs = dbcs
+            ctx.col_bcs = dbcs
         self.petscmat.assemble()
         self.assembled = True
         super().assemble()

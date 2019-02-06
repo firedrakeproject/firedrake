@@ -139,9 +139,9 @@ class _SNESContext(object):
                     self.bcs_J.append(bc)
                     self.bcs_Jp.append(bc)
                 elif isinstance(bc, EquationBC):
-                    self.bcs_F.append(EquationBCSplit(bc, 'F'))
-                    self.bcs_J.append(EquationBCSplit(bc, 'J'))
-                    self.bcs_Jp.append(EquationBCSplit(bc, 'Jp'))
+                    self.bcs_F.append(EquationBCSplit(bc, bc.F))
+                    self.bcs_J.append(EquationBCSplit(bc, bc.J))
+                    self.bcs_Jp.append(EquationBCSplit(bc, bc.Jp))
 
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
