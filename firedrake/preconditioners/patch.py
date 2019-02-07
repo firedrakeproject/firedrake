@@ -456,7 +456,7 @@ class PatchPC(PCBase):
             raise NotImplementedError("Not implemented on extruded meshes")
 
         if "overlap_type" not in mesh._distribution_parameters:
-            if mesh.mpi_comm().size > 1:
+            if mesh.comm.size > 1:
                 # Want to do
                 # warnings.warn("You almost surely want to set an overlap_type in your mesh's distribution_parameters.")
                 # but doesn't warn!
@@ -581,7 +581,7 @@ class PatchSNES(SNESBase):
             raise NotImplementedError("Not implemented on extruded meshes")
 
         if "overlap_type" not in mesh._distribution_parameters:
-            if mesh.mpi_comm().size > 1:
+            if mesh.comm.size > 1:
                 # Want to do
                 # warnings.warn("You almost surely want to set an overlap_type in your mesh's distribution_parameters.")
                 # but doesn't warn!
@@ -672,8 +672,6 @@ class PatchSNES(SNESBase):
             Fop_args[Fop_state_slot + 1] = dofsWithAll
             Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
                     dofs, *Fop_args)
-            # FIXME: Do we need this, I think not.
-            out.assemble()
 
         patch.setDM(mesh._plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -706,7 +704,8 @@ class PatchSNES(SNESBase):
         self.patch = patch
 
         # Need an empty RHS for the solve,
-        # PCApply can't deal with RHS = NULL
+        # PCApply can't deal with RHS = NULL,
+        # and this goes through a call to PCApply at some point
         self.dummy = f.duplicate()
 
     @staticmethod
