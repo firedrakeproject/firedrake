@@ -29,7 +29,8 @@ def run_stokes_mini(mat_type, n):
     bc0 = [DirichletBC(W[0], noslip, (3, 4))]
 
     # Parabolic inflow y(1-y) at x = 0 in positive x direction
-    inflow = Expression(("x[1]*(1 - x[1])", "0.0"))
+    x = SpatialCoordinate(W.mesh())
+    inflow = as_vector((x[1]*(1 - x[1]), 0.0))
     bc1 = DirichletBC(W[0], inflow, 1)
 
     # Zero pressure at outlow at x = 1
@@ -75,8 +76,3 @@ def test_stokes_mini(mat_type):
     p_err = np.asarray(p_err)
     assert (np.log2(u_err[:-1] / u_err[1:]) > 2).all()
     assert (np.log2(p_err[:-1] / p_err[1:]) > 1.5).all()
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

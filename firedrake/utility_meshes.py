@@ -360,20 +360,41 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
     ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
-
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
-    cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
-    cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
-    if not quadrilateral:
-        if diagonal == "left":
-            idx = [0, 1, 3, 1, 2, 3]
-        elif diagonal == "right":
-            idx = [0, 1, 2, 0, 2, 3]
-        else:
-            raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-        # two cells per cell above...
+    if not quadrilateral and diagonal == "crossed":
+        dx = Lx * 0.5 / nx
+        dy = Ly * 0.5 / ny
+        xs = np.linspace(dx, Lx - dx, nx, dtype=np.double)
+        ys = np.linspace(dy, Ly - dy, ny, dtype=np.double)
+        extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
+        coords = np.vstack([coords, extra])
+        #
+        # 2-----3
+        # | \ / |
+        # |  4  |
+        # | / \ |
+        # 0-----1
+        cells = [i*(ny+1) + j,
+                 i*(ny+1) + j+1,
+                 (i+1)*(ny+1) + j,
+                 (i+1)*(ny+1) + j+1,
+                 (nx+1)*(ny+1) + i*ny + j]
+        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 5)
+        idx = [0, 1, 4, 0, 2, 4, 2, 3, 4, 3, 1, 4]
         cells = cells[:, idx].reshape(-1, 3)
+    else:
+        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
+        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+        if not quadrilateral:
+            if diagonal == "left":
+                idx = [0, 1, 3, 1, 2, 3]
+            elif diagonal == "right":
+                idx = [0, 1, 2, 0, 2, 3]
+            else:
+                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+            # two cells per cell above...
+            cells = cells[:, idx].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
@@ -400,7 +421,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -420,11 +441,12 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, distribution_parame
     """
     return RectangleMesh(nx, ny, L, L, reorder=reorder,
                          quadrilateral=quadrilateral,
+                         diagonal=diagonal,
                          distribution_parameters=distribution_parameters,
                          comm=comm)
 
 
-def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -443,6 +465,7 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, distribution_param
     """
     return SquareMesh(nx, ny, 1, reorder=reorder,
                       quadrilateral=quadrilateral,
+                      diagonal=diagonal,
                       distribution_parameters=distribution_parameters,
                       comm=comm)
 
@@ -794,7 +817,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
         COMM_WORLD).
     """
     if refinement_level < 0 or refinement_level % 1:
-            raise RuntimeError("Number of refinements must be a non-negative integer")
+        raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
@@ -1150,7 +1173,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         COMM_WORLD).
     """
     if refinement_level < 0 or refinement_level % 1:
-            raise RuntimeError("Number of refinements must be a non-negative integer")
+        raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")

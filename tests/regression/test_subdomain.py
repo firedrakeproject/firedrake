@@ -6,9 +6,10 @@ from firedrake import *
 
 def run_box_1d_0form():
     mesh = UnitIntervalMesh(4)
-    x = mesh.coordinates
     f = Function(FunctionSpace(mesh, 'CG', 1))
-    f.interpolate(Expression("x[0]"))
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0])
+    x = mesh.coordinates
 
     # A caching bug might cause to recall the following value at a later
     # assembly.  We keep this line to have that case tested.
@@ -86,8 +87,3 @@ def test_box_1d_2form():
 @pytest.mark.parallel(nprocs=2)
 def test_box_1d_2form_parallel():
     run_box_1d_2form()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

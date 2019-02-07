@@ -1,7 +1,6 @@
 """This demo program sets the top and bottom boundaries
 of an extruded unit square to 42.
 """
-import pytest
 from firedrake import *
 
 
@@ -41,8 +40,3 @@ def test_extrusion_rhs_bcs():
 
 def test_extrusion_rhs_bcs_quadrilateral():
     assert (run_test(1, 1, quadrilateral=True, test_mode=True) < 1.e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

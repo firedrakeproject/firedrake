@@ -31,6 +31,7 @@ from firedrake import *
 def poisson_mixed(size, parameters={}, quadrilateral=False):
     # Create mesh
     mesh = UnitSquareMesh(2 ** size, 2 ** size, quadrilateral=quadrilateral)
+    x = SpatialCoordinate(mesh)
 
     # Define function spaces and mixed (product) space
     if quadrilateral:
@@ -45,7 +46,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     tau, v = TestFunctions(W)
 
     # Define source function
-    f = Function(DG).interpolate(Expression("-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1]"))
+    f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
     # Define variational form
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
@@ -57,7 +58,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     sigma, u = w.split()
 
     # Analytical solution
-    f.interpolate(Expression("x[0]*(1-x[0])*x[1]*(1-x[1])"))
+    f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
     return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
 
 
@@ -89,8 +90,3 @@ def test_hdiv_convergence(testcase, convrate):
     for ii in [i + start for i in range(len(l2err))]:
         l2err[ii - start] = poisson_mixed(ii, quadrilateral=True)[0]
     assert (np.log2(l2err[:-1] / l2err[1:]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

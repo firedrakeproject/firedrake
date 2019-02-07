@@ -1,15 +1,15 @@
-import pytest
 from firedrake import *
 import numpy as np
 
 
 def test_coefficient_derivatives():
     m = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(m)
     V = FunctionSpace(m, "CG", 1)
     f = Function(V)
     g = Function(V)
 
-    f.interpolate(Expression("1 + x[0] + x[1]"))
+    f.interpolate(1 + x[0] + x[1])
     g.assign(f + 1)
 
     # Derivative of g wrt to f is 1.
@@ -24,8 +24,3 @@ def test_coefficient_derivatives():
     assert np.allclose(assemble(wrong).dat.data_ro, assemble(v*dx).dat.data_ro)
 
     assert np.allclose(assemble(manual).dat.data_ro, assemble(correct).dat.data_ro)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

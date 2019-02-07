@@ -7,6 +7,7 @@ from firedrake import *
 def identity(family, degree):
     mesh = UnitCubeMesh(3, 3, 3)
     fs = FunctionSpace(mesh, family, degree)
+    x = SpatialCoordinate(mesh)
 
     f = Function(fs)
     out = Function(fs)
@@ -16,7 +17,7 @@ def identity(family, degree):
 
     a = u * v * dx
 
-    f.interpolate(Expression("x[0]"))
+    f.interpolate(x[0])
 
     L = f * v * dx
 
@@ -28,12 +29,13 @@ def identity(family, degree):
 def vector_identity(family, degree):
     mesh = UnitSquareMesh(4, 4)
     fs = VectorFunctionSpace(mesh, family, degree)
+    x = SpatialCoordinate(mesh)
     f = Function(fs)
     out = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    f.interpolate(Expression(("x[0]", "x[1]")))
+    f.interpolate(as_vector((x[0], x[1])))
     solve(inner(u, v)*dx == inner(f, v)*dx, out)
 
     return norm(assemble(f - out))
@@ -42,12 +44,13 @@ def vector_identity(family, degree):
 def tensor_identity(family, degree):
     mesh = UnitSquareMesh(4, 4)
     fs = TensorFunctionSpace(mesh, family, degree)
+    x = SpatialCoordinate(mesh)
     f = Function(fs)
     out = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    f.interpolate(Expression([("x[0]", "x[1]"), ("x[0]", "x[1]")]))
+    f.interpolate(as_tensor([(x[0], x[1]), (x[0], x[1])]))
     solve(inner(u, v)*dx == inner(f, v)*dx, out)
 
     return norm(assemble(f - out))
@@ -56,12 +59,13 @@ def tensor_identity(family, degree):
 def tensor_identity_nonstandard_shape(family, degree):
     mesh = UnitSquareMesh(4, 4)
     fs = TensorFunctionSpace(mesh, family, degree, shape=(2, 3))
+    x = SpatialCoordinate(mesh)
     f = Function(fs)
     out = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    f.interpolate(Expression([("x[0]", "x[1]", "x[0]*x[1]"), ("x[0]", "x[1]", "x[0]*x[1]")]))
+    f.interpolate(as_tensor([(x[0], x[1], x[0]*x[1]), (x[0], x[1], x[0]*x[1])]))
     solve(inner(u, v)*dx == inner(f, v)*dx, out)
 
     return norm(assemble(f - out))
@@ -125,8 +129,3 @@ def test_tensor_identity_parallel():
 @pytest.mark.parallel(nprocs=2)
 def test_tensor_identity_nonstandard_shape_parallel():
     assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

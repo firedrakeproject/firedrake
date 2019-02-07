@@ -4,7 +4,6 @@ from collections import Counter
 import pytest
 from functools import partial
 from firedrake import *
-import xml.etree.ElementTree as ET
 
 
 @pytest.fixture(params=["interval", "square[tri]", "square[quad]",
@@ -111,7 +110,7 @@ def test_not_function(mesh, pvd):
         pvd.write(grad(f))
 
 
-def test_restart(mesh, tmpdir):
+def test_append(mesh, tmpdir):
     V = FunctionSpace(mesh, "DG", 0)
     g = Function(V)
 
@@ -119,7 +118,7 @@ def test_restart(mesh, tmpdir):
     outfile.write(g)
     del outfile
 
-    restarted_outfile = File(str(tmpdir.join("restart_test.pvd")), restart=1)
+    restarted_outfile = File(str(tmpdir.join("restart_test.pvd")), mode="a")
     restarted_outfile.write(g)
 
     files_in_tmp = [f for f in listdir(str(tmpdir)) if isfile(join(str(tmpdir), f))]
@@ -130,35 +129,3 @@ def test_restart(mesh, tmpdir):
         return Counter(s) == Counter(t)
 
     assert compare(files_in_tmp, expected_files)
-
-
-def test_restart_shorten(mesh, tmpdir):
-    filename = str(tmpdir.join("restart.pvd"))
-    outfile = File(filename)
-    outfile.write(mesh.coordinates)
-    outfile.write(mesh.coordinates)
-    outfile.write(mesh.coordinates)
-    outfile.write(mesh.coordinates)
-    del outfile
-    tree = ET.parse(filename)
-    datasets = list(tree.iter("DataSet"))
-    assert len(datasets) == 4
-    for i, ds in enumerate(datasets):
-        assert ds.attrib["timestep"] == "%d" % i
-        assert ds.attrib["file"] == "restart_%d.vtu" % i
-
-    outfile = File(filename, restart=1)
-    tree = ET.parse(filename)
-    datasets = list(tree.iter("DataSet"))
-    assert len(datasets) == 1
-    for i, ds in enumerate(datasets):
-        assert ds.attrib["timestep"] == "%d" % i
-        assert ds.attrib["file"] == "restart_%d.vtu" % i
-
-    outfile.write(mesh.coordinates)
-    tree = ET.parse(filename)
-    datasets = list(tree.iter("DataSet"))
-    assert len(datasets) == 2
-    for i, ds in enumerate(datasets):
-        assert ds.attrib["timestep"] == "%d" % i
-        assert ds.attrib["file"] == "restart_%d.vtu" % i

@@ -36,8 +36,3 @@ def test_volume_icosahedral_spherical_annulus(radius, refinement, error):
                           (10000, 5, 0.0011)])
 def test_volume_cubed_spherical_annulus(radius, refinement, error):
     assert integrate_spherical_annulus_volume(CubedSphereMesh, radius=radius, refinement=refinement) < error
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

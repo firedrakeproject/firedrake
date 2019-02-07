@@ -12,7 +12,7 @@ except ImportError:
 def integrate_one(m):
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
-    u.interpolate(Expression("1"))
+    u.interpolate(Constant(1))
     return assemble(u * dx)
 
 
@@ -58,9 +58,10 @@ def run_one_element_advection():
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
+    x = SpatialCoordinate(mesh)
     Vdg = FunctionSpace(mesh, "DG", 1)
     Vu = VectorFunctionSpace(mesh, "DG", 1)
-    q0 = Function(Vdg).interpolate(Expression("cos(2*pi*x[0])*cos(pi*x[2])"))
+    q0 = Function(Vdg).interpolate(cos(2*pi*x[0])*cos(pi*x[2]))
     q_init = Function(Vdg).assign(q0)
     dq1 = Function(Vdg)
     q1 = Function(Vdg)
@@ -68,7 +69,7 @@ def run_one_element_advection():
     dt = Constant(Dt)
     # Mesh-related functions
     n = FacetNormal(mesh)
-    u0 = Function(Vu).interpolate(Expression(("1.0", "0.0", "0.0")))
+    u0 = Function(Vu).interpolate(Constant((1.0, 0.0, 0.0)))
     # ( dot(v, n) + |dot(v, n)| )/2.0
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
     # advection equation
@@ -110,6 +111,7 @@ def test_one_element_advection_parallel():
 
 def run_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     Vdg = FunctionSpace(mesh, "DG", 1)
     r = Function(Vdg)
@@ -117,19 +119,19 @@ def run_one_element_mesh():
 
     # Interpolate a double periodic function to DG,
     # then check if projecting to CG returns the same DG function.
-    r.interpolate(Expression("sin(2*pi*x[0])"))
+    r.interpolate(sin(2*pi*x[0]))
     u.project(r)
     assert(assemble((u-r)*(u-r)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
-    r.interpolate(Expression("x[1]"))
+    r.interpolate(x[1])
     u.project(r)
     assert(assemble((u-0.5)*(u-0.5)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
-    r.interpolate(Expression("x[0]"))
+    r.interpolate(x[0])
     u.project(r)
     err = assemble((u-r)*(u-r)*dx)
     assert(err > 1.0e-3)
@@ -413,8 +415,3 @@ def test_changing_default_reorder_works(reorder):
         assert m._did_reordering == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

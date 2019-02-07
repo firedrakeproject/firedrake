@@ -21,10 +21,11 @@ def P2(extmesh, request):
 def test_bottom(P2):
     u = TrialFunction(P2)
     v = TestFunction(P2)
+    xs = SpatialCoordinate(P2.mesh())
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 20*v*ds_b
-    bc_expr = Expression("10*(x[2]-1)*(x[2]-1)")
+    bc_expr = 10*(xs[2]-1)*(xs[2]-1)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -42,10 +43,11 @@ def test_bottom(P2):
 def test_top(P2):
     u = TrialFunction(P2)
     v = TestFunction(P2)
+    xs = SpatialCoordinate(P2.mesh())
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 20*v*ds_t
-    bc_expr = Expression("10*x[2]*x[2]")
+    bc_expr = 10*xs[2]*xs[2]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -63,10 +65,11 @@ def test_top(P2):
 def test_topbottom(P2):
     u = TrialFunction(P2)
     v = TestFunction(P2)
+    xs = SpatialCoordinate(P2.mesh())
 
     a = dot(grad(u), grad(v))*dx
     L = -20*v*dx + 10*v*ds_tb
-    bc_expr = Expression("10*(x[2]-0.5)*(x[2]-0.5)")
+    bc_expr = 10*(xs[2]-0.5)*(xs[2]-0.5)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -79,8 +82,3 @@ def test_topbottom(P2):
     u_exact.interpolate(bc_expr)
 
     assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

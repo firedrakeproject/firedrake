@@ -4,7 +4,7 @@ from coffee import base as ast
 from collections import OrderedDict, Counter, namedtuple
 from functools import singledispatch
 
-from firedrake.slate.slac.utils import (traverse_dags, eigen_tensor, Transformer)
+from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
@@ -17,7 +17,8 @@ CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
                               "shape",
-                              "vector"])
+                              "vector",
+                              "local_temp"])
 CoefficientInfo.__doc__ = """\
 Context information for creating coefficient temporaries.
 
@@ -28,6 +29,7 @@ Context information for creating coefficient temporaries.
               the coefficient temporary.
 :param vector: The :class:`slate.AssembledVector` containing the
                relevant data to be placed into the temporary.
+:param local_temp: The local temporary for the coefficient vector.
 """
 
 
@@ -112,12 +114,16 @@ class LocalKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
+                    # Local temporary
+                    local_temp = ast.Symbol("VecTemp%d" % len(seen_coeff))
+
                     offset = 0
                     for i, shape in enumerate(shapes):
                         cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
                                                 shape=(sum(shapes), ),
-                                                vector=tensor)
+                                                vector=tensor,
+                                                local_temp=local_temp)
                         coeff_vecs.setdefault(shape, []).append(cinfo)
                         offset += shape
 

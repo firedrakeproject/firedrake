@@ -174,7 +174,7 @@ to the viscosity-weighted pressure mass matrix. Since the pressure mass
 matrix does not appear in the original form, we need to supply its
 bilinear form to the solver ourselves: ::
 
-  class Mass(ExplicitSchurPC):
+  class Mass(AuxiliaryOperatorPC):
 
       def form(self, pc, test, trial):
           a = 1/nu * inner(test, trial)*dx
@@ -192,8 +192,8 @@ bilinear form to the solver ourselves: ::
       "fieldsplit_1_ksp_type": "preonly",
       "fieldsplit_1_pc_type": "python",
       "fieldsplit_1_pc_python_type": "__main__.Mass",
-      "fieldsplit_1_schur_pc_type": "bjacobi",
-      "fieldsplit_1_schur_sub_pc_type": "icc",
+      "fieldsplit_1_aux_pc_type": "bjacobi",
+      "fieldsplit_1_aux_sub_pc_type": "icc",
   }
 
   u = Function(Z)
@@ -228,7 +228,7 @@ approximations.
         "mg_coarse_fieldsplit_1_ksp_type": "preonly",
         "mg_coarse_fieldsplit_1_pc_type": "python",
         "mg_coarse_fieldsplit_1_pc_python_type": "__main__.Mass",
-        "mg_coarse_fieldsplit_1_schur_pc_type": "cholesky",
+        "mg_coarse_fieldsplit_1_aux_pc_type": "cholesky",
         "mg_levels_ksp_type": "richardson",
         "mg_levels_ksp_max_it": 1,
         "mg_levels_pc_type": "fieldsplit",
@@ -246,8 +246,8 @@ approximations.
         "mg_levels_fieldsplit_1_ksp_max_it": 3,
         "mg_levels_fieldsplit_1_pc_type": "python",
         "mg_levels_fieldsplit_1_pc_python_type": "__main__.Mass",
-        "mg_levels_fieldsplit_1_schur_pc_type": "bjacobi",
-        "mg_levels_fieldsplit_1_schur_sub_pc_type": "icc",
+        "mg_levels_fieldsplit_1_aux_pc_type": "bjacobi",
+        "mg_levels_fieldsplit_1_aux_sub_pc_type": "icc",
   }
 
   u = Function(Z)

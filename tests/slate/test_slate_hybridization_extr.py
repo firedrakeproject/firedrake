@@ -65,8 +65,3 @@ def test_hybrid_extr_helmholtz(quad):
 
     assert sigma_err < 5e-8
     assert u_err < 1e-8
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
