@@ -130,6 +130,25 @@ class _SNESContext(object):
             self.bcs_J = None
             self.bcs_Jp = None
         else:
+            # For each of F, J, and Jp, we need to make deep
+            # (partial) copy if bc objects themselves have .bcs;
+            # see bcs.py.
+            def create_bc_tree(ebc, form_type):
+                if form_type == "F":
+                    ebcsplit = EquationBCSplit(ebc, ebc.F)
+                elif form_type == "J":
+                    ebcsplit = EquationBCSplit(ebc, ebc.J)
+                elif form_type == "Jp":
+                    ebcsplit = EquationBCSplit(ebc, ebc.Jp)
+
+                for bbc in ebc.bcs:
+                    if isinstance(bbc, DirichletBC):
+                        ebcsplit.add(bbc)
+                    elif isinstance(bbc, EquationBC):
+                        ebcsplit.add(create_bc_tree(bbc, form_type))
+
+                return ebcsplit
+
             self.bcs_F = []
             self.bcs_J = []
             self.bcs_Jp = []
@@ -139,9 +158,9 @@ class _SNESContext(object):
                     self.bcs_J.append(bc)
                     self.bcs_Jp.append(bc)
                 elif isinstance(bc, EquationBC):
-                    self.bcs_F.append(EquationBCSplit(bc, bc.F))
-                    self.bcs_J.append(EquationBCSplit(bc, bc.J))
-                    self.bcs_Jp.append(EquationBCSplit(bc, bc.Jp))
+                    self.bcs_F.append(create_bc_tree(bc, 'F'))
+                    self.bcs_J.append(create_bc_tree(bc, 'J'))
+                    self.bcs_Jp.append(create_bc_tree(bc, 'Jp'))
 
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,

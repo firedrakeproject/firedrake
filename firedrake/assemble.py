@@ -96,12 +96,12 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         loops_ = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
-                         form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, mat_type=mat_type,
-                         sub_mat_type=sub_mat_type, appctx=appctx,
-                         not_collect_loops=not collect_loops,
-                         allocate_only=allocate_only,
-                         options_prefix=options_prefix)
+                           form_compiler_parameters=form_compiler_parameters,
+                           inverse=inverse, mat_type=mat_type,
+                           sub_mat_type=sub_mat_type, appctx=appctx,
+                           not_collect_loops=not collect_loops,
+                           allocate_only=allocate_only,
+                           options_prefix=options_prefix)
         loops = [l for l in loops_]
         if collect_loops and not allocate_only:
             return loops
@@ -125,13 +125,13 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    loops =_assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+    loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                       appctx=appctx, allocate_only=True,
                       options_prefix=options_prefix)
     # has only one entry
     return next(loops)()
-    
+
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
@@ -150,11 +150,12 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     if mat_type == "matfree":
         return tensor.assemble
     loops_ = _assemble(f, tensor=tensor, bcs=bcs,
-                      form_compiler_parameters=form_compiler_parameters,
-                      inverse=inverse, mat_type=mat_type,
-                      sub_mat_type=sub_mat_type)
+                       form_compiler_parameters=form_compiler_parameters,
+                       inverse=inverse, mat_type=mat_type,
+                       sub_mat_type=sub_mat_type)
 
     loops = [l for l in loops_]
+
     def thunk():
         for kernel in loops:
             kernel()
@@ -257,8 +258,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
-            #if bcs is not None and any([isinstance(bc, EquationBCSplit) for bc in bcs]):
-            #    raise NotImplementedError("EquationBCSplit not implemented with matfree")
             if tensor is None:
                 result_matrix = matrix.ImplicitMatrix(f, bcs,
                                                       fc_params=form_compiler_parameters,
@@ -372,7 +371,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         result = lambda: result_matrix
         if allocate_only:
-            result_matrix._assembly_callback = None
             yield result
             raise StopIteration()
     elif is_vec:
@@ -477,8 +475,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if integral_type == "cell":
             itspace = sdata or itspace
 
-            if subdomain_id not in ["otherwise", "everywhere"] and \
-                sdata is not None:
+            if subdomain_id not in ["otherwise", "everywhere"] and sdata is not None:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
 
             def get_map(x):
@@ -550,11 +547,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
         try:
-            #if is_mat or is_vec:
             with collecting_loops(True):
                 yield op2.par_loop(*args, **kwargs)
-            #else:
-            #    yield op2.par_loop(*args, **kwargs)
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -597,9 +591,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             else:
                                 raise RuntimeError("Unhandled BC case")
             elif isinstance(bc, EquationBCSplit):
-                fs = bc.function_space()
-                if len(fs) > 1:
-                    raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
@@ -618,7 +609,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # Populate boundary condition rows
         for bc in bcs:
             if isinstance(bc, DirichletBC):
-                
                 if not_collect_loops:
                     yield functools.partial(bc.apply, result_function)
             elif isinstance(bc, EquationBCSplit):

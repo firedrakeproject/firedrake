@@ -78,10 +78,11 @@ class ImplicitMatrixContext(object):
         self.appctx = appctx
 
         # Collect all DirichletBC instances such as
-        # DirichletBCs for an EquationBC.
+        # DirichletBCs applied to an EquationBC.
         from firedrake.bcs import DirichletBC, EquationBCSplit
         self.row_bcs = []
         self.col_bcs = []
+
         def collect_DirichletBCs(lst, bcs):
             for bc in bcs:
                 if isinstance(bc, DirichletBC):
@@ -118,17 +119,20 @@ class ImplicitMatrixContext(object):
 
         self.block_size = (test_vec.getBlockSize(), trial_vec.getBlockSize())
 
-        # Create EquationBC recursive structure "ebc" 
+        # Create EquationBC recursive structure "ebc"
         # to be passed to create_assembly_callable(...).
         # Recursion is necessary to take into accout that
         # an EquationBC itself might have DirichletBCs/EquationBCs.
 
         self.action = action(self.a, self._x)
+        self.actionT = action(adjoint(self.a), self._y)
 
         from firedrake.assemble import create_assembly_callable
 
         # For assembling action(f, self._x)
 
+        # Copy the entire EquationBC tree
+        # with bc.f replaced by action(bc.f, self._x)
         def get_ebc_tree(ebc0):
             # create an instance of EquationBCSplit
             ebc1 = EquationBCSplit(ebc0, action(ebc0.f, self._x))
@@ -137,7 +141,7 @@ class ImplicitMatrixContext(object):
                 # only collect EquationBCSplit instances as
                 # DirichletBCs are treated separately in self.mult
                 if isinstance(bbc0, EquationBCSplit):
-                    ebc1.bcs.append(get_ebc_tree(bbc0))
+                    ebc1.add(get_ebc_tree(bbc0))
             return ebc1
 
         row_ebcs = []
@@ -151,20 +155,23 @@ class ImplicitMatrixContext(object):
         # For assembling action(adjoint(f), self._y)
 
         # Each par_loop is to run with appropriate masks on self._y
-        self._assemble_actionT = [create_assembly_callable(action(adjoint(self.a), self._y),
-                                                           tensor=self._x,
-                                                           bcs=None,
-                                                           form_compiler_parameters=self.fc_params)]
+
+        self._assemble_actionT = []
+
         def collect_assembly_callableT(bc):
             self._assemble_actionT.append(
-                    create_assembly_callable(action(adjoint(bc.f), self._y),
-                                             tensor=self._x,
-                                             bcs=None,
-                                             form_compiler_parameters=self.fc_params))
+                create_assembly_callable(action(adjoint(bc.f), self._y),
+                                         tensor=self._x,
+                                         bcs=None,
+                                         form_compiler_parameters=self.fc_params))
             for bbc in bc.bcs:
                 if isinstance(bbc, EquationBCSplit):
                     collect_assembly_callableT(bbc)
 
+        self._assemble_actionT.append(create_assembly_callable(self.actionT,
+                                                               tensor=self._x,
+                                                               bcs=None,
+                                                               form_compiler_parameters=self.fc_params))
         for bc in row_bcs:
             if isinstance(bc, EquationBCSplit):
                 collect_assembly_callableT(bc)
@@ -231,13 +238,15 @@ class ImplicitMatrixContext(object):
         #   E    D
         #   E    E    D <- DirichletBC for edge EquationBC
         #   E    E    D
-        #   E    E    E    
         #   E    E    E
         #   E    E    E
-        #   E    E    E    E 
+        #   E    E    E
+        #   E    E    E    E
         #
         # E: indices associated with Equation(BC)
         # D:                         DirichletBC
+
+        from firedrake.bcs import EquationBCSplit
 
         iter_assemble_actionT = iter(self.list_assemble_actionT)
 
@@ -245,7 +254,7 @@ class ImplicitMatrixContext(object):
         with self._xbc.dat.vec_wo as v:
             v.zero()
 
-        def multTranposePart(bc):
+        def multTransposePart(bc):
 
             with self._y.dat.vec_wo as v:
                 Y.copy(v)
@@ -264,7 +273,7 @@ class ImplicitMatrixContext(object):
                     multTransposePart(bbc)
 
         multTransposePart(self)
-            
+
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?

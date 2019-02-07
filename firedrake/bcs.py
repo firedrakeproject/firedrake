@@ -327,35 +327,31 @@ def homogenize(bc):
 
 
 class EquationBC(BCBase):
-    r'''Implementation of a form boundary condition.
+    r'''Implementation of an equation boundary condition.
 
-    :arg V: the :class:`.FunctionSpace` on which the boundary condition
-        should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
-        iterable of literal constants (converted to an
-        :class:`.Expression`), or a literal constant which can be
-        pointwise evaluated at the nodes of
-        ``V``. :class:`.Expression`\s are projected onto ``V`` if it
-        does not support pointwise evaluation.
-    :arg sub_domain: the integer id(s) of the boundary region over which the
-        boundary condition should be applied. The string "on_boundary" may be used
-        to indicate all of the boundaries of the domain. In the case of extrusion
-        the ``top`` and ``bottom`` strings are used to flag the bcs application on
-        the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes. The default is
-        "topological", indicating that nodes topologically associated with a
-        boundary facet will be included. The alternative value is "geometric",
-        which indicates that nodes associated with basis functions which do not
-        vanish on the boundary will be included. This can be used to impose
-        strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
+    :param eq: the linear/nonlinear form equation
+    :param u: the :class:`.Function` to solve for
+    :arg sub_domain: see :class:`.DirichletBC`.
+    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+        to be applied to this boundary condition equation (optional)
+    :param J: the Jacobian for this boundary equation (optional)
+    :param Jp: a form used for preconditioning the linear system,
+        optional, if not supplied then the Jacobian itself
+        will be used.
+    :arg method: see :class:`.DirichletBC` (optional)
+    :arg sub_space_index: the sub_space index for the function space
+        on which the equation boundary condition is applied
     '''
 
-    def __init__(self, eq, u, sub_domain, J=None, Jp=None, method="topological"):
-        super().__init__(eq.lhs.arguments()[0].function_space(), sub_domain, method="topological")
+    def __init__(self, eq, u, sub_domain, bcs=[], J=None, Jp=None, method="topological", sub_space_index=None):
+        if sub_space_index is None:
+            V = eq.lhs.arguments()[0].function_space()
+        else:
+            if not isinstance(sub_space_index, int):
+                raise TypeError("sub_space_index has to be integer")
+            V = eq.lhs.arguments()[0].function_space().split()[sub_space_index]
+        super().__init__(V, sub_domain, method="topological")
         self.u = u
-        self.f = None
-        self.bcs = None
         # This nested structure will enable recursive application of boundary conditions.
         #
         # def _assemble(..., bcs, ...)
@@ -364,6 +360,9 @@ class EquationBC(BCBase):
         #         # boundary conditions for boundary conditions for boun...
         #         _assemble(..., bc.bcs, ...)
         #     ...
+
+        # Currently only support bcs = []
+        self.bcs = bcs
 
         self.Jp_eq_J = Jp is None
 
@@ -407,9 +406,13 @@ class EquationBCSplit(BCBase):
         if not isinstance(ebc, (EquationBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
         super(EquationBCSplit, self).__init__(ebc._function_space, ebc.sub_domain, method="topological")
-        #self.u = ebc.u
         self.f = form
         self.bcs = bcs
 
     def integrals(self):
         return self.f.integrals()
+
+    def add(self, bc):
+        if not isinstance(bc, (DirichletBC, EquationBC)):
+            raise TypeError("EquationBCSplit.add expects an instance of DirichletBC or EquationBCSplit.")
+        self.bcs.append(bc)

@@ -44,9 +44,9 @@ def solve(*args, **kwargs):
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
     where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
-    If present, `bcs` should be a list of :class:`.DirichletBC`\s and 
-    :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions 
-    to apply and PDEs to solve on the boundaries. 
+    If present, `bcs` should be a list of :class:`.DirichletBC`\s and
+    :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
+    to apply and PDEs to solve on the boundaries.
     For the format of `solver_parameters` see below.
 
     *2. Solving linear variational problems*
@@ -158,8 +158,8 @@ def _solve_varproblem(*args, **kwargs):
     # Solve nonlinear variational problem
     else:
 
-        #if eq.rhs != 0:
-        #    raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
+        if eq.rhs != 0:
+            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters)
@@ -173,9 +173,6 @@ def _solve_varproblem(*args, **kwargs):
                                                appctx=appctx)
 
         solver.solve()
-    
-    #else:
-    #    raise NotImplementedError("Currently only supports cases where all domain/boundary forms are linear or all domain/boundary forms are nonlinear.")
 
 
 def _la_solve(A, x, b, **kwargs):
@@ -225,7 +222,7 @@ def _la_solve(A, x, b, **kwargs):
     from firedrake.bcs import EquationBC
     if bcs is not None:
         for bc in bcs:
-            if isinstance(bc,EquationBC) and not bc.is_linear:
+            if isinstance(bc, EquationBC) and not bc.is_linear:
                 raise RuntimeError("EquationBC must also be linear when solving linear system.")
 
     if bcs is not None:

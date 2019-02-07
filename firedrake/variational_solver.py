@@ -34,7 +34,6 @@ class NonlinearVariationalProblem(object):
         """
         from firedrake import solving
         from firedrake import function
-        from firedrake.bcs import DirichletBC, EquationBC
 
         # Store input UFL forms and solution Function
         self.u = u
@@ -54,7 +53,7 @@ class NonlinearVariationalProblem(object):
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
-        
+
         if not isinstance(self.J, (ufl.Form, slate.slate.TensorBase)):
             raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(self.J).__name__)
         if len(self.J.arguments()) != 2:
@@ -225,9 +224,9 @@ class NonlinearVariationalSolver(OptionsManager):
         # Apply the boundary conditions to the initial guess.
         from firedrake.bcs import DirichletBC, EquationBC
         for bc in self._problem.bcs:
-            if isinstance(bc,DirichletBC):
+            if isinstance(bc, DirichletBC):
                 bc.apply(self._problem.u)
-            elif isinstance(bc,EquationBC):
+            elif isinstance(bc, EquationBC):
                 pass
 
         if bounds is not None:
@@ -271,8 +270,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  this flag to ``False``.
         """
 
-        from firedrake.bcs import DirichletBC, EquationBC
-        
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
