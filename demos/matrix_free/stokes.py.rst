@@ -80,8 +80,8 @@ also monitor the convergence of the residual, and ask PETSc to view
 the configured Krylov solver object.::
 
       "ksp_type": "gmres",
-      "ksp_monitor_true_residual": True,
-      "ksp_view": True,
+      "ksp_monitor_true_residual": None,
+      "ksp_view": None,
       "pc_type": "fieldsplit",
       "pc_fieldsplit_type": "schur",
       "pc_fieldsplit_schur_fact_type": "diag",

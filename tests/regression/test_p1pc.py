@@ -62,7 +62,7 @@ def test_p_independence(mesh, expected):
                 "ksp_type": "preonly",
                 "pc_type": "cholesky",
             },
-            "ksp_monitor": True})
+            "ksp_monitor": None})
 
         solver.solve()
 
