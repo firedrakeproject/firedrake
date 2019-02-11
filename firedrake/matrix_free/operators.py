@@ -156,10 +156,9 @@ class ImplicitMatrixContext(object):
 
         # Each par_loop is to run with appropriate masks on self._y
 
-        self._assemble_actionT = []
-
+        self.list_assemble_actionT = []
         def collect_assembly_callableT(bc):
-            self._assemble_actionT.append(
+            self.list_assemble_actionT.append(
                 create_assembly_callable(action(adjoint(bc.f), self._y),
                                          tensor=self._x,
                                          bcs=None,
@@ -168,7 +167,7 @@ class ImplicitMatrixContext(object):
                 if isinstance(bbc, EquationBCSplit):
                     collect_assembly_callableT(bbc)
 
-        self._assemble_actionT.append(create_assembly_callable(self.actionT,
+        self.list_assemble_actionT.append(create_assembly_callable(self.actionT,
                                                                tensor=self._x,
                                                                bcs=None,
                                                                form_compiler_parameters=self.fc_params))
@@ -179,7 +178,6 @@ class ImplicitMatrixContext(object):
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)
-
         # if we are a block on the diagonal, then the matrix has an
         # identity block corresponding to the Dirichlet boundary conditions.
         # our algorithm in this case is to save the BC values, zero them
@@ -251,8 +249,7 @@ class ImplicitMatrixContext(object):
         iter_assemble_actionT = iter(self.list_assemble_actionT)
 
         # accumulate values in self._xbc for convenience
-        with self._xbc.dat.vec_wo as v:
-            v.zero()
+        self._xbc.dat.zero()
 
         def multTransposePart(bc):
 
@@ -273,7 +270,6 @@ class ImplicitMatrixContext(object):
                     multTransposePart(bbc)
 
         multTransposePart(self)
-
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?

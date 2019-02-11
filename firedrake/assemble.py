@@ -89,6 +89,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if nest is not None:
             mat_type = "nest" if nest else "aij"
 
+    print(996)
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
     if len(kwargs) > 0:
@@ -125,12 +126,15 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+    loops_ = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                       appctx=appctx, allocate_only=True,
                       options_prefix=options_prefix)
     # has only one entry
-    return next(loops)()
+    #loops = [l for l in loops_]
+    print(995)
+    return next(loops_)()
+    #return loops[0]()
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
@@ -145,6 +149,7 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
 
        Really do not use this function unless you know what you're doing.
     """
+    print(994)
     if tensor is None:
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
@@ -243,11 +248,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         raise ValueError("Can only assemble the inverse of a 2-form")
 
     if is_mat and not_collect_loops and not allocate_only:
-        raise NotImplementedError("API compatibility for applying BCs after assembling a matrix has been dropped.")
+        raise DeprecationWarning("API compatibility for applying BCs after assembling a matrix has been dropped. Returning an assembled matrix.")
 
     zero_tensor_parloop = lambda: None
 
     if is_mat:
+        print(mat_type)
         matfree = mat_type == "matfree"
         nest = mat_type == "nest"
         if nest:
@@ -256,6 +262,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             baij = mat_type == "baij"
         # intercept matrix-free matrices here
         if matfree:
+            print(993)
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
             if tensor is None:
