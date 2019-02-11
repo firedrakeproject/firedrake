@@ -86,7 +86,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
             "ksp_max_it": "30",
             "ksp_atol": "1.e-16",
             "ksp_rtol": "1.e-11",
-            "ksp_monitor_true_residual": True,
+            "ksp_monitor_true_residual": None,
             "pc_type": "fieldsplit",
             "pc_fieldsplit_type": "multiplicative",
 

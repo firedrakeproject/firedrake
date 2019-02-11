@@ -26,7 +26,7 @@ import pytest
                           {
                               # Newton
                               "snes_type": "newtonls",
-                              "snes_view": True,
+                              "snes_view": None,
                               "ksp_type": "cg",
                               # Same as before, just with a recursive split, so we need an aij matrix
                               "mat_type": "aij",
