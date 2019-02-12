@@ -250,7 +250,7 @@ class ImplicitMatrixContext(object):
 
         # accumulate values in self._xbc for convenience
         self._xbc.dat.zero()
-
+        print("transpose called")
         def multTransposePart(bc):
 
             with self._y.dat.vec_wo as v:
@@ -318,6 +318,7 @@ class ImplicitMatrixContext(object):
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
     def createSubMatrix(self, mat, row_is, col_is, target=None):
+        print("Creating submatrix")
         if target is not None:
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.
