@@ -325,8 +325,6 @@ class ImplicitMatrixContext(object):
             target.assemble()
             return target
         from firedrake import DirichletBC, EquationBCSplit
-        if any([isinstance(bc, EquationBCSplit) for bc in self.bcs]):
-            raise NotImplementedError("ImplicitMatrixContext.createSubMatrix is not yet implemented for EquationBC")
 
         # These are the sets of ISes of which the the row and column
         # space consist.
@@ -347,15 +345,23 @@ class ImplicitMatrixContext(object):
         row_bcs = []
         col_bcs = []
 
-        for bc in self.row_bcs:
+        # self.row_bcs only contains DirichletBCs, but here
+        # we want EquationBCs as well as DirichletBCs, so
+        # use self.bcs.
+        for bc in self.bcs:
             for i, r in enumerate(row_inds):
                 if bc.function_space().index == r:
-                    row_bcs.append(DirichletBC(Wrow.split()[i],
-                                               bc.function_arg,
-                                               bc.sub_domain,
-                                               method=bc.method))
+                    if isinstance(bc, DirichletBC):
+                        row_bcs.append(DirichletBC(Wrow.split()[i],
+                                                   bc.function_arg,
+                                                   bc.sub_domain,
+                                                   method=bc.method))
+                    elif isinstance(bc, EquationBCSplit):
+                        row_bcs.append(EquationBCSplit(bc,
+                                                       ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
+                                                       V=Wrow.split()[i]))
 
-        if Wrow == Wcol and row_inds == col_inds and self.row_bcs == self.col_bcs:
+        if Wrow == Wcol and row_inds == col_inds and self.bcs == self.col_bcs:
             col_bcs = row_bcs
         else:
             for bc in self.col_bcs:

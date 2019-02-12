@@ -146,7 +146,6 @@ class NonlinearVariationalSolver(OptionsManager):
 
         # Allow anything, interpret "matfree" as matrix_free.
         mat_type = self.parameters.get("mat_type")
-        print(mat_type)
         pmat_type = self.parameters.get("pmat_type")
         matfree = mat_type == "matfree"
         pmatfree = pmat_type == "matfree"

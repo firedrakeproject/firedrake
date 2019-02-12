@@ -193,6 +193,7 @@ class _SNESContext(object):
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
+        from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
         if splits is not None:
@@ -271,10 +272,30 @@ class _SNESContext(object):
                         W = V.sub(field_renumbering[index])
                     if cmpt is not None:
                         W = W.sub(cmpt)
-                    bcs.append(type(bc)(W,
-                                        bc.function_arg,
-                                        bc.sub_domain,
-                                        method=bc.method))
+                    if isinstance(bc, DirichletBC):
+                        bcs.append(DirichletBC(W,
+                                               bc.function_arg,
+                                               bc.sub_domain,
+                                               method=bc.method))
+                    elif isinstance(bc, EquationBC):
+                        # TODO: Generalize for recursive EquationBCs
+                        bc_F = splitter.split(bc.F, argument_indices=(field, ))
+                        bc_J = splitter.split(bc.J, argument_indices=(field, field))
+                        bc_Jp = splitter.split(bc.Jp, argument_indices=(field, field))
+                        bc_F = replace(bc_F, {bc.u: u})
+                        bc_J = replace(bc_J, {bc.u: u})
+                        bc_Jp = replace(bc_Jp, {bc.u: u})
+                        bcs.append(EquationBC(bc_F == 0,
+                                              subu,
+                                              bc.sub_domain,
+                                              method=bc.method,
+                                              bcs=bc.bcs,
+                                              J=bc_J,
+                                              Jp=None if bc.Jp_eq_J else bc_Jp,
+                                              #V=bc.function_space(),
+                                              V=W,
+                                              is_linear=bc.is_linear))
+
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian

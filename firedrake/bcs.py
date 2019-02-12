@@ -343,14 +343,12 @@ class EquationBC(BCBase):
         on which the equation boundary condition is applied
     '''
 
-    def __init__(self, eq, u, sub_domain, bcs=[], J=None, Jp=None, method="topological", sub_space_index=None):
-        if sub_space_index is None:
+    def __init__(self, eq, u, sub_domain, bcs=[], J=None, Jp=None, method="topological", V=None, is_linear=False):
+        # Can we extract function subspace/component in the same way from eq.lhs?
+        if V is None:
             V = eq.lhs.arguments()[0].function_space()
-        else:
-            if not isinstance(sub_space_index, int):
-                raise TypeError("sub_space_index has to be integer")
-            V = eq.lhs.arguments()[0].function_space().split()[sub_space_index]
         super().__init__(V, sub_domain, method="topological")
+        # u is always the total solution just as in "solve(F==0, u, ...)"
         self.u = u
         # This nested structure will enable recursive application of boundary conditions.
         #
@@ -365,7 +363,7 @@ class EquationBC(BCBase):
         self.bcs = bcs
 
         self.Jp_eq_J = Jp is None
-
+        self.is_linear = is_linear
         # linear
         if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
             self.J = eq.lhs
@@ -378,7 +376,7 @@ class EquationBC(BCBase):
                 if len(eq.rhs.arguments()) != 1:
                     raise ValueError("Provided BC RHS is not a linear form")
                 self.F = ufl_expr.action(self.J, self.u) - eq.rhs
-            self.is_linear = True
+            self.is_linear = self.is_linear or True
         # nonlinear
         else:
             if eq.rhs != 0:
@@ -398,14 +396,16 @@ class EquationBC(BCBase):
             if Jp is not None and len(Jp.arguments()) != 2:
                 raise ValueError("Provided BC preconditioner is not a bilinear form")
             self.Jp = Jp or self.J
-            self.is_linear = False
+            self.is_linear = self.is_linear or False
 
 
 class EquationBCSplit(BCBase):
-    def __init__(self, ebc, form, bcs=[]):
+    def __init__(self, ebc, form, bcs=[], V=None):
         if not isinstance(ebc, (EquationBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
-        super(EquationBCSplit, self).__init__(ebc._function_space, ebc.sub_domain, method="topological")
+        if V is None:
+            V=ebc._function_space
+        super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method="topological")
         self.f = form
         self.bcs = bcs
 
