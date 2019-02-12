@@ -59,6 +59,7 @@ supported_elements = {
     "Regge": finat.Regge,
     # These require special treatment below
     "DQ": None,
+    "DP": None,
     "Q": None,
     "RTCE": None,
     "RTCF": None,
