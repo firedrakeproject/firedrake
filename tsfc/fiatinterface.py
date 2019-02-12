@@ -55,6 +55,7 @@ supported_elements = {
     "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
     # These require special treatment below
     "DQ": None,
+    "DP": None,
     "Q": None,
     "RTCE": None,
     "RTCF": None,
