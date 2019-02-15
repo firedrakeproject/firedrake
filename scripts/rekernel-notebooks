@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 if __name__ == '__main__':
     import glob
-    import nbconvert
+    import nbformat
     for filename in glob.glob("*.ipynb"):
-        nb = nbconvert.read(filename, nbconvert.NO_CONVERT)
+        nb = nbformat.read(filename, nbformat.NO_CONVERT)
         nb['metadata']['kernelspec']['name']='firedrake'
         nb['metadata']['kernelspec']['display_name']='Python 3 (firedrake)'
-        nbconvert.write(nb, filename)
+        nbformat.write(nb, filename)
