@@ -66,6 +66,7 @@ def check_meshes(source, target):
 def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
+            use_slate_for_inverse=False,
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
@@ -76,6 +77,8 @@ def project(v, V, bcs=None,
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler
+    :arg use_slate_for_inverse: compute mass inverse cell-wise using
+         SLATE (only valid for DG function spaces).
     :arg name: name of the resulting :class:`.Function`
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
@@ -84,7 +87,8 @@ def project(v, V, bcs=None,
     :class:`.Function` is returned."""
 
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
-                    form_compiler_parameters=form_compiler_parameters).project()
+                    form_compiler_parameters=form_compiler_parameters,
+                    use_slate_for_inverse=use_slate_for_inverse).project()
     val.rename(name)
     return val
 
@@ -101,7 +105,8 @@ class Assigner(object):
 
 class ProjectorBase(object, metaclass=abc.ABCMeta):
     def __init__(self, source, target, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, constant_jacobian=True):
+                 form_compiler_parameters=None, constant_jacobian=True,
+                 use_slate_for_inverse=False):
         if solver_parameters is None:
             solver_parameters = {}
         else:
@@ -114,12 +119,15 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.form_compiler_parameters = form_compiler_parameters
         self.bcs = bcs
         self.constant_jacobian = constant_jacobian
+        self.use_slate_for_inverse = use_slate_for_inverse
 
     @cached_property
     def A(self):
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
         a = firedrake.inner(u, v)*firedrake.dx
+        if self.use_slate_for_inverse:
+            a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
         return A
@@ -133,7 +141,14 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         if not self.constant_jacobian:
             firedrake.assemble(self.A.a, tensor=self.A, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
-        return self.solver.solve
+        if self.use_slate_for_inverse:
+            def solve(x, b):
+                self.A.force_evaluation()
+                with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
+                    self.A.petscmat.mult(b_, x_)
+            return solve
+        else:
+            return self.solver.solve
 
     @cached_property
     def residual(self):
@@ -183,7 +198,8 @@ class SupermeshProjector(ProjectorBase):
 
 
 def Projector(v, v_out, bcs=None, solver_parameters=None,
-              form_compiler_parameters=None, constant_jacobian=True):
+              form_compiler_parameters=None, constant_jacobian=True,
+              use_slate_for_inverse=False):
     """
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -200,6 +216,8 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
          projecting.
     :arg constant_jacobian: Is the projection matrix constant between calls?
         Say False if you have moving meshes.
+    :arg use_slate_for_inverse: compute mass inverse cell-wise using
+         SLATE (only valid for DG function spaces).
     """
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
@@ -212,7 +230,8 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     elif source_mesh == target_mesh:
         return BasicProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
                               form_compiler_parameters=form_compiler_parameters,
-                              constant_jacobian=constant_jacobian)
+                              constant_jacobian=constant_jacobian,
+                              use_slate_for_inverse=use_slate_for_inverse)
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
@@ -220,4 +239,5 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
         return SupermeshProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
                                   form_compiler_parameters=form_compiler_parameters,
-                                  constant_jacobian=constant_jacobian)
+                                  constant_jacobian=constant_jacobian,
+                                  use_slate_for_inverse=use_slate_for_inverse)
