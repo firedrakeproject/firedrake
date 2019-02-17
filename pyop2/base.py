@@ -38,7 +38,6 @@ subclass these as required to implement backend-specific features.
 import abc
 
 from enum import IntEnum
-from contextlib import contextmanager
 from collections import defaultdict
 import itertools
 import numpy as np
@@ -69,130 +68,6 @@ def _make_object(name, *args, **kwargs):
     from pyop2 import sequential
     return getattr(sequential, name)(*args, **kwargs)
 
-
-@contextmanager
-def collecting_loops(val):
-    try:
-        old = LazyComputation.collecting_loops
-        LazyComputation.collecting_loops = val
-        yield
-    finally:
-        LazyComputation.collecting_loops = old
-
-
-class LazyComputation(object):
-
-    collecting_loops = False
-
-    """Helper class holding computation to be carried later on.
-    """
-
-    def __init__(self, reads, writes, incs):
-        self.reads = set((x._parent if isinstance(x, DatView) else x)
-                         for x in flatten(reads))
-        self.writes = set((x._parent if isinstance(x, DatView) else x)
-                          for x in flatten(writes))
-        self.incs = set((x._parent if isinstance(x, DatView) else x)
-                        for x in flatten(incs))
-        self._scheduled = False
-
-    def enqueue(self):
-        if not LazyComputation.collecting_loops:
-            global _trace
-            _trace.append(self)
-        return self
-
-    __call__ = enqueue
-
-    def _run(self):
-        assert False, "Not implemented"
-
-
-class ExecutionTrace(object):
-
-    """Container maintaining delayed computation until they are executed."""
-
-    def __init__(self):
-        self._trace = list()
-
-    def append(self, computation):
-        if not configuration['lazy_evaluation']:
-            assert not self._trace
-            computation._run()
-        elif configuration['lazy_max_trace_length'] > 0 and \
-                configuration['lazy_max_trace_length'] == len(self._trace):
-            # Garbage collect trace (stop the world)
-            self.evaluate_all()
-            self._trace.append(computation)
-        else:
-            self._trace.append(computation)
-
-    def in_queue(self, computation):
-        return computation in self._trace
-
-    def clear(self):
-        """Forcefully drops delayed computation. Only use this if you know what you
-        are doing.
-        """
-        self._trace = list()
-
-    def evaluate_all(self):
-        """Forces the evaluation of all delayed computations."""
-        for comp in self._trace:
-            comp._run()
-        self._trace = list()
-
-    def evaluate(self, reads=None, writes=None):
-        r"""Force the evaluation of delayed computation on which reads and writes
-        depend.
-
-        :arg reads: the :class:`DataCarrier`\s which you wish to read from.
-                    This forces evaluation of all :func:`par_loop`\s that write to
-                    the :class:`DataCarrier` (and any other dependent computation).
-        :arg writes: the :class:`DataCarrier`\s which you will write to (i.e. modify values).
-                     This forces evaluation of all :func:`par_loop`\s that read from the
-                     :class:`DataCarrier` (and any other dependent computation).
-        """
-
-        if reads is not None:
-            try:
-                reads = set(flatten(reads))
-            except TypeError:       # not an iterable
-                reads = set([reads])
-        else:
-            reads = set()
-        if writes is not None:
-            try:
-                writes = set(flatten(writes))
-            except TypeError:
-                writes = set([writes])
-        else:
-            writes = set()
-
-        def _depends_on(reads, writes, cont):
-            return reads & cont.writes or writes & cont.reads or writes & cont.writes
-
-        for comp in reversed(self._trace):
-            if _depends_on(reads, writes, comp):
-                comp._scheduled = True
-                reads = reads | comp.reads - comp.writes
-                writes = writes | comp.writes
-            else:
-                comp._scheduled = False
-
-        to_run, new_trace = list(), list()
-        for comp in self._trace:
-            if comp._scheduled:
-                to_run.append(comp)
-            else:
-                new_trace.append(comp)
-        self._trace = new_trace
-
-        for comp in to_run:
-            comp._run()
-
-
-_trace = ExecutionTrace()
 
 # Data API
 
@@ -683,15 +558,6 @@ class Set(object):
     def layers(self):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
-
-    @classmethod
-    def fromhdf5(cls, f, name):
-        """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
-        slot = f[name]
-        if slot.shape != (1,):
-            raise SizeTypeError("Shape of %s is incorrect" % name)
-        size = slot.value.astype(np.int)
-        return cls(int(size[0]), name)
 
 
 class GlobalSet(Set):
@@ -1442,17 +1308,6 @@ class DataCarrier(object):
         the product of the dim tuple."""
         return self._cdim
 
-    def _force_evaluation(self, read=True, write=True):
-        """Force the evaluation of any outstanding computation to ensure that this DataCarrier is up to date.
-
-        Arguments read and write specify the intent you wish to observe the data with.
-
-        :arg read: if `True` force evaluation that writes to this DataCarrier.
-        :arg write: if `True` force evaluation that reads from this DataCarrier."""
-        reads = self if read else None
-        writes = self if write else None
-        _trace.evaluate(reads, writes)
-
 
 class _EmptyDataMixin(object):
     """A mixin for :class:`Dat` and :class:`Global` objects that takes
@@ -1620,7 +1475,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :meth:`data_with_halos`.
 
         """
-        _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         self.halo_valid = False
@@ -1639,7 +1493,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         With this accessor, you get to see up to date halo values, but
         you should not try and modify them, because they will be
         overwritten by the next halo exchange."""
-        _trace.evaluate(set([self]), set([self]))
         self.global_to_local_begin(RW)
         self.global_to_local_end(RW)
         self.halo_valid = False
@@ -1659,7 +1512,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :meth:`data_ro_with_halos`.
 
         """
-        _trace.evaluate(set([self]), set())
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         v = self._data[:self.dataset.size].view()
@@ -1680,7 +1532,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         overwritten by the next halo exchange.
 
         """
-        _trace.evaluate(set([self]), set())
         self.global_to_local_begin(READ)
         self.global_to_local_end(READ)
         v = self._data.view()
@@ -1762,7 +1613,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
                                 iterset,
                                 self(WRITE))
             loops[iterset] = loop
-        loop.enqueue()
+        loop.compute()
 
     @collective
     def copy(self, other, subset=None):
@@ -1771,7 +1622,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :arg other: The destination :class:`Dat`
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
 
-        self._copy_parloop(other, subset=subset).enqueue()
+        self._copy_parloop(other, subset=subset).compute()
 
     @collective
     def _copy_parloop(self, other, subset=None):
@@ -2057,14 +1908,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo.local_to_global_end(self, insert_mode)
         self.halo_valid = False
 
-    @classmethod
-    def fromhdf5(cls, dataset, f, name):
-        """Construct a :class:`Dat` from a Dat named ``name`` in HDF5 data ``f``"""
-        slot = f[name]
-        data = slot.value
-        ret = cls(dataset, data, name=name)
-        return ret
-
 
 class DatView(Dat):
     """An indexed view into a :class:`Dat`.
@@ -2087,7 +1930,6 @@ class DatView(Dat):
                                       dat._data,
                                       dtype=dat.dtype,
                                       name="view[%s](%s)" % (index, dat.name))
-        # Remember parent for lazy computation forcing
         self._parent = dat
 
     @cached_property
@@ -2512,7 +2354,6 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data(self):
         """Data array."""
-        _trace.evaluate(set([self]), set())
         if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
@@ -2530,7 +2371,6 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @data.setter
     def data(self, value):
-        _trace.evaluate(set(), set([self]))
         self._data[:] = verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -2560,21 +2400,9 @@ class Global(DataCarrier, _EmptyDataMixin):
 
         other.data = np.copy(self.data_ro)
 
-    class Zero(LazyComputation):
-        def __init__(self, g):
-            super(Global.Zero, self).__init__(reads=[], writes=[g], incs=[])
-            self.g = g
-
-        def _run(self):
-            self.g._data[...] = 0
-
-    @cached_property
-    def _zero_loop(self):
-        return self.Zero(self)
-
     @collective
     def zero(self):
-        self._zero_loop.enqueue()
+        self._data[...] = 0
 
     @collective
     def global_to_local_begin(self, access_mode):
@@ -2817,16 +2645,6 @@ class Map(object):
     def __le__(self, o):
         """self<=o if o equals self or self._parent <= o."""
         return self == o
-
-    @classmethod
-    def fromhdf5(cls, iterset, toset, f, name):
-        """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
-        slot = f[name]
-        values = slot.value
-        arity = slot.shape[1:]
-        if len(arity) != 1:
-            raise ArityTypeError("Unrecognised arity value %s" % arity)
-        return cls(iterset, toset, arity[0], values, name)
 
 
 class MixedMap(Map, ObjectCached):
@@ -3284,34 +3102,6 @@ class Sparsity(ObjectCached):
         return False
 
 
-class _LazyMatOp(LazyComputation):
-    """A lazily evaluated operation on a :class:`Mat`
-
-    :arg mat: The :class:`Mat` this operation touches
-    :arg closure: a callable piece of code to run
-    :arg new_state: What is the assembly state of the matrix after running
-         the closure?
-    :kwarg read:  Does this operation have read semantics?
-    :kwarg write:  Does this operation have write semantics?
-    """
-
-    def __init__(self, mat, closure, new_state, read=False, write=False):
-        read = [mat] if read else []
-        write = [mat] if write else []
-        super(_LazyMatOp, self).__init__(reads=read, writes=write, incs=[])
-        self._closure = closure
-        self._mat = mat
-        self._new_state = new_state
-
-    def _run(self):
-        if self._mat.assembly_state is not Mat.ASSEMBLED and \
-           self._new_state is not Mat.ASSEMBLED and \
-           self._new_state is not self._mat.assembly_state:
-            self._mat._flush_assembly()
-        self._closure()
-        self._mat.assembly_state = self._new_state
-
-
 class Mat(DataCarrier):
     r"""OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
@@ -3375,12 +3165,7 @@ class Mat(DataCarrier):
         Call this /after/ executing all the par_loops that write to
         the matrix before you want to look at it.
         """
-        return _LazyMatOp(self, self._assemble, new_state=Mat.ASSEMBLED,
-                          read=True, write=True).enqueue()
-
-    def _assemble(self):
-        raise NotImplementedError(
-            "Abstract Mat base class doesn't know how to assemble itself")
+        raise NotImplementedError("Subclass should implement this")
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
@@ -3455,9 +3240,19 @@ class Mat(DataCarrier):
     def _is_vector_field(self):
         return not self._is_scalar_field
 
+    def change_assembly_state(self, new_state):
+        """Switch the matrix assembly state."""
+        if new_state == Mat.ASSEMBLED or self.assembly_state == Mat.ASSEMBLED:
+            self.assembly_state = new_state
+        elif new_state != self.assembly_state:
+            self._flush_assembly()
+            self.assembly_state = new_state
+        else:
+            pass
+
     def _flush_assembly(self):
         """Flush the in flight assembly operations (used when
-        switching between inserting and adding values."""
+        switching between inserting and adding values)."""
         pass
 
     @property
@@ -3677,7 +3472,7 @@ ALL = IterationRegion.ALL
 """Iterate over all cells of an extruded mesh."""
 
 
-class ParLoop(LazyComputation):
+class ParLoop(object):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
@@ -3694,10 +3489,6 @@ class ParLoop(LazyComputation):
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args, **kwargs):
-        LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW, INC]]),
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
-                                 set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back
         # into the input global at the end.  This has the same number
         # of reductions but means that successive par_loops
@@ -3741,9 +3532,6 @@ class ParLoop(LazyComputation):
                         arg2.indirect_position = arg1.indirect_position
 
         self.arglist = self.prepare_arglist(iterset, *self.args)
-
-    def _run(self):
-        return self.compute()
 
     def prepare_arglist(self, iterset, *args):
         """Prepare the argument list for calling generated code.
@@ -3856,13 +3644,6 @@ class ParLoop(LazyComputation):
             arg.reduction_end(self.comm)
         # Finalise global increments
         for tmp, glob in self._reduced_globals.items():
-            # These can safely access the _data member directly
-            # because lazy evaluation has ensured that any pending
-            # updates to glob happened before this par_loop started
-            # and the reduction_end on the temporary global pulled
-            # data back from the device if necessary.
-            # In fact we can't access the properties directly because
-            # that forces an infinite loop.
             glob._data += tmp._data
 
     @collective
@@ -4007,5 +3788,5 @@ def par_loop(kernel, iterset, *args, **kwargs):
     """
     if isinstance(kernel, types.FunctionType):
         from pyop2 import pyparloop
-        return pyparloop.ParLoop(pyparloop.Kernel(kernel), iterset, *args, **kwargs).enqueue()
-    return _make_object('ParLoop', kernel, iterset, *args, **kwargs).enqueue()
+        return pyparloop.ParLoop(pyparloop.Kernel(kernel), iterset, *args, **kwargs).compute()
+    return _make_object('ParLoop', kernel, iterset, *args, **kwargs).compute()

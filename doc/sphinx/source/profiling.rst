@@ -95,24 +95,6 @@ To add additional timers to your own code, you can use the
   def my_func():
       # my func
 
-There are a few caveats:
-
-1. PyOP2 delays computation, which means timing a parallel loop call
-   will *not* time the execution, since the evaluation only happens when
-   the result is requested. To disable lazy evaluation of parallel
-   loops, set the environment variable ``PYOP2_LAZY`` to 0.
-
-   Alternatively, force the computation by requesting the data inside
-   the timed region e.g. by calling ``mydat._force_evaluation()``.
-
-2. Kernel execution with CUDA and OpenCL is asynchronous (though OpenCL
-   kernels are currently launched synchronously), which means the time
-   recorded for kernel execution is only the time for the kernel launch.
-
-   To launch CUDA kernels synchronously, set the PyOP2 configuration
-   variable ``profiling`` or the environment variable
-   ``PYOP2_PROFILING`` to 1.
-
 Line-by-line profiling
 ----------------------
 

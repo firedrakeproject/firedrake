@@ -111,7 +111,6 @@ class JITModule(base.JITModule):
 
     @cached_property
     def code_to_compile(self):
-
         from pyop2.codegen.builder import WrapperBuilder
         from pyop2.codegen.rep2loopy import generate
 

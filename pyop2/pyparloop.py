@@ -88,7 +88,6 @@ class Kernel(base.Kernel):
     def __init__(self, code, name=None, **kwargs):
         self._func = code
         self._name = name
-        self._attached_info = {'fundecl': None, 'attached': False}
 
     def __getattr__(self, attr):
         """Return None on unrecognised attributes"""
@@ -161,13 +160,3 @@ class ParLoop(base.ParLoop):
             if arg._is_mat and arg.access is not base.READ:
                 # Queue up assembly of matrix
                 arg.data.assemble()
-                # Now force the evaluation of everything.  Python
-                # parloops are not performance critical, so this is
-                # fine.
-                # We need to do this because the
-                # set_values/addto_values calls are lazily evaluated,
-                # and the parloop is already lazily evaluated so this
-                # lazily spawns lazy computation and getting
-                # everything to execute in the right order is
-                # otherwise madness.
-                arg.data._force_evaluation(read=True, write=False)

@@ -33,10 +33,9 @@
 
 from contextlib import contextmanager
 from petsc4py import PETSc
-from functools import partial
 import numpy as np
 
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, ScalarType
 from pyop2 import base
 from pyop2 import mpi
 from pyop2 import sparsity
@@ -330,10 +329,6 @@ class Dat(base.Dat):
 
         assert self.dtype == PETSc.ScalarType, \
             "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
-        # Getting the Vec needs to ensure we've done all current
-        # necessary computation.
-        self._force_evaluation(read=access is not base.WRITE,
-                               write=access is not base.READ)
         if not hasattr(self, '_vec'):
             # Can't duplicate layout_vec of dataset, because we then
             # carry around extra unnecessary data.
@@ -459,10 +454,6 @@ class Global(base.Global):
 
         assert self.dtype == PETSc.ScalarType, \
             "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
-        # Getting the Vec needs to ensure we've done all current
-        # necessary computation.
-        self._force_evaluation(read=access is not base.WRITE,
-                               write=access is not base.READ)
         data = self._data
         if not hasattr(self, '_vec'):
             # Can't duplicate layout_vec of dataset, because we then
@@ -594,9 +585,8 @@ class MatBlock(base.Mat):
         return self._parent.assembly_state
 
     @assembly_state.setter
-    def assembly_state(self, state):
-        # Need to update our state and our parent's
-        self._parent.assembly_state = state
+    def assembly_state(self, value):
+        self._parent.assembly_state = value
 
     def __getitem__(self, idx):
         return self
@@ -613,51 +603,40 @@ class MatBlock(base.Mat):
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
-        if len(rows) == 0:
-            # No need to set anything if we didn't get any rows, but
-            # do need to force assembly flush.
-            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
-                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-        vals = np.repeat(diag_val, len(rows))
-        closure = partial(self.handle.setValuesLocalRCV,
-                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        rows = rows.reshape(-1, 1)
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(rows) > 0:
+            values = np.full(rows.shape, diag_val, dtype=ScalarType)
+            self.handle.setValuesLocalRCV(rows, rows, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.ADD_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                               read=True, write=True).enqueue()
+        self.change_assembly_state(Mat.ADD_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.ADD_VALUES)
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     def assemble(self):
         raise RuntimeError("Should never call assemble on MatBlock")
-
-    def _assemble(self):
-        raise RuntimeError("Should never call _assemble on MatBlock")
 
     @property
     def values(self):
         rset, cset = self._parent.sparsity.dsets
         rowis = rset.field_ises[self._i]
         colis = cset.field_ises[self._j]
-        base._trace.evaluate(set([self._parent]), set())
         self._parent.assemble()
         mat = self._parent.handle.createSubMatrix(isrow=rowis,
                                                   iscol=colis)
@@ -871,7 +850,7 @@ class Mat(base.Mat):
     @collective
     def zero(self):
         """Zero the matrix."""
-        base._trace.evaluate(set(), set([self]))
+        self.assemble()
         self.handle.zeroEntries()
 
     @collective
@@ -881,8 +860,7 @@ class Mat(base.Mat):
         strong boundary conditions.
 
         :param rows: a :class:`Subset` or an iterable"""
-        base._trace.evaluate(set([self]), set([self]))
-        self._assemble()
+        self.assemble()
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
@@ -901,56 +879,48 @@ class Mat(base.Mat):
         """
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
-        if len(rows) == 0:
-            # No need to set anything if we didn't get any rows, but
-            # do need to force assembly flush.
-            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
-                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-        vals = np.repeat(diag_val, len(rows))
-        closure = partial(self.handle.setValuesLocalRCV,
-                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        rows = rows.reshape(-1, 1)
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(rows) > 0:
+            values = np.full(rows.shape, diag_val, dtype=ScalarType)
+            self.handle.setValuesLocalRCV(rows, rows, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
 
     @collective
-    def _assemble(self):
+    def assemble(self):
         # If the matrix is nested, we need to check each subblock to
         # see if it needs assembling.  But if it's monolithic then the
         # subblock assembly doesn't do anything, so we don't do that.
         if self.sparsity.nested:
-            for m in self:
-                if m.assembly_state is not Mat.ASSEMBLED:
-                    m.handle.assemble()
-                m.assembly_state = Mat.ASSEMBLED
-        # Instead, we assemble the full monolithic matrix.
-        if self.assembly_state is not Mat.ASSEMBLED:
             self.handle.assemble()
-            self.assembly_state = Mat.ASSEMBLED
-            # Mark blocks as assembled as well.
+            for m in self:
+                if m.assembly_state != Mat.ASSEMBLED:
+                    m.change_assembly_state(Mat.ASSEMBLED)
+        else:
+            # Instead, we assemble the full monolithic matrix.
+            self.handle.assemble()
             for m in self:
                 m.handle.assemble()
+            self.change_assembly_state(Mat.ASSEMBLED)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.ADD_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                               read=True, write=True).enqueue()
+        self.change_assembly_state(Mat.ADD_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.ADD_VALUES)
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     @utils.cached_property
     def blocks(self):
@@ -959,7 +929,7 @@ class Mat(base.Mat):
 
     @property
     def values(self):
-        base._trace.evaluate(set([self]), set())
+        self.assemble()
         if self.nrows * self.ncols > 1000000:
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")

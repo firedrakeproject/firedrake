@@ -51,11 +51,6 @@ code generation.  Executing a parallel loop comprises the following steps:
 7. Call the backend-specific matrix assembly procedure on any
    :class:`~pyop2.Mat` arguments.
 
-In practice, PyOP2 implements a lazy evaluation scheme where computations are
-postponed until results are requested. The correct execution of deferred
-computation is performed transparently to the users by enforcing read and
-write dependencies of Kernels.
-
 .. _backend-support:
 
 Multiple Backend Support

@@ -1708,9 +1708,6 @@ class TestParLoopAPI:
         d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
         k = op2.Kernel("static void k(int *x) {}", "k")
         op2.par_loop(k, s1, d(op2.READ, m))
-        # Force evaluation otherwise this loop will remain in the trace forever
-        # in case of lazy evaluation mode
-        base._trace.evaluate_all()
 
 
 if __name__ == '__main__':

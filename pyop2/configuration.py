@@ -61,10 +61,8 @@ class Configuration(dict):
          to a node-local filesystem too.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    :param lazy_evaluation: Should lazy evaluation be on or off?
-    :param lazy_max_trace_length: How many :func:`par_loop`\s
-        should be queued lazily before forcing evaluation?  Pass
-        `0` for an unbounded length.
+    :param dump_gencode: Should PyOP2 write the generated code
+         somewhere for inspection?
     :param print_cache_size: Should PyOP2 print the size of caches at
         program exit?
     :param print_summary: Should PyOP2 print a summary of timings at
@@ -85,8 +83,7 @@ class Configuration(dict):
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
-        "lazy_evaluation": ("PYOP2_LAZY", bool, True),
-        "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 100),
+        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
         "cache_dir": ("PYOP2_CACHE_DIR", str,
                       os.path.join(gettempdir(),
                                    "pyop2-cache-uid%s" % os.getuid())),
