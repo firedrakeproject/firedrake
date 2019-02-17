@@ -46,7 +46,10 @@ from pyop2.sequential import Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedD
 from pyop2.sequential import Map, MixedMap, Sparsity, Halo  # noqa: F401
 from pyop2.sequential import Global, GlobalDataSet        # noqa: F401
 from pyop2.sequential import Dat, MixedDat, DatView, Mat  # noqa: F401
+from pyop2.sequential import ParLoop as SeqParLoop
+from pyop2.pyparloop import ParLoop as PyParLoop
 
+import types
 import loopy
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
@@ -55,8 +58,15 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
-           'Sparsity', 'par_loop',
+           'Sparsity', 'par_loop', 'ParLoop',
            'DatView']
+
+
+def ParLoop(kernel, *args, **kwargs):
+    if isinstance(kernel, types.FunctionType):
+        return PyParLoop(kernel, *args, **kwargs)
+    else:
+        return SeqParLoop(kernel, *args, **kwargs)
 
 
 _initialised = False

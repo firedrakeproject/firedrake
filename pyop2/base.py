@@ -3788,5 +3788,5 @@ def par_loop(kernel, iterset, *args, **kwargs):
     """
     if isinstance(kernel, types.FunctionType):
         from pyop2 import pyparloop
-        return pyparloop.ParLoop(pyparloop.Kernel(kernel), iterset, *args, **kwargs).compute()
+        return pyparloop.ParLoop(kernel, iterset, *args, **kwargs).compute()
     return _make_object('ParLoop', kernel, iterset, *args, **kwargs).compute()

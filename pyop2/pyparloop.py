@@ -76,6 +76,7 @@ Example usage::
 
 from operator import attrgetter
 import numpy as np
+import types
 from pyop2 import base
 
 
@@ -102,6 +103,11 @@ class Kernel(base.Kernel):
 
 # Inherit from parloop for type checking and init
 class ParLoop(base.ParLoop):
+
+    def __init__(self, kernel, *args, **kwargs):
+        if not isinstance(kernel, types.FunctionType):
+            raise ValueError("Expecting a python function, not a %r" % type(kernel))
+        super().__init__(Kernel(kernel), *args, **kwargs)
 
     def _compute(self, part, *arglist):
         if part.set._extruded:
