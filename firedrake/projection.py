@@ -116,45 +116,17 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.constant_jacobian = constant_jacobian
 
     @cached_property
-    def is_DG(self):
-        V = self.target.function_space()
-        if isinstance(V.ufl_element(), firedrake.MixedElement) and not isinstance(V.ufl_element(), firedrake.VectorElement):
-            return False
-            # Should return
-            # return all(sub.finat_element.entity_closure_dofs() == sub.finat_element.entity_dofs() for sub in V)
-            # but it yields NotImplementedError: Compiling mixed slate expressions in SLATE
-        else:
-            element = self.target.function_space().finat_element
-            return element.entity_closure_dofs() == element.entity_dofs()
-
-    @cached_property
     def A(self):
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
         a = firedrake.inner(u, v)*firedrake.dx
-        if self.is_DG and self.bcs is None:
-            a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
         return A
 
     @cached_property
     def solver(self):
-        if self.is_DG and self.bcs is None:
-            class Dummy(object):
-                def __init__(self, A):
-                    self.A = A
-
-                def solve(self, x, b):
-                    self.A.force_evaluation()
-                    with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
-                        self.A.M.handle.mult(b_, x_)
-                    return x
-
-            return Dummy(self.A)
-        else:
-            solver = firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
-            return solver
+        return firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
 
     @property
     def apply_massinv(self):
