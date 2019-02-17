@@ -31,7 +31,8 @@ def f():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     f = Function(V, name="f")
-    f.interpolate(Expression("x[0]*x[1]"))
+    x = SpatialCoordinate(m)
+    f.interpolate(x[0]*x[1])
     return f
 
 
@@ -40,10 +41,9 @@ def run_store_load(mesh, fs, degree, dumpfile):
     V = FunctionSpace(mesh, fs, degree)
 
     f = Function(V, name="f")
+    x = SpatialCoordinate(mesh)
 
-    expr = Expression("x[0]*x[1]")
-
-    f.interpolate(expr)
+    f.interpolate(x[0]*x[1])
 
     f2 = Function(V, name="f")
 

@@ -29,10 +29,11 @@ def W(mesh):
 
 
 def run_near_to_far(mesh, DG0, W):
-    velocity = Expression(("0.0", "1.0", "0.0"))
+    velocity = as_vector((0.0, 1.0, 0.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[2] > 0.33 && x[2] < 0.67 ? 1.0 : 0.5")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[2] > 0.33, xs[2] < 0.67), 1.0, 0.5)
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -65,10 +66,11 @@ def test_3d_near_to_far_parallel(mesh, DG0, W):
 
 
 def run_up_to_down(mesh, DG1, W):
-    velocity = Expression(("0.0", "0.0", "-1.0"))
+    velocity = as_vector((0.0, 0.0, -1.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[0] + x[1]")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = xs[0] + xs[1]
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -98,8 +100,3 @@ def test_3d_up_to_down(mesh, DG1, W):
 @pytest.mark.parallel
 def test_3d_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

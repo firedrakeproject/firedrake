@@ -173,8 +173,3 @@ def test_matrix_types(W):
     A = assemble(a, mat_type="nest", sub_mat_type="baij")
 
     assert A.M[1, 1].handle.getType() == "seqbaij"
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

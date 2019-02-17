@@ -22,8 +22,3 @@ def test_conditional(ncell):
         expect[i, i] = 1.0/ncell
 
     assert np.allclose(A, expect)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

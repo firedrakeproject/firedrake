@@ -146,17 +146,11 @@ def test_assign_complicated(fresh_expr, benchmark):
 @benchmark
 @pytest.mark.parametrize("val",
                          [lambda V: Constant(0),
-                          lambda V: Expression("0"),
                           lambda V: Function(V)],
-                         ids=["Constant", "Expression", "Function"])
+                         ids=["Constant", "Function"])
 def test_apply_bc(val, benchmark):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, 'CG', 1)
     bc = DirichletBC(V, val(V), (1, 2, 3, 4))
     f = Function(V)
     benchmark(lambda: bc.apply(f))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

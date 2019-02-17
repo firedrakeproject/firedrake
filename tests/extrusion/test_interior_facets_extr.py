@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from firedrake import *
 
@@ -143,8 +142,3 @@ def test_interior_facet_vfs_extr_vert_mixed():
     assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
     assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
     assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -45,8 +45,3 @@ def test_immerse_extruded():
     m = Mesh(new_coords)
 
     assert m.ufl_cell().geometric_dimension() == 3
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

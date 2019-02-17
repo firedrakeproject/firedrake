@@ -80,8 +80,3 @@ def test_la_invalid_solution_type(a, L, c):
 def test_la_too_few_arguments(a, f):
     with pytest.raises(TypeError):
         solve(a, f)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

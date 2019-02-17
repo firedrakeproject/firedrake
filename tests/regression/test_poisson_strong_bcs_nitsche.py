@@ -75,7 +75,8 @@ def run_test(x, degree, quadrilateral=False):
     solve(B == F, u)
 
     f = Function(V)
-    f.interpolate(Expression("42*x[1]"))
+    x = SpatialCoordinate(mesh)
+    f.interpolate(42*x[1])
     return sqrt(assemble(dot(u - f, u - f)*dx))
 
 
@@ -83,8 +84,3 @@ def run_test(x, degree, quadrilateral=False):
 @pytest.mark.parametrize('degree', (1, 2))
 def test_poisson_nitsche(degree, quadrilateral):
     assert run_test(2, degree, quadrilateral=quadrilateral) < 1e-3
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

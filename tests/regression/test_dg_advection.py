@@ -4,16 +4,18 @@ import pytest
 
 
 def run_test(mesh):
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
 
     V = FunctionSpace(mesh, "DG", 0)
     M = VectorFunctionSpace(mesh, "CG", 1)
 
     # advecting velocity
-    u0 = Expression(('-x[1]*(1 - x[2]*x[2])', 'x[0]*(1 - x[2]*x[2])', '0'))
+    u0 = as_vector((-x[1]*(1 - x[2]*x[2]), x[0]*(1 - x[2]*x[2]), Constant(0)))
     u = Function(M).interpolate(u0)
 
     dt = (pi/3) * 0.006
+    Dt = Constant(dt)
 
     phi = TestFunction(V)
     D = TrialFunction(V)
@@ -25,12 +27,12 @@ def run_test(mesh):
     a_mass = phi*D*dx
     a_int = dot(grad(phi), -u*D)*dx
     a_flux = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS
-    arhs = a_mass - dt * (a_int + a_flux)
+    arhs = a_mass - Dt * (a_int + a_flux)
 
     dD1 = Function(V)
     D1 = Function(V)
 
-    D0 = Expression("x[0] < 0 ? 1: 0")
+    D0 = conditional(le(x[0], 0), 1, 0.0)
     D = Function(V).interpolate(D0)
 
     t = 0.0
@@ -79,8 +81,3 @@ def test_dg_advection_cubed_sphere():
 @pytest.mark.parallel(nprocs=3)
 def test_dg_advection_cubed_sphere_parallel():
     run_test(UnitCubedSphereMesh(refinement_level=4))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

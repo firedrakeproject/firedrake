@@ -6,6 +6,7 @@ from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
+from ufl import VectorElement
 
 
 def _make_reasons(reasons):
@@ -125,6 +126,10 @@ class _SNESContext(object):
         self._coarse = None
         self._fine = None
 
+        self._nullspace = None
+        self._nullspace_T = None
+        self._near_nullspace = None
+
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
         with self._F.dat.vec_wo as v:
@@ -210,8 +215,12 @@ class _SNESContext(object):
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                index = bc.function_space().index
-                cmpt = bc.function_space().component
+                Vbc = bc.function_space()
+                if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
+                    index = Vbc.parent.index
+                else:
+                    index = Vbc.index
+                cmpt = Vbc.component
                 # TODO: need to test this logic
                 if index in field:
                     if len(field) == 1:
@@ -291,10 +300,16 @@ class _SNESContext(object):
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()
+
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
+
+        ises = problem.J.arguments()[0].function_space()._ises
+        ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
+        ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
+        ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
     @staticmethod
     def compute_operators(ksp, J, P):

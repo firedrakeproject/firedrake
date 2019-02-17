@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 from firedrake.mesh import MeshTopology, MeshGeometry
 import gc
@@ -292,8 +291,3 @@ def test_mesh_fs_gced():
     assert nmesh1 - nmesh < 5
 
     assert nfs1 - nfs < 10
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

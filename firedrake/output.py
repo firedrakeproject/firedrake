@@ -243,7 +243,7 @@ class File(object):
     _footer = (b'</Collection>\n'
                b'</VTKFile>\n')
 
-    def __init__(self, filename, project_output=False, comm=None, restart=0):
+    def __init__(self, filename, project_output=False, comm=None, mode="w"):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -255,7 +255,7 @@ class File(object):
         :kwarg project_output: Should the output be projected to
             linears?  Default is to use interpolation.
         :kwarg comm: The MPI communicator to use.
-        :kwarg restart: Restart at count.
+        :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
 
         .. note::
 
@@ -269,13 +269,18 @@ class File(object):
         if ext not in (".pvd", ):
             raise ValueError("Only output to PVD is supported")
 
+        if mode not in ["w", "a"]:
+            raise ValueError("Mode must be 'a' or 'w'")
+        if mode == "a" and not os.path.isfile(filename):
+            mode = "w"
+
         comm = dup_comm(comm or COMM_WORLD)
 
-        if comm.rank == 0 and restart == 0:
+        if comm.rank == 0 and mode == "w":
             outdir = os.path.dirname(os.path.abspath(filename))
             if not os.path.exists(outdir):
                 os.makedirs(outdir)
-        elif comm.rank == 0:
+        elif comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
         comm.barrier()
@@ -283,30 +288,29 @@ class File(object):
         self.comm = comm
         self.filename = filename
         self.basename = basename
-        self.counter = itertools.count()
-        self.timestep = itertools.count()
         self.project = project_output
+        countstart = 0
 
-        if self.comm.rank == 0 and restart == 0:
+        if self.comm.rank == 0 and mode == "w":
             with open(self.filename, "wb") as f:
                 f.write(self._header)
                 f.write(self._footer)
-        elif self.comm.rank == 0:
+        elif self.comm.rank == 0 and mode == "a":
             import xml.etree.ElementTree as ET
             tree = ET.parse(os.path.abspath(filename))
-            # Remove parts we want to discard
+            # Count how many the file already has
             for parent in tree.iter():
                 for child in list(parent):
                     if child.tag != "DataSet":
                         continue
-                    if restart > 0:
-                        next(self.counter)
-                        next(self.timestep)
-                        restart -= 1
-                    else:
-                        parent.remove(child)
-            with open(self.filename, "wb") as f:
-                tree.write(f)
+                    countstart += 1
+
+        if mode == "a":
+            # Need to communicate the count across all cores involved; default op is SUM
+            countstart = self.comm.allreduce(countstart)
+
+        self.counter = itertools.count(countstart)
+        self.timestep = itertools.count(countstart)
 
         self._fnames = None
         self._topology = None

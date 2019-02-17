@@ -46,7 +46,7 @@ def test_init_bcs(V, v):
 @pytest.mark.parametrize('v', [(0, 0)])
 def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
@@ -147,52 +147,6 @@ def test_set_bc_value(a, u, V, f):
 
     solve(a == 0, u, bcs=[bc])
 
-    assert np.allclose(u.vector().array(), 7.0)
-
-
-def test_update_bc_expression(a, u, V, f):
-    if V.rank == 1:
-        e = Expression(['t', 't'], t=1.0)
-    else:
-        e = Expression('t', t=1.0)
-    bc = DirichletBC(V, e, 1)
-
-    solve(a == 0, u, bcs=[bc])
-
-    # We should get the value in the expression
-    assert np.allclose(u.vector().array(), 1.0)
-
-    e.t = 2.0
-    solve(a == 0, u, bcs=[bc])
-
-    # Updating the expression value should give new value.
-    assert np.allclose(u.vector().array(), 2.0)
-
-    e.t = 3.0
-    bc.homogenize()
-    solve(a == 0, u, bcs=[bc])
-
-    # Homogenized bcs shouldn't be overridden by the expression
-    # changing.
-    assert np.allclose(u.vector().array(), 0.0)
-
-    bc.restore()
-    solve(a == 0, u, bcs=[bc])
-
-    # Restoring the bcs should give the new expression value.
-    assert np.allclose(u.vector().array(), 3.0)
-
-    bc.set_value(7)
-    solve(a == 0, u, bcs=[bc])
-
-    # Setting a value should replace the expression
-    assert np.allclose(u.vector().array(), 7.0)
-
-    e.t = 4.0
-    solve(a == 0, u, bcs=[bc])
-
-    # And now we should just have the new value (since the expression
-    # is gone)
     assert np.allclose(u.vector().array(), 7.0)
 
 
@@ -315,7 +269,14 @@ def test_preassembly_bcs_caching(V):
 def test_assemble_mass_bcs_2d(V):
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V).interpolate(Expression(['x[0]'] * V.value_size))
+
+    x = SpatialCoordinate(V.mesh())
+    if V.value_size == 1:
+        expr = x[0]
+    else:
+        expr = as_vector([x[0]] * V.value_size)
+
+    f = Function(V).interpolate(expr)
 
     bcs = [DirichletBC(V, 0.0, 1),
            DirichletBC(V, 1.0, 2)]
@@ -382,25 +343,6 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
-def test_shared_expression_bc(mesh):
-    V = FunctionSpace(mesh, "CG", 2)
-    f = Function(V)
-    g = Function(V)
-    expr = Expression("t", t=1)
-
-    bc = DirichletBC(V, expr, (1, 2, 3, 4))
-
-    for t in range(4):
-        expr.t = t
-        bc.zero(f)
-        bc.apply(f)
-        bc.zero(g)
-        bc.apply(g)
-
-        assert np.allclose(np.unique(f.dat.data), [0, t])
-        assert np.allclose(g.dat.data, f.dat.data)
-
-
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
@@ -450,8 +392,3 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1])
     else:
         assert np.allclose(bc.nodes, [1, 2])
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

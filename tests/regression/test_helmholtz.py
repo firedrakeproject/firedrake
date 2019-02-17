@@ -20,10 +20,10 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
-def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
+def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
     if mesh is None:
-        mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+        mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -31,19 +31,20 @@ def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Function(V)
-    f.interpolate(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    x = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
     a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
     L = f * v * dx
 
     # Compute solution
     assemble(a)
     assemble(L)
-    x = Function(V)
-    solve(a == L, x, solver_parameters={'ksp_type': 'cg'})
+    sol = Function(V)
+    solve(a == L, sol, solver_parameters={'ksp_type': 'cg'})
 
     # Analytical solution
-    f.interpolate(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
-    return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
+    f.interpolate(cos(x[0]*pi*2)*cos(x[1]*pi*2))
+    return sqrt(assemble(dot(sol - f, sol - f) * dx)), sol, f
 
 
 def run_firedrake_helmholtz():
@@ -88,8 +89,3 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
 @pytest.mark.parallel
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -65,8 +65,3 @@ def test_analytic_mass(u_v):
 
     assert np.allclose(sorted(np.linalg.eigvals(vals)),
                        sorted(np.linalg.eigvals(analytic)))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

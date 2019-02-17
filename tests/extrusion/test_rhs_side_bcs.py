@@ -1,7 +1,6 @@
 """This demo program sets opposite boundary sides to 10 and 42 and
 then checks that the exact result has bee achieved.
 """
-import pytest
 from firedrake import *
 
 
@@ -21,7 +20,10 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     for bc in bcs:
         bc.apply(u)
     v = Function(V)
-    v.interpolate(Expression("x[0] < 0.05 ? 10.0 : x[0] > 0.95 ? 42.0 : 0.0"))
+    xs = SpatialCoordinate(mesh)
+    v.interpolate(conditional(xs[0] < 0.05,
+                              10,
+                              conditional(xs[0] > 0.95, 42.0, 0.0)))
     res = sqrt(assemble(dot(u - v, u - v) * dx))
 
     u1 = Function(V, name="computed")
@@ -30,7 +32,9 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     for bc in bcs1:
         bc.apply(u1)
     v1 = Function(V, name="expected")
-    v1.interpolate(Expression("x[1] < 0.05 ? 10.0 : x[1] > 0.95 ? 42.0 : 0.0"))
+    v1.interpolate(conditional(xs[1] < 0.05,
+                               10.0,
+                               conditional(xs[1] > 0.95, 42.0, 0.0)))
     res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
 
     if not test_mode:
@@ -49,8 +53,3 @@ def test_extrusion_rhs_bcs():
 def test_extrusion_rhs_bcs_quadrilateral():
     res1, res2 = run_test(1, 1, quadrilateral=True, test_mode=True)
     assert (res1 < 1.e-13 and res2 < 1.e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

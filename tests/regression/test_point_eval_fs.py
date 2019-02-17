@@ -43,7 +43,8 @@ def mesh_tetrahedron():
                           ('DG', 2)])
 def test_interval(mesh_interval, family, degree):
     V = FunctionSpace(mesh_interval, family, degree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[0] - 0.5)"))
+    x = SpatialCoordinate(mesh_interval)
+    f = Function(V).interpolate((x[0] - 0.5)*(x[0] - 0.5))
     assert np.allclose(0.01, f([0.6]))
     assert np.allclose(0.25, f([1.0]))
 
@@ -53,7 +54,8 @@ def test_interval(mesh_interval, family, degree):
                           ('DG', 2)])
 def test_interval_vector(mesh_interval, family, degree):
     V = VectorFunctionSpace(mesh_interval, family, degree, dim=2)
-    f = Function(V).interpolate(Expression(("(x[0] - 0.5)*(x[0] - 0.5)", "x[0]*x[0]")))
+    x = SpatialCoordinate(mesh_interval)
+    f = Function(V).interpolate(as_vector(((x[0] - 0.5)*(x[0] - 0.5), x[0]*x[0])))
     assert np.allclose([0.01, 0.36], f([0.6]))
     assert np.allclose([0.25, 1.00], f([1.0]))
 
@@ -65,7 +67,8 @@ def test_interval_vector(mesh_interval, family, degree):
 def test_triangle(mesh_triangle, family, degree):
     V = FunctionSpace(mesh_triangle, family, degree)
     # Bernstein currently requires projection
-    f = Function(V).project(Expression("(x[0] - 0.5)*(x[1] - 0.2)"))
+    x = SpatialCoordinate(mesh_triangle)
+    f = Function(V).project((x[0] - 0.5)*(x[1] - 0.2))
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
 
@@ -79,12 +82,13 @@ def test_triangle(mesh_triangle, family, degree):
                           ('N1curl', 2),
                           ('N2curl', 2)])
 def test_triangle_vector(mesh_triangle, family, degree):
+    x = SpatialCoordinate(mesh_triangle)
     if family in ['CG', 'DG']:
         V = VectorFunctionSpace(mesh_triangle, family, degree)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).interpolate(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[1])))
     else:
         V = FunctionSpace(mesh_triangle, family, degree)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).project(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[1])))
 
     assert np.allclose([0.6, 0.56], f([0.6, 0.4]))
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
@@ -95,7 +99,8 @@ def test_triangle_vector(mesh_triangle, family, degree):
                           ('DG', 1)])
 def test_triangle_tensor(mesh_triangle, family, degree):
     V = TensorFunctionSpace(mesh_triangle, family, degree)
-    f = Function(V).interpolate(Expression((("x[1]", "0.2 + x[0]"), ("0.8*x[0]", "0.2*x[1]"))))
+    x = SpatialCoordinate(mesh_triangle)
+    f = Function(V).interpolate(as_tensor(((x[1], 0.2 + x[0]), (0.8*x[0], 0.2*x[1]))))
 
     assert np.allclose([[0.4, 0.8], [0.48, 0.08]], f([0.6, 0.4]))
     assert np.allclose([[0.9, 0.2], [0.00, 0.18]], f([0.0, 0.9]))
@@ -107,8 +112,9 @@ def test_triangle_mixed(mesh_triangle):
     V = V1 * V2
     f = Function(V)
     f1, f2 = f.split()
-    f1.interpolate(Expression("x[0] + 1.2*x[1]"))
-    f2.project(Expression(("x[1]", "0.8 + x[0]")))
+    x = SpatialCoordinate(mesh_triangle)
+    f1.interpolate(x[0] + 1.2*x[1])
+    f2.project(as_vector((x[1], 0.8 + x[0])))
 
     # Single point
     actual = f.at([0.6, 0.4])
@@ -133,7 +139,8 @@ def test_triangle_mixed(mesh_triangle):
                           ('DG', 2)])
 def test_quadrilateral(mesh_quadrilateral, family, degree):
     V = FunctionSpace(mesh_quadrilateral, family, degree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[1] - 0.2)"))
+    x = SpatialCoordinate(mesh_quadrilateral)
+    f = Function(V).interpolate((x[0] - 0.5)*(x[1] - 0.2))
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
 
@@ -144,12 +151,13 @@ def test_quadrilateral(mesh_quadrilateral, family, degree):
                           ('RTCF', 2),
                           ('RTCE', 2)])
 def test_quadrilateral_vector(mesh_quadrilateral, family, degree):
+    x = SpatialCoordinate(mesh_quadrilateral)
     if family in ['CG', 'DG']:
         V = VectorFunctionSpace(mesh_quadrilateral, family, degree)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).interpolate(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[1])))
     else:
         V = FunctionSpace(mesh_quadrilateral, family, degree)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[1]")))
+        f = Function(V).project(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[1])))
 
     assert np.allclose([0.6, 0.56], f([0.6, 0.4]))
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
@@ -160,7 +168,8 @@ def test_quadrilateral_vector(mesh_quadrilateral, family, degree):
                           ('DG', 2)])
 def test_tetrahedron(mesh_tetrahedron, family, degree):
     V = FunctionSpace(mesh_tetrahedron, family, degree)
-    f = Function(V).interpolate(Expression("(x[0] - 0.5)*(x[1] - x[2])"))
+    x = SpatialCoordinate(mesh_tetrahedron)
+    f = Function(V).interpolate((x[0] - 0.5)*(x[1] - x[2]))
     assert np.allclose(+0.01, f([0.6, 0.4, 0.3]))
     assert np.allclose(-0.06, f([0.4, 0.7, 0.1]))
 
@@ -173,12 +182,13 @@ def test_tetrahedron(mesh_tetrahedron, family, degree):
                           ('N1E', 2),
                           ('N2E', 2)])
 def test_tetrahedron_vector(mesh_tetrahedron, family, degree):
+    x = SpatialCoordinate(mesh_tetrahedron)
     if family in ['CG', 'DG']:
         V = VectorFunctionSpace(mesh_tetrahedron, family, degree)
-        f = Function(V).interpolate(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).interpolate(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[2], x[1])))
     else:
         V = FunctionSpace(mesh_tetrahedron, family, degree)
-        f = Function(V).project(Expression(("0.2 + x[1]", "0.8*x[0] + 0.2*x[2]", "x[1]")))
+        f = Function(V).project(as_vector((0.2 + x[1], 0.8*x[0] + 0.2*x[2], x[1])))
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.9, 0.34, 0.7], f([0.4, 0.7, 0.1]))
@@ -203,8 +213,3 @@ def test_point_reset_works():
     f.assign(1)
     m.clear_spatial_index()
     assert np.allclose([1.0], f.at((0.3, 0.3)))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

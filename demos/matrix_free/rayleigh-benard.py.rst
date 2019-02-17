@@ -79,7 +79,7 @@ errors if it is not available. ::
   try:
      solve(F == 0, upT, bcs=bcs, nullspace=nullspace,
            solver_parameters={"mat_type": "aij",
-                              "snes_monitor": True,
+                              "snes_monitor": None,
                               "ksp_type": "gmres",
                               "pc_type": "lu",
                               "pc_factor_mat_solver_type": "mumps"})
@@ -97,7 +97,7 @@ matrix-free actions for the coupled operator, and solve the linearised
 system with GMRES preconditioned with a multiplicative fieldsplit. ::
 
   parameters = {"mat_type": "matfree",
-                "snes_monitor": True,
+                "snes_monitor": None,
                 "ksp_type": "gmres",
                 "pc_type": "fieldsplit",
                 "pc_fieldsplit_type": "multiplicative",
@@ -152,7 +152,7 @@ of options and the key is `prepended` to all keys in the dictionary
 before passing to the solver. ::
 
   parameters = {"mat_type": "matfree",
-                "snes_monitor": True,
+                "snes_monitor": None,
 
 We'll use inexact GMRES solves to invert the Navier-Stokes block, so
 the preconditioner as a whole is not stationary, hence we need
