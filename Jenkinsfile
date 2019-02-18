@@ -121,4 +121,3 @@ sudo docker push firedrakeproject/firedrake:latest
     }
   }
 }
-
