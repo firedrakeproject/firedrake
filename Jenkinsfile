@@ -22,7 +22,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --slope --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --package-branch tsfc Cyrus-tsfc-branch --package-branch fiat discontinuous-lagrange-cube --package-branch FInAT Cyrus-FInAT-branch --disable-ssh --minimal-petsc ${SLEPC} --slope --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -93,4 +93,3 @@ cd firedrake/src/firedrake/docs; make html
     }
   }
 }
-
