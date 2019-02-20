@@ -292,7 +292,6 @@ class _SNESContext(object):
                                               bcs=bc.bcs,
                                               J=bc_J,
                                               Jp=None if bc.Jp_eq_J else bc_Jp,
-                                              #V=bc.function_space(),
                                               V=W,
                                               is_linear=bc.is_linear))
 
@@ -313,7 +312,6 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
-        problem = ctx._problem
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -323,12 +321,6 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
-
-        # no mat_type -- it's a vector!
-        from firedrake.bcs import DirichletBC
-        for bc in problem.bcs:
-            if isinstance(bc, DirichletBC):
-                bc.zero(ctx._F)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.

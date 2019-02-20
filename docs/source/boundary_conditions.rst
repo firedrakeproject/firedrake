@@ -326,31 +326,29 @@ conditions, and their implementation.
 Mathematical background
 -----------------------
 
-The problem that we consider here is the same as that presented
+The problem that we consider here is the same as the above presented
 for :class:`~.DirichletBC`
-except that the formula for `F_\Gamma(u; \phi_i)` is now, for each
-`\phi_i \in \phi^_\Gamma`, a general equation in variational form 
-that is defined only on `\Gamma_D`.
-The resulting residual `\hat F(u;v_0,v_\Gamma)` is given by the same formula.
+except that the formula for `F_\Gamma(u; v_\Gamma)` is now a set of equations
+in variational form that is defined only on `\Gamma_D`.
+These boundary equations on `\Gamma_D` and the domain equations are then
+solved simultaneously, the resulting residual `\hat F(u;v_0+v_\Gamma)` given
+by the same formula.
 
 
 Solution strategy
 -----------------
 
-Similarly to the case of :class:`~.DirichletBC`, a problem with :class:`~.EquationBC` 
-is also solved using a gradient-based nonlinear solver, and we are to compute
-the Jacobian matrix, `J`, from the modified residual.
-Our definition of the modified residual
-`\hat F(u;v_0,v_\Gamma)` produces submatrices of distinct structures on the 
-equation boundary condition rows of `J` and on the remaining rows of `J`.
-In other words, the rows of `J` corresponding to the boundary
-condition nodes are replaced by Jacobian matrix corresponding to
-`F_\Gamma`.
+A problem with :class:`~.EquationBC` is also solved using a gradient-based
+nonlinear solver, and we are to compute the Jacobian matrix, `J`, from the
+modified residual. Our definition of the modified residual
+`\hat F(u;v_0+v_\Gamma)` produces submatrices of distinct structures on the 
+equation boundary condition rows of `J` and on the remaining rows of `J`,
+the former corresponding to `v_\Gamma` and the latter to `v_0`.
 The resulting Jacobian matrix is thus non-symmetric in general.
 
 Contrary to the case of Dirichlet boundary conditions, we do not
 know the values of the solution on the boundary condition nodes a priori,
-and the whole system of equations are to be solved monolithically
+and the whole system of equations must be solved monolithically
 using linear/nonlinear solvers.
 
 
@@ -360,13 +358,13 @@ Implementation
 Variational problems
 ~~~~~~~~~~~~~~~~~~~~
 
-We here outline the assembly process of a problem with :class:`~.EquationBC`.
+We here outline the assembly process of a problem that involves an :class:`~.EquationBC`.
 
 We will use ``F`` for the residual :class:`~ufl.form.Form`
 and ``J`` for the Jacobian :class:`~ufl.form.Form`.
-An equation boundary condition :class:`~.EquationBC` object separately carries 
-``Fb`` for the boundary residual :class:`~ufl.form.Form` and ``Jb`` 
-for the boundary Jacobian :class:`~ufl.form.Form`.
+An equation boundary condition :class:`~.EquationBC` object carries its own
+residual and Jacobian :class:`~ufl.form.Form` s, which we denote by
+``Fb`` and ``Jb``.
 As before, ``u`` represents the solution :class:`~.Function`.
 
 Equation boundary conditions are applied as follows:

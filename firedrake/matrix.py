@@ -138,6 +138,11 @@ class Matrix(MatrixBase):
         self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
 
+    def assemble(self):
+        raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
+                                  has been removed.  Use 'assemble(a, bcs=bcs)', which\
+                                  now returns an assembled matrix.")
+
     @property
     def M(self):
         """The :class:`pyop2.Mat` representing the assembled form

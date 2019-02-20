@@ -124,6 +124,16 @@ class BCBase(object):
         except exceptions.MapValueError:
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
+    def set(self, r, val):
+        r"""Set the boundary nodes to a prescribed (external) value.
+        :arg r: the :class:`Function` to which the value should be applied.
+        :arg val: the prescribed value.
+        """
+        for idx in self._indices:
+            r = r.sub(idx)
+            val = val.sub(idx)
+        r.assign(val, subset=self.node_set)
+
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
 
@@ -268,8 +278,8 @@ class DirichletBC(BCBase):
         """
 
         if isinstance(r, matrix.MatrixBase):
-            r.add_bc(self)
-            return
+            raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
+
         fs = self._function_space
 
         # Check that u matches r if supplied
@@ -297,16 +307,6 @@ class DirichletBC(BCBase):
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
-
-    def set(self, r, val):
-        r"""Set the boundary nodes to a prescribed (external) value.
-        :arg r: the :class:`Function` to which the value should be applied.
-        :arg val: the prescribed value.
-        """
-        for idx in self._indices:
-            r = r.sub(idx)
-            val = val.sub(idx)
-        r.assign(val, subset=self.node_set)
 
     def integrals(self):
         return []
@@ -356,9 +356,8 @@ class EquationBC(BCBase):
         #     ...
         #     for bc in bcs:
         #         # boundary conditions for boundary conditions for boun...
-        #         _assemble(..., bc.bcs, ...)
+        #         ... _assemble(bc.f, bc.bcs, ...)
         #     ...
-
         # Currently only support bcs = []
         self.bcs = bcs
 
@@ -404,7 +403,7 @@ class EquationBCSplit(BCBase):
         if not isinstance(ebc, (EquationBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
         if V is None:
-            V=ebc._function_space
+            V = ebc._function_space
         super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method="topological")
         self.f = form
         self.bcs = bcs

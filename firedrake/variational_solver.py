@@ -222,7 +222,7 @@ class NonlinearVariationalSolver(OptionsManager):
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         # Apply the boundary conditions to the initial guess.
-        from firedrake.bcs import DirichletBC, EquationBC
+        from firedrake.bcs import DirichletBC
         for bc in self._problem.bcs:
             if isinstance(bc, DirichletBC):
                 bc.apply(self._problem.u)

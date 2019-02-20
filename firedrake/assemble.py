@@ -99,11 +99,12 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                            form_compiler_parameters=form_compiler_parameters,
                            inverse=inverse, mat_type=mat_type,
                            sub_mat_type=sub_mat_type, appctx=appctx,
-                           not_collect_loops=not collect_loops,
+                           assemble_now=not collect_loops,
                            allocate_only=allocate_only,
                            options_prefix=options_prefix)
         loops = [l for l in loops_]
         if collect_loops and not allocate_only:
+            # Will this be useful?
             return loops
         else:
             for l in loops:
@@ -126,13 +127,17 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
        Do not use this function unless you know what you're doing.
     """
     loops_ = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
-                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                      appctx=appctx, allocate_only=True,
-                      options_prefix=options_prefix)
+                       inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                       appctx=appctx, allocate_only=True,
+                       options_prefix=options_prefix)
     # has only one entry
-    #loops = [l for l in loops_]
     return next(loops_)()
-    #return loops[0]()
+
+# Can we let assemble(..) also create callable?
+#
+# ... assemble(..., create_callable=True)
+#
+# The flag "create_callable" is identical to "collect_loops".
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
@@ -169,7 +174,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
               appctx={},
               options_prefix=None,
-              not_collect_loops=False,
+              assemble_now=False,
               allocate_only=False,
               zero_tensor=True):
     r"""Assemble the form or Slate expression f and return a Firedrake object
@@ -244,7 +249,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
 
-    if is_mat and not_collect_loops and not allocate_only:
+    if is_mat and assemble_now and not allocate_only:
         raise DeprecationWarning("API compatibility for applying BCs after assembling a matrix has been dropped. Returning an assembled matrix.")
 
     zero_tensor_parloop = lambda: None
@@ -341,8 +346,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 raise ValueError("Expecting matfree with implicit matrix")
 
             result_matrix = tensor
-            # Replace any bcs on the tensor we passed in
-            result_matrix.bcs = bcs
             tensor = tensor._M
             zero_tensor_parloop = tensor.zero
 
@@ -476,7 +479,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                 all_integer_subdomain_ids)
         if integral_type == "cell":
             itspace = sdata or itspace
-
             if subdomain_id not in ["otherwise", "everywhere"] and sdata is not None:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
 
@@ -558,6 +560,41 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # to apply bcs to a block which is otherwise zero, and
     # therefore does not have an associated kernel.
     if bcs is not None and is_mat:
+        # On nodes where an EquationBC meets a DirichletBC (if any), we add
+        # their contributions, as, currently, application of BCs
+        # for an EquationBC is not supported; one can only apply EquationBCs
+        # that do not require boundary conditions.
+        # In such case both equations are correct, so we can add.
+        #
+        #
+        #  2D Example:     E
+        #              ---------|
+        #             |         |
+        #             |         |
+        #           D |         | E
+        #             |         |
+        #             @---------
+        #                 E  <- when assembling this, we often need DirichletBC
+        #                       at @, in which case we have to be able to drop
+        #                       rows corresponding to @ (TODO)
+        #
+        #  D: DirichletBC
+        #  E: EquationBC
+        #
+        #
+        # Example matrix structure:
+        #
+        #  D      1                              1
+        #  D          1                              1
+        #  D              1             TODO             1
+        #  DE    a0  a1  a2  1+a3  a4  ------>               1
+        #   E    a5  a6  a7   a8  a9            a5  a6  a7  a8  a9
+        #   E    a10 a11 a12 a13 a14            a10 a11 a12 a13 a14
+        #
+        # So, for now, we must apply DirichletBCs before EquationBCs, as
+        # tensor[i, j].set_local_diagonal_entries() is insertion, and add
+        # EquationBC rows later.
+        #
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 fs = bc.function_space()
@@ -587,44 +624,50 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                     if fs.parent.index != i:
                                         continue
                                 # Index matches
-                                yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
+                                    yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
                             elif fs.index is None:
                                 yield tensor[i, j].set_local_diagonal_entries(nodes)
                             else:
                                 raise RuntimeError("Unhandled BC case")
-            elif isinstance(bc, EquationBCSplit):
+        for bc in bcs:
+            if isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
-                                     not_collect_loops=not_collect_loops,
+                                     assemble_now=assemble_now,
                                      allocate_only=False,
                                      zero_tensor=False)
-            else:
-                raise NotImplementedError("Undefined type of bcs class provided.")
-    if bcs is not None and is_vec:
-        # Zero residual here to deal with intersecting EquationBCSplits
         for bc in bcs:
-            if isinstance(bc, EquationBCSplit):
-                yield functools.partial(bc.zero, result_function)
+            if not isinstance(bc, (DirichletBC, EquationBCSplit)):
+                raise NotImplementedError("Undefined type of bcs class provided.")
+
+    if bcs is not None and is_vec:
+        # We first apply DirichletBCs, and then add contribution
+        # of EquationBCs, being consistent with the Jacobian.
+        for bc in bcs:
+            yield functools.partial(bc.zero, result_function)
         # Populate boundary condition rows
+        # Insertion
         for bc in bcs:
             if isinstance(bc, DirichletBC):
-                if not_collect_loops:
+                if assemble_now:
                     yield functools.partial(bc.apply, result_function)
-            elif isinstance(bc, EquationBCSplit):
+        # Addition
+        for bc in bcs:
+            if isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_function, bcs=None,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
-                                     not_collect_loops=not_collect_loops,
+                                     assemble_now=assemble_now,
                                      allocate_only=False,
                                      zero_tensor=False)
     if zero_tensor:
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             yield tensor.assemble()
-        else:
+        if assemble_now:
             yield result
