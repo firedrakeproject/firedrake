@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 __all__ = ("PCBase", "SNESBase")
 
 
-class PCBase(object, metaclass=abc.ABCMeta):
+class PCSNESBase(object, metaclass=abc.ABCMeta):
 
     def __init__(self):
         """Create a PC context suitable for PETSc.
@@ -22,7 +22,7 @@ class PCBase(object, metaclass=abc.ABCMeta):
         """
         Citations().register("Kirby2017")
         self.initialized = False
-        super(PCBase, self).__init__()
+        super(PCSNESBase, self).__init__()
 
     @abc.abstractmethod
     def update(self, pc):
@@ -51,8 +51,18 @@ class PCBase(object, metaclass=abc.ABCMeta):
         typ = viewer.getType()
         if typ != PETSc.Viewer.Type.ASCII:
             return
-        viewer.printfASCII("Firedrake matrix-free preconditioner %s\n" %
-                           type(self).__name__)
+        viewer.printfASCII("Firedrake custom %s %s\n" %
+                           (self._asciiname, type(self).__name__))
+
+    @staticmethod
+    def get_appctx(pc):
+        from firedrake.dmhooks import get_appctx
+        return get_appctx(pc.getDM()).appctx
+
+
+class PCBase(PCSNESBase):
+
+    _asciiname = "preconditioner"
 
     @abc.abstractmethod
     def apply(self, pc, X, Y):
@@ -71,59 +81,7 @@ class PCBase(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    @staticmethod
-    def get_appctx(pc):
-        from firedrake.dmhooks import get_appctx
-        return get_appctx(pc.getDM()).appctx
 
+class SNESBase(PCSNESBase):
 
-class SNESBase(object, metaclass=abc.ABCMeta):
-
-    def __init__(self):
-        """Create a SNES context suitable for PETSc.
-
-        Custom nonlinear solvers should inherit from this class and
-        implement:
-
-        - :meth:`initialize`
-        - :meth:`update`
-        - :meth:`solve`
-
-        """
-        self.initialized = False
-        super(SNESBase, self).__init__()
-
-    @abc.abstractmethod
-    def update(self, snes):
-        """Update any state in this preconditioner."""
-        pass
-
-    @abc.abstractmethod
-    def initialize(self, snes):
-        """Initialize any state in this preconditioner."""
-        pass
-
-    def setUp(self, snes):
-        """Setup method called by PETSc.
-
-        Subclasses should probably not override this and instead
-        implement :meth:`update` and :meth:`initialize`."""
-        if self.initialized:
-            self.update(snes)
-        else:
-            self.initialize(snes)
-            self.initialized = True
-
-    def view(self, snes, viewer=None):
-        if viewer is None:
-            return
-        typ = viewer.getType()
-        if typ != PETSc.Viewer.Type.ASCII:
-            return
-        viewer.printfASCII("Firedrake custom nonlinear solver %s\n" %
-                           type(self).__name__)
-
-    @staticmethod
-    def get_appctx(snes):
-        from firedrake.dmhooks import get_appctx
-        return get_appctx(snes.getDM()).appctx
+    _asciiname = "nonlinear solver"
