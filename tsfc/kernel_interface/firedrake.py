@@ -1,6 +1,7 @@
 import numpy
 from collections import namedtuple
 from itertools import chain, product
+from functools import partial
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
@@ -16,6 +17,10 @@ from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 
 # Expression kernel description type
 ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients'])
+
+
+def make_builder(*args, **kwargs):
+    return partial(KernelBuilder, *args, **kwargs)
 
 
 class Kernel(object):
@@ -178,7 +183,8 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None,
+                 dont_split=()):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
@@ -188,6 +194,7 @@ class KernelBuilder(KernelBuilderBase):
         self.coordinates_arg = None
         self.coefficient_args = []
         self.coefficient_split = {}
+        self.dont_split = frozenset(dont_split)
 
         # Facet number
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
@@ -236,7 +243,7 @@ class KernelBuilder(KernelBuilderBase):
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.function_replace_map[form_data.reduced_coefficients[i]]
-                if type(coefficient.ufl_element()) == ufl_MixedElement:
+                if type(coefficient.ufl_element()) == ufl_MixedElement and coefficient not in self.dont_split:
                     split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
                              for element in coefficient.ufl_element().sub_elements()]
                     coefficients.extend(split)

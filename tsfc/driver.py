@@ -43,8 +43,6 @@ def compile_form(form, prefix="form", parameters=None, interface=None):
 
     assert isinstance(form, Form)
 
-    if interface is None:
-        interface = firedrake_interface
     # Determine whether in complex mode:
     # complex nodes would break the refactoriser.
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
@@ -69,8 +67,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None):
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters,
-                     interface=firedrake_interface):
+def compile_integral(integral_data, form_data, prefix, parameters, interface):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -86,6 +83,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _ = default_parameters()
         _.update(parameters)
         parameters = _
+    if interface is None:
+        interface = firedrake_interface.KernelBuilder
 
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
@@ -109,9 +108,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
-                                      domain_numbering[integral_data.domain],
-                                      parameters["scalar_type"])
+    builder = interface(integral_type, integral_data.subdomain_id,
+                        domain_numbering[integral_data.domain],
+                        parameters["scalar_type"])
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
