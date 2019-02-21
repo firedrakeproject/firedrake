@@ -367,7 +367,7 @@ class EquationBC(BCBase):
         if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
             self.J = eq.lhs
             self.Jp = Jp or self.J
-            if eq.rhs is 0:
+            if eq.rhs == 0:
                 self.F = ufl_expr.action(self.J, self.u)
             else:
                 if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
