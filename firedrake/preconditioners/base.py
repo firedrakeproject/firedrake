@@ -3,7 +3,7 @@ import abc
 from firedrake_citations import Citations
 from firedrake.petsc import PETSc
 
-__all__ = ("PCBase", "SNESBase")
+__all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
 
 class PCSNESBase(object, metaclass=abc.ABCMeta):
@@ -63,6 +63,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
 class PCBase(PCSNESBase):
 
     _asciiname = "preconditioner"
+    _objectname = "pc"
 
     @abc.abstractmethod
     def apply(self, pc, X, Y):
@@ -85,3 +86,4 @@ class PCBase(PCSNESBase):
 class SNESBase(PCSNESBase):
 
     _asciiname = "nonlinear solver"
+    _objectname = "snes"
