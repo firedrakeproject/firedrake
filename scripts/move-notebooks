@@ -3,13 +3,13 @@ import shutil
 import os
 
 new_names = {
-          "example-spd-helmholtz.ipynb": "1-spd-helmholtz.ipynb",
-          "example-composable-solvers.ipynb": "2-composable-sovlers.ipynb",
-          "example-hybridization.ipynb": "3-hybridisation.ipynb",
-          "example-performance.ipynb": "4-performance-optimisation.ipynb",
-          "example-stokes-bc-control.ipynb": "5-inverse-problem.ipynb",
-          "stokes-control.msh": "stokes-control.msh"
+    "example-spd-helmholtz.ipynb": "1-spd-helmholtz.ipynb",
+    "example-composable-solvers.ipynb": "2-composable-solvers.ipynb",
+    "example-hybridization.ipynb": "3-hybridisation.ipynb",
+    "example-performance.ipynb": "4-performance-optimisation.ipynb",
+    "example-stokes-bc-control.ipynb": "5-inverse-problem.ipynb",
+    "stokes-control.msh": "stokes-control.msh"
 }
 
 for old, new in new_names.items():
-    shutil.copy(os.path.join(os.environ["VIRTUAL_ENV"], "src", "firedrake", "docs", "notebooks", old),new)
+    shutil.copy(os.path.join(os.environ["VIRTUAL_ENV"], "src", "firedrake", "docs", "notebooks", old), new)
