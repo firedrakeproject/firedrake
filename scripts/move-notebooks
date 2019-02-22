@@ -13,3 +13,5 @@ new_names = {
 
 for old, new in new_names.items():
     shutil.copy(os.path.join(os.environ["VIRTUAL_ENV"], "src", "firedrake", "docs", "notebooks", old), new)
+
+shutil.copytree(os.path.join(os.environ["VIRTUAL_ENV"], "src", "firedrake", "docs", "notebooks", "image"), "image")
