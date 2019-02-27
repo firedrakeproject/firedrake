@@ -75,6 +75,7 @@ from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
+from firedrake.randomfunctiongen import *
 
 from firedrake.logging import *
 # Set default log level
