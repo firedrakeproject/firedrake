@@ -3,6 +3,7 @@ from functools import partial, reduce
 from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
+from gem.node import Memoizer
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import remove_componenttensors, replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -44,6 +45,12 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     return [Integral(e, quadrature_multiindex, argument_indices) for e in expressions]
 
 
+def _delta_inside(node, self):
+    """Does node contain a Delta?"""
+    return any(isinstance(child, Delta) or self(child)
+               for child in node.children)
+
+
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
@@ -72,6 +79,7 @@ def flatten(var_reps, index_cache):
         variable, expression = pair
         return frozenset(variable.free_indices)
 
+    delta_inside = Memoizer(_delta_inside)
     # Variable ordering after delta cancellation
     narrow_variables = OrderedDict()
     # Assignments are variable -> MonomialSum map
@@ -80,7 +88,7 @@ def flatten(var_reps, index_cache):
     for free_indices, pair_group in groupby(pairs, group_key):
         variables, expressions = zip(*pair_group)
         # Argument factorise expressions
-        classifier = partial(classify, set(free_indices))
+        classifier = partial(classify, set(free_indices), delta_inside=delta_inside)
         monomial_sums = collect_monomials(expressions, classifier)
         # For each monomial, apply delta cancellation and insert
         # result into delta_simplified.
@@ -111,13 +119,13 @@ def flatten(var_reps, index_cache):
 finalise_options = dict(replace_delta=False)
 
 
-def classify(argument_indices, expression):
+def classify(argument_indices, expression, delta_inside):
     """Classifier for argument factorisation"""
     n = len(argument_indices.intersection(expression.free_indices))
     if n == 0:
         return OTHER
     elif n == 1:
-        if isinstance(expression, (Delta, Indexed)):
+        if isinstance(expression, (Delta, Indexed)) and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND
