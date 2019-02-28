@@ -1,6 +1,5 @@
-# DockerFile for a firedrake + jupyter container
+# DockerFile for a firedrake
 
-# Use a jupyter notebook base image
 FROM ubuntu:18.04
 
 # This DockerFile is looked after by
@@ -21,11 +20,6 @@ RUN apt-get update \
 
 
 # Set up user so that we do not run as root
-# See https://github.com/phusion/baseimage-docker/issues/186
-# Disable forward logging
-# Add script to set up permissions of home directory on myinit
-# Run ldconfig so that /usr/local/lib is in the default search
-# path for the dynamic linker.
 RUN useradd -m -s /bin/bash -G sudo firedrake && \
     echo "firedrake:docker" | chpasswd && \
     echo "firedrake ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
