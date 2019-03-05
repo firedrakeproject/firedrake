@@ -4,6 +4,19 @@
 
 #include <evaluate.h>
 
+void locate_cells(struct Function *f,
+	double *xs,
+	int dim,
+	int npoint,
+	inside_predicate try_candidate,
+	void *data_,
+	int *cells)
+{
+	int i;
+	for (i = 0; i < npoint; i++) {
+		cells[i] = locate_cell(f, &xs[i*dim], dim, try_candidate, data_);
+	}
+}
 int locate_cell(struct Function *f,
 		double *x,
 		int dim,
@@ -12,7 +25,6 @@ int locate_cell(struct Function *f,
 {
 	RTError err;
 	int cell = -1;
-
 	if (f->sidx) {
 		int64_t *ids = NULL;
 		uint64_t nids = 0;

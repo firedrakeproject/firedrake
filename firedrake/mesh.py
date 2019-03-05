@@ -1120,15 +1120,19 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
+        raise NotImplementedError("Use locate_cells instead")
+
+    def locate_cells(self, points, tolerance=None):
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-        x = np.asarray(x, dtype=np.float)
-        cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
-        if cell == -1:
-            return None
-        else:
-            return cell
+        points = np.asarray(points, dtype=np.float).reshape(-1, self.geometric_dimension())
+        npoint, _ = points.shape
+        cells = np.empty(npoint, dtype=np.int32)
+        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                             points.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             npoint,
+                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)))
+        return cells
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -1142,10 +1146,10 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x)
+    void locator(struct Function *f, double *xs, int npoint, int *cells)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+        return locate_cells(f, xs, %(geometric_dimension)d, npoint, &to_reference_coords, &reference_coords, cells);
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -1158,8 +1162,10 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
-                                ctypes.POINTER(ctypes.c_double)]
-            locator.restype = ctypes.c_int
+                                ctypes.POINTER(ctypes.c_double),
+                                ctypes.c_int,
+                                ctypes.POINTER(ctypes.c_int)]
+            locator.restype = None
             return cache.setdefault(tolerance, locator)
 
     def init_cell_orientations(self, expr):
