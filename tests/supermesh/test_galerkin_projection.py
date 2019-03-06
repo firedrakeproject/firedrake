@@ -80,11 +80,3 @@ def test_galerkin_projection(mesh, shapify, A, B):
     norm = sqrt(assemble(inner(diff, diff)*dx))
 
     assert norm < 1.0e-12
-
-
-if __name__ == "__main__":
-
-    class ThereMustBeABetterWay(object):
-        param = 2
-
-    test_galerkin_projection(mesh(ThereMustBeABetterWay()), lambda x: x, "CG", "CG", 2, 3)

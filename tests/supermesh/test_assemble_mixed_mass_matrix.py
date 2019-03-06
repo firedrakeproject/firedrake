@@ -54,5 +54,4 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
 
     M_ex.axpy(-1.0, M)
     nrm = M_ex.norm(PETSc.NormType.NORM_INFINITY)
-    print("nrm: %s" % nrm)
     assert nrm < 1.0e-10
