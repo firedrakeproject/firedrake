@@ -233,7 +233,7 @@ class _SNESContext(object):
                                         bc.function_arg,
                                         bc.sub_domain,
                                         method=bc.method))
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None,
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
