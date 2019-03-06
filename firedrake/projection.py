@@ -66,7 +66,7 @@ def check_meshes(source, target):
 def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
-            use_slate_for_inverse=False,
+            use_slate_for_inverse=True,
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
@@ -78,7 +78,7 @@ def project(v, V, bcs=None,
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler
     :arg use_slate_for_inverse: compute mass inverse cell-wise using
-         SLATE (only valid for DG function spaces).
+         SLATE (ignored for non-DG function spaces).
     :arg name: name of the resulting :class:`.Function`
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
@@ -106,7 +106,7 @@ class Assigner(object):
 class ProjectorBase(object, metaclass=abc.ABCMeta):
     def __init__(self, source, target, bcs=None, solver_parameters=None,
                  form_compiler_parameters=None, constant_jacobian=True,
-                 use_slate_for_inverse=False):
+                 use_slate_for_inverse=True):
         if solver_parameters is None:
             solver_parameters = {}
         else:
@@ -119,7 +119,13 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.form_compiler_parameters = form_compiler_parameters
         self.bcs = bcs
         self.constant_jacobian = constant_jacobian
-        self.use_slate_for_inverse = use_slate_for_inverse
+        try:
+            element = self.target.function_space().finat_element
+            is_dg = element.entity_dofs() == element.entity_closure_dofs()
+        except AttributeError:
+            # Mixed space
+            is_dg = False
+        self.use_slate_for_inverse = use_slate_for_inverse and is_dg
 
     @cached_property
     def A(self):
