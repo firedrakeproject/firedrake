@@ -478,7 +478,7 @@ class PatchBase(PCSNESBase):
             mat.assemble()
         patch.setPatchComputeOperator(Jop)
 
-        if hasattr(ctx, "F"):
+        if hasattr(ctx, "F") and isinstance(obj, PETSc.SNES):
             F = ctx.F
             Fstate = ctx._problem.u
             Ffunptr, Fkinfo = residual_funptr(F, Fstate)
