@@ -7,16 +7,6 @@ __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
 
 class PCSNESBase(object, metaclass=abc.ABCMeta):
-
-    needs_python_amat = False
-    """Set this to True if the A matrix needs to be Python (matfree)."""
-
-    needs_python_pmat = True
-    """Set this to False if the P matrix needs to be Python (matfree).
-
-    If the preconditioner also works with assembled matrices, then use False here.
-    """
-
     def __init__(self):
         """Create a PC context suitable for PETSc.
 
@@ -48,14 +38,6 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
 
         Subclasses should probably not override this and instead
         implement :meth:`update` and :meth:`initialize`."""
-        A, P = pc.getOperators()
-        Atype = A.getType()
-        Ptype = P.getType()
-
-        if self.needs_python_amat and Atype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC needs amat to have type python, but it is %s" % Atype)
-        if self.needs_python_pmat and Ptype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC needs pmat to have type python, but it is %s" % Ptype)
 
         if self.initialized:
             self.update(pc)
@@ -83,6 +65,16 @@ class PCBase(PCSNESBase):
     _asciiname = "preconditioner"
     _objectname = "pc"
 
+    needs_python_amat = False
+    """Set this to True if the A matrix needs to be Python (matfree)."""
+
+    needs_python_pmat = True
+    """Set this to False if the P matrix needs to be Python (matfree).
+
+    If the preconditioner also works with assembled matrices, then use False here.
+    """
+
+
     @abc.abstractmethod
     def apply(self, pc, X, Y):
         """Apply the preconditioner to X, putting the result in Y.
@@ -100,6 +92,17 @@ class PCBase(PCSNESBase):
         """
         pass
 
+    def setUp(self, pc):
+        A, P = pc.getOperators()
+        Atype = A.getType()
+        Ptype = P.getType()
+
+        if self.needs_python_amat and Atype != PETSc.Mat.Type.PYTHON:
+            raise ValueError("PC needs amat to have type python, but it is %s" % Atype)
+        if self.needs_python_pmat and Ptype != PETSc.Mat.Type.PYTHON:
+            raise ValueError("PC needs pmat to have type python, but it is %s" % Ptype)
+
+        super().setUp(pc)
 
 class SNESBase(PCSNESBase):
 
