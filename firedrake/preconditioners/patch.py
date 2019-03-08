@@ -558,6 +558,8 @@ class PatchBase(PCSNESBase):
 
 
 class PatchPC(PCBase, PatchBase):
+    needs_python_pmat = False
+
     def configure_patch(self, patch, pc):
         (A, P) = pc.getOperators()
         patch.setOperators(A, P)

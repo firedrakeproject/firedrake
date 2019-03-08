@@ -74,7 +74,6 @@ class PCBase(PCSNESBase):
     If the preconditioner also works with assembled matrices, then use False here.
     """
 
-
     @abc.abstractmethod
     def apply(self, pc, X, Y):
         """Apply the preconditioner to X, putting the result in Y.
@@ -103,6 +102,7 @@ class PCBase(PCSNESBase):
             raise ValueError("PC needs pmat to have type python, but it is %s" % Ptype)
 
         super().setUp(pc)
+
 
 class SNESBase(PCSNESBase):
 
