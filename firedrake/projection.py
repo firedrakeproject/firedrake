@@ -122,10 +122,12 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         try:
             element = self.target.function_space().finat_element
             is_dg = element.entity_dofs() == element.entity_closure_dofs()
+            is_variable_layers = self.target.function_space().mesh().variable_layers
         except AttributeError:
             # Mixed space
             is_dg = False
-        self.use_slate_for_inverse = use_slate_for_inverse and is_dg
+            is_variable_layers = True
+        self.use_slate_for_inverse = use_slate_for_inverse and is_dg and not is_variable_layers
 
     @cached_property
     def A(self):
