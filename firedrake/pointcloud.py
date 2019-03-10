@@ -3,30 +3,40 @@ from firedrake.dmplex import build_two_sided
 from firedrake.utils import cached_property
 from firedrake.petsc import PETSc
 from firedrake import logging
-from firedrake import debug
 from pyop2.mpi import MPI
 from pyop2.datatypes import IntType, ScalarType
 import numpy as np
 
 
-# TODO: Remove this.
-logging.set_level(logging.DEBUG)
-
-
 __all__ = ["PointCloud"]
 
+
 def syncPrint(*args, **kwargs):
-    if logging.get_level() >= logging.DEBUG:
+    """Perform a PETSc syncPrint operation with given arguments if the logging level is
+    set to at least debug.
+    """
+    if logging.logger.isEnabledFor(logging.DEBUG):
         PETSc.Sys.syncPrint(*args, **kwargs)
 
+
 def syncFlush(*args, **kwargs):
-    pass
+    """Perform a PETSc syncFlush operation with given arguments if the logging level is
+    set to at least debug.
+    """
+    if logging.logger.isEnabledFor(logging.DEBUG):
+        PETSc.Sys.syncFlush(*args, **kwargs)
+
 
 class PointCloud(object):
-    # ?
-    # def __init__(self, mesh, points, *, **kwargs):
-    def __init__(self, mesh, points, *, **kwargs):
-        # kwargs used to control options
+    """Store a group of points and evaluate the (cell, rank) pair corresponding their
+    location in the distributed mesh.
+    """
+    def __init__(self, mesh, points, *args, **kwargs):
+        """Initialise the PointCloud.
+
+        :arg mesh: A mesh object.
+        :arg points: A list of points in the point cloud.
+        """
         self.mesh = mesh
         self.points = np.asarray(points)
         _, dim = points.shape
@@ -62,7 +72,9 @@ class PointCloud(object):
         """Evaluate a function at the located points.
 
         :arg function: The function to evaluate.
-        :returns: TODO.
+
+        :returns: An array containing the results from evaluating the function at each
+                  point in the point cloud.
         """
         assert function.ufl_domain() == self.mesh
         # Here is where we will do evaluation of function at the located points
@@ -108,6 +120,7 @@ class PointCloud(object):
         """Determine candidate processes for a given point.
 
         :arg point: A point on the mesh.
+
         :returns: A numpy array of candidate processes.
         """
         candidates = spatialindex.bounding_boxes(self.processes_index, point)
@@ -124,10 +137,11 @@ class PointCloud(object):
         """Perform a sparse communication round in the point location process.
 
         :arg recv_buffers_dict: A dictionary where the keys are process ranks and the
-            corresponding items are numpy arrays of buffers in which to receive data from
-            that rank.
+             corresponding items are numpy arrays of buffers in which to receive data from
+             that rank.
         :arg send_data: A dictionary where the keys are process ranks and the
-            corresponding items are lists of buffers from which to send data to that rank.
+             corresponding items are lists of buffers from which to send data to that
+             rank.
         """
         # Create lists to hold send and receive communication request objects.
         recv_reqs = []
@@ -152,49 +166,49 @@ class PointCloud(object):
         """Determine the location of each input point using the algorithm described in
         `self.locations`.
 
-        :returns: An array of (rank, cell number) pairs; (-1, -1) if not found.
+        :returns: A numpy array of (rank, cell number) pairs; (-1, -1) if not found.
         """
 
         # Create an array of (rank, element) tuples for storing located
         # elements.
         located_elements = np.full((len(self.points), 2), -1, dtype=IntType)
-        # Create a dictionary for storing the points that a given process may contain.
-        local_candidates = {}
+
         # Check if points are located normally.
         local_results = self.mesh.locate_cells(self.points)
 
-        # TODO: Remove this.
-        debug("TEST?")
+        # Update points that have been found locally.
+        located_elements[:, 1] = local_results
+        located_elements[local_results != -1, 0] = self.mesh.comm.rank
 
-        for i, (point, result) in enumerate(zip(self.points, local_results)):
-            if (result != -1):
-                # Point found on some local element.
-                located_elements[i] = (self.mesh.comm.rank, result)
-                PETSc.Sys.syncPrint("[%d] Cell found locally for point %s. Cell: %s"
-                                    % (self.mesh.comm.rank, point, result),
-                                    comm=self.mesh.comm)
-            else:
-                # Point not found locally -- get candidates from processes spatial index.
-                point_candidates = self._get_candidate_processes(point)
-                for candidate in point_candidates:
-                    if candidate in local_candidates:
-                        local_candidates[candidate].append(point)
-                    else:
-                        local_candidates[candidate] = [point]
+        # Store the points and that have not been found locally, and the indices of those
+        # points in `self.points`.
+        not_found_indices, = np.where(local_results == -1)
+        points_not_found = self.points[not_found_indices]
 
-                PETSc.Sys.syncPrint("[%d] Cell not found locally for point %s. "
-                                    "Candidates: %s"
-                                    % (self.mesh.comm.rank, point, point_candidates),
-                                    comm=self.mesh.comm)
+        # Create dictionaries for storing processes that may contain these points.
+        local_candidates = {}
+        local_candidate_indices = {}
 
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+        for point, idx in zip(points_not_found, not_found_indices):
+            # Point not found locally -- get candidates from processes spatial index.
+            point_candidates = self._get_candidate_processes(point)
+            for candidate in point_candidates:
+                local_candidates.setdefault(candidate, []).append(point)
+                local_candidate_indices.setdefault(candidate, []).append(idx)
 
-        PETSc.Sys.syncPrint("[%d] Located elements: %s" %
-                            (self.mesh.comm.rank, located_elements), comm=self.mesh.comm)
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
-        PETSc.Sys.syncPrint("[%d] Local candidates: %s" %
-                            (self.mesh.comm.rank, local_candidates), comm=self.mesh.comm)
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+            syncPrint("[%d] Cell not found locally for point %s. Candidates: %s"
+                      % (self.mesh.comm.rank, point, point_candidates),
+                      comm=self.mesh.comm)
+
+        syncFlush(comm=self.mesh.comm)
+
+        syncPrint("[%d] Located elements: %s" % (self.mesh.comm.rank,
+                                                 located_elements.tolist()),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
+        syncPrint("[%d] Local candidates: %s" % (self.mesh.comm.rank, local_candidates),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
 
         # Get number of points to receive from each rank through sparse communication
         # round.
@@ -202,11 +216,9 @@ class PointCloud(object):
         # Create input arrays from candidates dictionary.
         to_ranks = np.zeros(len(local_candidates), dtype=IntType)
         to_data = np.zeros(len(local_candidates), dtype=IntType)
-        i = 0
-        for rank, points in local_candidates.items():
+        for i, (rank, points) in enumerate(local_candidates.items()):
             to_ranks[i] = rank
             to_data[i] = len(points)
-            i += 1
 
         # `build_two_sided()` provides an interface for PetscCommBuildTwoSided, which
         # facilitates a sparse communication round between the processes to identify which
@@ -229,9 +241,10 @@ class PointCloud(object):
 
         self._perform_sparse_communication_round(recv_points_buffers, local_candidates)
 
-        PETSc.Sys.syncPrint("[%d] Point queries requested: %s"
-                            % (self.mesh.comm.rank, str(recv_points_buffers)))
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+        syncPrint("[%d] Point queries requested: %s" % (self.mesh.comm.rank,
+                                                        str(recv_points_buffers)),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
 
         # Evaluate all point requests and prepare responses
 
@@ -240,18 +253,12 @@ class PointCloud(object):
 
         # Evaluate results.
         for rank, points_buffers in recv_points_buffers.items():
-            num_points = len(points_buffers)
-            point_responses[rank] = []
-            for i in range(0, num_points):
-                req_cell = self.mesh.locate_cells(np.array([points_buffers[i]]))
-                if (req_cell != -1):
-                    point_responses[rank].append(np.array([req_cell], dtype=IntType))
-                else:
-                    point_responses[rank].append(np.array([-1], dtype=IntType))
+            point_responses[rank] = self.mesh.locate_cells(np.array([points_buffers]))
 
-        PETSc.Sys.syncPrint("[%d] Point responses: %s"
-                            % (self.mesh.comm.rank, str(point_responses)))
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+        syncPrint("[%d] Point responses: %s" % (self.mesh.comm.rank,
+                                                str(point_responses)),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
 
         # Receive all responses
 
@@ -260,37 +267,33 @@ class PointCloud(object):
         # Initialise these.
         for rank, points in local_candidates.items():
             # Create receive buffer(s).
-            recv_results[rank] = np.array([np.array([-1], dtype=IntType)
+            recv_results[rank] = np.array([np.empty(1, dtype=IntType)
                                            for _ in range(len(points))])
 
         self._perform_sparse_communication_round(recv_results, point_responses)
 
-        PETSc.Sys.syncPrint("[%d] Point location request results: %s"
-                            % (self.mesh.comm.rank, str(recv_results)))
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+        syncPrint("[%d] Point location request results: %s" % (self.mesh.comm.rank,
+                                                               str(recv_results)),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
 
-        # Process results
+        # Process and return results.
 
         # Iterate through all points. If they have not been located locally,
         # iterate through each point request reponse to find the element.
         # Sometimes an element can be reported as found by more than one
         # process -- in this case, choose the process with the lower rank.
-        for i in range(0, len(self.points)):
-            # Check if not found locally
-            curr_rank = located_elements[i][0]
-            if (curr_rank == -1):
-                # Iterate through all requested points and check if they are
-                # the point we are considering.
-                for rank, requested_points in local_candidates.items():
-                    for j, point in enumerate(requested_points):
-                        if (np.array_equal(point, self.points[i]) and
-                                (curr_rank == -1 or rank < curr_rank)):
-                            located_elements[i] = (rank, recv_results[rank][j][0])
+        for rank, requested_points in local_candidates.items():
+            for j, point in enumerate(requested_points):
+                i = local_candidate_indices[rank][j]
+                curr_rank = located_elements[i][0]
+                result = recv_results[rank][j][0]
+                if (result != -1 and (curr_rank == -1 or rank < curr_rank)):
+                    located_elements[i] = (rank, result)
 
-        # Format and return results.
-
-        PETSc.Sys.syncPrint("[%d] located_elements: %s"
-                            % (self.mesh.comm.rank, str(located_elements)))
-        PETSc.Sys.syncFlush(comm=self.mesh.comm)
+        syncPrint("[%d] Located elements: %s" % (self.mesh.comm.rank,
+                                                 located_elements.tolist()),
+                  comm=self.mesh.comm)
+        syncFlush(comm=self.mesh.comm)
 
         return located_elements
