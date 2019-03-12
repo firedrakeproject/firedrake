@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from itertools import product
 
 
 spaces = [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)]
