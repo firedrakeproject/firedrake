@@ -2,7 +2,7 @@
 import firedrake
 import ctypes
 import os
-from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm
+from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
 from firedrake.mg.kernels import to_reference_coordinates, compile_element
@@ -21,7 +21,7 @@ from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
 
 
-__all__ = ["assemble_mixed_mass_matrix"]
+__all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
 class BlockMatrix(object):
@@ -78,29 +78,30 @@ each supermesh cell.
             return [cell_A]
     else:
         if (mh_A is None or mh_B is None) or (mh_A is not mh_B):
-            msg = """
-Sorry, only implemented for non-nested hierarchies for now. You need to
-call libsupermesh's intersection finder here to compute the likely cell
-coverings that we fetch from the hierarchy.
-"""
 
-            raise NotImplementedError(msg)
+            # No mesh hierarchy structure, call libsupermesh for
+            # intersection finding
+            intersections = intersection_finder(mesh_A, mesh_B)
+            likely = intersections.__getitem__
 
-        if abs(level_A - level_B) > 1:
-            raise NotImplementedError("Only works for transferring between adjacent levels for now.")
+        else:
+            # We do have a mesh hierarchy, use it
 
-        # What are the cells of B that (probably) intersect with a given cell in A?
-        if level_A > level_B:
-            cell_map = mh_A.fine_to_coarse_cells[level_A]
+            if abs(level_A - level_B) > 1:
+                raise NotImplementedError("Only works for transferring between adjacent levels for now.")
 
-            def likely(cell_A):
-                return cell_map[cell_A]
+            # What are the cells of B that (probably) intersect with a given cell in A?
+            if level_A > level_B:
+                cell_map = mh_A.fine_to_coarse_cells[level_A]
 
-        elif level_A < level_B:
-            cell_map = mh_A.coarse_to_fine_cells[level_A]
+                def likely(cell_A):
+                    return cell_map[cell_A]
 
-            def likely(cell_A):
-                return cell_map[cell_A]
+            elif level_A < level_B:
+                cell_map = mh_A.coarse_to_fine_cells[level_A]
+
+                def likely(cell_A):
+                    return cell_map[cell_A]
 
     assert V_A.value_size == V_B.value_size
     orig_value_size = V_A.value_size
