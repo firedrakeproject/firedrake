@@ -1,32 +1,31 @@
 """
 
-This module wraps `randomgen <https://pypi.org/project/randomgen/>`__ and enables
-firedrake users to pass a FunctionSpace
-to generate random functions.
+This module wraps `randomgen <https://pypi.org/project/randomgen/>`__
+and enables firedrake users to pass a :class:`.FunctionSpace`
+to generate a randomised :class:`.Function`.
+This module inherits all attributes from `randomgen <https://pypi.org/project/randomgen/>`__,
+but allows the users to pass to many of the available distribution methods
+a FunctionSpace as the first argument to obtain a randomised Function.
 
-Usage:
+.. note ::
 FunctionSpace, V, has to be passed as
 the first argument, e.g.:
 
-Example
-_______
+**Example**::
 
->>> from firedrake import *
->>> mesh = UnitSquareMesh(2,2)
->>> V = FunctionSpace(mesh, "CG", 1)
->>> pcg = PCG64(seed=123456789)
->>> rg = RandomGenerator(pcg)
->>> f_beta = rg.beta(V, 1.0, 2.0)
->>> print(f_beta.dat.data)
-[0.56462514 0.11585311 0.01247943 0.398984   0.19097059 0.5446709
- 0.1078666  0.2178807  0.64848515]
+    from firedrake import *
+    mesh = UnitSquareMesh(2,2)
+    V = FunctionSpace(mesh, "CG", 1)
+    pcg = PCG64(seed=123456789)
+    rg = RandomGenerator(pcg)
+    f_beta = rg.beta(V, 1.0, 2.0)
+    print(f_beta.dat.data)
 
+produces::
 
-
-
+    [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
 
 """
-
 
 import numpy as np
 import inspect
@@ -35,9 +34,7 @@ import randomgen
 from firedrake.function import Function
 from ufl import FunctionSpace
 
-
 __all__ = [item for item in randomgen.__all__ if item not in ('hypergeometric', 'multinomial', 'random_sample')]
-
 
 _class_names = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)]
 _method_names = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator)
@@ -47,90 +44,75 @@ _method_names = [name for name, _ in inspect.getmembers(randomgen.RandomGenerato
 def __getattr__(module_attr):
 
     # Reformat the original documentation
-    def _clean_doc_string(strng):
-
-        # remove redundant '\n' in math mode
-        st = ""
-        _in_math_mode = False
-        for s in strng.splitlines():
-            if '.. math::' in s:
-                _in_math_mode = True
-            st += s + '\n' if not _in_math_mode else s
-            if _in_math_mode and s == '':
-                st += '\n\n'
-                _in_math_mode = False
-
-        strng = st.replace('\n\n', '\n')
-        strng = st.replace('optional\n', 'optional. \n')
+    def _reformat_doc(strng):
 
         st = ""
-        s_ = ''
         for s in strng.splitlines():
-            s = s.lstrip()
-            if '----' in s:
-                st += s_ + s
-                s_ = ''
-            else:
-                st += s_ + '\n'
-                s_ = s
-        st += s_
-
+            if not 'from randomgen ' in s:
+                st += s.lstrip() + '\n'
+        st = st.replace('randomgen', 'randomfunctiongen')
+        st = st.replace('Parameters\n----------\n', '')
+        st = st.replace('Returns\n-------\nout :', ':returns:')
+        st = st.replace('Returns\n-------\nsamples :', ':returns:')
+        st = st.replace('Returns\n-------\nZ :', ':returns:')
+        st = st.replace('Raises\n-------\nValueError', '\n:raises ValueError:')
+        st = st.replace('Raises\n------\nValueError', '\n:raises ValueError:')
+        st = st.replace('Examples\n--------', '**Examples**\n')
+        st = st.replace('Notes\n-----', '**Notes**\n')
+        st = st.replace('See Also\n--------', '**See Also**\n')
+        st = st.replace('References\n----------', '**References**')
         st = st.replace('\\P', 'P')
-        st = st.replace('Returns-------\nout :', ':returns:')
-        st = st.replace('Returns-------\nsamples :', ':returns:')
-        st = st.replace('Returns-------\nZ :', ':returns:')
-        st = st.replace('Raises------\nValueError', '\n:raises ValueError:')
-        st = st.replace('Raises-------\nValueError', '\n:raises ValueError:')
+        st = st.replace('htm\n', 'html\n')
+        st = st.replace('rs[i].jump(i)', '>>>     rs[i].jump(i)')
+        st = st.replace('\n# ', '\n>>> # ')
+        st = st.replace('... ', '>>> ')
+        st = st.replace(':\n\n>>> ', '::\n\n    ')
+        st = st.replace('.\n\n>>> ', '::\n\n    ')
+        st = st.replace('\n\n>>> ', '::\n\n    ')
+        st = st.replace('\n>>> ', '\n    ')
+        st = st.replace('optional\n', 'optional. \n')
+        st = st.replace('Drawn samples from the', '. Drawn samples from the')
 
+        # Convert some_par : -> :arg some_par:
         strng = st
         st = ""
         for s in strng.splitlines():
-            if 'from randomgen ' in s:
-                continue
             if 'd0, d1, ..., dn :' in s:
-                st += ':arg d0, d1, ..., dn' + s[16:]
+                st += ':arg d0, d1, ..., dn' + s[16:] + '\n'
                 continue
             elif ' ' in s and s.find(' ') != len(s)-1:
                 n = s.find(' ')
                 if s[n+1] == ':' and (n < len(s) - 2 and s[n+2] == ' '):
                     param_name = s[:n]
                     if param_name not in ('where', 'the', 'of', 'standard_normal') and 'scipy.stats' not in param_name and 'numpy.random' not in param_name:
-                            st += ':arg ' + param_name + s[n+1:]
+                            st += ':arg ' + param_name + s[n+1:] + '\n'
                             continue
             st += s + '\n'
 
-        st = st.replace('randomgen', 'randomfunctiongen')
+        # Remove redundant '\n' characters
+        strng = st
+        st = ""
+        _in_block = False
+        for s in strng.splitlines():
+            if ':arg' in s or ':returns:' in s or '.. [' in s or '.. math::' in s:
+                st += '\n' + s
+                _in_block = True
+                continue
+            if _in_block:
+                if s == '':
+                    _in_block = False
+                    st += '\n\n'
+                else:
+                    st += ' ' + s
+            else:
+                st += s + '\n'
 
+        # Insert Firedrake wrapper doc and apply correct indentations
         strng = st
         st = ""
         sp = ' ' * 4
-        # Remove redundant '\n's
-        _in_list = False
         name=''
         for s in strng.splitlines():
-            if _in_list:
-                if '----' in s:
-                    st += '\n'
-                    s_ = s.replace('-', '').replace('\n', '')
-                    s__ = s.replace(s_, '').replace('\n', '')
-                    _in_list = False
-                    if s_ in ('Parameters', 'Returns', 'References'):
-                        _in_list = True
-                    if s_ == 'See Also':
-                        st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                    #elif s_ == 'Raises':
-                    #    st += '\n' + sp * 2 + '**' + s_ + '** '
-                    elif s_ == 'Notes':
-                        st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                    elif s_ == 'References':
-                        st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                    elif s_ == 'Examples':
-                        st += '\n' + sp * 2 + '**' + s_ + '**'+ '\n' + '\n'
-                    continue
-                st += '\n' + sp * 2 + s if (':arg' in s) or (':returns:' in s) or ('.. [' in s) else ' ' + s
-                continue
-
-            # Insert doc for Firedrake wrapper
             if "(d0, d1, ..., dn, dtype='d')" in s:
                 name = s[:s.find('(')]
                 st += sp * 2 + name + '(*args, **kwargs)\n\n'
@@ -148,30 +130,16 @@ def __getattr__(module_attr):
                 st += sp * 2 + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
                 st += sp * 2 + ':arg V: :class:`.FunctionSpace`\n\n'
                 st += sp * 2 + ':returns: :class:`.Function`\n\n'
+                st += sp * 2 + "The original documentation is found at `<https://bashtage.github.io/randomgen/generated/randomgen.legacy.legacy.LegacyGenerator." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
                 st += sp * 2 + s.replace('(', '(*').replace(')', '*)') + '\n\n'
-            elif '----' in s:
-                st += '\n'
-                s_ = s.replace('-', '').replace('\n', '')
-                s__ = s.replace(s_, '').replace('\n', '')
-                if s_ in ('Parameters', 'Returns', 'References'):
-                    _in_list = True
-                if s_ == 'See Also':
-                    st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                #elif s_ == 'Raises':
-                #    st += '\n' + sp * 2 + '**' + s_ + '** '
-                elif s_ == 'Notes':
-                    st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                elif s_ == 'References':
-                    st += '\n' + sp * 2 + '**' + s_ + '**\n'
-                elif s_ == 'Examples':
-                    st += '\n' + sp * 2 + '**' + s_ + '**'+ '\n' + '\n'
             elif '.. math::' in s:
                 st += '\n' + sp * 2 + s + '\n\n'
             else:
                 st += sp * 2 + s + '\n'
 
-        st = st.replace(' Drawn samples from the', '. Drawn samples from the')
-
+        #print(name)
+        #if name == 'binomial':
+        #    print(st)
         return st
 
     if module_attr == 'RandomGenerator':
@@ -185,11 +153,12 @@ def __getattr__(module_attr):
         def add_doc_string(doc_string):
 
             def f(func):
-                func.__doc__ = _clean_doc_string(doc_string)
+                func.__doc__ = _reformat_doc(doc_string)
                 return func
 
             return f
 
+        # To have Sphinx generate docs, make the following methods "static"
         for class_attr, _ in inspect.getmembers(randomgen.__getattribute__(module_attr)):
 
             # These methods are not to be used with V
@@ -369,7 +338,7 @@ def __getattr__(module_attr):
                  "seed": seed,
                  "generator": generator,
                  "_parallel_seed": _parallel_seed,
-                 "__doc__": _clean_doc_string(getattr(randomgen, module_attr).__doc__)}
+                 "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
 
         _Wrapper = type(module_attr, (_Base,), _dict)
 
