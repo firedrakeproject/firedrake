@@ -25,6 +25,7 @@ descriptions = OrderedDict([
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("petsc4py", "The Python interface to PETSc"),
+    ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
     ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
     ("slepc4py", "The Python interface to SLEPc")])
 
@@ -39,6 +40,7 @@ projects = dict(
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
      ("petsc4py", "firedrakeproject"),
+     ("loopy", "firedrakeproject"),
      ("slepc", "firedrakeproject"),
      ("slepc4py", "firedrakeproject")])
 
