@@ -28,19 +28,21 @@ def syncFlush(*args, **kwargs):
 
 
 class PointCloud(object):
-    """Store a group of points and evaluate the (cell, rank) pair corresponding their
-    location in the distributed mesh.
+    """Store points for repeated location in a mesh. Facilitates lookup and evaluation
+    at these point locations.
     """
     def __init__(self, mesh, points, *args, **kwargs):
         """Initialise the PointCloud.
 
         :arg mesh: A mesh object.
-        :arg points: A list of points in the point cloud.
+        :arg points: An array of points.
         """
         self.mesh = mesh
         self.points = np.asarray(points)
         _, dim = points.shape
-        assert dim == mesh.geometric_dimension()
+        if dim != mesh.geometric_dimension():
+            raise ValueError("Points must be %d-dimensional, (got %d)" %
+                             (mesh.geometric_dimension(), dim))
 
         # Build spatial index of processes for point location.
         self.processes_index = self._build_processes_spatial_index()
@@ -86,35 +88,26 @@ class PointCloud(object):
 
         :returns: A libspatialindex spatial index structure.
         """
-        # Get minimum and maximum coordinates of all mesh elements in each axis.
         min_c = self.mesh.coordinates.dat.data_ro.min(axis=0)
         max_c = self.mesh.coordinates.dat.data_ro.max(axis=0)
 
-        # Create a numpy array combining both the min and max bounding boxes.
-        # New format: [min_x, min_y, min_z, max_x, max_y, max_z]
+        # Format: [min_x, min_y, min_z, max_x, max_y, max_z]
         local = np.concatenate([min_c, max_c])
 
-        # Create an empty global array that has the size of of the local array multiplied
-        # by the world size (number of processes). All local arrays are the same size as
-        # they contain only the min/max values for each
-        # dimension.
         global_ = np.empty(len(local) * self.mesh.comm.size, dtype=local.dtype)
-
-        # Perform `MPI_Allgather` to combine all local arrays into global array.
         self.mesh.comm.Allgather(local, global_)
 
         # Create lists containing the minimum and maximum bounds of each process, where
         # the index in each list is the rank of the process.
-        min_bounds = []
-        max_bounds = []
-        arr_size = int(len(local) / 2)
-        for i in range(0, self.mesh.comm.size):
-            j = arr_size * 2 * i
-            min_bounds.append(global_[j:j + arr_size])
-            max_bounds.append(global_[j + arr_size:j + arr_size * 2])
+        min_bounds, max_bounds = global_.reshape(self.mesh.comm.size, 2,
+                                                 len(local) // 2).swapaxes(0, 1)
+
+        # Arrays must be contiguous.
+        min_bounds = np.ascontiguousarray(min_bounds)
+        max_bounds = np.ascontiguousarray(max_bounds)
 
         # Build spatial indexes from bounds.
-        return spatialindex.from_regions(np.array(min_bounds), np.array(max_bounds))
+        return spatialindex.from_regions(min_bounds, max_bounds)
 
     def _get_candidate_processes(self, point):
         """Determine candidate processes for a given point.
@@ -124,21 +117,14 @@ class PointCloud(object):
         :returns: A numpy array of candidate processes.
         """
         candidates = spatialindex.bounding_boxes(self.processes_index, point)
-        i = -1
-        for j, candidate in enumerate(candidates):
-            if (candidate == self.mesh.comm.rank):
-                i = j
-                break
-        if (i != -1):
-            candidates = np.delete(candidates, i)
-        return candidates
+        return candidates[candidates != self.mesh.comm.rank]
 
-    def _perform_sparse_communication_round(self, recv_buffers_dict, send_data):
+    def _perform_sparse_communication_round(self, recv_buffers, send_data):
         """Perform a sparse communication round in the point location process.
 
-        :arg recv_buffers_dict: A dictionary where the keys are process ranks and the
-             corresponding items are numpy arrays of buffers in which to receive data from
-             that rank.
+        :arg recv_buffers: A dictionary where the keys are process ranks and the
+             corresponding items are numpy arrays of buffers in which to receive data
+             from that rank.
         :arg send_data: A dictionary where the keys are process ranks and the
              corresponding items are lists of buffers from which to send data to that
              rank.
@@ -147,17 +133,14 @@ class PointCloud(object):
         recv_reqs = []
         send_reqs = []
 
-        for rank, recv_buffers in recv_buffers_dict.items():
-            # Create all receive requests.
-            for i in range(0, len(recv_buffers)):
-                req = self.mesh.comm.Irecv(recv_buffers[i], source=rank, tag=i)
+        for rank, buffers in recv_buffers.items():
+            for i in range(0, len(buffers)):
+                req = self.mesh.comm.Irecv(buffers[i], source=rank)
                 recv_reqs.append(req)
 
         for rank, points in send_data.items():
             for i, point_data in enumerate(points):
-                # Send the request for this point.
-                req = self.mesh.comm.Isend(point_data, dest=rank, tag=i)
-                # Wait on request?
+                req = self.mesh.comm.Isend(point_data, dest=rank)
                 send_reqs.append(req)
 
         MPI.Request.Waitall(recv_reqs + send_reqs)
@@ -283,13 +266,14 @@ class PointCloud(object):
         # iterate through each point request reponse to find the element.
         # Sometimes an element can be reported as found by more than one
         # process -- in this case, choose the process with the lower rank.
-        for rank, requested_points in local_candidates.items():
-            for j, point in enumerate(requested_points):
-                i = local_candidate_indices[rank][j]
-                curr_rank = located_elements[i][0]
-                result = recv_results[rank][j][0]
-                if (result != -1 and (curr_rank == -1 or rank < curr_rank)):
-                    located_elements[i] = (rank, result)
+        for rank, result in recv_results.items():
+            indices = local_candidate_indices[rank]
+            found, _ = np.where(result != -1)
+            for idx in found:
+                i = indices[idx]
+                loc_rank = located_elements[i, 0]
+                if loc_rank == -1 or rank < loc_rank:
+                    located_elements[i, :] = (rank, result[idx])
 
         syncPrint("[%d] Located elements: %s" % (self.mesh.comm.rank,
                                                  located_elements.tolist()),
