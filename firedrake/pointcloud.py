@@ -35,7 +35,7 @@ class PointCloud(object):
         """Initialise the PointCloud.
 
         :arg mesh: A mesh object.
-        :arg points: An array of points.
+        :arg points: An N x mesh.geometric_dimension() array of point locations.
         """
         self.mesh = mesh
         self.points = np.asarray(points)
@@ -69,18 +69,6 @@ class PointCloud(object):
         """
         rank_cell_pairs = self._locate_mesh_elements()
         return np.array(rank_cell_pairs, dtype=IntType)
-
-    def evaluate(self, function):
-        """Evaluate a function at the located points.
-
-        :arg function: The function to evaluate.
-
-        :returns: An array containing the results from evaluating the function at each
-                  point in the point cloud.
-        """
-        assert function.ufl_domain() == self.mesh
-        # Here is where we will do evaluation of function at the located points
-        raise NotImplementedError
 
     def _build_processes_spatial_index(self):
         """Build a spatial index of processes using the bounding boxes of each process.
@@ -217,7 +205,7 @@ class PointCloud(object):
         recv_points_buffers = {}
         for i in range(0, len(from_ranks)):
             recv_points_buffers[from_ranks[i]] = np.array(
-                [np.empty(self.mesh.cell_dimension(), dtype=ScalarType)
+                [np.empty(self.mesh.geometric_dimension(), dtype=ScalarType)
                  for _ in range(from_data[i])])
 
         # Receive all point requests
