@@ -26,6 +26,7 @@ produces::
     [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
 
 """
+from mpi4py import MPI
 
 import numpy as np
 import inspect
@@ -46,9 +47,22 @@ def __getattr__(module_attr):
     # Reformat the original documentation
     def _reformat_doc(strng):
 
+        # Reformat code examples
+        st = ""
+        flag = False
+        strng = strng.replace('rs[i].jump(i)', '...     rs[i].jump(i)')
+        strng = strng.replace('... ', '>>> ')
+        for s in strng.splitlines():
+            if flag and not ('>>>' in s or s.lstrip() == '' or s.lstrip()[0] == '#'):
+                    s = '>>> #' + s
+            st += s + '\n'
+            flag = '>>>' in s
+
+        # Reformat the body
+        strng = st
         st = ""
         for s in strng.splitlines():
-            if not 'from randomgen ' in s:
+            if 'from randomgen ' not in s:
                 st += s.lstrip() + '\n'
         st = st.replace('randomgen', 'randomfunctiongen')
         st = st.replace('Parameters\n----------\n', '')
@@ -63,15 +77,11 @@ def __getattr__(module_attr):
         st = st.replace('References\n----------', '**References**')
         st = st.replace('\\P', 'P')
         st = st.replace('htm\n', 'html\n')
-        st = st.replace('rs[i].jump(i)', '>>>     rs[i].jump(i)')
         st = st.replace('\n# ', '\n>>> # ')
-        st = st.replace('... ', '>>> ')
         st = st.replace(':\n\n>>> ', '::\n\n    ')
         st = st.replace('.\n\n>>> ', '::\n\n    ')
         st = st.replace('\n\n>>> ', '::\n\n    ')
         st = st.replace('\n>>> ', '\n    ')
-        st = st.replace('optional\n', 'optional. \n')
-        st = st.replace('Drawn samples from the', '. Drawn samples from the')
 
         # Convert some_par : -> :arg some_par:
         strng = st
@@ -103,43 +113,39 @@ def __getattr__(module_attr):
                     _in_block = False
                     st += '\n\n'
                 else:
-                    st += ' ' + s
+                    st += '. ' + s if s[0].isupper() and st[-1] != '.' else ' ' + s
             else:
                 st += s + '\n'
 
         # Insert Firedrake wrapper doc and apply correct indentations
         strng = st
         st = ""
-        sp = ' ' * 4
-        name=''
+        sp = ' ' * 8
         for s in strng.splitlines():
             if "(d0, d1, ..., dn, dtype='d')" in s:
                 name = s[:s.find('(')]
-                st += sp * 2 + name + '(*args, **kwargs)\n\n'
+                st += sp + name + '(*args, **kwargs)\n\n'
                 s = '*' + name + '* ' + s[len(name):]
-                st += sp * 2 + s.replace('(', '(*').replace('d0, d1, ..., dn', 'V').replace(')', '*)') + '\n\n'
-                st += sp * 2 + 'Generate a function f = Function(V), internally call the original method *' + name + '* with given arguments, and return f.\n\n'
-                st += sp * 2 + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp * 2 + ':returns: :class:`.Function`\n\n'
-                st += sp * 2 + s.replace('(', '(*').replace(')', '*)') + '\n\n'
+                st += sp + s.replace('(', '(*').replace('d0, d1, ..., dn', 'V').replace(')', '*)') + '\n\n'
+                st += sp + 'Generate a function :math:`f` = Function(V), internally call the original method *' + name + '* with given arguments, and return :math:`f`.\n\n'
+                st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
+                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif 'size=None' in s:
                 name = s[:s.find('(')]
-                st += sp * 2 + name + '(*args, **kwargs)\n\n'
+                st += sp + name + '(*args, **kwargs)\n\n'
                 s = '*' + name + '* ' + s[len(name):]
-                st += sp * 2 + s.replace('(', '(*V, ').replace(', size=None', '').replace(')', '*)') + '\n\n'
-                st += sp * 2 + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
-                st += sp * 2 + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp * 2 + ':returns: :class:`.Function`\n\n'
-                st += sp * 2 + "The original documentation is found at `<https://bashtage.github.io/randomgen/generated/randomgen.legacy.legacy.LegacyGenerator." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
-                st += sp * 2 + s.replace('(', '(*').replace(')', '*)') + '\n\n'
+                st += sp + s.replace('(', '(*V, ').replace(', size=None', '').replace(')', '*)') + '\n\n'
+                st += sp + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
+                st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
+                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + "The original documentation is found at `<https://bashtage.github.io/randomgen/generated/randomgen.legacy.legacy.LegacyGenerator." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
+                st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif '.. math::' in s:
-                st += '\n' + sp * 2 + s + '\n\n'
+                st += '\n' + sp + s + '\n\n'
             else:
-                st += sp * 2 + s + '\n'
+                st += sp + s + '\n'
 
-        #print(name)
-        #if name == 'binomial':
-        #    print(st)
         return st
 
     if module_attr == 'RandomGenerator':
@@ -149,7 +155,7 @@ def __getattr__(module_attr):
         _dict = {}
 
         # Use decorator to add doc strings to
-        # auto generated functions
+        # auto generated methods
         def add_doc_string(doc_string):
 
             def f(func):
@@ -159,7 +165,7 @@ def __getattr__(module_attr):
             return f
 
         # To have Sphinx generate docs, make the following methods "static"
-        for class_attr, _ in inspect.getmembers(randomgen.__getattribute__(module_attr)):
+        for class_attr, _ in inspect.getmembers(getattr(randomgen, module_attr)):
 
             # These methods are not to be used with V
             if class_attr in ('bytes', 'shuffle', 'permutation'):
@@ -174,6 +180,7 @@ def __getattr__(module_attr):
                             raise NotImplementedError("%s.%s does not take FunctionSpace as argument" % (module_attr, c_a))
                         else:
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
+
                     return func
 
                 _dict[class_attr] = funcgen(class_attr)
@@ -187,20 +194,18 @@ def __getattr__(module_attr):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
                         if len(args) > 0 and isinstance(args[0], FunctionSpace):
-                            # actually seed RNG using V.comm and extract size from V
+                            # Extract size from V
                             if 'size' in kwargs.keys():
                                 raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
                             V = args[0]
-                            if V.comm.size > 1:
-                                self._basicrng._parallel_seed(V)
                             f = Function(V)
                             with f.dat.vec_wo as v:
-                                v.array[:] = self.__getattribute__(c_a)(v.local_size, **kwargs)
+                                v.array[:] = getattr(self, c_a)(v.local_size, **kwargs)
                             return f
                         else:
                             # forward to the original implementation
-                            #return super(_Wrapper, self).__getattribute__(c_a)(*args, **kwargs)
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
+
                     return func
 
                 _dict[class_attr] = funcgen(class_attr)
@@ -214,20 +219,20 @@ def __getattr__(module_attr):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
                         if len(args) > 0 and isinstance(args[0], FunctionSpace):
-                            # actually seed RNG using V.comm and extract size from V
+                            # Extract size from V
                             if 'size' in kwargs.keys():
                                 raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
                             V = args[0]
-                            self._basicrng._parallel_seed(V)
                             f = Function(V)
                             args = args[1:]
                             with f.dat.vec_wo as v:
                                 kwargs['size'] = (v.local_size,)
-                                v.array[:] = self.__getattribute__(c_a)(*args, **kwargs)
+                                v.array[:] = getattr(self, c_a)(*args, **kwargs)
                             return f
                         else:
                             # forward to the original implementation
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
+
                     return func
 
                 _dict[class_attr] = funcgen(class_attr)
@@ -242,24 +247,15 @@ def __getattr__(module_attr):
         _Base = getattr(randomgen, module_attr)
 
         def __init__(self, *args, **kwargs):
+            self._comm = kwargs.pop('comm', MPI.COMM_WORLD)
+            # Remember args, kwargs as these are changed in super().__init__
+            _args = args
+            _kwargs = kwargs
+            self._initialized = False
             super(_Wrapper, self).__init__(*args, **kwargs)
-            # Save args and kwargs.  We must 'seed' again with
-            # appropriate parallel stream ids ('inc' in PCG64;
-            # 'key' in Philox/ThreeFry) once V is given and it
-            # turns out that V.comm.size > 1.
-            self._args = args
-            self._kwargs = kwargs
-            self._need_parallel_seed = True
+            self._initialized = True
+            self.seed(*_args, **_kwargs)
             self._generator = None
-
-        def seed(self, *args, **kwargs):
-            # If users invoke seed(...) externally, execute
-            # parent seed() and store new args and kwargs
-            # for parallel generation.
-            super(_Wrapper, self).seed(*args, **kwargs)
-            self._args = args
-            self._kwargs = kwargs
-            self._need_parallel_seed = True
 
         @property
         def generator(self):
@@ -270,74 +266,77 @@ def __getattr__(module_attr):
 
         if module_attr == 'PCG64':
 
-            # Actually (re)seed given V when V.comm.size > 1.
             # Use examples in https://bashtage.github.io/randomgen/parallel.html
             # with appropriate changes.
-            def _parallel_seed(self, V):
+            def seed(self, *args, **kwargs):
 
-                if not self._need_parallel_seed:
+                # args and kwargs are changed/mixed in super().__init__(),
+                # so this case must be done separately.
+                if not self._initialized:
+                    super(_Wrapper, self).seed(*args, **kwargs)
                     return
 
-                rank = V.comm.rank
-                if 'seed' not in self._kwargs.keys() or self._kwargs['seed'] is None:
-                    if rank == 0:
-                        # generate a 128bit seed
-                        entropy = randomgen.entropy.random_entropy(4)
-                        seed = sum([int(entropy[i]) * 2 ** (32 * i) for i in range(4)])
-                    else:
-                        seed = None
-                    # All processes have to have the same seed
-                    seed = V.comm.bcast(seed, root=0)
-                    self._kwargs['seed'] = seed
-                # Use rank to generate multiple streams.
-                # Always overwrite 'inc'.
-                self._kwargs['inc'] = rank
+                if self._comm.Get_size() > 1:
+                    rank = self._comm.Get_rank()
+                    if 'seed' not in kwargs.keys() or kwargs['seed'] is None:
+                        if rank == 0:
+                            # generate a 128bit seed
+                            entropy = randomgen.entropy.random_entropy(4)
+                            seed = sum([int(entropy[i]) * 2 ** (32 * i) for i in range(4)])
+                        else:
+                            seed = None
+                        # All processes have to have the same seed
+                        seed = self._comm.bcast(seed, root=0)
+                        kwargs['seed'] = seed
+                    # Use rank to generate multiple streams.
+                    # Always overwrite 'inc'.
+                    kwargs['inc'] = rank
 
-                self.seed(*self._args, **self._kwargs)
-                self._need_parallel_seed = False
+                super(_Wrapper, self).seed(*args, **kwargs)
 
         elif module_attr in ('Philox', 'ThreeFry'):
 
-            def _parallel_seed(self, V):
+            def seed(self, *args, **kwargs):
 
-                if not self._need_parallel_seed:
+                # args and kwargs are changed/mixed in super().__init__(),
+                # so this case must be done separately.
+                if not self._initialized:
+                    super(_Wrapper, self).seed(*args, **kwargs)
                     return
 
-                rank = V.comm.rank
-                if 'seed' in self._kwargs.keys() and self._kwargs['seed'] is not None:
-                    raise TypeError("'seed' should not be used when generating a random function in parallel.  A random 'key' is automatically generated unless specified.")
-                if 'key' not in self._kwargs.keys() or self._kwargs['key'] is None:
-                    if rank == 0:
-                        key = randomgen.entropy.random_entropy(8)
-                        key = key.view(np.uint64)
-                        key[0] = 0
+                if self._comm.Get_size() > 1:
+                    rank = self._comm.Get_rank()
+                    if 'seed' in kwargs.keys() and kwargs['seed'] is not None:
+                        raise TypeError("'seed' should not be used when using 'Philox'/'ThreeFry' in parallel.  A random 'key' is automatically generated and used unless specified.")
+                    if 'key' not in kwargs.keys() or kwargs['key'] is None:
+                        if rank == 0:
+                            key = randomgen.entropy.random_entropy(8)
+                            key = key.view(np.uint64)
+                            key[0] = 0
+                        else:
+                            key = None
+                        key = self._comm.bcast(key, root=0)
                     else:
-                        key = None
-                    key = V.comm.bcast(key, root=0)
-                else:
-                    key = self._kwargs['key']
-                if rank == 0:
+                        key = kwargs['key']
+                    # Use rank to generate multiple streams
                     step = np.zeros(4, dtype=np.uint64)
-                    step[0] = 1
-                else:
-                    step = None
-                step = V.comm.bcast(step, root=0)
-                # Use rank to generate multiple streams
-                self._kwargs['key'] = key + rank * step
+                    step[0] = rank
+                    kwargs['key'] = key + step
 
-                self.seed(*self._args, **self._kwargs)
-                self._need_parallel_seed = False
+                super(_Wrapper, self).seed(*args, **kwargs)
 
         else:
 
-            def _parallel_seed(self, V):
+            def seed(self, *args, **kwargs):
 
-                raise TypeError("Use 'PCG64', 'Philox', 'ThreeFry' for parallel RNG")
+                if self._comm.Get_size() > 1:
+                    raise TypeError("Use 'PCG64', 'Philox', 'ThreeFry' for parallel RNG")
+
+                super(_Wrapper, self).seed(*args, **kwargs)
 
         _dict = {"__init__": __init__,
                  "seed": seed,
                  "generator": generator,
-                 "_parallel_seed": _parallel_seed,
                  "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
 
         _Wrapper = type(module_attr, (_Base,), _dict)
