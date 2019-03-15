@@ -54,7 +54,7 @@ def __getattr__(module_attr):
         strng = strng.replace('... ', '>>> ')
         for s in strng.splitlines():
             if flag and not ('>>>' in s or s.lstrip() == '' or s.lstrip()[0] == '#'):
-                    s = '>>> #' + s
+                s = '>>> #' + s
             st += s + '\n'
             flag = '>>>' in s
 
@@ -95,8 +95,8 @@ def __getattr__(module_attr):
                 if s[n+1] == ':' and (n < len(s) - 2 and s[n+2] == ' '):
                     param_name = s[:n]
                     if param_name not in ('where', 'the', 'of', 'standard_normal') and 'scipy.stats' not in param_name and 'numpy.random' not in param_name:
-                            st += ':arg ' + param_name + s[n+1:] + '\n'
-                            continue
+                        st += ':arg ' + param_name + s[n+1:] + '\n'
+                        continue
             st += s + '\n'
 
         # Remove redundant '\n' characters
