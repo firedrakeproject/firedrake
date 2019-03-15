@@ -120,6 +120,14 @@ def intersection_finder(mesh_A, mesh_B):
         long nnodes_A, nnodes_B, ncells_A, ncells_B
         int dim_A, dim_B, loc_A, loc_B
 
+    dim = mesh_A.geometric_dimension()
+    assert dim == mesh_B.geometric_dimension()
+    assert dim == mesh_A.topological_dimension()
+    assert dim == mesh_B.topological_dimension()
+
+    assert mesh_A.coordinates.function_space().ufl_element().degree() == 1
+    assert mesh_B.coordinates.function_space().ufl_element().degree() == 1
+
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(long)
