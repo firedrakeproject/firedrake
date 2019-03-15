@@ -247,3 +247,8 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+for cls in [ufl.classes.IntValue, ufl.classes.FloatValue, ufl.classes.ComplexValue]:
+    # Make sure users never put literals in their forms.
+    setattr(cls, "__new__", lambda cls, value: firedrake.Constant(value))
