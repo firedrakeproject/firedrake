@@ -83,7 +83,6 @@ each supermesh cell.
             # intersection finding
             intersections = intersection_finder(mesh_A, mesh_B)
             likely = intersections.__getitem__
-
         else:
             # We do have a mesh hierarchy, use it
 
