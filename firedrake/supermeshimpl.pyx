@@ -142,8 +142,8 @@ def intersection_finder(mesh_A, mesh_B):
 
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(long)
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(long)
+    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
+    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     nnodes_A = mesh_A.num_vertices()
     nnodes_B = mesh_B.num_vertices()
     dim_A = mesh_A.geometric_dimension()
@@ -159,8 +159,8 @@ def intersection_finder(mesh_A, mesh_B):
 
     libsupermesh_tree_intersection_finder_query_output(&nindices)
 
-    indices = numpy.empty((nindices,), dtype=long)
-    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=long)
+    indices = numpy.empty((nindices,), dtype=numpy.long)
+    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=numpy.long)
 
     libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
 
