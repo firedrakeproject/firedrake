@@ -70,17 +70,6 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
 
-    if mesh_A.comm.size > 1:
-        compatible = False
-        assert mesh_B._parallel_compatible is not None, "Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout."
-        for _mesh_A in mesh_B._parallel_compatible:
-            if mesh_A is _mesh_A():
-                compatible = True
-                break
-
-        if not compatible:
-            assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
-
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension()
     # FIXME: needs to be real type after complex (Argh!)
