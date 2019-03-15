@@ -29,7 +29,9 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
     g3 = Function(V)
     g3.interpolate(cos(2 * pi * x))
 
-    bc1 = EquationBC(v * (u - g1) * ds(1) == 0, u, 1)
+    # Equivalent to bc1 = EquationBC(v * (u - g1) * ds(1) == 0, u, 1)
+    e2 = as_vector([0., 1.])
+    bc1 = EquationBC((-dot(grad(v), e2) * dot(grad(u), e2) + 3 * pi * pi * v * u + 1 * pi * pi * v * g1) * ds(1) == 0, u, 1)
 
     solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
 
