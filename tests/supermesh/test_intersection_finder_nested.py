@@ -3,10 +3,12 @@ from firedrake.supermeshing import *
 import pytest
 
 
-@pytest.fixture(params=[2, 3])
+@pytest.fixture(params=[2, "q", 3])
 def mesh(request):
     if request.param == 2:
         return UnitSquareMesh(2, 3)
+    if request.param == "q":
+        return UnitSquareMesh(2, 3, quadrilateral=True)
     if request.param == 3:
         return UnitCubeMesh(3, 2, 1)
 
