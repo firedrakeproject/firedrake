@@ -3,6 +3,7 @@ import numpy
 from firedrake import *
 from pyop2.datatypes import IntType
 from itertools import product
+import weakref
 
 
 @pytest.fixture(scope="module")
@@ -69,6 +70,9 @@ def test_project(hierarchy, coarse, fine):
 @pytest.mark.parallel(nprocs=3)
 def test_project_parallel(hierarchy, coarse, fine):
     cmesh, fmesh = hierarchy
+
+    # Mark the two meshes as having a compatible parallel layout
+    fmesh._parallel_compatible = {weakref.ref(cmesh)}
 
     Vc = FunctionSpace(cmesh, *coarse)
     Vf = FunctionSpace(fmesh, *fine)

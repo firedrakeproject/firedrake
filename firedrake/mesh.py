@@ -429,6 +429,12 @@ class MeshTopology(object):
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
+        # A set of weakrefs to meshes that are explicitly labelled as being
+        # parallel-compatible for interpolation/projection/supermeshing
+        # To set, do e.g.
+        # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
+        self._parallel_compatible = None
+
         def callback(self):
             """Finish initialisation."""
             del self._callback

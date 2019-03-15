@@ -59,6 +59,7 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray[PetscReal, ndim=2, mode="c"] simplex_A, simplex_B
         numpy.ndarray[PetscReal, ndim=3, mode="c"] simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
+
     num_cell_A = V_A.mesh().cell_set.size
     num_cell_B = V_B.mesh().cell_set.size
 
@@ -68,6 +69,17 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     mesh_B = V_B.mesh()
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
+
+    if mesh_A.comm.size > 1:
+        compatible = False
+        assert mesh_B._parallel_compatible is not None, "Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout."
+        for _mesh_A in mesh_B._parallel_compatible:
+            if mesh_A is _mesh_A():
+                compatible = True
+                break
+
+        if not compatible:
+            assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
 
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension()
@@ -127,6 +139,17 @@ def intersection_finder(mesh_A, mesh_B):
 
     assert mesh_A.coordinates.function_space().ufl_element().degree() == 1
     assert mesh_B.coordinates.function_space().ufl_element().degree() == 1
+
+    if mesh_A.comm.size > 1:
+        compatible = False
+        assert mesh_B._parallel_compatible is not None, "Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout."
+        for _mesh_A in mesh_B._parallel_compatible:
+            if mesh_A is _mesh_A():
+                compatible = True
+                break
+
+        if not compatible:
+            assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
 
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos

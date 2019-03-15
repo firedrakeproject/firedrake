@@ -2,6 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from itertools import product
+import weakref
 
 
 spaces = [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)]
@@ -33,6 +34,9 @@ def test_project_parallel(coarse, fine):
 
     fmesh = RectangleMesh(5, 5, 1, 1, diagonal="right",
                           distribution_parameters=distribution_parameters)
+
+    # Mark the two meshes as having a compatible parallel layout
+    fmesh._parallel_compatible = {weakref.ref(cmesh)}
 
     Vc = FunctionSpace(cmesh, *coarse)
     Vf = FunctionSpace(fmesh, *fine)
