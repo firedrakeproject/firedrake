@@ -122,14 +122,12 @@ class PointCloud(object):
         send_reqs = []
 
         for rank, buffers in recv_buffers.items():
-            for i in range(0, len(buffers)):
-                req = self.mesh.comm.Irecv(buffers[i], source=rank)
-                recv_reqs.append(req)
+            req = self.mesh.comm.Irecv(buffers, source=rank)
+            recv_reqs.append(req)
 
         for rank, points in send_data.items():
-            for i, point_data in enumerate(points):
-                req = self.mesh.comm.Isend(point_data, dest=rank)
-                send_reqs.append(req)
+            req = self.mesh.comm.Isend(points, dest=rank)
+            send_reqs.append(req)
 
         MPI.Request.Waitall(recv_reqs + send_reqs)
 
@@ -204,12 +202,12 @@ class PointCloud(object):
         # each process.
         recv_points_buffers = {}
         for i in range(0, len(from_ranks)):
-            recv_points_buffers[from_ranks[i]] = np.array(
-                [np.empty(self.mesh.geometric_dimension(), dtype=ScalarType)
-                 for _ in range(from_data[i])])
+            recv_points_buffers[from_ranks[i]] = np.empty(
+                (from_data[i], self.mesh.geometric_dimension()), dtype=ScalarType)
 
         # Receive all point requests
 
+        local_candidates = {r: np.asarray(p) for r, p in local_candidates.items()}
         self._perform_sparse_communication_round(recv_points_buffers, local_candidates)
 
         syncPrint("[%d] Point queries requested: %s" % (self.mesh.comm.rank,
@@ -224,7 +222,7 @@ class PointCloud(object):
 
         # Evaluate results.
         for rank, points_buffers in recv_points_buffers.items():
-            point_responses[rank] = self.mesh.locate_cells(np.array([points_buffers]))
+            point_responses[rank] = self.mesh.locate_cells(points_buffers)
 
         syncPrint("[%d] Point responses: %s" % (self.mesh.comm.rank,
                                                 str(point_responses)),
@@ -238,8 +236,7 @@ class PointCloud(object):
         # Initialise these.
         for rank, points in local_candidates.items():
             # Create receive buffer(s).
-            recv_results[rank] = np.array([np.empty(1, dtype=IntType)
-                                           for _ in range(len(points))])
+            recv_results[rank] = np.empty((len(points), 1), dtype=IntType)
 
         self._perform_sparse_communication_round(recv_results, point_responses)
 
