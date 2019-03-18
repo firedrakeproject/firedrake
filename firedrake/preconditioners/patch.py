@@ -159,12 +159,19 @@ def bcdofs(bc, ghost=True):
 
         Z = Z.sub(idx)
 
-    bs = Z.value_size
+    if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
+        bs = Z.parent.value_size
+        start = 0
+        stop = 1
+    else:
+        bs = Z.value_size
+        start = 0
+        stop = bs
     nodes = bc.nodes
     if not ghost:
         nodes = nodes[nodes < Z.dof_dset.size]
 
-    return numpy.concatenate([nodes*bs + j for j in range(bs)]) + offset
+    return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 
 
 def select_entity(p, dm=None, exclude=None):
