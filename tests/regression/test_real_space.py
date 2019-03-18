@@ -247,8 +247,3 @@ def test_real_space_assign():
     g.assign(2*f + f**3)
     assert np.allclose(f.dat.data_ro, 2.0)
     assert np.allclose(g.dat.data_ro, 12.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

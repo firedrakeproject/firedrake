@@ -51,8 +51,3 @@ def test_functions(mesh, expr, value, typ, fs_type):
         f = value
     expect = eval(expr)
     assert np.allclose(actual, expect)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

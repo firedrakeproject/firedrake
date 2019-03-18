@@ -138,7 +138,8 @@ def test_par_loop_const_write_error(f, const):
 
 def test_cg_max_field(f):
     c, d = f
-    d.interpolate(Expression("x[0]"))
+    x = SpatialCoordinate(d.function_space().mesh())
+    d.interpolate(x[0])
 
     par_loop("""
     for (int i=0; i<c.dofs; i++)
@@ -150,7 +151,8 @@ def test_cg_max_field(f):
 
 def test_cg_max_field_extruded(f_extruded):
     c, d = f_extruded
-    d.interpolate(Expression("x[0]"))
+    x = SpatialCoordinate(d.function_space().mesh())
+    d.interpolate(x[0])
 
     par_loop("""
     for (int i=0; i<c.dofs; i++)
@@ -181,12 +183,13 @@ def test_cell_subdomain(subdomain):
 
 def test_walk_facets_rt():
     m = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(m)
     V = FunctionSpace(m, 'RT', 1)
 
     f1 = Function(V)
     f2 = Function(V)
 
-    project(Expression(('x[0]', 'x[1]')), f1)
+    project(as_vector((x[0], x[1])), f1)
 
     par_loop("""
     for (int i = 0; i < f1.dofs; i++) {

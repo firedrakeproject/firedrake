@@ -20,7 +20,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         u = TrialFunction(fspace)
         v = TestFunction(fspace)
 
-        expr = Expression("x[0]*x[0]*x[1]*x[2]")
+        x, y, z = SpatialCoordinate(mesh)
+        expr = x*x*y*z
         exact = project(expr, exactfspace)
 
         out = Function(fspace)
@@ -59,10 +60,12 @@ def test_hdiv_convergence(extmesh, testcase, convrate):
         u = TrialFunction(fspace)
         v = TestFunction(fspace)
 
+        x, y, z = SpatialCoordinate(mesh)
+
         if orientation == "h":
-            expr = Expression(("x[0]*x[1]*x[2]*x[2]", "x[0]*x[0]*x[1]*x[2]", "0.0"))
+            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0)])
         elif orientation == "v":
-            expr = Expression(("0.0", "0.0", "x[0]*x[1]*x[1]*x[2]"))
+            expr = as_vector([Constant(0.0), Constant(0.0), x*y*y*z])
         exact = Function(exactfspace)
         exact.interpolate(expr)
 
@@ -99,10 +102,12 @@ def test_hcurl_convergence(extmesh, testcase, convrate):
         u = TrialFunction(fspace)
         v = TestFunction(fspace)
 
+        x, y, z = SpatialCoordinate(mesh)
+
         if orientation == "h":
-            expr = Expression(("x[0]*x[1]*x[2]*x[2]", "x[0]*x[0]*x[1]*x[2]", "0.0"))
+            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0)])
         elif orientation == "v":
-            expr = Expression(("0.0", "0.0", "x[0]*x[1]*x[1]*x[2]"))
+            expr = as_vector([Constant(0.0), Constant(0.0), x*y*y*z])
         exact = Function(exactfspace)
         exact.interpolate(expr)
 
@@ -110,8 +115,3 @@ def test_hcurl_convergence(extmesh, testcase, convrate):
         solve(dot(u, v)*dx == dot(exact, v)*dx, out)
         l2err[ii] = sqrt(assemble(dot((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

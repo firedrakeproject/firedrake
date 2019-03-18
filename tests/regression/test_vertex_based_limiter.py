@@ -153,8 +153,3 @@ if mesh.comm.rank == 0:
     with tmpfile.open("rb") as f:
         actual = np.asarray(pickle.load(f))
     assert np.allclose(expect, actual)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -40,20 +40,39 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    if fs.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * fs.value_size))
-    else:
-        f.interpolate(Expression("x[0]"))
+    f_split = f.split()
+    x = SpatialCoordinate(fs.mesh())[0]
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in f_split:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(as_vector((x,) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(as_tensor([[x for i in range(fs_i.mesh().geometric_dimension())]
+                                      for j in range(fs_i.rank)]))
+        else:
+            fi.interpolate(x)
     return f
 
 
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    if fs.rank >= 1:
-        one.interpolate(Expression(("1",) * fs.value_size))
-    else:
-        one.interpolate(Expression("1"))
+    ones = one.split()
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in ones:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(Constant((1.0,) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
+                                     for j in range(fs_i.rank)]))
+        else:
+            fi.interpolate(Constant(1.0))
     return one
 
 
@@ -103,8 +122,3 @@ def test_assemble_mat_with_tensor(mesh):
     M = assemble(Constant(2)*a, M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

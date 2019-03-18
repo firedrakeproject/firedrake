@@ -39,8 +39,3 @@ def test_split_communicators():
 
         expect = Function(V).interpolate(Constant((1, 0)))
         assert np.allclose(expect.dat.data, f.dat.data)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

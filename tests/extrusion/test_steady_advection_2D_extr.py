@@ -39,10 +39,12 @@ def W(mesh):
 
 
 def run_left_to_right(mesh, DG0, W):
-    velocity = Expression(("1.0", "0.0"))
+    velocity = as_vector([1.0, 0.0])
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[1] > 0.25 && x[1] < 0.75 ? 1.0 : 0.5")
+    xs = SpatialCoordinate(mesh)
+
+    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -78,10 +80,11 @@ def test_left_to_right_parallel(mesh, DG0, W):
 
 
 def run_right_to_left(mesh, DG1, W):
-    velocity = Expression(("-1.0", "0.0"))
+    velocity = as_vector([-1.0, 0.0])
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[1] + 0.5")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = xs[1] + 0.5
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -114,10 +117,11 @@ def test_right_to_left_parallel(mesh, DG1, W):
 
 
 def run_bottom_to_top(mesh, DG0, W):
-    velocity = Expression(("0.0", "1.0"))
+    velocity = as_vector([0.0, 1.0])
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[0] > 0.25 && x[0] < 0.75 ? 1.0 : 0.5")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[0] > 0.25, xs[0] < 0.75), 1.0, 0.5)
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -150,10 +154,11 @@ def test_bottom_to_top_parallel(mesh, DG0, W):
 
 
 def run_top_to_bottom(mesh, DG1, W):
-    velocity = Expression(("0.0", "-1.0"))
+    velocity = as_vector([0.0, -1.0])
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("0.5 + fabs(x[0] - 0.5)")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = 0.5 + abs(xs[0] - 0.5)
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -183,8 +188,3 @@ def test_top_to_bottom(mesh, DG1, W):
 @pytest.mark.parallel
 def test_top_to_bottom_parallel(mesh, DG1, W):
     run_top_to_bottom(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

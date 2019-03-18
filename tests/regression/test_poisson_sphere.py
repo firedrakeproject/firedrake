@@ -5,8 +5,9 @@ import numpy as np
 
 def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     mesh = MeshClass(refinement_level=refinement)
+    x = SpatialCoordinate(mesh)
 
-    mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    mesh.init_cell_orientations(x)
     Ve = FunctionSpace(mesh, "DG", max(3, degree + 1))
 
     V = FunctionSpace(mesh, hdiv_space, degree)
@@ -17,8 +18,8 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    g = Function(Q).interpolate(Expression("x[0]*x[1]*x[2]"))
-    u_exact = Function(Ve, name="exact").interpolate(Expression("-x[0]*x[1]*x[2]/12.0"))
+    g = Function(Q).interpolate(x[0]*x[1]*x[2])
+    u_exact = Function(Ve, name="exact").interpolate(-x[0]*x[1]*x[2]/12.0)
 
     a = (inner(sigma, tau) + div(sigma)*v + div(tau)*u)*dx
     L = g*v*dx
@@ -63,8 +64,3 @@ def test_hdiv_l2_cubedsphere_parallel():
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     assert (l2conv > 1.7).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

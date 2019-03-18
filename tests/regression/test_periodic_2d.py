@@ -34,11 +34,12 @@ def quadrilateral(request):
 def run_periodic_helmholtz(direction, quadrilateral):
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
                                  direction=direction)
+    x = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
 
     u_exact = Function(V)
-    u_exact.interpolate(Expression("sin(4.0*pi*x[0]/5.0)*sin(2.0*pi*x[1]/3.0)"))
+    u_exact.interpolate(sin(4.0*pi*x[0]/5.0)*sin(2.0*pi*x[1]/3.0))
 
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
@@ -67,8 +68,3 @@ def test_periodic_helmholtz(direction, quadrilateral):
 @pytest.mark.parallel(nprocs=3)
 def test_periodic_helmholtz_parallel(direction, quadrilateral):
     run_periodic_helmholtz(direction, quadrilateral)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

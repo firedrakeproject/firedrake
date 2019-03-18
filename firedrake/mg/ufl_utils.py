@@ -213,6 +213,30 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     return problem
 
 
+@coarsen.register(firedrake.VectorSpaceBasis)
+def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
+    coarse_vecs = [self(vec, self, coefficient_mapping=coefficient_mapping) for vec in basis._vecs]
+    vsb = firedrake.VectorSpaceBasis(coarse_vecs, constant=basis._constant)
+    vsb.orthonormalize()
+    return vsb
+
+
+@coarsen.register(firedrake.MixedVectorSpaceBasis)
+def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
+    coarse_V = self(mspbasis._function_space, self, coefficient_mapping=coefficient_mapping)
+    coarse_bases = []
+
+    for basis in mspbasis._bases:
+        if isinstance(basis, firedrake.VectorSpaceBasis):
+            coarse_bases.append(self(basis, self, coefficient_mapping=coefficient_mapping))
+        elif basis.index is not None:
+            coarse_bases.append(coarse_V.sub(basis.index))
+        else:
+            raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
+
+    return firedrake.MixedVectorSpaceBasis(coarse_V, coarse_bases)
+
+
 @coarsen.register(firedrake.solving_utils._SNESContext)
 def coarsen_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
@@ -241,6 +265,15 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                            appctx=new_appctx)
     coarse._fine = context
     context._coarse = coarse
+
+    ises = problem.J.arguments()[0].function_space()._ises
+    coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
+    coarse.set_nullspace(coarse._nullspace, ises, transpose=False, near=False)
+    coarse._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
+    coarse.set_nullspace(coarse._nullspace_T, ises, transpose=True, near=False)
+    coarse._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
+    coarse.set_nullspace(coarse._near_nullspace, ises, transpose=False, near=True)
+
     return coarse
 
 

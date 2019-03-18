@@ -19,9 +19,10 @@ import numpy as np
 from firedrake import *
 
 
-def run_test(x, degree, parameters={}, quadrilateral=False):
+def run_test(r, degree, parameters={}, quadrilateral=False):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -29,21 +30,22 @@ def run_test(x, degree, parameters={}, quadrilateral=False):
     v = TestFunction(V)
     a = dot(grad(v), grad(u)) * dx
 
-    bcs = [DirichletBC(V, 0, 3),
-           DirichletBC(V, 42, 4)]
+    bcs = [DirichletBC(V, Constant(0), 3),
+           DirichletBC(V, Constant(42), 4)]
 
     # Compute solution
     solve(a == 0, u, solver_parameters=parameters, bcs=bcs)
 
     f = Function(V)
-    f.interpolate(Expression("42*x[1]"))
+    f.interpolate(42*x[1])
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_test_linear(x, degree, parameters={}, quadrilateral=False):
+def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -52,21 +54,22 @@ def run_test_linear(x, degree, parameters={}, quadrilateral=False):
     a = dot(grad(v), grad(u)) * dx
     L = v*Constant(0)*dx
 
-    bcs = [DirichletBC(V, 0, 3),
-           DirichletBC(V, 42, 4)]
+    bcs = [DirichletBC(V, Constant(0), 3),
+           DirichletBC(V, Constant(42), 4)]
 
     # Compute solution
     u = Function(V)
     solve(a == L, u, solver_parameters=parameters, bcs=bcs)
 
     f = Function(V)
-    f.interpolate(Expression("42*x[1]"))
+    f.interpolate(42*x[1])
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_test_preassembled(x, degree, parameters={}, quadrilateral=False):
-    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
+    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", degree)
 
     u = TrialFunction(V)
@@ -75,8 +78,8 @@ def run_test_preassembled(x, degree, parameters={}, quadrilateral=False):
     f = Function(V)
     f.assign(0)
     L = v*f*dx
-    bcs = [DirichletBC(V, 0, 3),
-           DirichletBC(V, 42, 4)]
+    bcs = [DirichletBC(V, Constant(0), 3),
+           DirichletBC(V, Constant(42), 4)]
 
     u = Function(V)
 
@@ -88,7 +91,7 @@ def run_test_preassembled(x, degree, parameters={}, quadrilateral=False):
     solve(A, u, b, solver_parameters=parameters)
 
     expected = Function(V)
-    expected.interpolate(Expression("42*x[1]"))
+    expected.interpolate(42*x[1])
 
     method_A = sqrt(assemble(dot(u - expected, u - expected) * dx))
 
@@ -162,8 +165,3 @@ def test_poisson_analytic_linear_parallel():
     error = run_test_linear(1, 1)
     print('[%d]' % MPI.COMM_WORLD.rank, 'error:', error)
     assert error < 5e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

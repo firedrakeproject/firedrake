@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 
 
@@ -17,8 +16,3 @@ def test_all_dofs_on_facets():
     assert abs(assemble(inner(f, f)*ds) - assemble(inner(g, g)*ds)) < 2e-13
     assert abs(assemble(inner(f, n)*ds) - assemble(inner(g, n)*ds)) < 2e-13
     assert abs(assemble(inner(f('+'), n('+'))*dS) - assemble(inner(g('+'), n('+'))*dS)) < 2e-13
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

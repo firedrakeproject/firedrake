@@ -109,6 +109,9 @@ class Vector(object):
             sum += other
         return sum
 
+    def __radd__(self, other):
+        return self + other
+
     def __iadd__(self, other):
         """Add other to self"""
         try:
@@ -133,6 +136,9 @@ class Vector(object):
         except AttributeError:
             self.dat -= other
         return self
+
+    def __rsub__(self, other):
+        return -1.0 * self + other
 
     def apply(self, action):
         """Finalise vector assembly. This is not actually required in

@@ -51,7 +51,3 @@ def py_file(rst_file, tmpdir, monkeypatch):
 
 def test_demo_runs(py_file, env):
     subprocess.check_call([sys.executable, py_file], env=env)
-
-
-if __name__ == "__main__":
-    pytest.main(abspath(__file__))

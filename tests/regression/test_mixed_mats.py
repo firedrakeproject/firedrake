@@ -148,8 +148,3 @@ def test_bcs_ordering():
     assert np.allclose(A.M[1, 0].values[:, bc1.nodes], 0.0)
     assert np.allclose(A.M[1, 0].values[bc2.nodes, :], 0.0)
     assert np.allclose(A.M[0, 1].values[:, bc2.nodes], 0.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

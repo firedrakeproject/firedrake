@@ -1,6 +1,5 @@
 from firedrake import *
 import numpy as np
-import pytest
 
 
 def test_callbacks():
@@ -60,8 +59,3 @@ def test_callbacks():
     solver.solve()
 
     assert np.allclose(u.dat.data, 2.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
