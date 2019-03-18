@@ -1,10 +1,7 @@
-"""This module provides custom python preconditioners utilizing
-the Slate language.
-"""
 import ufl
 import numpy as np
 
-from firedrake.preconditioners import PCBase
+from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
@@ -12,10 +9,11 @@ from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
+
 __all__ = ['HybridizationPC']
 
 
-class HybridizationPC(PCBase):
+class HybridizationPC(SCBase):
     """A Slate-based python preconditioner that solves a
     mixed H(div)-conforming problem using hybridization.
     Currently, this preconditioner supports the hybridization
@@ -283,18 +281,6 @@ class HybridizationPC(PCBase):
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.ctx.fc_params)
 
-    @timed_function("HybridRecon")
-    def _reconstruct(self):
-        """Reconstructs the system unknowns using the multipliers.
-        Note that the reconstruction calls are assumed to be
-        initialized at this point.
-        """
-        # We assemble the unknown which is an expression
-        # of the first eliminated variable.
-        self._sub_unknown()
-        # Recover the eliminated unknown
-        self._elim_unknown()
-
     @timed_function("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
@@ -303,13 +289,8 @@ class HybridizationPC(PCBase):
         self._assemble_S()
         self.S.force_evaluation()
 
-    def apply(self, pc, x, y):
-        """We solve the forward eliminated problem for the
-        approximate traces of the scalar solution (the multipliers)
-        and reconstruct the "broken flux and scalar variable."
-
-        Lastly, we project the broken solutions into the mimetic
-        non-broken finite element space.
+    def forward_elimination(self, pc, x):
+        """
         """
 
         with timed_region("HybridBreak"):
@@ -323,14 +304,12 @@ class HybridizationPC(PCBase):
             broken_scalar_data = self.broken_residual.split()[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
-        with timed_region("HybridRHS"):
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
             # gives R'[w] = R[w] when w is in the unbroken space.
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-
             unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
             broken_res_hdiv = self.broken_residual.split()[self.vidx]
             broken_res_hdiv.assign(0)
@@ -339,23 +318,34 @@ class HybridizationPC(PCBase):
                       "vec_in": (unbroken_res_hdiv, READ),
                       "vec_out": (broken_res_hdiv, INC)})
 
+        with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
-        with timed_region("HybridSolve"):
-            # Solve the system for the Lagrange multipliers
-            with self.schur_rhs.dat.vec_ro as b:
-                if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec
-                else:
-                    acc = self.trace_solution.dat.vec_wo
-                with acc as x_trace:
-                    self.trace_ksp.solve(b, x_trace)
+    def sc_solve(self, pc):
+        """
+        """
 
-        # Reconstruct the unknowns
-        self._reconstruct()
+        # Solve the system for the Lagrange multipliers
+        with self.schur_rhs.dat.vec_ro as b:
+            if self.trace_ksp.getInitialGuessNonzero():
+                acc = self.trace_solution.dat.vec
+            else:
+                acc = self.trace_solution.dat.vec_wo
+            with acc as x_trace:
+                self.trace_ksp.solve(b, x_trace)
 
-        with timed_region("HybridRecover"):
+    def backward_substitution(self, pc, y):
+        """
+        """
+
+        # We assemble the unknown which is an expression
+        # of the first eliminated variable.
+        self._sub_unknown()
+        # Recover the eliminated unknown
+        self._elim_unknown()
+
+        with timed_region("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]
@@ -371,12 +361,8 @@ class HybridizationPC(PCBase):
                       "vec_in": (broken_hdiv, READ),
                       "vec_out": (unbroken_hdiv, INC)})
 
-            with self.unbroken_solution.dat.vec_ro as v:
-                v.copy(y)
-
-    def applyTranspose(self, pc, x, y):
-        """Apply the transpose of the preconditioner."""
-        raise NotImplementedError("The transpose application of the PC is not implemented.")
+        with self.unbroken_solution.dat.vec_ro as v:
+            v.copy(y)
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""

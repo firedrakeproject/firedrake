@@ -7,6 +7,7 @@ from pyop2 import op2
 from pyop2.datatypes import ScalarType
 
 import firedrake.utils as utils
+from firedrake.logging import warning
 
 
 __all__ = ['Expression']
@@ -29,6 +30,12 @@ class Expression(ufl.Coefficient):
     since a Python function is called for every cell in the mesh.
 
     **The C interface**
+
+    .. warning::
+
+        This is a deprecated feature, which will be removed from Firedrake
+        in January 2019. This section only remains to assist users to
+        transition existing code.
 
     The code in an :class:`Expression` has access to the coordinates
     in the variable ``x``, with ``x[0]`` corresponding to the x
@@ -124,6 +131,7 @@ class Expression(ufl.Coefficient):
         self.code = None
         self._shape = ()
         if code is not None:
+            warning("C string Expressions will be removed soon! See: https://www.firedrakeproject.org/interpolation.html#c-string-expressions")
             arr = np.array(code)
             self._shape = arr.shape
             # Flatten to something indexable for use.
