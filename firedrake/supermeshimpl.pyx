@@ -23,6 +23,11 @@ cdef extern from "petscmat.h" nogil:
     int MatAssemblyEnd(PETSc.PetscMat, PetscInt)
     PetscInt MAT_FINAL_ASSEMBLY = 0
 
+cdef extern from "libsupermesh-c.h" nogil:
+    void libsupermesh_tree_intersection_finder_set_input(long* nnodes_a, int* dim_a, long* nelements_a, int* loc_a, long* nnodes_b, int* dim_b, long* nelements_b, int* loc_b, double* positions_a, long* enlist_a, double* positions_b, long* enlist_b);
+    void libsupermesh_tree_intersection_finder_query_output(long* nindices);
+    void libsupermesh_tree_intersection_finder_get_output(long* nelements, long* nindices, long* indices, long* ind_ptr);
+
 
 # Compute M_AB:
 # For cell_A in mesh_A:
@@ -54,6 +59,7 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray[PetscReal, ndim=2, mode="c"] simplex_A, simplex_B
         numpy.ndarray[PetscReal, ndim=3, mode="c"] simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
+
     num_cell_A = V_A.mesh().cell_set.size
     num_cell_B = V_B.mesh().cell_set.size
 
@@ -98,3 +104,69 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
 
     CHKERR(MatAssemblyBegin(mat.mat, MAT_FINAL_ASSEMBLY))
     CHKERR(MatAssemblyEnd(mat.mat, MAT_FINAL_ASSEMBLY))
+
+
+def intersection_finder(mesh_A, mesh_B):
+    # Plan:
+    # Call libsupermesh_sort_intersection_finder_set_input
+    # Call libsupermesh_sort_intersection_finder_query_output
+    # Call libsupermesh_sort_intersection_finder_get_output
+    # Return the output
+
+    cdef:
+        numpy.ndarray[long, ndim=2, mode="c"] vertex_map_A, vertex_map_B
+        numpy.ndarray[double, ndim=2, mode="c"] vertices_A, vertices_B
+        long nindices
+        numpy.ndarray[long, ndim=1, mode="c"] indices, indptr
+        long nnodes_A, nnodes_B, ncells_A, ncells_B
+        int dim_A, dim_B, loc_A, loc_B
+
+    dim = mesh_A.geometric_dimension()
+    assert dim == mesh_B.geometric_dimension()
+    assert dim == mesh_A.topological_dimension()
+    assert dim == mesh_B.topological_dimension()
+
+    assert mesh_A.coordinates.function_space().ufl_element().degree() == 1
+    assert mesh_B.coordinates.function_space().ufl_element().degree() == 1
+
+    if mesh_A.comm.size > 1:
+        compatible = False
+        assert mesh_B._parallel_compatible is not None, "Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout."
+        for _mesh_A in mesh_B._parallel_compatible:
+            if mesh_A is _mesh_A():
+                compatible = True
+                break
+
+        if not compatible:
+            assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
+
+    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
+    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
+    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
+    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
+    nnodes_A = mesh_A.num_vertices()
+    nnodes_B = mesh_B.num_vertices()
+    dim_A = mesh_A.geometric_dimension()
+    dim_B = mesh_B.geometric_dimension()
+    ncells_A = mesh_A.num_cells()
+    ncells_B = mesh_B.num_cells()
+    loc_A = vertex_map_A.shape[1]
+    loc_B = vertex_map_B.shape[1]
+
+    libsupermesh_tree_intersection_finder_set_input(&nnodes_A, &dim_A, &ncells_A, &loc_A,
+                                                    &nnodes_B, &dim_B, &ncells_B, &loc_B,
+                                                    <const double*>vertices_A.data, <const long*>vertex_map_A.data, <const double*>vertices_B.data, <const long*>vertex_map_B.data)
+
+    libsupermesh_tree_intersection_finder_query_output(&nindices)
+
+    indices = numpy.empty((nindices,), dtype=numpy.long)
+    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=numpy.long)
+
+    libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
+
+    out = {}
+    for cell_A in range(ncells_A):
+        (start, end) = indptr[cell_A], indptr[cell_A + 1]
+        out[cell_A] = indices[start:end]
+
+    return out
