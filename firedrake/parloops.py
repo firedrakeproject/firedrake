@@ -98,7 +98,7 @@ def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
             kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
-    if kernel_domains is "":
+    if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
     kargs.append(...)
     knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
