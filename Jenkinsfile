@@ -22,7 +22,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --documentation-dependencies --complex --minimal-petsc ${SLEPC} --slope --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} --package-branch ufl complex --package-branch tsfc complex --package-branch PyOP2 complex --package-branch COFFEE complex || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --documentation-dependencies --complex --minimal-petsc ${SLEPC} --slope --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
