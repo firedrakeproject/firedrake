@@ -267,7 +267,7 @@ each supermesh cell.
                 double* reference_node_location = &nodes_A[n*d];
                 double* physical_node_location = &physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -280,7 +280,7 @@ each supermesh cell.
                 double* reference_node_location = &nodes_B[n*d];
                 double* physical_node_location = &physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -314,7 +314,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -325,7 +325,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
