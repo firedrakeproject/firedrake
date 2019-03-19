@@ -29,7 +29,6 @@ def test_func(brng, meth):
     # Firedrake wrapper
     rg_wrap = getattr(randomfunctiongen, brng)(seed=seed).generator
 
-
     if meth == 'beta':
         args = (0.3, 0.5)
 
@@ -41,12 +40,6 @@ def test_func(brng, meth):
 
     elif meth == 'choice':
         args = (1234 * 5678,)
-
-    # elif meth == 'complex_normal':
-    #    args = ()
-
-    # elif meth == 'dirichlet':
-    #     args = (np.arange(1, i * i+1),)
 
     elif meth == 'exponential':
         args = ()
@@ -77,12 +70,6 @@ def test_func(brng, meth):
 
     elif meth == 'logseries':
         args = (0.3,)
-
-    # elif meth == 'multinomial':
-    #     args = (i * i, [0.1, 0.2, 0.3, 0.4])
-
-    # elif meth == 'multivariate_normal':
-    #     args = ([3.14, 2.71], [[1.00, 0.01], [0.01, 2.00]])
 
     elif meth == 'negative_binomial':
         args = (7, 0.3)
@@ -211,12 +198,11 @@ def test_func_parallel_philox(brng):
     V1 = FunctionSpace(mesh, "CG", 1)
     V = V0 * V1
 
-    seed = 123456789
     key_size = 2 if brng == 'Philox' else 4
 
     # original
     from mpi4py import MPI
-    key =  np.zeros(key_size, dtype=np.uint64)
+    key = np.zeros(key_size, dtype=np.uint64)
     key[0] = MPI.COMM_WORLD.rank
     rg_base = getattr(randomgen, brng)(counter=12345678910, key=key).generator
 
@@ -230,8 +216,8 @@ def test_func_parallel_philox(brng):
 
     rg_base.seed(counter=1234567, key=key)
     rg_wrap.seed(counter=1234567)
+
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
         with f.dat.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
-

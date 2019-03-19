@@ -340,6 +340,7 @@ import sys
 if sys.version_info < (3, 7, 0):
     class Wrapper(object):
         __all__ = __all__
+
         def __getattr__(self, attr):
             return __getattr__(attr)
 
