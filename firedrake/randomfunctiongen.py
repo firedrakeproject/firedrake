@@ -1,8 +1,8 @@
 """
 
 This module wraps `randomgen <https://pypi.org/project/randomgen/>`__
-and enables firedrake users to pass a :class:`.FunctionSpace`
-to generate a randomised :class:`.Function`.
+and enables users to generate a randomised :class:`.Function`
+from a :class:`.FunctionSpace`.
 This module inherits all attributes from `randomgen <https://pypi.org/project/randomgen/>`__.
 
 """
@@ -134,30 +134,30 @@ def __getattr__(module_attr):
 
         _dict = {}
 
-        _dict["__doc__"] = """
-
-        Container for the Basic Random Number Generators.
-
-        Users can pass to many of the available distribution methods
-        a FunctionSpace as the first argument to obtain a randomised Function.
-
-        .. note ::
-            FunctionSpace, V, has to be passed as
-            the first argument.
-
-        **Example**::
-
-        from firedrake import *
-        mesh = UnitSquareMesh(2,2)
-        V = FunctionSpace(mesh, "CG", 1)
-        pcg = PCG64(seed=123456789)
-        rg = RandomGenerator(pcg)
-        f_beta = rg.beta(V, 1.0, 2.0)
-        print(f_beta.dat.data)
-        # produces:
-        # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
-
-        """
+        _dict["__doc__"] = (
+        "\n"
+        "    Container for the Basic Random Number Generators.\n"
+        "\n"
+        "    Users can pass to many of the available distribution methods\n"
+        "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`.Function`.\n"
+        "\n"
+        "    .. note ::\n"
+        "        FunctionSpace, V, has to be passed as\n"
+        "        the first argument.\n"
+        "\n"
+        "    **Example**::\n"
+        "\n"
+        "        from firedrake import *\n"
+        "        mesh = UnitSquareMesh(2,2)\n"
+        "        V = FunctionSpace(mesh, 'CG', 1)\n"
+        "        pcg = PCG64(seed=123456789)\n"
+        "        rg = RandomGenerator(pcg)\n"
+        "        f_beta = rg.beta(V, 1.0, 2.0)\n"
+        "        print(f_beta.dat.data)\n"
+        "        # produces:\n"
+        "        # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]\n"
+        "\n"
+        )
 
         # Use decorator to add doc strings to
         # auto generated methods
