@@ -3,27 +3,7 @@
 This module wraps `randomgen <https://pypi.org/project/randomgen/>`__
 and enables firedrake users to pass a :class:`.FunctionSpace`
 to generate a randomised :class:`.Function`.
-This module inherits all attributes from `randomgen <https://pypi.org/project/randomgen/>`__,
-but allows the users to pass to many of the available distribution methods
-a FunctionSpace as the first argument to obtain a randomised Function.
-
-.. note ::
-FunctionSpace, V, has to be passed as
-the first argument, e.g.:
-
-**Example**::
-
-    from firedrake import *
-    mesh = UnitSquareMesh(2,2)
-    V = FunctionSpace(mesh, "CG", 1)
-    pcg = PCG64(seed=123456789)
-    rg = RandomGenerator(pcg)
-    f_beta = rg.beta(V, 1.0, 2.0)
-    print(f_beta.dat.data)
-
-produces::
-
-    [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
+This module inherits all attributes from `randomgen <https://pypi.org/project/randomgen/>`__.
 
 """
 from mpi4py import MPI
@@ -154,6 +134,31 @@ def __getattr__(module_attr):
 
         _dict = {}
 
+        _dict["__doc__"] = """
+
+        Container for the Basic Random Number Generators.
+
+        Users can pass to many of the available distribution methods
+        a FunctionSpace as the first argument to obtain a randomised Function.
+
+        .. note ::
+            FunctionSpace, V, has to be passed as
+            the first argument.
+
+        **Example**::
+
+        from firedrake import *
+        mesh = UnitSquareMesh(2,2)
+        V = FunctionSpace(mesh, "CG", 1)
+        pcg = PCG64(seed=123456789)
+        rg = RandomGenerator(pcg)
+        f_beta = rg.beta(V, 1.0, 2.0)
+        print(f_beta.dat.data)
+        # produces:
+        # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
+
+        """
+
         # Use decorator to add doc strings to
         # auto generated methods
         def add_doc_string(doc_string):
@@ -168,7 +173,7 @@ def __getattr__(module_attr):
         for class_attr, _ in inspect.getmembers(getattr(randomgen, module_attr)):
 
             # These methods are not to be used with V
-            if class_attr in ('bytes', 'shuffle', 'permutation'):
+            if class_attr in ('bytes', 'shuffle', 'permutation', 'dirichlet', 'multinomial', 'multivariate_normal', 'complex_normal'):
 
                 # class_attr is mutable, so we have to wrap func with
                 # another function to lock the value of class_attr
@@ -237,7 +242,6 @@ def __getattr__(module_attr):
 
                 _dict[class_attr] = funcgen(class_attr)
 
-        _dict["__doc__"] = _Base.__doc__
         _Wrapper = type(module_attr, (_Base,), _dict)
 
         return _Wrapper
@@ -268,17 +272,13 @@ def __getattr__(module_attr):
 
             # Use examples in https://bashtage.github.io/randomgen/parallel.html
             # with appropriate changes.
-            def seed(self, *args, **kwargs):
+            def seed(self, seed=None, inc=None):
 
-                # args and kwargs are changed/mixed in super().__init__(),
-                # so this case must be done separately.
-                if not self._initialized:
-                    super(_Wrapper, self).seed(*args, **kwargs)
-                    return
-
-                if self._comm.Get_size() > 1:
+                if self._comm.Get_size() == 1:
+                    super(_Wrapper, self).seed(seed=seed, inc=0 if inc is None else inc)
+                else:
                     rank = self._comm.Get_rank()
-                    if 'seed' not in kwargs.keys() or kwargs['seed'] is None:
+                    if seed is None:
                         if rank == 0:
                             # generate a 128bit seed
                             entropy = randomgen.entropy.random_entropy(4)
@@ -287,43 +287,28 @@ def __getattr__(module_attr):
                             seed = None
                         # All processes have to have the same seed
                         seed = self._comm.bcast(seed, root=0)
-                        kwargs['seed'] = seed
                     # Use rank to generate multiple streams.
-                    # Always overwrite 'inc'.
-                    kwargs['inc'] = rank
-
-                super(_Wrapper, self).seed(*args, **kwargs)
+                    # If 'inc' is to be passed, it is users' responsibility
+                    # to provide an appropriate value.
+                    inc = inc or rank
+                    super(_Wrapper, self).seed(seed=seed, inc=inc)
 
         elif module_attr in ('Philox', 'ThreeFry'):
 
-            def seed(self, *args, **kwargs):
-
-                # args and kwargs are changed/mixed in super().__init__(),
-                # so this case must be done separately.
-                if not self._initialized:
-                    super(_Wrapper, self).seed(*args, **kwargs)
-                    return
+            def seed(self, seed=None, counter=None, key=None):
 
                 if self._comm.Get_size() > 1:
                     rank = self._comm.Get_rank()
-                    if 'seed' in kwargs.keys() and kwargs['seed'] is not None:
+                    if seed is not None:
                         raise TypeError("'seed' should not be used when using 'Philox'/'ThreeFry' in parallel.  A random 'key' is automatically generated and used unless specified.")
-                    if 'key' not in kwargs.keys() or kwargs['key'] is None:
-                        if rank == 0:
-                            key = randomgen.entropy.random_entropy(8)
-                            key = key.view(np.uint64)
-                            key[0] = 0
-                        else:
-                            key = None
-                        key = self._comm.bcast(key, root=0)
-                    else:
-                        key = kwargs['key']
-                    # Use rank to generate multiple streams
-                    step = np.zeros(4, dtype=np.uint64)
-                    step[0] = rank
-                    kwargs['key'] = key + step
+                    # if 'key' is to be passed, it is users' responsibility
+                    # to provide an appropriate one
+                    if key is None:
+                        # Use rank to generate multiple streams
+                        key = np.zeros(2 if module_attr == 'Philox' else 4, dtype=np.uint64)
+                        key[0] = rank
 
-                super(_Wrapper, self).seed(*args, **kwargs)
+                super(_Wrapper, self).seed(seed=seed, counter=counter, key=key)
 
         else:
 
@@ -354,6 +339,8 @@ import sys
 
 if sys.version_info < (3, 7, 0):
     class Wrapper(object):
+        __all__ = __all__
         def __getattr__(self, attr):
             return __getattr__(attr)
+
     sys.modules[__name__] = Wrapper()
