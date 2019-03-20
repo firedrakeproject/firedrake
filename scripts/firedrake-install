@@ -1139,7 +1139,7 @@ if mode == "install":
         if hasattr(args, opt):
             name = getattr(args, opt)
             src = shutil.which(name)
-            dest = "%s/bin/%s" % (firedrake_env, opt)
+            dest = os.path.join(firedrake_env, "bin", opt)
             os.symlink(src, dest)
 
 os.chdir(firedrake_env)
