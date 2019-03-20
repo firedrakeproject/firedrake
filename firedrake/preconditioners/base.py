@@ -68,7 +68,7 @@ class PCBase(PCSNESBase):
     needs_python_amat = False
     """Set this to True if the A matrix needs to be Python (matfree)."""
 
-    needs_python_pmat = True
+    needs_python_pmat = False
     """Set this to False if the P matrix needs to be Python (matfree).
 
     If the preconditioner also works with assembled matrices, then use False here.
@@ -96,10 +96,11 @@ class PCBase(PCSNESBase):
         Atype = A.getType()
         Ptype = P.getType()
 
+        pcname = type(self).__module__ + "." + type(self).__name__
         if self.needs_python_amat and Atype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC needs amat to have type python, but it is %s" % Atype)
+            raise ValueError("PC '%s' needs amat to have type python, but it is %s" % (pcname, Atype))
         if self.needs_python_pmat and Ptype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC needs pmat to have type python, but it is %s" % Ptype)
+            raise ValueError("PC '%s' needs pmat to have type python, but it is %s" % (pcname, Ptype))
 
         super().setUp(pc)
 

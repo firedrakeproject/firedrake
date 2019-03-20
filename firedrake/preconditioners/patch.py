@@ -375,8 +375,6 @@ class PlaneSmoother(object):
 
 class PatchBase(PCSNESBase):
 
-    needs_python_pmat = False
-
     def initialize(self, obj):
 
         if isinstance(obj, PETSc.PC):
@@ -558,7 +556,6 @@ class PatchBase(PCSNESBase):
 
 
 class PatchPC(PCBase, PatchBase):
-    needs_python_pmat = False
 
     def configure_patch(self, patch, pc):
         (A, P) = pc.getOperators()
