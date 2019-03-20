@@ -51,7 +51,7 @@ class FiredrakeConfiguration(dict):
                     self["options"][o] = args.__dict__[o]
 
     _persistent_options = ["package_manager",
-                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "disable_ssh",
+                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir",
                            "show_petsc_configure_options",
                            "slepc", "slope", "packages", "honour_pythonpath",
@@ -232,6 +232,9 @@ honoured.""",
     parser.add_argument("--mpif90", type=str,
                         action="store", default="mpif90",
                         help="Fortran compiler to use when building with MPI (default is 'mpif90')")
+    parser.add_argument("--mpiexec", type=str,
+                        action="store", default="mpiexec",
+                        help="MPI launcher (default is 'mpiexec')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
     parser.add_argument("--venv-name", default="firedrake",
@@ -1131,6 +1134,13 @@ if mode == "install":
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+    for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
+        if hasattr(args, opt):
+            name = getattr(args, opt)
+            src = shutil.which(name)
+            dest = "%s/bin/%s" % (firedrake_env, opt)
+            os.symlink(src, dest)
 
 os.chdir(firedrake_env)
 
