@@ -85,7 +85,6 @@ def project(v, V, bcs=None,
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned."""
-
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
                     form_compiler_parameters=form_compiler_parameters,
                     use_slate_for_inverse=use_slate_for_inverse).project()
@@ -233,6 +232,7 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     if source.ufl_shape != target.ufl_shape:
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
+    print("TEST")
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
     elif source_mesh == target_mesh:
