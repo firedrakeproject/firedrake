@@ -825,7 +825,10 @@ def build_and_install_libsupermesh():
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
                 check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env])
+                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                            "-DMPI_C_COMPILER=" + cc,
+                            "-DMPI_CXX_COMPILER=" + cxx,
+                            "-DMPI_Fortran_COMPILER=" + f90])
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -1151,6 +1154,9 @@ f90 = options["mpif90"] or "mpif90"
 compiler_env = dict(MPICC=cc,
                     MPICXX=cxx,
                     MPIF90=f90,
+                    MPI_C_COMPILER=cc,
+                    MPI_CXX_COMPILER=cxx,
+                    MPI_Fortran_COMPILER=f90,
                     CC=cc,
                     CXX=cxx,
                     F90=f90)
