@@ -374,6 +374,18 @@ class directory(object):
         log.debug("New path '%s'" % self.olddir)
 
 
+class environment(object):
+    def __init__(self, **env):
+        self.old = os.environ.copy()
+        self.new = env
+
+    def __enter__(self):
+        os.environ.update(self.new)
+
+    def __exit__(self, *args):
+        os.environ = self.old
+
+
 options = config["options"]
 
 # Apply short cut package names.
@@ -740,9 +752,6 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
-    os.environ["MPICC"] = options["mpicc"] or "mpicc"
-    os.environ["MPICXX"] = options["mpicxx"] or "mpicxx"
-    os.environ["MPIF90"] = options["mpif90"] or "mpif90"
     run_pip_install(["--ignore-installed", "petsc/"])
 
 
@@ -781,20 +790,14 @@ def build_and_install_h5py():
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
     if changed or args.rebuild:
         log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
-        oldcc = os.environ.get("CC", None)
-        os.environ["CC"] = options["mpicc"] or "mpicc"
-        os.environ["HDF5_DIR"] = hdf5_dir
-        os.environ["HDF5_MPI"] = "ON"
-        # Only uninstall if things changed.
-        pip_uninstall("h5py")
-        # Pip installing from dirty directory is potentially unsafe.
-        with directory("h5py/"):
-            check_call(["git", "clean", "-fdx"])
-        install("h5py/")
-        if oldcc is None:
-            del os.environ["CC"]
-        else:
-            os.environ["CC"] = oldcc
+        with environment(HDF5_DIR=hdf5_dir,
+                         HDF5_MPI="ON"):
+            # Only uninstall if things changed.
+            pip_uninstall("h5py")
+            # Pip installing from dirty directory is potentially unsafe.
+            with directory("h5py/"):
+                check_call(["git", "clean", "-fdx"])
+            install("h5py/")
     else:
         log.info("No need to rebuild h5py")
 
@@ -1142,6 +1145,15 @@ if mode == "install":
             dest = os.path.join(firedrake_env, "bin", opt)
             os.symlink(src, dest)
 
+cc = options["mpicc"] or "mpicc"
+cxx = options["mpicxx"] or "mpicxx"
+f90 = options["mpif90"] or "mpif90"
+compiler_env = dict(MPICC=cc,
+                    MPICXX=cxx,
+                    MPIF90=f90,
+                    CC=cc,
+                    CXX=cxx,
+                    F90=f90)
 os.chdir(firedrake_env)
 
 if mode == "install":
@@ -1168,33 +1180,34 @@ if mode == "install":
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
 
-    # Need to install petsc first in order to resolve hdf5 dependency.
-    if not args.honour_petsc_dir:
+    with environment(**compiler_env):
+        # Need to install petsc first in order to resolve hdf5 dependency.
+        if not args.honour_petsc_dir:
+            pipinstall.append("--no-deps")
+            packages.remove("petsc")
+            install("petsc/")
+            pipinstall.pop()
+
+        for p in packages:
+            pip_requirements(p)
+
+        build_and_install_h5py()
+        build_and_install_libspatialindex()
+        build_and_install_libsupermesh()
         pipinstall.append("--no-deps")
-        packages.remove("petsc")
-        install("petsc/")
-        pipinstall.pop()
+        for p in packages:
+            install(p+"/")
+            sys.path.append(os.getcwd() + "/" + p)
 
-    for p in packages:
-        pip_requirements(p)
+        # Work around easy-install.pth bug.
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            pass
+        packages.remove("petsc4py")
+        packages.remove("firedrake")
 
-    build_and_install_h5py()
-    build_and_install_libspatialindex()
-    build_and_install_libsupermesh()
-    pipinstall.append("--no-deps")
-    for p in packages:
-        install(p+"/")
-        sys.path.append(os.getcwd() + "/" + p)
-
-    # Work around easy-install.pth bug.
-    try:
-        packages.remove("petsc")
-    except ValueError:
-        pass
-    packages.remove("petsc4py")
-    packages.remove("firedrake")
-
-    build_update_script()
+        build_update_script()
 
 else:
     # Update mode
@@ -1249,39 +1262,41 @@ else:
         pip_requirements(p)
     pipinstall.append("--no-deps")
 
-    # Only rebuild petsc if it has changed.
-    if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
-        clean("petsc/")
-        log.info("Depending on your platform, PETSc may take an hour or more to build!")
-        install("petsc/")
-    if args.rebuild or petsc_changed or petsc4py_changed:
-        clean("petsc4py/")
-        install("petsc4py/")
+    with environment(**compiler_env):
+        # Only rebuild petsc if it has changed.
+        if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
+            clean("petsc/")
+            log.info("Depending on your platform, PETSc may take an hour or more to build!")
+            install("petsc/")
+        if args.rebuild or petsc_changed or petsc4py_changed:
+            clean("petsc4py/")
+            install("petsc4py/")
 
-    # Always rebuild h5py.
-    build_and_install_h5py()
-    build_and_install_libspatialindex()
-    build_and_install_libsupermesh()
+        # Always rebuild h5py.
+        build_and_install_h5py()
+        build_and_install_libspatialindex()
+        build_and_install_libsupermesh()
 
-    try:
-        packages.remove("PyOP2")
-        packages.remove("firedrake")
-    except ValueError:
-        pass
-    packages += ("PyOP2", "firedrake")
-    for p in packages:
-        clean(p)
-        install(p+"/")
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+        packages += ("PyOP2", "firedrake")
+        for p in packages:
+            clean(p)
+            install(p+"/")
 
-    # Ensure pytest is at the latest version
-    run_pip(["install", "-U", "pytest"])
+        # Ensure pytest is at the latest version
+        run_pip(["install", "-U", "pytest"])
 
-if options["slepc"]:
-    build_and_install_slepc()
-if options["slope"]:
-    build_and_install_slope()
-if args.documentation_dependencies:
-    install_documentation_dependencies()
+with environment(**compiler_env):
+    if options["slepc"]:
+        build_and_install_slepc()
+    if options["slope"]:
+        build_and_install_slope()
+    if args.documentation_dependencies:
+        install_documentation_dependencies()
 
 try:
     import firedrake_configuration
