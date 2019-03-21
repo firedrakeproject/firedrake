@@ -4,6 +4,7 @@ import platform
 import subprocess
 import sys
 import os
+import stat
 import shutil
 from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
@@ -1141,12 +1142,19 @@ if mode == "install":
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
-    for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
+    # Set up the MPI wrappers
+    for opt in ["mpicc", "mpicxx", "mpif90"]:
         if hasattr(args, opt):
             name = getattr(args, opt)
             src = shutil.which(name)
             dest = os.path.join(firedrake_env, "bin", opt)
             os.symlink(src, dest)
+
+    mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
+    with open(mpiexecf, "w") as mpiexec:
+        contents = '#!/bin/bash' + os.linesep + f'{shutil.which(args.mpiexec)} "$@"'
+        mpiexec.write(contents)
+    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"] or "mpicc"
 cxx = options["mpicxx"] or "mpicxx"
