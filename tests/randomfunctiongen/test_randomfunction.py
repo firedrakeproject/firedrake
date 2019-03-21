@@ -14,7 +14,7 @@ meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) i
 
 @pytest.mark.parametrize("brng", brng_list)
 @pytest.mark.parametrize("meth", meth_list)
-def test_func(brng, meth):
+def test_randomfunc(brng, meth):
 
     mesh = UnitSquareMesh(10, 10)
     V0 = VectorFunctionSpace(mesh, "CG", 1)
@@ -160,7 +160,7 @@ def test_func(brng, meth):
 
 
 @pytest.mark.parallel
-def test_func_parallel_pcg64():
+def test_randomfunc_parallel_pcg64():
 
     mesh = UnitSquareMesh(10, 10)
     V0 = VectorFunctionSpace(mesh, "CG", 1)
@@ -191,7 +191,7 @@ def test_func_parallel_pcg64():
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("brng", ['Philox', 'ThreeFry'])
-def test_func_parallel_philox(brng):
+def test_randomfunc_parallel_philox_threefry(brng):
 
     mesh = UnitSquareMesh(10, 10)
     V0 = VectorFunctionSpace(mesh, "CG", 1)

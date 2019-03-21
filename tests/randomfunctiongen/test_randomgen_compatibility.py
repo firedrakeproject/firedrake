@@ -12,7 +12,7 @@ meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) i
 
 @pytest.mark.parametrize("brng", brng_list)
 @pytest.mark.parametrize("meth", meth_list)
-def test_brng(brng, meth):
+def test_randomgen_brng(brng, meth):
 
     seed = 123456789
 
