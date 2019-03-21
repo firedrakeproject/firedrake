@@ -133,13 +133,13 @@ def test_project_mismatched_rank():
     xs = SpatialCoordinate(m)
     ev = xs[0]
     eu = as_vector((xs[0], xs[1]))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(ev, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(eu, V)
 
 
@@ -153,10 +153,10 @@ def test_project_mismatched_mesh():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 
@@ -169,10 +169,10 @@ def test_project_mismatched_shape():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 

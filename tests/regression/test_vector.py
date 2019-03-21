@@ -95,6 +95,9 @@ def test_addition(f):
     w = v + 3.
     assert (w.array() == 5.).all()
 
+    w = 3. + v
+    assert (w.array() == 5.).all()
+
 
 def test_iadd(f):
     f.interpolate(Constant(2))
@@ -113,6 +116,9 @@ def test_subtraction(f):
 
     w = v - 3.0
     assert (w.array() == -1.).all()
+
+    w = 3.0 - v
+    assert (w.array() == 1.).all()
 
 
 def test_isub(f):

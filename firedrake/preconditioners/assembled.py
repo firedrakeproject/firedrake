@@ -18,6 +18,8 @@ class AssembledPC(PCBase):
 
     _prefix = "assembled_"
 
+    needs_python_pmat = False
+
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
 
