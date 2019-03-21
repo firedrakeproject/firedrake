@@ -1152,7 +1152,7 @@ if mode == "install":
 
     mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
     with open(mpiexecf, "w") as mpiexec:
-        contents = '#!/bin/bash' + os.linesep + f'{shutil.which(args.mpiexec)} "$@"'
+        contents = '#!/bin/bash' + os.linesep + shutil.which(args.mpiexec) + ' "$@"'
         mpiexec.write(contents)
     os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
