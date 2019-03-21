@@ -225,16 +225,16 @@ honoured.""",
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--mpicc", type=str,
-                        action="store", default="mpicc",
+                        action="store", default=None,
                         help="C compiler to use when building with MPI (default is 'mpicc')")
     parser.add_argument("--mpicxx", type=str,
-                        action="store", default="mpicxx",
+                        action="store", default=None,
                         help="C++ compiler to use when building with MPI (default is 'mpicxx')")
     parser.add_argument("--mpif90", type=str,
-                        action="store", default="mpif90",
+                        action="store", default=None,
                         help="Fortran compiler to use when building with MPI (default is 'mpif90')")
     parser.add_argument("--mpiexec", type=str,
-                        action="store", default="mpiexec",
+                        action="store", default=None,
                         help="MPI launcher (default is 'mpiexec')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
@@ -252,6 +252,12 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
 
     args = parser.parse_args()
+
+    # If the user has set any MPI info, they must set them all
+    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
+        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
+            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
+            sys.exit(1)
 
     if args.package_branch:
         branches = {package.lower(): branch for package, branch in args.package_branch}
@@ -331,10 +337,6 @@ else:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
-    if "mpicxx" not in config["options"]:
-        config["options"]["mpicxx"] = "mpicxx"
-    if "mpif90" not in config["options"]:
-        config["options"]["mpif90"] = "mpif90"
 
 if args.install_help:
     help_string = """
@@ -1144,17 +1146,18 @@ if mode == "install":
 
     # Set up the MPI wrappers
     for opt in ["mpicc", "mpicxx", "mpif90"]:
-        if hasattr(args, opt):
-            name = getattr(args, opt)
+        if options.get(opt):
+            name = options[opt]
             src = shutil.which(name)
             dest = os.path.join(firedrake_env, "bin", opt)
             os.symlink(src, dest)
 
-    mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-    with open(mpiexecf, "w") as mpiexec:
-        contents = '#!/bin/bash' + os.linesep + shutil.which(args.mpiexec) + ' "$@"'
-        mpiexec.write(contents)
-    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+    if options.get("mpiexec"):
+        mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
+        with open(mpiexecf, "w") as mpiexec:
+            contents = '#!/bin/bash' + os.linesep + shutil.which(args.mpiexec) + ' "$@"'
+            mpiexec.write(contents)
+        os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"] or "mpicc"
 cxx = options["mpicxx"] or "mpicxx"
