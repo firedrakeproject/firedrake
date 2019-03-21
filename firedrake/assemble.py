@@ -137,7 +137,7 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 #
 # ... assemble(..., create_callable=True)
 #
-# The flag "create_callable" is identical to "collect_loops".
+# The flag "create_callable" is essentially equivalent to "collect_loops".
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
