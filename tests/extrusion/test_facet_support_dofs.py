@@ -40,8 +40,3 @@ def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
     V = FunctionSpace(hex_mesh, *args, **kwargs)
     assert horiz_expected == entity_support_dofs(V.finat_element, (2, 0))
     assert vert_expected == entity_support_dofs(V.finat_element, (1, 1))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

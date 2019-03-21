@@ -31,6 +31,10 @@ clean:
 	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
 	@echo "    RM firedrake/spatialindex.c"
 	-@rm -f firedrake/spatialindex.c > /dev/null 2>&1
+	@echo "    RM firedrake/supermeshimpl.*.so"
+	-@rm -f firedrake/supermeshimpl.so > /dev/null 2>&1
+	@echo "    RM firedrake/supermeshimpl.c"
+	-@rm -f firedrake/supermeshimpl.c > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.*.so"
 	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.c"

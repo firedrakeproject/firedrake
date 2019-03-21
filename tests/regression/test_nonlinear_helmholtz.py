@@ -16,9 +16,10 @@ import pytest
 from firedrake import *
 
 
-def run_test(x, parameters={}):
+def run_test(r, parameters={}):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    mesh = UnitSquareMesh(2 ** r, 2 ** r)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 2)
 
     # Define variational problem
@@ -26,14 +27,14 @@ def run_test(x, parameters={}):
     u = Function(V)
     v = TestFunction(V)
     f = Function(V)
-    f.interpolate(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
     a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
     L = f * v * dx
 
     # Compute solution
     solve(a - L == 0, u, solver_parameters=parameters)
 
-    f.interpolate(Expression("cos(x[0]*2*pi)*cos(x[1]*2*pi)"))
+    f.interpolate(cos(x[0]*2*pi)*cos(x[1]*2*pi))
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
@@ -55,8 +56,3 @@ def test_l2_conv_parallel():
     l2_conv = run_convergence_test()
     print('[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv)
     assert (l2_conv > 2.8).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

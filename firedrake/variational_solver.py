@@ -1,4 +1,6 @@
 import ufl
+from itertools import chain
+from contextlib import ExitStack
 
 from firedrake import dmhooks
 from firedrake import slate
@@ -105,12 +107,13 @@ class NonlinearVariationalSolver(OptionsManager):
 
             {'snes_type': 'ksponly'}
 
-        PETSc flag options should be specified with `bool` values.
+        PETSc flag options (where the presence of the option means something) should
+        be specified with ``None``.
         For example:
 
         .. code-block:: python
 
-            {'snes_monitor': True}
+            {'snes_monitor': None}
 
         To use the ``pre_jacobian_callback`` or ``pre_function_callback``
         functionality, the user-defined function must accept the current
@@ -181,6 +184,9 @@ class NonlinearVariationalSolver(OptionsManager):
                           transpose=True, near=False)
         ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=True)
+        ctx._nullspace = nullspace
+        ctx._nullspace_T = nullspace_T
+        ctx._near_nullspace = near_nullspace
 
         # Set from options now, so that people who want to noodle with
         # the snes object directly (mostly Patrick), can.  We need the
@@ -191,18 +197,18 @@ class NonlinearVariationalSolver(OptionsManager):
             self.set_from_options(self.snes)
 
         # Used for custom grid transfer.
-        self._transfer_operators = None
+        self._transfer_operators = ()
         self._setup = False
 
-    def set_transfer_operators(self, contextmanager):
-        r"""Set a context manager which manages which grid transfer operators should be used.
+    def set_transfer_operators(self, *contextmanagers):
+        r"""Set context managers which manages which grid transfer operators should be used.
 
-        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :arg contextmanagers: instances of :class:`~.dmhooks.transfer_operators`.
         :raises RuntimeError: if called after calling solve.
         """
         if self._setup:
             raise RuntimeError("Cannot set transfer operators after solve")
-        self._transfer_operators = contextmanager
+        self._transfer_operators = tuple(contextmanagers)
 
     def solve(self, bounds=None):
         r"""Solve the variational problem.
@@ -227,17 +233,16 @@ class NonlinearVariationalSolver(OptionsManager):
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
-        # Ensure options database has full set of options (so monitors work right)
-        with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
-            with self._problem.u.dat.vec as u:
-                u.copy(work)
-                if self._transfer_operators is not None:
-                    with self._transfer_operators:
-                        self.snes.solve(None, work)
-                else:
-                    self.snes.solve(None, work)
-                work.copy(u)
-
+        with self._problem.u.dat.vec as u:
+            u.copy(work)
+            with ExitStack() as stack:
+                # Ensure options database has full set of options (so monitors
+                # work right)
+                for ctx in chain((self.inserted_options(), dmhooks.appctx(dm, self._ctx)),
+                                 self._transfer_operators):
+                    stack.enter_context(ctx)
+                self.snes.solve(None, work)
+            work.copy(u)
         self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
@@ -266,7 +271,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if L is 0:
+        if L is 0:  # noqa: F632
             F = ufl_expr.action(J, u)
         else:
             if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):

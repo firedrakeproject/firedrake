@@ -147,23 +147,6 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     assert norm(f) < 1e-11
 
 
-def test_create_subdm_caching(W):
-    from firedrake.dmhooks import create_subdm
-    iset1, subdm1 = create_subdm(W.dm, [0, 1, 3])
-    iset2, subdm2 = create_subdm(W.dm, [0, 2, 1])
-
-    assert subdm1 is not subdm2
-    assert iset1 is not iset2
-
-    assert iset1.indices.shape != iset2.indices.shape
-    assert len(W._subspaces) == 2
-
-    iset3, subdm3 = create_subdm(W.dm, [0, 1, 3])
-
-    assert subdm1 is subdm3
-    assert iset1 is iset3
-
-
 def test_matrix_types(W):
     a = inner(TestFunction(W), TrialFunction(W))*dx
 
@@ -190,8 +173,3 @@ def test_matrix_types(W):
     A = assemble(a, mat_type="nest", sub_mat_type="baij")
 
     assert A.M[1, 1].handle.getType() == "seqbaij"
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -5,19 +5,20 @@ import pytest
 @pytest.mark.parallel(nprocs=3)
 def test_kernel_with_det_of_tensor_of_derivatives_of_field():
     mesh = UnitIcosahedralSphereMesh(refinement_level=0)
+    x = SpatialCoordinate(mesh)
     V0 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "DG", 0)
 
-    Dexpr = Function(V0).interpolate(Expression("x[0]*x[1]*x[2]"))
+    Dexpr = Function(V0).interpolate(x[0]*x[1]*x[2])
 
     # Obtain high-order coordinate field
-    X = Function(V0).interpolate(Expression(("x[0]")))
-    Y = Function(V0).interpolate(Expression(("x[1]")))
-    Z = Function(V0).interpolate(Expression(("x[2]")))
+    X = Function(V0).interpolate(x[0])
+    Y = Function(V0).interpolate(x[1])
+    Z = Function(V0).interpolate(x[2])
 
     # Generate expressions for J and det J
     nflat = Function(VectorFunctionSpace(mesh, "DG", 0))
-    nflat.interpolate(Expression(("x[0]", "x[1]", "x[2]")))
+    nflat.interpolate(x)
     J = as_tensor([[X.dx(0), X.dx(1), X.dx(2)],
                    [Y.dx(0), Y.dx(1), Y.dx(2)],
                    [Z.dx(0), Z.dx(1), Z.dx(2)]])
@@ -32,8 +33,3 @@ def test_kernel_with_det_of_tensor_of_derivatives_of_field():
     D0 = Function(V2)
     solve(phi*p*detJ*dx == phi*Dexpr*detJ*dx, D0)
     assert errornorm(Dexpr, D0, degree_rise=0) < 1e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

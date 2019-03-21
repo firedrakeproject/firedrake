@@ -2,9 +2,9 @@ import pytest
 from firedrake import *
 
 
-def helmholtz_mixed(x, V1, V2, action=False):
+def helmholtz_mixed(r, V1, V2, action=False):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2**x, 2**x)
+    mesh = UnitSquareMesh(2**r, 2**r)
     V1 = FunctionSpace(mesh, *V1, name="V")
     V2 = FunctionSpace(mesh, *V2, name="P")
     W = V1 * V2
@@ -15,15 +15,16 @@ def helmholtz_mixed(x, V1, V2, action=False):
     v, q = TestFunctions(W)
     f = Function(V2)
 
-    f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+    x = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2))
     a = (p*q - q*div(u) + lmbda*inner(v, u) + div(v)*p) * dx
     L = f*q*dx
 
     # Compute solution
-    x = Function(W)
+    sol = Function(W)
 
     if action:
-        system = action(a, x) - L == 0
+        system = action(a, sol) - L == 0
     else:
         system = a == L
 
@@ -31,16 +32,16 @@ def helmholtz_mixed(x, V1, V2, action=False):
     # V Ct
     # Ch P
     # Eliminate V by forming a schur complement
-    solve(system, x, solver_parameters={'pc_type': 'fieldsplit',
-                                        'pc_fieldsplit_type': 'schur',
-                                        'ksp_type': 'cg',
-                                        'pc_fieldsplit_schur_fact_type': 'FULL',
-                                        'fieldsplit_V_ksp_type': 'cg',
-                                        'fieldsplit_P_ksp_type': 'cg'})
+    solve(system, sol, solver_parameters={'pc_type': 'fieldsplit',
+                                          'pc_fieldsplit_type': 'schur',
+                                          'ksp_type': 'cg',
+                                          'pc_fieldsplit_schur_fact_type': 'FULL',
+                                          'fieldsplit_V_ksp_type': 'cg',
+                                          'fieldsplit_P_ksp_type': 'cg'})
 
     # Analytical solution
-    f.interpolate(Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
-    return sqrt(assemble(dot(x[2] - f, x[2] - f) * dx))
+    f.interpolate(sin(x[0]*pi*2)*sin(x[1]*pi*2))
+    return sqrt(assemble(dot(sol[2] - f, sol[2] - f) * dx))
 
 
 @pytest.mark.parametrize(('V1', 'V2', 'threshold', 'action'),
@@ -55,8 +56,3 @@ def test_firedrake_helmholtz(V1, V2, threshold, action):
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > threshold).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

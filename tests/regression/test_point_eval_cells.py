@@ -54,21 +54,24 @@ def sphere_mesh(request):
 @pytest.fixture
 def func1d(mesh1d):
     V = FunctionSpace(mesh1d, "CG", 2)
-    f = Function(V).interpolate(Expression("x[0]*(1.0 - x[0])"))
+    x = SpatialCoordinate(mesh1d)
+    f = Function(V).interpolate(x[0]*(1.0 - x[0]))
     return f
 
 
 @pytest.fixture
 def func2d(mesh2d):
     V = FunctionSpace(mesh2d, "CG", 2)
-    f = Function(V).interpolate(Expression("cos(pi*(x[1] - 0.5))*sin(pi*x[0])"))
+    x = SpatialCoordinate(mesh2d)
+    f = Function(V).interpolate(cos(pi*(x[1] - 0.5))*sin(pi*x[0]))
     return f
 
 
 @pytest.fixture
 def func3d(mesh3d):
     V = FunctionSpace(mesh3d, "CG", 2)
-    f = Function(V).interpolate(Expression("x[2]*(x[0] - 0.5*x[1])"))
+    x = SpatialCoordinate(mesh3d)
+    f = Function(V).interpolate(x[2]*(x[0] - 0.5*x[1]))
     return f
 
 
@@ -94,19 +97,14 @@ def test_3d(func3d):
 
 
 def test_circle(circle_mesh):
-    f = func2d(circle_mesh)
+    f = circle_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([0.70710678118, +0.70710678118])
 
 
 def test_sphere(sphere_mesh):
-    f = func3d(sphere_mesh)
+    f = sphere_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([+0.57735026919, 0.57735026919, +0.57735026919])
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

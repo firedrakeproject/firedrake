@@ -53,14 +53,16 @@ def spherical_shell_mesh(request):
 @pytest.fixture
 def func2d(mesh2d):
     V = FunctionSpace(mesh2d, "CG", 2)
-    f = Function(V).interpolate(Expression("x[1]*(x[0] - 0.5*x[1])"))
+    x, y = SpatialCoordinate(mesh2d)
+    f = Function(V).interpolate(y*(x - 0.5*y))
     return f
 
 
 @pytest.fixture
 def func3d(mesh3d):
     V = FunctionSpace(mesh3d, "CG", 2)
-    f = Function(V).interpolate(Expression("sin(pi*x[2])*(cos(pi*(x[0] - 0.5)) - sin(pi*x[1]))"))
+    x, y, z = SpatialCoordinate(mesh3d)
+    f = Function(V).interpolate(sin(pi*z)*(cos(pi*(x-0.5)) - sin(pi*y)))
     return f
 
 
@@ -78,21 +80,18 @@ def test_3d(func3d):
 
 
 def test_cylinder(cylinder_mesh):
-    f = func3d(cylinder_mesh)
+    f = cylinder_mesh.coordinates
     with pytest.raises(NotImplementedError):
         # Manifold point location not implemented
         f([0.70710678118, +0.70710678118, 0.0])
 
 
 def test_spherical_shell(spherical_shell_mesh):
-    f = func3d(spherical_shell_mesh)
+    V = FunctionSpace(spherical_shell_mesh, "CG", 2)
+    x, y, z = SpatialCoordinate(spherical_shell_mesh)
+    f = Function(V).interpolate(sin(pi*z)*(cos(pi*(x-0.5)) - sin(pi*y)))
     expr = lambda x, y, z: sin(pi*z)*(cos(pi*(x - 0.5)) - sin(pi*y))
     for pt in [[+0.69282032302, 0.69282032302, +0.69282032302],
                [-0.72000000000, 1.06489436096, +1.26000000000],
                [-0.54000000000, 0.00000000000, -0.96000000000]]:
         assert np.allclose(expr(*pt), f(pt), rtol=5e-2)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

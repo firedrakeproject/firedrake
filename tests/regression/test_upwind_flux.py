@@ -34,9 +34,11 @@ def run_test(quadrilateral):
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
         RT_elt = FiniteElement("RT", "triangle", 1)
 
-    global_normal = Expression(("x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
-                                "x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
-                                "x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])"))
+    x = SpatialCoordinate(mesh)
+
+    global_normal = as_vector((x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]),
+                               x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]),
+                               x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])))
     mesh.init_cell_orientations(global_normal)
 
     # Define function spaces and basis functions
@@ -44,7 +46,7 @@ def run_test(quadrilateral):
     M = FunctionSpace(mesh, RT_elt)
 
     # advecting velocity
-    u0 = Expression(('-x[1]', 'x[0]', '0'))
+    u0 = as_vector((-x[1], x[0], 0))
     u = Function(M).project(u0)
 
     # Mesh-related functions
@@ -64,7 +66,7 @@ def run_test(quadrilateral):
 
     D1 = Function(V_dg)
 
-    D0 = Expression("exp(-pow(x[2],2) - pow(x[1],2))")
+    D0 = exp(-pow(x[2], 2) - pow(x[1], 2))
     D = Function(V_dg).interpolate(D0)
 
     D1problem = LinearVariationalProblem(a_mass, action(arhs, D), D1)
@@ -110,8 +112,3 @@ def test_upwind_flux_cubed_sphere():
 @pytest.mark.parallel
 def test_upwind_flux_cubed_sphere_parallel():
     run_test(quadrilateral=True)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

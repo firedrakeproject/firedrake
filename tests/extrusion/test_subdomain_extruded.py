@@ -8,7 +8,8 @@ def run_base_box_3d():
     m = UnitSquareMesh(10, 10, quadrilateral=True)
     mesh = ExtrudedMesh(m, layers=8)
     f = Function(FunctionSpace(mesh, 'CG', 1))
-    f.interpolate(Expression("x[0] + 2*x[1] + 4*x[2]"))
+    x, y, z = SpatialCoordinate(mesh)
+    f.interpolate(x + 2*y + 4*z)
 
     # A caching bug might cause to recall the following value at a later
     # assembly.  We keep this line to have that case tested.
@@ -31,8 +32,3 @@ def test_base_box_3d():
 @pytest.mark.parallel(nprocs=3)
 def test_base_box_3d_parallel():
     run_base_box_3d()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

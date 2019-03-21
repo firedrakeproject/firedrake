@@ -136,8 +136,3 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
         exact.interpolate(cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
         l2err[ii - start] = sqrt(assemble((out-exact)*(out-exact)*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

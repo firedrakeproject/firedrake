@@ -53,8 +53,3 @@ def helmholtz(V):
     x = Function(V)
     solve(a == L, x, solver_parameters={'ksp_type': 'cg', 'pc_type': 'lu'})
     return x
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

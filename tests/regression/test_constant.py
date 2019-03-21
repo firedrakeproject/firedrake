@@ -167,8 +167,3 @@ def test_fresh_constant_hashes_different():
     d = Constant(1)
 
     assert hash(c) != hash(d)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

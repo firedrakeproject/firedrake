@@ -306,7 +306,7 @@ def test_illegal_add_sub():
     A = Tensor(u * v * dx)
     b = Tensor(v * dx)
     c = Function(V)
-    c.interpolate(Expression("1"))
+    c.interpolate(Constant(1))
     s = Tensor(c * dx)
 
     with pytest.raises(ValueError):
@@ -384,8 +384,3 @@ def test_illegal_compile():
     form = v * dx
     with pytest.raises(ValueError):
         compile_slate(form)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

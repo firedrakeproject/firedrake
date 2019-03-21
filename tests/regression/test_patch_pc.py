@@ -20,7 +20,12 @@ def problem_type(request):
     return request.param
 
 
-def test_jacobi_equivalence(mesh, problem_type):
+@pytest.fixture(params=[True, False])
+def multiplicative(request):
+    return request.param
+
+
+def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     if problem_type == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
     elif problem_type == "vector":
@@ -54,8 +59,9 @@ def test_jacobi_equivalence(mesh, problem_type):
 
     jacobi = LinearVariationalSolver(problem,
                                      solver_parameters={"ksp_type": "cg",
-                                                        "pc_type": "jacobi",
-                                                        "ksp_monitor": True})
+                                                        "pc_type": "sor" if multiplicative else "jacobi",
+                                                        "ksp_monitor": None,
+                                                        "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
 
@@ -72,9 +78,11 @@ def test_jacobi_equivalence(mesh, problem_type):
                                                        "patch_pc_patch_construct_type": "star",
                                                        "patch_pc_patch_save_operators": True,
                                                        "patch_pc_patch_sub_mat_type": "aij",
+                                                       "patch_pc_patch_local_type": "multiplicative" if multiplicative else "additive",
+                                                       "patch_pc_patch_symmetrise_sweep": multiplicative,
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
-                                                       "ksp_monitor": True})
+                                                       "ksp_monitor": None})
 
     patch.snes.ksp.setConvergenceHistory()
 

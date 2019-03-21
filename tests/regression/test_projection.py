@@ -6,13 +6,14 @@ from firedrake import *
 def run_vector_valued_test(x, degree=1, family='RT'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(m, family, degree)
-    expr = ['cos(x[0]*pi*2)*sin(x[1]*pi*2)']*2
-    e = Expression(expr)
+    xs = SpatialCoordinate(m)
+    expr = cos(xs[0]*pi*2)*sin(xs[1]*pi*2)
+    expr = as_vector([expr, expr])
     exact = Function(VectorFunctionSpace(m, 'CG', 5))
-    exact.interpolate(e)
+    exact.interpolate(expr)
 
     # Solve to machine precision.
-    ret = project(e, V, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    ret = project(expr, V, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -20,16 +21,18 @@ def run_vector_valued_test(x, degree=1, family='RT'):
 def run_vector_test(x, degree=1, family='CG'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = VectorFunctionSpace(m, family, degree)
-    expr = ['cos(x[0]*pi*2)*sin(x[1]*pi*2)']*2
-    e = Expression(expr)
+    xs = SpatialCoordinate(m)
+
+    expr = cos(xs[0]*pi*2)*sin(xs[1]*pi*2)
+    expr = as_vector([expr, expr])
     exact = Function(VectorFunctionSpace(m, 'CG', 5))
-    exact.interpolate(e)
+    exact.interpolate(expr)
 
     # Solve to machine precision.  This version of the test uses the
     # alternate syntax in which the target Function is already
     # available.
     ret = Function(V)
-    project(e, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -37,17 +40,17 @@ def run_vector_test(x, degree=1, family='CG'):
 def run_tensor_test(x, degree=1, family='CG'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = TensorFunctionSpace(m, family, degree)
-    expr = [['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)'],
-            ['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)']]
-    e = Expression(expr)
+    xs = SpatialCoordinate(m)
+    expr = as_matrix([[cos(xs[0]*pi*2)*sin(xs[1]*pi*2), cos(xs[0]*pi*2)*sin(xs[1]*pi*2)],
+                      [cos(xs[0]*pi*2)*sin(xs[1]*pi*2), cos(xs[0]*pi*2)*sin(xs[1]*pi*2)]])
     exact = Function(TensorFunctionSpace(m, 'CG', 5))
-    exact.interpolate(e)
+    exact.interpolate(expr)
 
     # Solve to machine precision.  This version of the test uses the
     # alternate syntax in which the target Function is already
     # available.
     ret = Function(V)
-    project(e, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -55,7 +58,8 @@ def run_tensor_test(x, degree=1, family='CG'):
 def run_test(x, degree=1, family='CG'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(m, family, degree)
-    e = Expression('cos(x[0]*pi*2)*sin(x[1]*pi*2)')
+    xs = SpatialCoordinate(m)
+    e = cos(xs[0]*pi*2)*sin(xs[1]*pi*2)
     exact = Function(FunctionSpace(m, 'CG', 5))
     exact.interpolate(e)
 
@@ -126,15 +130,16 @@ def test_project_mismatched_rank():
     U = FunctionSpace(m, 'RT', 1)
     v = Function(V)
     u = Function(U)
-    ev = Expression('x[0]')
-    eu = Expression(('x[0]', 'x[1]'))
-    with pytest.raises(RuntimeError):
+    xs = SpatialCoordinate(m)
+    ev = xs[0]
+    eu = as_vector((xs[0], xs[1]))
+    with pytest.raises(ValueError):
         project(v, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(ev, U)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(eu, V)
 
 
@@ -148,10 +153,10 @@ def test_project_mismatched_mesh():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 
@@ -164,10 +169,10 @@ def test_project_mismatched_shape():
     u = Function(U)
     v = Function(V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(u, V)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         project(v, U)
 
 
@@ -178,10 +183,10 @@ def test_repeatable():
     V2 = FunctionSpace(mesh, 'DG', 0)
     V3 = FunctionSpace(mesh, 'DG', 0)
     W = V2 * V3
-    expr = Expression('1.0')
+    expr = Constant(1.0)
     old = project(expr, Q)
 
-    f = project(Expression(('-1.0', '-1.0')), W)  # noqa
+    f = project(as_vector((-1.0, -1.0)), W)  # noqa
     new = project(expr, Q)
 
     for fd, ud in zip(new.dat.data, old.dat.data):
@@ -191,7 +196,9 @@ def test_repeatable():
 def test_projector():
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
-    v = Function(Vc).interpolate(Expression("x[0]*x[1] + cos(x[0]+x[1])"))
+    xs = SpatialCoordinate(m)
+
+    v = Function(Vc).interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     Vd = FunctionSpace(m, "DG", 1)
@@ -203,7 +210,7 @@ def test_projector():
     mass2 = assemble(vo*dx)
     assert(np.abs(mass1-mass2) < 1.0e-10)
 
-    v.interpolate(Expression("x[1] + exp(x[0]+x[1])"))
+    v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
@@ -214,7 +221,9 @@ def test_projector():
 def test_trivial_projector():
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
-    v = Function(Vc).interpolate(Expression("x[0]*x[1] + cos(x[0]+x[1])"))
+    xs = SpatialCoordinate(m)
+
+    v = Function(Vc).interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     vo = Function(Vc)
@@ -225,21 +234,12 @@ def test_trivial_projector():
     mass2 = assemble(vo*dx)
     assert(np.abs(mass1-mass2) < 1.0e-10)
 
-    v.interpolate(Expression("x[1] + exp(x[0]+x[1])"))
+    v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
     assert(np.abs(mass1-mass2) < 1.0e-10)
-
-
-def test_projector_expression():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    vo = Function(V)
-    expr = Expression("1")
-    with pytest.raises(ValueError):
-        Projector(expr, vo)
 
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
@@ -294,8 +294,3 @@ def test_projector_bcs(tensor, same_fspace):
                                                    "pc_type": "lu"})
 
     assert errornorm(ret, ref) < 1.0e-10
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

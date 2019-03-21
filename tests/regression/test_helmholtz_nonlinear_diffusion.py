@@ -27,33 +27,33 @@ import pytest
 from firedrake import *
 
 
-def helmholtz(x, quadrilateral=False, parameters={}):
+def helmholtz(r, quadrilateral=False, parameters={}):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
 
     # Define variational problem
-    kappa = 1
-    alpha = 0.1
+    kappa = Constant(1)
+    alpha = Constant(0.1)
     u = Function(V)
     v = TestFunction(V)
     f = Function(V)
     D = 1 + alpha * u * u
-    f.interpolate(
-        Expression("-8*pi*pi*%(alpha)s*cos(2*pi*x[0])*cos(2*pi*x[1])\
-                   *cos(2*pi*x[1])*cos(2*pi*x[1])*sin(2*pi*x[0])*sin(2*pi*x[0])\
-                   - 8*pi*pi*%(alpha)s*cos(2*pi*x[0])*cos(2*pi*x[0])\
-                   *cos(2*pi*x[0])*cos(2*pi*x[1])*sin(2*pi*x[1])*sin(2*pi*x[1])\
-                   + 8*pi*pi*(%(alpha)s*cos(2*pi*x[0])*cos(2*pi*x[0])\
-                   *cos(2*pi*x[1])*cos(2*pi*x[1]) + 1)*cos(2*pi*x[0])*cos(2*pi*x[1])\
-                   + %(kappa)s*cos(2*pi*x[0])*cos(2*pi*x[1])"
-                   % {'alpha': alpha, 'kappa': kappa}))
+    f.interpolate(-8*pi*pi*alpha*cos(2*pi*x[0])*cos(2*pi*x[1])
+                  * cos(2*pi*x[1])*cos(2*pi*x[1])*sin(2*pi*x[0])*sin(2*pi*x[0])
+                  - 8*pi*pi*alpha*cos(2*pi*x[0])*cos(2*pi*x[0])
+                  * cos(2*pi*x[0])*cos(2*pi*x[1])*sin(2*pi*x[1])*sin(2*pi*x[1])
+                  + 8*pi*pi*(alpha*cos(2*pi*x[0])*cos(2*pi*x[0])
+                             * cos(2*pi*x[1])*cos(2*pi*x[1]) + 1)
+                  * cos(2*pi*x[0])*cos(2*pi*x[1])
+                  + kappa*cos(2*pi*x[0])*cos(2*pi*x[1]))
     a = (dot(grad(v), D * grad(u)) + kappa * v * u) * dx
     L = f * v * dx
 
     solve(a - L == 0, u, solver_parameters=parameters)
 
-    f.interpolate(Expression("cos(x[0]*2*pi)*cos(x[1]*2*pi)"))
+    f.interpolate(cos(x[0]*2*pi)*cos(x[1]*2*pi))
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
@@ -88,8 +88,3 @@ def test_l2_conv_on_quadrilaterals_serial():
 @pytest.mark.parallel
 def test_l2_conv_on_quadrilaterals_parallel():
     run_l2_conv_on_quadrilaterals()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

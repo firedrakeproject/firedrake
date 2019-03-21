@@ -147,8 +147,3 @@ def test_nonlinear_solve(bcs, benchmark):
     else:
         bcs = None
     benchmark(lambda: solve(F == 0, u, bcs=bcs))
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

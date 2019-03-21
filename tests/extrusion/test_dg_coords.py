@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 
 
 def test_extruded_interval_area():
@@ -38,8 +37,3 @@ def test_extruded_periodic_interval_area():
     u.assign(1)
 
     assert abs(assemble(u*dx) - 1.0) < 1e-12
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
