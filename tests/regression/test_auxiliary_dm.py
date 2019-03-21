@@ -1,5 +1,6 @@
 from firedrake.petsc import *
 from firedrake import *
+import pytest
 distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
 
