@@ -97,3 +97,7 @@ class KernelBuilderBase(KernelInterface):
         assert isinstance(body, coffee.Block)
         body_ = coffee.Block(self.prepare + body.children + self.finalise)
         return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+
+    # stubbed out for firedrake and ufc kernel builders
+    def register_tabulations(self, expressions):
+        pass
