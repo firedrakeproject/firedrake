@@ -1175,6 +1175,7 @@ if mode == "install":
     for p in packages:
         install(p+"/")
         sys.path.append(os.getcwd() + "/" + p)
+    pipinstall.pop()
 
     # Work around easy-install.pth bug.
     try:
@@ -1265,11 +1266,16 @@ else:
 
     # Ensure pytest is at the latest version
     run_pip(["install", "-U", "pytest"])
+    pipinstall.pop()
 
 if options["slepc"]:
+    pipinstall.append("--no-deps")
     build_and_install_slepc()
+    pipinstall.pop()
 if options["slope"]:
+    pipinstall.append("--no-deps")
     build_and_install_slope()
+    pipinstall.pop()
 if args.documentation_dependencies:
     install_documentation_dependencies()
 
