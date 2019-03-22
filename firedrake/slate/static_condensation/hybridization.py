@@ -14,6 +14,9 @@ __all__ = ['HybridizationPC']
 
 
 class HybridizationPC(SCBase):
+
+    needs_python_pmat = True
+
     """A Slate-based python preconditioner that solves a
     mixed H(div)-conforming problem using hybridization.
     Currently, this preconditioner supports the hybridization
