@@ -174,10 +174,10 @@ expressions:
 .. _TSFC: https://github.com/firedrakeproject/tsfc
 
 
-Random function generation
---------------------------
+Generating Functions with randomised values
+-------------------------------------------
 
-:py:mod:`~.randomfunctiongen` module wraps `randomgen <https://pypi.org/project/randomgen/>`__,
+The :py:mod:`~.randomfunctiongen` module wraps  the externap package `randomgen <https://pypi.org/project/randomgen/>`__,
 which gives Firedrake users an easy access to many stochastically sound random number generators,
 including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
 All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__ 
