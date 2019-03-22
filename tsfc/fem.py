@@ -546,7 +546,7 @@ def fiat_to_ufl(fiat_dict, order):
 def translate_argument(terminal, mt, ctx):
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
     sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    element = ctx.create_element(terminal.ufl_element())
+    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     def callback(entity_id):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
@@ -573,7 +573,7 @@ def translate_coefficient(terminal, mt, ctx):
         assert mt.local_derivatives == 0
         return vec
 
-    element = ctx.create_element(terminal.ufl_element())
+    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)

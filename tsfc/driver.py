@@ -210,6 +210,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface):
     expressions = impero_utils.preprocess_gem(expressions, **options)
     assignments = list(zip(return_variables, expressions))
 
+    # Register tabulations for runtime tabulated elements (used by Themis)
+    builder.register_tabulations(expressions)
+
     # Look for cell orientations in the IR
     if builder.needs_cell_orientations(expressions):
         builder.require_cell_orientations()
@@ -252,10 +255,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface):
     body = generate_coffee(impero_c, index_names, parameters["precision"],
                            parameters["scalar_type"], expressions, split_argument_indices)
 
-    return builder.construct_kernel(kernel_name, body)
+    return builder.construct_kernel(kernel_name, body, quad_rule)
 
 
-def compile_expression_at_points(expression, points, coordinates, parameters=None):
+def compile_expression_at_points(expression, points, coordinates, interface=None, parameters=None):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
     function spaces with only point evaluation nodes.
@@ -264,6 +267,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     :arg points: reference coordinates of the evaluation points
     :arg coordinates: the coordinate function
     :arg parameters: parameters object
+    :arg interface: backend module for the kernel interface
     """
     import coffee.base as ast
 
@@ -286,7 +290,10 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                                                  complex_mode=complex_mode)
 
     # Initialise kernel builder
-    builder = firedrake_interface.ExpressionKernelBuilder(parameters["scalar_type"])
+    if interface is None:
+        interface = firedrake_interface.ExpressionKernelBuilder
+
+    builder = interface(parameters["scalar_type"])
 
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
@@ -317,6 +324,9 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     tensor_indices = tuple(gem.Index() for s in value_shape)
     if value_shape:
         ir = gem.Indexed(ir, tensor_indices)
+
+    # Register tabulations for runtime tabulated elements (used by Themis)
+    builder.register_tabulations([ir])
 
     # Build kernel body
     return_shape = (len(points),) + value_shape
