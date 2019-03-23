@@ -232,7 +232,6 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     if source.ufl_shape != target.ufl_shape:
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
-    print("TEST")
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
     elif source_mesh == target_mesh:
