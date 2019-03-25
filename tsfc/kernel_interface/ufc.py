@@ -149,25 +149,6 @@ class KernelBuilder(KernelBuilderBase):
         body = coffee.Block([])  # empty block
         return self.construct_kernel(name, body)
 
-    @staticmethod
-    def require_cell_orientations():
-        # Nothing to do
-        pass
-
-    @staticmethod
-    def needs_cell_orientations(ir):
-        # UFC tabulate_tensor always have cell orientations
-        return True
-
-    @staticmethod
-    def require_cell_sizes():
-        pass
-
-    @staticmethod
-    def needs_cell_sizes(ir):
-        # Not hooked up right now.
-        return False
-
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""

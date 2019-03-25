@@ -98,6 +98,11 @@ class KernelBuilderBase(KernelInterface):
         body_ = coffee.Block(self.prepare + body.children + self.finalise)
         return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
 
-    # stubbed out for firedrake and ufc kernel builders
-    def register_tabulations(self, expressions):
+    def register_requirements(self, ir):
+        """Inspect what is referenced by the IR that needs to be
+        provided by the kernel interface.
+
+        :arg ir: multi-root GEM expression DAG
+        """
+        # Nothing is required by default
         pass
