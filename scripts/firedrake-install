@@ -397,6 +397,18 @@ python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the venv
 pip = python + ["-m", "pip"]
 pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
+
+# This context manager should be used whenever arguments should be temporarily added to pipinstall.
+class pipargs(object):
+    def __init__(self, *args):
+        self.args = args
+    def __enter__(self):
+        self.save = pipinstall.copy()
+        pipinstall.extend(self.args)
+
+    def __exit__(self, *args, **kwargs):
+        pipinstall = self.save
+
 pyinstall = python + ["setup.py", "install"]
 
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
@@ -1160,10 +1172,9 @@ if mode == "install":
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
-        pipinstall.append("--no-deps")
-        packages.remove("petsc")
-        install("petsc/")
-        pipinstall.pop()
+        with pipargs("--no-deps"):
+            packages.remove("petsc")
+            install("petsc/")
 
     for p in packages:
         pip_requirements(p)
@@ -1171,11 +1182,10 @@ if mode == "install":
     build_and_install_h5py()
     build_and_install_libspatialindex()
     build_and_install_libsupermesh()
-    pipinstall.append("--no-deps")
-    for p in packages:
-        install(p+"/")
-        sys.path.append(os.getcwd() + "/" + p)
-    pipinstall.pop()
+    with pipargs("--no-deps"):
+        for p in packages:
+            install(p+"/")
+            sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
     try:
@@ -1238,44 +1248,44 @@ else:
     # update dependencies.
     for p in packages:
         pip_requirements(p)
-    pipinstall.append("--no-deps")
 
-    # Only rebuild petsc if it has changed.
-    if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
-        clean("petsc/")
-        log.info("Depending on your platform, PETSc may take an hour or more to build!")
-        install("petsc/")
-    if args.rebuild or petsc_changed or petsc4py_changed:
-        clean("petsc4py/")
-        install("petsc4py/")
+    with pipargs("--no-deps"):
 
-    # Always rebuild h5py.
-    build_and_install_h5py()
-    build_and_install_libspatialindex()
-    build_and_install_libsupermesh()
+        # Only rebuild petsc if it has changed.
+        if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
+            clean("petsc/")
+            log.info("Depending on your platform, PETSc may take an hour or more to build!")
+            install("petsc/")
+        if args.rebuild or petsc_changed or petsc4py_changed:
+            clean("petsc4py/")
+            install("petsc4py/")
 
-    try:
-        packages.remove("PyOP2")
-        packages.remove("firedrake")
-    except ValueError:
-        pass
-    packages += ("PyOP2", "firedrake")
-    for p in packages:
-        clean(p)
-        install(p+"/")
+        # Always rebuild h5py.
+        build_and_install_h5py()
+        build_and_install_libspatialindex()
+        build_and_install_libsupermesh()
 
-    # Ensure pytest is at the latest version
-    run_pip(["install", "-U", "pytest"])
-    pipinstall.pop()
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+        packages += ("PyOP2", "firedrake")
+        for p in packages:
+            clean(p)
+            install(p+"/")
+
+        # Ensure pytest is at the latest version
+        run_pip(["install", "-U", "pytest"])
 
 if options["slepc"]:
-    pipinstall.append("--no-deps")
-    build_and_install_slepc()
-    pipinstall.pop()
+    with pipargs("--no-deps"):
+        build_and_install_slepc()
+
 if options["slope"]:
-    pipinstall.append("--no-deps")
-    build_and_install_slope()
-    pipinstall.pop()
+    with pipargs("--no-deps"):
+        build_and_install_slope()
+
 if args.documentation_dependencies:
     install_documentation_dependencies()
 
