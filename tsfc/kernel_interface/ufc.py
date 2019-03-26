@@ -102,7 +102,7 @@ class KernelBuilder(KernelBuilderBase):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
-    def construct_kernel(self, name, body, quadrature_rule):
+    def construct_kernel(self, name, body, quadrature_rule=None):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -110,12 +110,9 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg body: function body (:class:`coffee.Block` node)
-        :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
+        :arg quadrature rule: quadrature rule (ignored)
         :returns: a COFFEE function definition object
         """
-
-        assert quadrature_rule is None
-
         args = [self.local_tensor]
         args.extend(self.coefficient_args)
         args.extend(self.coordinates_args)
@@ -148,25 +145,6 @@ class KernelBuilder(KernelBuilderBase):
         """
         body = coffee.Block([])  # empty block
         return self.construct_kernel(name, body)
-
-    @staticmethod
-    def require_cell_orientations():
-        # Nothing to do
-        pass
-
-    @staticmethod
-    def needs_cell_orientations(ir):
-        # UFC tabulate_tensor always have cell orientations
-        return True
-
-    @staticmethod
-    def require_cell_sizes():
-        pass
-
-    @staticmethod
-    def needs_cell_sizes(ir):
-        # Not hooked up right now.
-        return False
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
