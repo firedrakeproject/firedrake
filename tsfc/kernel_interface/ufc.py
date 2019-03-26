@@ -102,7 +102,7 @@ class KernelBuilder(KernelBuilderBase):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
-    def construct_kernel(self, name, body, quadrature_rule):
+    def construct_kernel(self, name, body, quadrature_rule=None):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -110,12 +110,9 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg body: function body (:class:`coffee.Block` node)
-        :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
+        :arg quadrature rule: quadrature rule (ignored)
         :returns: a COFFEE function definition object
         """
-
-        assert quadrature_rule is None
-
         args = [self.local_tensor]
         args.extend(self.coefficient_args)
         args.extend(self.coordinates_args)
