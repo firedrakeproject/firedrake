@@ -5,3 +5,4 @@ pytest-xdist
 ipython
 matplotlib
 pylint
+randomgen

@@ -5,6 +5,9 @@ __all__ = ("PCDPC", )
 
 
 class PCDPC(PCBase):
+
+    needs_python_pmat = True
+
     r"""A Pressure-Convection-Diffusion preconditioner for Navier-Stokes.
 
     This preconditioner approximates the inverse of the pressure schur
