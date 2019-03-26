@@ -143,9 +143,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        self.oriented = needs_cell_orientations(ir)
-        self.cell_sizes = needs_cell_sizes(ir)
-        self.tabulations = collect_tabulations(ir)
+        self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
     def construct_kernel(self, return_arg, body):
         """Constructs an :class:`ExpressionKernel`.
@@ -257,9 +255,8 @@ class KernelBuilder(KernelBuilderBase):
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        self.kernel.oriented = needs_cell_orientations(ir)
-        self.kernel.needs_cell_sizes = needs_cell_sizes(ir)
-        self.kernel.tabulations = collect_tabulations(ir)
+        knl = self.kernel
+        knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
 
     def construct_kernel(self, name, body, quadrature_rule):
         """Construct a fully built :class:`Kernel`.
@@ -305,29 +302,21 @@ class KernelBuilder(KernelBuilderBase):
         return None
 
 
-def needs_cell_orientations(ir):
-    """Does a multi-root GEM expression DAG references cell
-    orientations?"""
+def check_requirements(ir):
+    """Look for cell orientations, cell sizes, and collect tabulations
+    in one pass."""
+    cell_orientations = False
+    cell_sizes = False
+    rt_tabs = {}
     for node in traversal(ir):
-        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            return True
-    return False
-
-
-def needs_cell_sizes(ir):
-    """Does a multi-root GEM expression DAG reference cell sizes?"""
-    for node in traversal(ir):
-        if isinstance(node, gem.Variable) and node.name == "cell_sizes":
-            return True
-    return False
-
-
-def collect_tabulations(ir):
-    """Collect tabulations that Themis needs to provide."""
-    tabs = {node.name: node.shape
-            for node in traversal(ir)
-            if isinstance(node, gem.Variable) and node.name.startswith("rt_")}
-    return tuple(sorted(tabs.items()))
+        if isinstance(node, gem.Variable):
+            if node.name == "cell_orientations":
+                cell_orientations = True
+            elif node.name == "cell_sizes":
+                cell_sizes = True
+            elif node.name.startswith("rt_"):
+                rt_tabs[node.name] = node.shape
+    return cell_orientations, cell_sizes, tuple(sorted(rt_tabs.items()))
 
 
 def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
