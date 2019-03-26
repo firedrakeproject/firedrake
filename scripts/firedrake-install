@@ -407,6 +407,7 @@ class pipargs(object):
         pipinstall.extend(self.args)
 
     def __exit__(self, *args, **kwargs):
+        global pipinstall
         pipinstall = self.save
 
 pyinstall = python + ["setup.py", "install"]
