@@ -1292,7 +1292,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
     offset = np.arange(nl, dtype=np.int32)*nr
-    cells = np.row_stack((ring_cells + i for i in offset))
+    cells = np.row_stack(tuple(ring_cells + i for i in offset))
     if not quadrilateral:
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
