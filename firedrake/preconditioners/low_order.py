@@ -108,6 +108,8 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
 
 class P1PC(PCBase):
 
+    needs_python_pmat = True
+
     def initialize(self, pc):
         _, P = pc.getOperators()
         assert P.type == "python"

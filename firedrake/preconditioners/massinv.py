@@ -6,6 +6,8 @@ __all__ = ("MassInvPC", )
 
 class MassInvPC(PCBase):
 
+    needs_python_pmat = True
+
     """A matrix free operator that inverts the mass matrix in the provided space.
 
     Internally this creates a PETSc KSP object that can be controlled
@@ -19,8 +21,6 @@ class MassInvPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + "Mp_"
         # we assume P has things stuffed inside of it
