@@ -114,7 +114,6 @@ def solver_params(request):
                }
 
 
-@pytest.mark.skip("preconditioners/patch.py are not updated to loopy codegen yet")  # FIXME: fix this before merging
 @pytest.mark.parallel
 def test_snespatch(mesh, CG1, solver_params):
     u = Function(CG1)
