@@ -1,19 +1,17 @@
-import ufl
-
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
-from firedrake.petsc import PETSc
-from firedrake.slate import slate
+from firedrake.petsc import PETSc, OptionsManager
 from firedrake.utils import cached_property
+from firedrake.ufl_expr import action
 
 
 __all__ = ["LinearSolver"]
 
 
-class LinearSolver(solving_utils.ParametersMixin):
+class LinearSolver(OptionsManager):
 
     def __init__(self, A, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
@@ -116,10 +114,7 @@ class LinearSolver(solving_utils.ParametersMixin):
         from firedrake.assemble import create_assembly_callable
         u = function.Function(self.trial_space)
         b = function.Function(self.test_space)
-        if isinstance(self.A.a, slate.TensorBase):
-            expr = -self.A.a * slate.AssembledVector(u)
-        else:
-            expr = -ufl.action(self.A.a, u)
+        expr = -action(self.A.a, u)
         return u, create_assembly_callable(expr, tensor=b), b
 
     def _lifted(self, b):
@@ -154,14 +149,13 @@ class LinearSolver(solving_utils.ParametersMixin):
         if self.A.has_bcs:
             b = self._lifted(b)
 
-        with self.inserted_options():
-            with b.dat.vec_ro as rhs:
-                if self.ksp.getInitialGuessNonzero():
-                    acc = x.dat.vec
-                else:
-                    acc = x.dat.vec_wo
-                with acc as solution:
-                    self.ksp.solve(rhs, solution)
+        if self.ksp.getInitialGuessNonzero():
+            acc = x.dat.vec
+        else:
+            acc = x.dat.vec_wo
+
+        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution:
+            self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()
         if r < 0:

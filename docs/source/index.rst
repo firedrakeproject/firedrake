@@ -13,19 +13,28 @@
 
    Introduction
    ------------
+ 
+Firedrake is an automated system for the solution of partial
+differential equations using the finite element method
+(FEM). Firedrake uses sophisticated code generation to provide
+mathematicians, scientists, and engineers with a very high productivity
+way to create sophisticated high performance simulations.
 
-Firedrake is an automated system for the portable solution of partial
-differential equations using the finite element method (FEM). Firedrake
-enables users to employ a wide range of discretisations to an infinite
-variety of PDEs and employ either conventional CPUs or GPUs to obtain
-the solution.
+Features:
+---------
 
-Firedrake employs the Unifed Form Language (UFL) from `the FEniCS
-Project <http://fenicsproject.org>`_ while the parallel execution of
-FEM assembly is accomplished by the `PyOP2
-<http://op2.github.io/PyOP2/>`_ system. The global mesh data
-structures, as well as linear and non-linear solvers, are provided by
-`PETSc <http://www.mcs.anl.gov/petsc/>`_.
+* Expressive specification of any PDE using the Unified Form Language
+  from `the FEniCS Project <http://fenicsproject.org>`_.
+* Sophisticated, programmable solvers through seamless coupling with `PETSc
+  <http://www.mcs.anl.gov/petsc/>`_.
+* Triangular, quadrilateral, and tetrahedral unstructured meshes.
+* Layered meshes of triangular wedges or hexahedra.
+* Vast range of finite element spaces.
+* Sophisticated automatic optimisation, including sum factorisation
+  for high order elements, and vectorisation.
+* Geometric multigrid.
+* Customisable operator preconditioners.
+* Support for static condensation, hybridisation, and HDG methods.
 
 
 .. only:: html

@@ -23,7 +23,7 @@ __all__ = ['Function', 'PointNotInDomainError']
 
 
 class _CFunction(ctypes.Structure):
-    """C struct collecting data from a :class:`Function`"""
+    r"""C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", c_int),
                 ("n_layers", c_int),
                 ("coords", POINTER(c_double)),
@@ -35,10 +35,10 @@ class _CFunction(ctypes.Structure):
 
 
 class CoordinatelessFunction(ufl.Coefficient):
-    """A function on a mesh topology."""
+    r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
-        """
+        r"""
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
             :class:`Function`.
@@ -77,11 +77,11 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def topological(self):
-        """The underlying coordinateless function."""
+        r"""The underlying coordinateless function."""
         return self
 
     def copy(self, deepcopy=False):
-        """Return a copy of this CoordinatelessFunction.
+        r"""Return a copy of this CoordinatelessFunction.
 
         :kwarg deepcopy: If ``True``, the new
             :class:`CoordinatelessFunction` will allocate new space
@@ -100,7 +100,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self.uid
 
     def split(self):
-        """Extract any sub :class:`Function`\s defined on the component spaces
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self._split is None:
             self._split = tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
@@ -109,7 +109,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self._split
 
     def sub(self, i):
-        """Extract the ith sub :class:`Function` of this :class:`Function`.
+        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
         :arg i: the index to extract
 
@@ -127,13 +127,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def cell_set(self):
-        """The :class:`pyop2.Set` of cells for the mesh on which this
+        r"""The :class:`pyop2.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
         return self.function_space()._mesh.cell_set
 
     @property
     def node_set(self):
-        """A :class:`pyop2.Set` containing the nodes of this
+        r"""A :class:`pyop2.Set` containing the nodes of this
         :class:`Function`. One or (for rank-1 and 2
         :class:`.FunctionSpace`\s) more degrees of freedom are stored
         at each node.
@@ -142,7 +142,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def dof_dset(self):
-        """A :class:`pyop2.DataSet` containing the degrees of freedom of
+        r"""A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`Function`."""
         return self.function_space().dof_dset
 
@@ -159,25 +159,25 @@ class CoordinatelessFunction(ufl.Coefficient):
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def vector(self):
-        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
+        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
     def function_space(self):
-        """Return the :class:`.FunctionSpace`, or
+        r"""Return the :class:`.FunctionSpace`, or
         :class:`.MixedFunctionSpace` on which this :class:`Function`
         is defined."""
         return self._function_space
 
     def name(self):
-        """Return the name of this :class:`Function`"""
+        r"""Return the name of this :class:`Function`"""
         return self._name
 
     def label(self):
-        """Return the label (a description) of this :class:`Function`"""
+        r"""Return the label (a description) of this :class:`Function`"""
         return self._label
 
     def rename(self, name=None, label=None):
-        """Set the name and or label of this :class:`Function`
+        r"""Set the name and or label of this :class:`Function`
 
         :arg name: The new name of the `Function` (if not `None`)
         :arg label: The new label for the `Function` (if not `None`)
@@ -195,7 +195,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
 
 class Function(ufl.Coefficient):
-    """A :class:`Function` represents a discretised field over the
+    r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
 
@@ -213,12 +213,12 @@ class Function(ufl.Coefficient):
     """
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
-        """
+        r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.  In this
-        case, the function values are copied.
+            case, the function values are copied.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -257,11 +257,11 @@ class Function(ufl.Coefficient):
 
     @property
     def topological(self):
-        """The underlying coordinateless function."""
+        r"""The underlying coordinateless function."""
         return self._data
 
     def copy(self, deepcopy=False):
-        """Return a copy of this Function.
+        r"""Return a copy of this Function.
 
         :kwarg deepcopy: If ``True``, the new :class:`Function` will
             allocate new space and copy values.  If ``False``, the
@@ -279,7 +279,7 @@ class Function(ufl.Coefficient):
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     def split(self):
-        """Extract any sub :class:`Function`\s defined on the component spaces
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self._split is None:
             self._split = tuple(Function(fs, dat, name="%s[%d]" % (self.name(), i))
@@ -288,7 +288,7 @@ class Function(ufl.Coefficient):
         return self._split
 
     def sub(self, i):
-        """Extract the ith sub :class:`Function` of this :class:`Function`.
+        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
         :arg i: the index to extract
 
@@ -305,7 +305,7 @@ class Function(ufl.Coefficient):
         return self.split()[i]
 
     def project(self, b, *args, **kwargs):
-        """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
+        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`.Expression`.
 
         This is equivalent to ``project(b, self)``.
@@ -316,17 +316,17 @@ class Function(ufl.Coefficient):
         return projection.project(b, self, *args, **kwargs)
 
     def function_space(self):
-        """Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
+        r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
             on which this :class:`Function` is defined.
         """
         return self._function_space
 
     def vector(self):
-        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
+        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
     def interpolate(self, expression, subset=None):
-        """Interpolate an expression onto this :class:`Function`.
+        r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
@@ -335,7 +335,7 @@ class Function(ufl.Coefficient):
 
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
-        """Set the :class:`Function` value to the pointwise value of
+        r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
         :class:`.FunctionSpace` as the :class:`Function` being assigned to.
 
@@ -480,7 +480,7 @@ class Function(ufl.Coefficient):
         return self.at(coord)
 
     def at(self, arg, *args, **kwargs):
-        """Evaluate function at points.
+        r"""Evaluate function at points.
 
         :arg arg: The point to locate.
         :arg args: Additional points.
@@ -529,7 +529,7 @@ class Function(ufl.Coefficient):
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
         def single_eval(x, buf):
-            """Helper function to evaluate at a single point."""
+            r"""Helper function to evaluate at a single point."""
             err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
                                                         x.ctypes.data_as(POINTER(c_double)),
                                                         buf.ctypes.data_as(POINTER(c_double)))
@@ -590,7 +590,7 @@ class Function(ufl.Coefficient):
 
 
 class PointNotInDomainError(Exception):
-    """Raised when attempting to evaluate a function outside its domain,
+    r"""Raised when attempting to evaluate a function outside its domain,
     and no fill value was given.
 
     Attributes: domain, point
@@ -604,7 +604,7 @@ class PointNotInDomainError(Exception):
 
 
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
-    """Generates, compiles and loads a C function to evaluate the
+    r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
 
     from os import path
@@ -638,7 +638,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
     return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix] +
-                            ["-I%s/include" % d for d in get_petsc_dir()],
+                                     "-I%s/include" % sys.prefix]
+                            + ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)

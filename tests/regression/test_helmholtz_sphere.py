@@ -7,13 +7,14 @@ from firedrake import *
 
 def run_helmholtz_sphere(MeshClass, r, d):
     m = MeshClass(refinement_level=r, degree=d)
-    m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
     V = FunctionSpace(m, 'CG', d)
 
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    f = Function(V).interpolate(Expression("x[0]*x[1]*x[2]"))
+    f = Function(V).interpolate(x[0]*x[1]*x[2])
 
     a = (dot(grad(v), grad(u)) + v * u) * dx
     L = f * v * dx
@@ -21,13 +22,14 @@ def run_helmholtz_sphere(MeshClass, r, d):
     u = Function(V)
     solve(a == L, u, solver_parameters={"ksp_type": "cg"})
 
-    f.interpolate(Expression("x[0]*x[1]*x[2]/13.0"))
+    f.interpolate(x[0]*x[1]*x[2]/13.0)
     return errornorm(f, u, degree_rise=0)
 
 
 def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
     m = MeshClass(refinement_level=r, degree=meshd)
-    m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
     if m.ufl_cell().cellname() == "triangle":
         V = FunctionSpace(m, 'RT', eltd+1)
     elif m.ufl_cell().cellname() == "quadrilateral":
@@ -39,7 +41,7 @@ def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
     v, q = TestFunctions(W)
 
     f = Function(Q)
-    f.interpolate(Expression("x[0]*x[1]*x[2]"))
+    f.interpolate(x[0]*x[1]*x[2])
     a = (p*q - q*div(u) + inner(v, u) + div(v)*p) * dx
     L = f*q*dx
 
@@ -53,7 +55,7 @@ def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
                                            'fieldsplit_1_ksp_type': 'cg'})
 
     _, u = soln.split()
-    f.interpolate(Expression("x[0]*x[1]*x[2]/13.0"))
+    f.interpolate(x[0]*x[1]*x[2]/13.0)
     return errornorm(f, u, degree_rise=0)
 
 
@@ -103,8 +105,3 @@ def test_helmholtz_mixed_cubedsphere_parallel():
     l2conv = np.log2(errors[:-1] / errors[1:])
 
     assert (l2conv > 2.7).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

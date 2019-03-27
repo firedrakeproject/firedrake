@@ -1,7 +1,9 @@
 cimport numpy as np
+import numpy as np
 import ctypes
 import cython
 from libc.stdint cimport uintptr_t
+from libc.stdlib cimport free
 
 include "spatialindexinc.pxi"
 
@@ -77,3 +79,26 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
         if err != RT_None:
             raise RuntimeError("failed to insert data into spatial index")
     return spatial_index
+
+
+def bounding_boxes(SpatialIndex sidx not None, np.ndarray[np.float64_t, ndim=1] x):
+    """Given a spatial index and a point, return the bounding boxes the point is in.
+
+    :arg sidx: the SpatialIndex
+    :arg x: the point
+    :returns: a numpy array of candidate bounding boxes."""
+    cdef int dim = x.shape[0]
+    cdef int64_t *ids = NULL
+    cdef int i
+    cdef np.ndarray[np.int64_t, ndim=1, mode="c"] pyids
+    cdef uint64_t nids
+
+    err = Index_Intersects_id(sidx.index, &x[0], &x[0], dim, &ids, &nids)
+    if err != RT_None:
+        raise RuntimeError("intersection failed")
+
+    pyids = np.empty(nids, dtype=np.int64)
+    for i in range(nids):
+        pyids[i] = ids[i]
+    free(ids)
+    return pyids

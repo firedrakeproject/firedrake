@@ -11,18 +11,18 @@ __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDAT
 
 
 FILE_READ = PETSc.Viewer.Mode.READ
-"""Open a checkpoint file for reading.  Raises an error if file does not exist."""
+r"""Open a checkpoint file for reading.  Raises an error if file does not exist."""
 
 FILE_CREATE = PETSc.Viewer.Mode.WRITE
-"""Create a checkpoint file.  Truncates the file if it exists."""
+r"""Create a checkpoint file.  Truncates the file if it exists."""
 
 FILE_UPDATE = PETSc.Viewer.Mode.APPEND
-"""Open a checkpoint file for updating.  Creates the file if it does not exist, providing both read and write access."""
+r"""Open a checkpoint file for updating.  Creates the file if it does not exist, providing both read and write access."""
 
 
 class DumbCheckpoint(object):
 
-    """A very dumb checkpoint object.
+    r"""A very dumb checkpoint object.
 
     This checkpoint object is capable of writing :class:`~.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
@@ -64,7 +64,7 @@ class DumbCheckpoint(object):
         self.new_file()
 
     def set_timestep(self, t, idx=None):
-        """Set the timestep for output.
+        r"""Set the timestep for output.
 
         :arg t: The timestep value.
         :arg idx: An optional timestep index to use, otherwise an
@@ -86,7 +86,7 @@ class DumbCheckpoint(object):
         self.write_attribute("/", "stored_time_steps", new_steps)
 
     def get_timesteps(self):
-        """Return all the time steps (and time indices) in the current
+        r"""Return all the time steps (and time indices) in the current
         checkpoint file.
 
         This is useful when reloading from a checkpoint file that
@@ -97,7 +97,7 @@ class DumbCheckpoint(object):
         return steps, indices
 
     def new_file(self, name=None):
-        """Open a new on-disk file for writing checkpoint data.
+        r"""Open a new on-disk file for writing checkpoint data.
 
         :arg name: An optional name to use for the file, an extension
              of ``.h5`` is automatically appended.
@@ -151,7 +151,7 @@ class DumbCheckpoint(object):
 
     @property
     def vwr(self):
-        """The PETSc Viewer used to store and load function data."""
+        r"""The PETSc Viewer used to store and load function data."""
         if hasattr(self, '_vwr'):
             return self._vwr
         self.new_file()
@@ -159,14 +159,14 @@ class DumbCheckpoint(object):
 
     @property
     def h5file(self):
-        """An h5py File object pointing at the open file handle."""
+        r"""An h5py File object pointing at the open file handle."""
         if hasattr(self, '_h5file'):
             return self._h5file
         self._h5file = h5i.get_h5py_file(self.vwr)
         return self._h5file
 
     def close(self):
-        """Close the checkpoint file (flushing any pending writes)"""
+        r"""Close the checkpoint file (flushing any pending writes)"""
         if hasattr(self, "_vwr"):
             self._vwr.destroy()
             del self._vwr
@@ -175,7 +175,7 @@ class DumbCheckpoint(object):
             del self._h5file
 
     def _get_data_group(self):
-        """Return the group name for function data.
+        r"""Return the group name for function data.
 
         If a timestep is set, this incorporates the current timestep
         index.  See :meth:`.set_timestep`."""
@@ -184,14 +184,14 @@ class DumbCheckpoint(object):
         return "/fields"
 
     def _write_timestep_attr(self, group):
-        """Write the current timestep value (if it exists) to the
+        r"""Write the current timestep value (if it exists) to the
         specified group."""
         if self._time is not None:
             self.h5file.require_group(group)
             self.write_attribute(group, "timestep", self._time)
 
     def store(self, function, name=None):
-        """Store a function in the checkpoint file.
+        r"""Store a function in the checkpoint file.
 
         :arg function: The function to store.
         :arg name: an (optional) name to store the function under.  If
@@ -216,7 +216,7 @@ class DumbCheckpoint(object):
             self.vwr.popGroup()
 
     def load(self, function, name=None):
-        """Store a function from the checkpoint file.
+        r"""Store a function from the checkpoint file.
 
         :arg function: The function to load values into.
         :arg name: an (optional) name used to find the function values.  If
@@ -231,14 +231,17 @@ class DumbCheckpoint(object):
         group = self._get_data_group()
         with function.dat.vec_wo as v:
             self.vwr.pushGroup(group)
-            oname = v.getName()
-            v.setName(name)
-            v.load(self.vwr)
-            v.setName(oname)
+            # PETSc replaces the array in the Vec, which screws things
+            # up for us, so read into temporary Vec.
+            tmp = v.duplicate()
+            tmp.setName(name)
+            tmp.load(self.vwr)
+            tmp.copy(v)
+            tmp.destroy()
             self.vwr.popGroup()
 
     def write_attribute(self, obj, name, val):
-        """Set an HDF5 attribute on a specified data object.
+        r"""Set an HDF5 attribute on a specified data object.
 
         :arg obj: The path to the data object.
         :arg name: The name of the attribute.
@@ -252,7 +255,7 @@ class DumbCheckpoint(object):
             raise AttributeError("Object '%s' not found" % obj)
 
     def read_attribute(self, obj, name, default=None):
-        """Read an HDF5 attribute on a specified data object.
+        r"""Read an HDF5 attribute on a specified data object.
 
         :arg obj: The path to the data object.
         :arg name: The name of the attribute.
@@ -268,7 +271,7 @@ class DumbCheckpoint(object):
             raise AttributeError("Attribute '%s' on '%s' not found" % (name, obj))
 
     def has_attribute(self, obj, name):
-        """Check for existance of an HDF5 attribute on a specified data object.
+        r"""Check for existance of an HDF5 attribute on a specified data object.
 
         :arg obj: The path to the data object.
         :arg name: The name of the attribute.
@@ -293,7 +296,7 @@ class DumbCheckpoint(object):
 
 class HDF5File(object):
 
-    """An object to facilitate checkpointing.
+    r"""An object to facilitate checkpointing.
 
     This checkpoint object is capable of writing :class:`~.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
@@ -341,7 +344,7 @@ class HDF5File(object):
             self.attributes('/')['nprocs'] = self.comm.size
 
     def _set_timestamp(self, t):
-        """Set the timestamp for storing.
+        r"""Set the timestamp for storing.
 
         :arg t: The timestamp value.
         """
@@ -352,14 +355,14 @@ class HDF5File(object):
         attrs["stored_timestamps"] = np.concatenate((timestamps, [t]))
 
     def get_timestamps(self):
-        """Get the timestamps this HDF5File knows about."""
+        r"""Get the timestamps this HDF5File knows about."""
 
         attrs = self.attributes("/")
         timestamps = attrs.get("stored_timestamps", [])
         return timestamps
 
     def close(self):
-        """Close the checkpoint file (flushing any pending writes)"""
+        r"""Close the checkpoint file (flushing any pending writes)"""
         if hasattr(self, '_h5file'):
             self._h5file.flush()
             # Need to explicitly close the h5py File so that all
@@ -370,11 +373,11 @@ class HDF5File(object):
             del self._h5file
 
     def flush(self):
-        """Flush any pending writes."""
+        r"""Flush any pending writes."""
         self._h5file.flush()
 
     def write(self, function, path, timestamp=None):
-        """Store a function in the checkpoint file.
+        r"""Store a function in the checkpoint file.
 
         :arg function: The function to store.
         :arg path: the path to store the function under.
@@ -406,7 +409,7 @@ class HDF5File(object):
             self._set_timestamp(timestamp)
 
     def read(self, function, path, timestamp=None):
-        """Store a function from the checkpoint file.
+        r"""Store a function from the checkpoint file.
 
         :arg function: The function to load values into.
         :arg path: the path under which the function is stored.
@@ -422,7 +425,7 @@ class HDF5File(object):
             v.array[:] = dset[slice(*v.getOwnershipRange())]
 
     def attributes(self, obj):
-        """:arg obj: The path to the group."""
+        r""":arg obj: The path to the group."""
         return self._h5file[obj].attrs
 
     def __enter__(self):

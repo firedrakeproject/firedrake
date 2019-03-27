@@ -121,6 +121,12 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
 
+    # Support foo x Real tensorproduct elements
+    real_tensorproduct = False
+    if isinstance(element, ufl.TensorProductElement):
+        a, b = element.sub_elements()
+        real_tensorproduct = b.family() == 'Real'
+
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
 
@@ -129,7 +135,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name)
+        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:

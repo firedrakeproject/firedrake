@@ -1,11 +1,13 @@
-
 import ufl
+from itertools import chain
+from contextlib import ExitStack
 
 from firedrake import dmhooks
+from firedrake import slate
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -14,12 +16,12 @@ __all__ = ["LinearVariationalProblem",
 
 
 class NonlinearVariationalProblem(object):
-    """Nonlinear variational problem F(u; v) = 0."""
+    r"""Nonlinear variational problem F(u; v) = 0."""
 
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None):
-        """
+        r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
@@ -40,8 +42,8 @@ class NonlinearVariationalProblem(object):
         self.bcs = solving._extract_bcs(bcs)
 
         # Argument checking
-        if not isinstance(self.F, ufl.Form):
-            raise TypeError("Provided residual is a '%s', not a Form" % type(self.F).__name__)
+        if not isinstance(self.F, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(self.F).__name__)
         if len(self.F.arguments()) != 1:
             raise ValueError("Provided residual is not a linear form")
         if not isinstance(self.u, function.Function):
@@ -51,12 +53,12 @@ class NonlinearVariationalProblem(object):
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
 
-        if not isinstance(self.J, ufl.Form):
-            raise TypeError("Provided Jacobian is a '%s', not a Form" % type(self.J).__name__)
+        if not isinstance(self.J, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(self.J).__name__)
         if len(self.J.arguments()) != 2:
             raise ValueError("Provided Jacobian is not a bilinear form")
-        if self.Jp is not None and not isinstance(self.Jp, ufl.Form):
-            raise TypeError("Provided preconditioner is a '%s', not a Form" % type(self.Jp).__name__)
+        if self.Jp is not None and not isinstance(self.Jp, (ufl.Form, slate.slate.TensorBase)):
+            raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(self.Jp).__name__)
         if self.Jp is not None and len(self.Jp.arguments()) != 2:
             raise ValueError("Provided preconditioner is not a bilinear form")
 
@@ -69,11 +71,11 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(solving_utils.ParametersMixin):
-    """Solves a :class:`NonlinearVariationalProblem`."""
+class NonlinearVariationalSolver(OptionsManager):
+    r"""Solves a :class:`NonlinearVariationalProblem`."""
 
     def __init__(self, problem, **kwargs):
-        """
+        r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
@@ -105,12 +107,13 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
 
             {'snes_type': 'ksponly'}
 
-        PETSc flag options should be specified with `bool` values.
+        PETSc flag options (where the presence of the option means something) should
+        be specified with ``None``.
         For example:
 
         .. code-block:: python
 
-            {'snes_monitor': True}
+            {'snes_monitor': None}
 
         To use the ``pre_jacobian_callback`` or ``pre_function_callback``
         functionality, the user-defined function must accept the current
@@ -154,7 +157,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                                          pmat_type=pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_j_callback,
-                                         pre_function_callback=pre_f_callback)
+                                         pre_function_callback=pre_f_callback,
+                                         options_prefix=self.options_prefix)
 
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
@@ -173,13 +177,16 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
-        ctx.set_jacobian(self.snes, self.options_prefix)
+        ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
                           transpose=True, near=False)
         ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=True)
+        ctx._nullspace = nullspace
+        ctx._nullspace_T = nullspace_T
+        ctx._near_nullspace = near_nullspace
 
         # Set from options now, so that people who want to noodle with
         # the snes object directly (mostly Patrick), can.  We need the
@@ -190,21 +197,21 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             self.set_from_options(self.snes)
 
         # Used for custom grid transfer.
-        self._transfer_operators = None
+        self._transfer_operators = ()
         self._setup = False
 
-    def set_transfer_operators(self, contextmanager):
-        """Set a context manager which manages which grid transfer operators should be used.
+    def set_transfer_operators(self, *contextmanagers):
+        r"""Set context managers which manages which grid transfer operators should be used.
 
-        :arg contextmanager: an instance of :class:`~.dmhooks.transfer_operators`.
+        :arg contextmanagers: instances of :class:`~.dmhooks.transfer_operators`.
         :raises RuntimeError: if called after calling solve.
         """
         if self._setup:
             raise RuntimeError("Cannot set transfer operators after solve")
-        self._transfer_operators = contextmanager
+        self._transfer_operators = tuple(contextmanagers)
 
     def solve(self, bounds=None):
-        """Solve the variational problem.
+        r"""Solve the variational problem.
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
@@ -226,28 +233,27 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
-        # Ensure options database has full set of options (so monitors work right)
-        with self.inserted_options(), dmhooks.appctx(dm, self._ctx):
-            with self._problem.u.dat.vec as u:
-                u.copy(work)
-                if self._transfer_operators is not None:
-                    with self._transfer_operators:
-                        self.snes.solve(None, work)
-                else:
-                    self.snes.solve(None, work)
-                work.copy(u)
-
+        with self._problem.u.dat.vec as u:
+            u.copy(work)
+            with ExitStack() as stack:
+                # Ensure options database has full set of options (so monitors
+                # work right)
+                for ctx in chain((self.inserted_options(), dmhooks.appctx(dm, self._ctx)),
+                                 self._transfer_operators):
+                    stack.enter_context(ctx)
+                self.snes.solve(None, work)
+            work.copy(u)
         self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
-    """Linear variational problem a(u, v) = L(v)."""
+    r"""Linear variational problem a(u, v) = L(v)."""
 
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
                  constant_jacobian=True):
-        """
+        r"""
         :param a: the bilinear form
         :param L: the linear form
         :param u: the :class:`.Function` to solve for
@@ -265,12 +271,14 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, ufl.Form):
-            raise TypeError("Provided RHS is a '%s', not a Form" % type(L).__name__)
-        if len(L.arguments()) != 1:
-            raise ValueError("Provided RHS is not a linear form")
-
-        F = ufl.action(J, u) - L
+        if L is 0:  # noqa: F632
+            F = ufl_expr.action(J, u)
+        else:
+            if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+                raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
+            if len(L.arguments()) != 1:
+                raise ValueError("Provided RHS is not a linear form")
+            F = ufl_expr.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters)
@@ -278,10 +286,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
 
 class LinearVariationalSolver(NonlinearVariationalSolver):
-    """Solves a :class:`LinearVariationalProblem`."""
+    r"""Solves a :class:`LinearVariationalProblem`."""
 
     def __init__(self, *args, **kwargs):
-        """
+        r"""
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
@@ -306,7 +314,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
     def invalidate_jacobian(self):
-        """
+        r"""
         Forces the matrix to be reassembled next time it is required.
         """
         self._ctx._jacobian_assembled = False

@@ -22,8 +22,9 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type=None, sub_mat_type=None, appctx={}, **kwargs):
-    """Evaluate f.
+             inverse=False, mat_type=None, sub_mat_type=None,
+             appctx={}, options_prefix=None, **kwargs):
+    r"""Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
             a :class:`~slate.TensorBase` expression.
@@ -54,6 +55,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
+    :arg options_prefix: PETSc options prefix to apply to matrices.
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -97,7 +99,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                          inverse=inverse, mat_type=mat_type,
                          sub_mat_type=sub_mat_type, appctx=appctx,
                          collect_loops=collect_loops,
-                         allocate_only=allocate_only)
+                         allocate_only=allocate_only,
+                         options_prefix=options_prefix)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -105,8 +108,9 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
-                    inverse=False, mat_type=None, sub_mat_type=None, appctx={}):
-    """Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
+                    inverse=False, mat_type=None, sub_mat_type=None, appctx={},
+                    options_prefix=None):
+    r"""Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
 
     .. warning::
 
@@ -114,13 +118,13 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
     """
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                     appctx=appctx,
-                     allocate_only=True)
+                     appctx=appctx, allocate_only=True,
+                     options_prefix=options_prefix)
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
-    """Create a callable object than be used to assemble f into a tensor.
+    r"""Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
     jacobian callbacks, since it always assembles back into the
@@ -150,9 +154,10 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
               appctx={},
+              options_prefix=None,
               collect_loops=False,
               allocate_only=False):
-    """Assemble the form or Slate expression f and return a Firedrake object
+    r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
@@ -171,6 +176,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         inside a "nest" matrix.  One of "aij" or "baij".
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
+    :arg options_prefix: An options prefix for the PETSc matrix
+        (ignored if not assembling a bilinear form).
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
@@ -236,7 +243,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if tensor is None:
                 return matrix.ImplicitMatrix(f, bcs,
                                              fc_params=form_compiler_parameters,
-                                             appctx=appctx)
+                                             appctx=appctx,
+                                             options_prefix=options_prefix)
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
@@ -302,8 +310,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
-                                          "%s_%s_matrix" % fs_names)
+            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, numpy.float64,
+                                          "%s_%s_matrix" % fs_names,
+                                          options_prefix=options_prefix)
             tensor = result_matrix._M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
@@ -384,7 +393,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             loops.append(zero_tensor)
         else:
             zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets, pass_layer_arg) in kernels:
+        for indices, kinfo in kernels:
+            kernel = kinfo.kernel
+            integral_type = kinfo.integral_type
+            domain_number = kinfo.domain_number
+            subdomain_id = kinfo.subdomain_id
+            coeff_map = kinfo.coefficient_map
+            pass_layer_arg = kinfo.pass_layer_arg
+            needs_orientations = kinfo.oriented
+            needs_cell_facets = kinfo.needs_cell_facets
+            needs_cell_sizes = kinfo.needs_cell_sizes
+
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
@@ -491,6 +510,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if needs_orientations:
                 o = m.cell_orientations()
                 args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
+            if needs_cell_sizes:
+                o = m.cell_sizes
+                args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
             for n in coeff_map:
                 c = coefficients[n]
                 for c_ in c.split():
@@ -520,7 +542,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 # par_loop.
                 nodes = bc.nodes
                 if len(fs) > 1:
-                    raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                    raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = result_matrix.block_shape
                 with collecting_loops(collect_loops):
                     for i in range(shape[0]):

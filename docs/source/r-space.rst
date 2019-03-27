@@ -59,7 +59,8 @@ The corresponding Python code is:
   solve(a == L, w)
   u, s = split(w)
   exact = Function(V)
-  exact.interpolate(Expression('x[1] - 0.5'))
+  x, y = SpatialCoordinate(m)
+  exact.interpolate(y - 0.5)
   print sqrt(assemble((u - exact)*(u - exact)*dx))
 
 
@@ -129,3 +130,34 @@ The one by one block in the corner is assembled by replacing both
 the test and trial functions of the corresponding form with 1 and
 assembling. The remaining block does not involve `R` and is assembled
 as usual.
+
+Using `R` space with extruded meshes
+------------------------------------
+
+On extruded meshes it is possible to construct tensor product function spaces
+with the `R` space. Using the `R` space in the extruded direction provides a
+convenient way of expressing fields that are constant along the extrusion.
+
+The example below illustrates how the `R` space can be used to compute a
+vertical average of a three-dimensional DG1 field by projecting the source
+field on a DG1 x R space.
+
+
+.. code-block:: python
+
+  from firedrake import *
+
+  mesh2d = UnitSquareMesh(10, 10)
+  mesh = ExtrudedMesh(mesh2d, 10, 0.1)
+
+  V = FunctionSpace(mesh, 'DG', 1, vfamily='DG', vdegree=1)
+  f = Function(V)
+  x, y, z = SpatialCoordinate(mesh)
+  f.interpolate(sin(2*pi*z))
+
+  U = FunctionSpace(mesh, 'DG', 1, vfamily='R', vdegree=0)
+  g = Function(U, name='g')
+  g.project(f)
+
+  print('f min: {:.3g}, max: {:.3g} '.format(f.dat.data.min(), f.dat.data.max()))
+  print('g min: {:.3g}, max: {:.3g} '.format(g.dat.data.min(), g.dat.data.max()))

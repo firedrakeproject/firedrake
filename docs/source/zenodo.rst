@@ -38,11 +38,21 @@ virtualenv is activated or that you otherwise have the firedrake
 scripts in your path.
 
 1. Use ``firedrake-zenodo`` to generate a JSON file containing the
-   versions of Firedrake components you are using, as well as a
-   documentation message describing what this version was used for
-   (this will appear online on Zenodo). For example::
+   versions of Firedrake components you are using, as well as a title
+   describing what this version was used for (this will appear online
+   on Zenodo). For example::
 
-     firedrake-zenodo -m "Version of Firedrake used in 'My paper title'."
+     firedrake-zenodo -t "My paper title"
+
+   You can additionally provide a single file that contains any extra
+   (free-form) information that you want to appear in the uploaded
+   Zenodo record::
+
+     firedrake-zenodo -t "My paper title" --info-file README.txt
+
+   This file could, for example, contain DOIs of any archived
+   simulation code that you used over and above the core Firedrake
+   components.
 
    This will create a file ``firedrake.json`` containing the required
    information.
@@ -53,12 +63,17 @@ scripts in your path.
    <https://github.com/firedrakeproject/firedrake/issues/new>`_.
 
 3. The Firedrake developers will generate a bespoke Firedrake release
-   containing exactly the set of versions your JSON file
-   specifies. You will be provided with a firedrake release tag of the
-   form ``Firedrake_YYYYMMDD.N``.
+   containing exactly the set of versions your JSON file specifies, as
+   well as creating a Zenodo record collating these. You will be
+   provided with a firedrake release tag of the form
+   ``Firedrake_YYYYMMDD.N``.
 
-4. You can use this release tag to retrieve BibTeX entries (including
-   the DOI) for all of the components::
+   You can see an example such a collated record `here
+   <https://zenodo.org/record/1402622>`_.
+
+4. You can use this release tag to generate a BibTeX entry (including
+   the DOI) for the collated "meta"-record, which in turn links to all
+   the individual components::
 
      firedrake-zenodo --bibtex Firedrake_YYYYMMDD.N
 
@@ -68,6 +83,22 @@ You can explore the full set of options for ``firedrake-zenodo``
 with::
 
   firedrake-zenodo -h
+
+Installing an archived release
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:doc:`firedrake-install <download>` has support for installing a
+Zenodo-archived release.  If you have a DOI for a particular Zenodo
+release, you can install the matching set of components with::
+
+  firedrake-install --doi MY_ZENODO_DOI
+
+.. note::
+
+   ``firedrake-update`` will not work out of the box in this scenario,
+   because the components are checked out in a `detached head
+   <https://www.git-tower.com/learn/git/faq/detached-head-when-checkout-commit>`_
+   state.
 
 What else do you need to do?
 ----------------------------
@@ -82,8 +113,14 @@ Firedrake. Best practice in computational science also demands that
 you provide the code which you used to conduct your experiments. You
 could attach a tarball as a supplement to your paper, or you could
 also use Zenodo. Using Zenodo in combination with GitHub for this
-purpose is documented `here
+purpose is documented `by github here
 <https://guides.github.com/activities/citable-code/>`_.
+
+.. note::
+
+   If you archive your code before running ``firedrake-zenodo``, you
+   can ensure that the eventual release also references these DOIs by
+   providing them as part of the ``--info-file`` argument.
 
 Cite your sources
 ~~~~~~~~~~~~~~~~~
@@ -94,4 +131,4 @@ science. However it's a supplement to, and not a replacement for,
 citing the published resources for the computational methods you are
 employing. Firedrake also offers support for citing the papers on
 which your computations depend. This is documented on the
-:doc:`publications` page.
+:doc:`citing` page.

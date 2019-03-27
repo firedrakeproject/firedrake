@@ -1,7 +1,5 @@
 .. title:: FEniCS '15
 
-.. container:: fenics_15
-
 .. image:: _static/queens_tower_narrow.jpg
    :width: 30%
    :alt: Queen's Tower, Imperial College

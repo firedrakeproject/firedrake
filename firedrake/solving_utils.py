@@ -1,200 +1,12 @@
 import numpy
-import itertools
-from contextlib import contextmanager
 
+from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.logging import warning
-
-
-def flatten_parameters(parameters, sep="_"):
-    """Flatten a nested parameters dict, joining keys with sep.
-
-    :arg parameters: a dict to flatten.
-    :arg sep: separator of keys.
-
-    Used to flatten parameter dictionaries with nested structure to a
-    flat dict suitable to pass to PETSc.  For example:
-
-    .. code-block:: python
-
-       flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
-       => {"a_b_c": 4, "a_d": 2, "e": 1}
-
-    If a "prefix" key already ends with the provided separator, then
-    it is not used to concatenate the keys.  Hence:
-
-    .. code-block:: python
-
-       flatten_parameters({"a_": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
-       => {"a_b_c": 4, "a_d": 2, "e": 1}
-       # rather than
-       => {"a__b_c": 4, "a__d": 2, "e": 1}
-    """
-    new = type(parameters)()
-
-    if not len(parameters):
-        return new
-
-    def flatten(parameters, *prefixes):
-        """Iterate over nested dicts, yielding (*keys, value) pairs."""
-        sentinel = object()
-        try:
-            option = sentinel
-            for option, value in parameters.items():
-                # Recurse into values to flatten any dicts.
-                for pair in flatten(value, option, *prefixes):
-                    yield pair
-            # Make sure zero-length dicts come back.
-            if option is sentinel:
-                yield (prefixes, parameters)
-        except AttributeError:
-            # Non dict values are just returned.
-            yield (prefixes, parameters)
-
-    def munge(keys):
-        """Ensure that each intermediate key in keys ends in sep.
-
-        Also, reverse the list."""
-        for key in reversed(keys[1:]):
-            if len(key) and not key.endswith(sep):
-                yield key + sep
-            else:
-                yield key
-        else:
-            yield keys[0]
-
-    for keys, value in flatten(parameters):
-        option = "".join(map(str, munge(keys)))
-        if option in new:
-            warning("Ignoring duplicate option: %s (existing value %s, new value %s)",
-                    option, new[option], value)
-        new[option] = value
-    return new
-
-
-class ParametersMixin(object):
-
-    # What appeared on the commandline, we should never clear these.
-    # They will override options passed in as a dict if an
-    # options_prefix was supplied.
-    commandline_options = frozenset(PETSc.Options().getAll())
-
-    options_object = PETSc.Options()
-
-    count = itertools.count()
-
-    """Mixin class that helps with managing setting petsc options on solvers.
-
-    :arg parameters: The dictionary of parameters to use.
-    :arg options_prefix: The prefix to look up items in the global
-        options database (may be ``None``, in which case only entries
-        from ``parameters`` will be considered.  If no trailing
-        underscore is provided, one is appended.  Hence ``foo_`` and
-        ``foo`` are treated equivalently.  As an exception, if the
-        prefix is the empty string, no underscore is appended.
-
-    To use this, you must call its constructor to with the parameters
-    you want in the options database.
-
-    You then call :meth:`set_from_options`, passing the PETSc object
-    you'd like to call ``setFromOptions`` on.  Note that this will
-    actually only call ``setFromOptions`` the first time (so really
-    this parameters object is a once-per-PETSc-object thing).
-
-    So that the runtime monitors which look in the options database
-    actually see options, you need to ensure that the options database
-    is populated at the time of a ``SNESSolve`` or ``KSPSolve`` call.
-    Do that using the :meth:`inserted_options` context manager.
-
-    .. code-block:: python
-
-       with self.inserted_options():
-           self.snes.solve(...)
-
-    This ensures that the options database has the relevant entries
-    for the duration of the ``with`` block, before removing them
-    afterwards.  This is a much more robust way of dealing with the
-    fixed-size options database than trying to clear it out using
-    destructors.
-    """
-    def __init__(self, parameters, options_prefix):
-        if parameters is None:
-            parameters = {}
-        else:
-            # Convert nested dicts
-            parameters = flatten_parameters(parameters)
-        if options_prefix is None:
-            self.options_prefix = "firedrake_%d_" % next(self.count)
-            self.parameters = parameters
-            self.to_delete = set(parameters)
-        else:
-            if len(options_prefix) and not options_prefix.endswith("_"):
-                options_prefix += "_"
-            self.options_prefix = options_prefix
-            # Remove those options from the dict that were passed on
-            # the commandline.
-            self.parameters = {k: v for k, v in parameters.items()
-                               if options_prefix + k not in self.commandline_options}
-            self.to_delete = set(self.parameters)
-            # Now update parameters from options, so that they're
-            # available to solver setup (for, e.g., matrix-free).
-            # Can't ask for the prefixed guy in the options object,
-            # since that does not DTRT for flag options.
-            for k, v in self.options_object.getAll().items():
-                if k.startswith(self.options_prefix):
-                    self.parameters[k[len(self.options_prefix):]] = v
-        self._setfromoptions = False
-        super(ParametersMixin, self).__init__()
-
-    def set_default_parameter(self, key, val):
-        """Set a default parameter value.
-
-        :arg key: The parameter name
-        :arg val: The parameter value.
-
-        Ensures that the right thing happens cleaning up the options
-        database.
-        """
-        k = self.options_prefix + key
-        if k not in self.options_object and key not in self.parameters:
-            self.parameters[key] = val
-            self.to_delete.add(key)
-
-    def set_from_options(self, petsc_obj):
-        """Set up petsc_obj from the options database.
-
-        :arg petsc_obj: The PETSc object to call setFromOptions on.
-
-        Matt says: "Only ever call setFromOptions once".  This
-        function ensures we do so.
-        """
-        if not self._setfromoptions:
-            with self.inserted_options():
-                petsc_obj.setOptionsPrefix(self.options_prefix)
-                # Call setfromoptions inserting appropriate options into
-                # the options database.
-                petsc_obj.setFromOptions()
-                self._setfromoptions = True
-
-    @contextmanager
-    def inserted_options(self):
-        """Context manager inside which the petsc options database
-    contains the parameters from this object."""
-        try:
-            for k, v in self.parameters.items():
-                key = self.options_prefix + k
-                if type(v) is bool:
-                    if v:
-                        self.options_object[key] = None
-                else:
-                    self.options_object[key] = v
-            yield
-        finally:
-            for k in self.to_delete:
-                del self.options_object[self.options_prefix + k]
+from firedrake.utils import cached_property
+from ufl import VectorElement
 
 
 def _make_reasons(reasons):
@@ -226,22 +38,22 @@ def check_snes_convergence(snes):
                   (snes.getKSP().getIterationNumber(), reason)
         else:
             msg = reason
-        raise ConvergenceError("""Nonlinear solve failed to converge after %d nonlinear iterations.
+        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
 Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
 class _SNESContext(object):
-    """
+    r"""
     Context holding information for SNES callbacks.
 
     :arg problem: a :class:`NonlinearVariationalProblem`.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -249,6 +61,7 @@ class _SNESContext(object):
         before Jacobian assembly
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
+    :arg options_prefix: The options prefix of the SNES.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -256,12 +69,15 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problem, mat_type, pmat_type, appctx=None, pre_jacobian_callback=None, pre_function_callback=None):
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
+    def __init__(self, problem, mat_type, pmat_type, appctx=None,
+                 pre_jacobian_callback=None, pre_function_callback=None,
+                 options_prefix=None):
+        from firedrake.assemble import create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
+        self.options_prefix = options_prefix
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
@@ -270,38 +86,25 @@ class _SNESContext(object):
         self._pre_jacobian_callback = pre_jacobian_callback
         self._pre_function_callback = pre_function_callback
 
-        fcp = problem.form_compiler_parameters
+        self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
         self._x = problem.u
 
         if appctx is None:
             appctx = {}
-
-        if matfree or pmatfree:
-            # A split context will already get the full state.
-            # TODO, a better way of doing this.
-            # Now we don't have a temporary state inside the snes
-            # context we could just require the user to pass in the
-            # full state on the outside.
-            appctx.setdefault("state", self._x)
+        # A split context will already get the full state.
+        # TODO, a better way of doing this.
+        # Now we don't have a temporary state inside the snes
+        # context we could just require the user to pass in the
+        # full state on the outside.
+        appctx.setdefault("state", self._x)
+        appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self.appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
-
-        self._jac = allocate_matrix(self.J, bcs=problem.bcs,
-                                    form_compiler_parameters=fcp,
-                                    mat_type=mat_type,
-                                    appctx=appctx)
-        self._assemble_jac = create_assembly_callable(self.J,
-                                                      tensor=self._jac,
-                                                      bcs=problem.bcs,
-                                                      form_compiler_parameters=fcp,
-                                                      mat_type=mat_type)
-
-        self.is_mixed = self._jac.block_shape != (1, 1)
 
         if mat_type != pmat_type or problem.Jp is not None:
             # Need separate pmat if either Jp is different or we want
@@ -310,39 +113,29 @@ class _SNESContext(object):
                 self.Jp = self.J
             else:
                 self.Jp = problem.Jp
-            self._pjac = allocate_matrix(self.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=pmat_type,
-                                         appctx=appctx)
-
-            self._assemble_pjac = create_assembly_callable(self.Jp,
-                                                           tensor=self._pjac,
-                                                           bcs=problem.bcs,
-                                                           form_compiler_parameters=fcp,
-                                                           mat_type=pmat_type)
         else:
             # pmat_type == mat_type and Jp is None
             self.Jp = None
-            self._pjac = self._jac
 
-        self._F = function.Function(self.F.arguments()[0].function_space())
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
-                                                           form_compiler_parameters=fcp)
+                                                           form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
         self._splits = {}
         self._coarse = None
         self._fine = None
 
+        self._nullspace = None
+        self._nullspace_T = None
+        self._near_nullspace = None
+
     def set_function(self, snes):
-        """Set the residual evaluation function"""
+        r"""Set the residual evaluation function"""
         with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
-    def set_jacobian(self, snes, options_prefix):
-        self._pjac.petscmat.setOptionsPrefix(options_prefix)
-        self._jac.petscmat.setOptionsPrefix(options_prefix)
+    def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
 
@@ -356,8 +149,9 @@ class _SNESContext(object):
             nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
-        from ufl import as_vector, replace
-        from firedrake import NonlinearVariationalProblem as NLVP, FunctionSpace
+        from firedrake import replace, as_vector, split
+        from firedrake import NonlinearVariationalProblem as NLVP
+        fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
         if splits is not None:
             return splits
@@ -366,20 +160,51 @@ class _SNESContext(object):
         problem = self._problem
         splitter = ExtractSubBlock()
         for field in fields:
-            try:
-                if len(field) > 1:
-                    raise NotImplementedError("Can't split into subblock")
-            except TypeError:
-                # Just a single field, we can handle that
-                pass
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u.split()
-            subu = us[field]
+            V = F.arguments()[0].function_space()
+            # Exposition:
+            # We are going to make a new solution Function on the sub
+            # mixed space defined by the relevant fields.
+            # But the form may refer to the rest of the solution
+            # anyway.
+            # So we pull it apart and will make a new function on the
+            # subspace that shares data.
+            pieces = [us[i].dat for i in field]
+            if len(pieces) == 1:
+                val, = pieces
+                subu = function.Function(V, val=val)
+                subsplit = (subu, )
+            else:
+                val = op2.MixedDat(pieces)
+                subu = function.Function(V, val=val)
+                # Split it apart to shove in the form.
+                subsplit = split(subu)
+            # Permutation from field indexing to indexing of pieces
+            field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(us):
-                for idx in numpy.ndindex(u.ufl_shape):
-                    vec.append(u[idx])
+                if i in field:
+                    # If this is a field we're keeping, get it from
+                    # the new function. Otherwise just point to the
+                    # old data.
+                    u = subsplit[field_renumbering[i]]
+                if u.ufl_shape == ():
+                    vec.append(u)
+                else:
+                    for idx in numpy.ndindex(u.ufl_shape):
+                        vec.append(u[idx])
+
+            # So now we have a new representation for the solution
+            # vector in the old problem. For the fields we're going
+            # to solve for, it points to a new Function (which wraps
+            # the original pieces). For the rest, it points to the
+            # pieces from the original Function.
+            # IOW, we've reinterpreted our original mixed solution
+            # function as being made up of some spaces we're still
+            # solving for, and some spaces that have just become
+            # coefficients in the new form.
             u = as_vector(vec)
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
@@ -390,13 +215,25 @@ class _SNESContext(object):
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                if bc.function_space().index == field:
-                    V = FunctionSpace(subu.ufl_domain(), subu.ufl_element())
-                    bcs.append(type(bc)(V,
+                Vbc = bc.function_space()
+                if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
+                    index = Vbc.parent.index
+                else:
+                    index = Vbc.index
+                cmpt = Vbc.component
+                # TODO: need to test this logic
+                if index in field:
+                    if len(field) == 1:
+                        W = V
+                    else:
+                        W = V.sub(field_renumbering[index])
+                    if cmpt is not None:
+                        W = W.sub(cmpt)
+                    bcs.append(type(bc)(W,
                                         bc.function_arg,
                                         bc.sub_domain,
                                         method=bc.method))
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None,
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
@@ -405,7 +242,7 @@ class _SNESContext(object):
 
     @staticmethod
     def form_function(snes, X, F):
-        """Form the residual for this problem
+        r"""Form the residual for this problem
 
         :arg snes: a PETSc SNES object
         :arg X: the current guess (a Vec)
@@ -435,7 +272,7 @@ class _SNESContext(object):
 
     @staticmethod
     def form_jacobian(snes, X, J, P):
-        """Form the Jacobian for this problem
+        r"""Form the Jacobian for this problem
 
         :arg snes: a PETSc SNES object
         :arg X: the current guess (a Vec)
@@ -463,20 +300,25 @@ class _SNESContext(object):
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()
+
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
 
+        ises = problem.J.arguments()[0].function_space()._ises
+        ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
+        ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
+        ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
+
     @staticmethod
     def compute_operators(ksp, J, P):
-        """Form the Jacobian for this problem
+        r"""Form the Jacobian for this problem
 
         :arg ksp: a PETSc KSP object
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake import inject
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
@@ -490,6 +332,7 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
+            _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
             for bc in ctx._problem.bcs:
                 bc.apply(ctx._x)
@@ -500,3 +343,38 @@ class _SNESContext(object):
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
             ctx._pjac.force_evaluation()
+
+    @cached_property
+    def _jac(self):
+        from firedrake.assemble import allocate_matrix
+        return allocate_matrix(self.J, bcs=self._problem.bcs,
+                               form_compiler_parameters=self.fcp,
+                               mat_type=self.mat_type,
+                               appctx=self.appctx,
+                               options_prefix=self.options_prefix)
+
+    @cached_property
+    def _assemble_jac(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
+
+    @cached_property
+    def is_mixed(self):
+        return self._jac.block_shape != (1, 1)
+
+    @cached_property
+    def _pjac(self):
+        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+            from firedrake.assemble import allocate_matrix
+            return allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
+        else:
+            return self._jac
+
+    @cached_property
+    def _assemble_pjac(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
+
+    @cached_property
+    def _F(self):
+        return function.Function(self.F.arguments()[0].function_space())

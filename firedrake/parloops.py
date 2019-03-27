@@ -1,4 +1,4 @@
-"""This module implements parallel loops reading and writing
+r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 import collections
@@ -18,7 +18,7 @@ __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
 
 
 class _DirectLoop(object):
-    """A singleton object which can be used in a :func:`par_loop` in place
+    r"""A singleton object which can be used in a :func:`par_loop` in place
     of the measure in order to indicate that the loop is a direct loop
     over degrees of freedom."""
 
@@ -31,7 +31,7 @@ class _DirectLoop(object):
 
 
 direct = _DirectLoop()
-"""A singleton object which can be used in a :func:`par_loop` in place
+r"""A singleton object which can be used in a :func:`par_loop` in place
 of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
@@ -59,7 +59,7 @@ _maps = {
         'itspace': lambda mesh, measure: mesh
     }
 }
-"""Map a measure to the correct maps."""
+r"""Map a measure to the correct maps."""
 
 
 def _form_kernel(kernel, measure, args, **kwargs):
@@ -100,8 +100,8 @@ def _form_kernel(kernel, measure, args, **kwargs):
                         "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args, **kwargs):
-    """A :func:`par_loop` is a user-defined operation which reads and
+def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
+    r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
@@ -112,8 +112,21 @@ def par_loop(kernel, measure, args, **kwargs):
     :arg args: is a dictionary mapping variable names in the kernel to
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
-    :arg kwargs: additional keyword arguments are passed to the
+    :arg kernel_kwargs: keyword arguments to be passed to the
         :class:`~pyop2.op2.Kernel` constructor
+    :arg kwargs: additional keyword arguments are passed to the underlying
+        :class:`~pyop2.par_loop`
+
+    :kwarg iterate: Optionally specify which region of an
+                    :class:`ExtrudedSet` to iterate over.
+                    Valid values are the following objects from pyop2:
+
+                    - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+                    - ``ON_TOP`` iterate over the top layer of cells.
+                    - ``ALL`` iterate over all cells (the default if unspecified)
+                    - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                      except the top layer, accessing data two adjacent (in
+                      the extruded direction) cells at a time.
 
     **Example**
 
@@ -213,6 +226,9 @@ def par_loop(kernel, measure, args, **kwargs):
 
     """
 
+    if kernel_kwargs is None:
+        kernel_kwargs = {}
+
     _map = _maps[measure.integral_type()]
     # Ensure that the dict args passed in are consistently ordered
     # (sorted by the string key).
@@ -249,7 +265,7 @@ def par_loop(kernel, measure, args, **kwargs):
         domain, = domains
         mesh = domain
 
-    op2args = [_form_kernel(kernel, measure, args, **kwargs)]
+    op2args = [_form_kernel(kernel, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
@@ -262,4 +278,4 @@ def par_loop(kernel, measure, args, **kwargs):
         return f.dat(intent, _map['nodes'](f))
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
-    return pyop2.par_loop(*op2args)
+    return pyop2.par_loop(*op2args, **kwargs)

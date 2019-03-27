@@ -11,6 +11,7 @@ pipeline {
   stages {
     stage('Clean') {
       steps {
+        sh 'git clean -fdx'
         dir('tmp') {
           deleteDir()
         }
@@ -21,21 +22,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
-          }
-        }
-      }
-    }
-    stage('Lint'){
-      steps {
-        dir('tmp') {
-          timestamps {
-            sh '''
-. ./firedrake/bin/activate
-python -m pip install flake8
-cd firedrake/src/firedrake
-make lint
-'''
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --slope --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -56,18 +43,6 @@ python -m pytest -n 4 --cov firedrake -v tests
         }
       }
     }
-    stage('Test Adjoint'){
-      steps {
-        dir('tmp') {
-          timestamps {
-            sh '''
-. ./firedrake/bin/activate
-cd firedrake/src/dolfin-adjoint; python -m pytest -n 4 -v tests_firedrake
-'''
-          }
-        }
-      }
-    }
     stage('Test pyadjoint'){
       steps {
         dir('tmp') {
@@ -80,14 +55,37 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
         }
       }
     }
-    stage('Codecov'){
+    stage('Test build documentation'){
       steps {
         dir('tmp') {
           timestamps {
             sh '''
 . ./firedrake/bin/activate
+echo $PATH
+echo $VIRTUAL_ENV
+ls $VIRTUAL_ENV/bin
+cd firedrake/src/firedrake/docs; make html
+'''
+          }
+        }
+      }
+    }
+    stage('Zenodo API canary') {
+      steps {
+        timestamps {
+          sh 'scripts/firedrake-install --test-doi-resolution || (cat firedrake-install.log && /bin/false)'
+        }
+      }
+    }
+    stage('Lint'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+python -m pip install flake8
 cd firedrake/src/firedrake
-curl -s https://codecov.io/bash | bash
+make lint
 '''
           }
         }

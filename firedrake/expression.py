@@ -1,6 +1,5 @@
 import numpy as np
 from operator import itemgetter
-import collections
 import ufl
 
 from pyop2 import op2
@@ -13,9 +12,13 @@ __all__ = ['Expression']
 
 
 class Expression(ufl.Coefficient):
-    """A code snippet or Python function that may be evaluated on a
+    r"""Python function that may be evaluated on a
     :class:`.FunctionSpace`. This provides a mechanism for setting
     :class:`.Function` values to user-determined values.
+
+    Expressions should very rarely be needed in Firedrake, since using
+    the same mathematical expression in UFL is usually possible and
+    will result in much faster code.
 
     To use an Expression, we can either :meth:`~.Function.interpolate`
     it onto a :class:`.Function`, or :func:`.project` it into a
@@ -23,39 +26,8 @@ class Expression(ufl.Coefficient):
     :class:`.FunctionSpace`\s support interpolation, but all do
     support projection.
 
-    :class:`Expression`\s may be provided as snippets of C code, which
-    results in fast execution but offers limited functionality to the
-    user, or as a Python function, which is more flexible but slower,
-    since a Python function is called for every cell in the mesh.
-
-    **The C interface**
-
-    The code in an :class:`Expression` has access to the coordinates
-    in the variable ``x``, with ``x[0]`` corresponding to the x
-    component, ``x[1]`` to the y component and so forth.  You can use
-    mathematical functions from the C library, along with the variable
-    ``pi`` for :math:`\\pi`.
-
-    For example, to build an expression corresponding to
-
-    .. math::
-
-       \\sin(\\pi x)\\sin(\\pi y)\\sin(\\pi z)
-
-    we use:
-
-    .. code-block:: python
-
-       expr = Expression('sin(pi*x[0])*sin(pi*x[1])*sin(pi*x[2])')
-
-    If the :class:`.FunctionSpace` the expression will be applied to is
-    vector valued, a list of code snippets of length matching the
-    number of components in the function space must be provided.
-
-    **The Python interface**
-
-    The Python interface is accessed by creating a subclass of
-    :class:`Expression` with a user-specified `eval`` method. For
+    Expressions are specified by creating a subclass of
+    :class:`Expression` with a user-defined `eval`` method. For
     example, the following expression sets the output
     :class:`.Function` to the square of the magnitude of the
     coordinate:
@@ -94,43 +66,18 @@ class Expression(ufl.Coefficient):
 
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
-        """
-        :param code: a string C statement, or list of statements.
-        :param element: a :class:`~ufl.finiteelement.finiteelement.FiniteElement`, optional
-              (currently ignored)
-        :param cell: a :class:`~ufl.classes.Cell`, optional (currently ignored)
-        :param degree: the degree of quadrature to use for evaluation (currently ignored)
+        r"""
+        C string expressions have now been removed from Firedrake, so passing ``code`` into this constructor will trigger an exception.
         :param kwargs: user-defined values that are accessible in the
-               Expression code.  These values maybe updated by
-               accessing the property of the same name.  This can be
-               used, for example, to pass in the current timestep to
-               an Expression without necessitating recompilation.  For
-               example:
-
-               .. code-block:: python
-
-                  f = Function(V)
-                  e = Expression('sin(x[0]*t)', t=t)
-                  while t < T:
-                      f.interpolate(e)
-                      ...
-                      t += dt
-                      e.t = t
-
-        The currently ignored parameters are retained for API compatibility with Dolfin.
+                       Expression code.  These values maybe updated by
+                       accessing the property of the same name.
         """
         # Init also called in mesh constructor, but expression can be built without mesh
+        if code is not None:
+            raise ValueError("C string Expressions have been removed! See: https://www.firedrakeproject.org/interpolation.html#c-string-expressions")
         utils._init()
         self.code = None
         self._shape = ()
-        if code is not None:
-            arr = np.array(code)
-            self._shape = arr.shape
-            # Flatten to something indexable for use.
-            self.code = arr.flatten()
-            for val in self.code:
-                if str(val).strip() == "":
-                    raise ValueError("Cannot provide empty expression")
         self.cell = cell
         self.degree = degree
         # These attributes are required by ufl.Coefficient to render the repr
@@ -143,6 +90,7 @@ class Expression(ufl.Coefficient):
         self._user_args = []
         # Changing counter used to record when user changes values
         self._state = 0
+
         # Save the kwargs so that when we rebuild an expression we can
         # reconstruct the user arguments.
         self._kwargs = {}
@@ -197,11 +145,11 @@ class Expression(ufl.Coefficient):
         self.__class__ = cls
 
     def rank(self):
-        """Return the rank of this :class:`Expression`"""
+        r"""Return the rank of this :class:`Expression`"""
         return len(self.value_shape())
 
     def value_shape(self):
-        """Return the shape of this :class:`Expression`.
+        r"""Return the shape of this :class:`Expression`.
 
         This is the number of values the code snippet in the
         expression contains.
@@ -212,19 +160,3 @@ class Expression(ufl.Coefficient):
     @property
     def ufl_shape(self):
         return self.value_shape()
-
-
-def to_expression(val, **kwargs):
-    """Convert val to an :class:`Expression`.
-
-    :arg val: an iterable of values suitable for a code snippet in an
-         :class:`Expression`.
-    :arg \*\*kwargs: keyword arguments passed to the
-         :class:`Expression` constructor (which see).
-    """
-    if isinstance(val, collections.Iterable) and not isinstance(val, str):
-        expr = ["%s" % v for v in val]
-    else:
-        expr = "%s" % val
-
-    return Expression(code=expr, **kwargs)

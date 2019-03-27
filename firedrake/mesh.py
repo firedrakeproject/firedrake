@@ -11,7 +11,7 @@ import enum
 from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
@@ -24,7 +24,7 @@ import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -54,7 +54,7 @@ class DistributedMeshOverlapType(enum.Enum):
      - :attr:`VERTEX`: Add ghost entities in the closure of the star
               of vertices.
 
-    Defaults to :attr:`FACET.
+    Defaults to :attr:`FACET`.
     """
     NONE = 1
     FACET = 2
@@ -143,8 +143,8 @@ class _Facets(object):
                              "interior_facet_horiz"):
             # these iterate over the base cell set
             return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
-        elif not (integral_type.startswith("exterior_") or
-                  integral_type.startswith("interior_")):
+        elif not (integral_type.startswith("exterior_")
+                  or integral_type.startswith("interior_")):
             raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
         if subdomain_id == "everywhere":
             return self.set
@@ -247,7 +247,6 @@ def _from_triangle(filename, dim, comm):
     """
     basename, ext = os.path.splitext(filename)
 
-    comm = dup_comm(comm)
     if comm.rank == 0:
         try:
             facetfile = open(basename+".face")
@@ -304,7 +303,6 @@ def _from_triangle(filename, dim, comm):
                 join = plex.getJoin(vertices)
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
 
-    free_comm(comm)
     return plex
 
 
@@ -317,7 +315,6 @@ def _from_cell_list(dim, cells, coords, comm):
     :arg coords: The coordinates of each vertex
     :arg comm: communicator to build the mesh on.
     """
-    comm = dup_comm(comm)
     # These types are /correct/, DMPlexCreateFromCellList wants int
     # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
@@ -338,7 +335,6 @@ def _from_cell_list(dim, cells, coords, comm):
                                                  np.zeros(cell_shape, dtype=np.int32),
                                                  np.zeros(coord_shape, dtype=np.double),
                                                  comm=comm)
-    free_comm(comm)
     return plex
 
 
@@ -357,6 +353,7 @@ class MeshTopology(object):
         """
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
+        self._distribution_parameters = distribution_parameters.copy()
         if distribute is None:
             distribute = True
 
@@ -385,6 +382,7 @@ class MeshTopology(object):
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
         dmplex.validate_mesh(plex)
+        plex.setFromOptions()
         utils._init()
 
         self._plex = plex
@@ -430,6 +428,12 @@ class MeshTopology(object):
 
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
+
+        # A set of weakrefs to meshes that are explicitly labelled as being
+        # parallel-compatible for interpolation/projection/supermeshing
+        # To set, do e.g.
+        # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
+        self._parallel_compatible = None
 
         def callback(self):
             """Finish initialisation."""
@@ -614,15 +618,15 @@ class MeshTopology(object):
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
-    def create_section(self, nodes_per_entity):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return dmplex.create_section(self, nodes_per_entity)
+        return dmplex.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
 
-    def node_classes(self, nodes_per_entity):
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
@@ -648,7 +652,7 @@ class MeshTopology(object):
         """
         return [len(entity_dofs[d][0]) for d in sorted(entity_dofs)]
 
-    def make_offset(self, entity_dofs, ndofs):
+    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns None (only for extruded use)."""
         return None
 
@@ -880,20 +884,24 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
-    def node_classes(self, nodes_per_entity):
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: the number of nodes in each of core, owned, and ghost classes.
         """
-        if self.variable_layers:
+        if real_tensorproduct:
+            nodes = np.asarray(nodes_per_entity)
+            nodes_per_entity = sum(nodes[:, i] for i in range(2))
+            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
+        elif self.variable_layers:
             return extnum.node_classes(self, nodes_per_entity)
         else:
             nodes = np.asarray(nodes_per_entity)
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    def make_offset(self, entity_dofs, ndofs):
+    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
 
@@ -905,10 +913,11 @@ class ExtrudedMeshTopology(MeshTopology):
             entity_offset[b] += len(entities[0])
 
         dof_offset = np.zeros(ndofs, dtype=IntType)
-        for (b, v), entities in entity_dofs.items():
-            for dof_indices in entities.values():
-                for i in dof_indices:
-                    dof_offset[i] = entity_offset[b]
+        if not real_tensorproduct:
+            for (b, v), entities in entity_dofs.items():
+                for dof_indices in entities.values():
+                    for i in dof_indices:
+                        dof_offset[i] = entity_offset[b]
         return dof_offset
 
     @utils.cached_property
@@ -1032,6 +1041,27 @@ values from f.)"""
 
         raise AttributeError(message)
 
+    @utils.cached_property
+    def cell_sizes(self):
+        """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
+
+        This is computed by the :math:`L^2` projection of the local mesh element size."""
+        from firedrake.ufl_expr import CellSize
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.projection import project
+        P1 = FunctionSpace(self, "Lagrange", 1)
+        return project(CellSize(self), P1)
+
+    def clear_cell_sizes(self):
+        """Reset the :attr:`cell_sizes` field on this mesh geometry.
+
+        Use this if you move the mesh.
+        """
+        try:
+            del self.cell_size
+        except AttributeError:
+            pass
+
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
 
@@ -1127,8 +1157,8 @@ values from f.)"""
 
             locator = compilation.load(src, "c", "locator",
                                        cppargs=["-I%s" % os.path.dirname(__file__),
-                                                "-I%s/include" % sys.prefix] +
-                                       ["-I%s/include" % d for d in get_petsc_dir()],
+                                                "-I%s/include" % sys.prefix]
+                                       + ["-I%s/include" % d for d in get_petsc_dir()],
                                        ldargs=["-L%s/lib" % sys.prefix,
                                                "-lspatialindex_c",
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
@@ -1298,7 +1328,13 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.cgns':
             plex = _from_cgns(meshfile, comm)
         elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile, comm)
+            if geometric_dim is not None:
+                opts = {"dm_plex_gmsh_spacedim": geometric_dim}
+            else:
+                opts = {}
+            opts = OptionsManager(opts, "")
+            with opts.inserted_options():
+                plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, comm)
         else:

@@ -6,8 +6,8 @@
 
      Latest Firedrake status: |firedrakebuild|
 
-     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrakeproject/job/firedrake/job/master/badge/icon
-                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrakeproject%2Ffiredrake/branches/
+     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrake/job/master/badge/icon
+                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrake/branches
 
      Latest PyOP2 status: |pyop2build|
 
@@ -91,6 +91,7 @@ finite element problems in Firedrake.
    matrix-free
    petsc-interface
    parallelism
+   zenodo
 
 Advanced tutorials
 ==================
@@ -102,6 +103,7 @@ element systems.
 .. toctree::
    :maxdepth: 1
 
+   Printing in parallel.<demos/parprint.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
    Computing eigenmodes of the Quasi-Geostrophic equations using SLEPc.<demos/qgbasinmodes.py>

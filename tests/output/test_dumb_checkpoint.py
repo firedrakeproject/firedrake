@@ -1,4 +1,5 @@
 import pytest
+import os
 from firedrake import *
 import numpy as np
 
@@ -21,8 +22,8 @@ def fs(request):
 
 
 @pytest.fixture
-def dumpfile(tmpdir):
-    return str(tmpdir.join("dump"))
+def dumpfile(dumpdir):
+    return os.path.join(dumpdir, "dump")
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +31,8 @@ def f():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     f = Function(V, name="f")
-    f.interpolate(Expression("x[0]*x[1]"))
+    x = SpatialCoordinate(m)
+    f.interpolate(x[0]*x[1])
     return f
 
 
@@ -39,10 +41,9 @@ def run_store_load(mesh, fs, degree, dumpfile):
     V = FunctionSpace(mesh, fs, degree)
 
     f = Function(V, name="f")
+    x = SpatialCoordinate(mesh)
 
-    expr = Expression("x[0]*x[1]")
-
-    f.interpolate(expr)
+    f.interpolate(x[0]*x[1])
 
     f2 = Function(V, name="f")
 
@@ -158,8 +159,3 @@ def test_new_file_valueerror(f, dumpfile):
         chk.store(f)
         with pytest.raises(ValueError):
             chk.new_file()
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

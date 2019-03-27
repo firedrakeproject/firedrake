@@ -9,9 +9,10 @@ def mesh(request):
     return m
 
 
-def test_left_inverse(mesh):
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_left_inverse(mesh, degree):
     """Tests the SLATE expression A.inv * A = I"""
-    V = FunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "DG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
@@ -22,9 +23,10 @@ def test_left_inverse(mesh):
     assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
 
 
-def test_right_inverse(mesh):
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_right_inverse(mesh, degree):
     """Tests the SLATE expression A * A.inv = I"""
-    V = FunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "DG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
@@ -82,7 +84,7 @@ def test_aggressive_unaryop_nesting():
     """Test Slate's ability to handle extremely
     nested expressions.
     """
-    V = FunctionSpace(UnitSquareMesh(1, 1), "DG", 1)
+    V = FunctionSpace(UnitSquareMesh(1, 1), "DG", 3)
     f = Function(V)
     g = Function(V)
     f.assign(1.0)
@@ -100,6 +102,17 @@ def test_aggressive_unaryop_nesting():
     assert np.allclose(assemble(foo).dat.data, np.ones(V.node_count))
 
 
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+@pytest.mark.parametrize("decomp", ["PartialPivLU", "FullPivLU"])
+def test_local_solve(decomp):
+
+    V = FunctionSpace(UnitSquareMesh(3, 3), "DG", 3)
+    f = Function(V).assign(1.0)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = Tensor(inner(v, u)*dx)
+    b = Tensor(inner(v, f)*dx)
+    x = assemble(A.solve(b, decomposition=decomp))
+
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)

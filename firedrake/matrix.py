@@ -1,4 +1,3 @@
-import copy
 import abc
 
 from pyop2 import op2
@@ -17,19 +16,24 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     :arg bcs: an iterable of boundary conditions to apply to this
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
+    :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
     """
-    def __init__(self, a, bcs):
+    def __init__(self, a, bcs, mat_type):
         self._a = a
-
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
         self._bcs = [bc for bc in bcs] if bcs is not None else []
-
+        self._bcs_at_point_of_assembly = []
         test, trial = a.arguments()
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
+        self.mat_type = mat_type
+        """Matrix type.
+
+        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
+        or 'matfree' for matrix-free."""
 
     @abc.abstractmethod
     def assemble(self):
@@ -41,7 +45,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         Note that this does not guarantee that those calculations are
         executed.  If you want the latter, see :meth:`force_evaluation`.
         """
-        pass
+        self._bcs_at_point_of_assembly = list(self._bcs)
 
     @abc.abstractmethod
     def force_evaluation(self):
@@ -49,13 +53,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
 
         Ensures that the matrix is assembled and populated with
         values, ready for sending to PETSc."""
-        pass
-
-    @abc.abstractmethod
-    def assembled(self):
-        """Is this matrix currently assembled?
-
-        See also :meth:`assemble`."""
         pass
 
     @property
@@ -108,9 +105,24 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         new_bcs = [bc]
         for existing_bc in self._bcs:
             # New BC doesn't override existing one, so keep it.
-            if bc.sub_domain != existing_bc.sub_domain:
+            if bc.sub_domain != existing_bc.sub_domain or bc.function_space() != existing_bc.function_space():
                 new_bcs.append(existing_bc)
         self._bcs = new_bcs
+
+    @property
+    def _needs_reassembly(self):
+        """Does this :class:`Matrix` need reassembly.
+
+        The :class:`Matrix` needs reassembling if the subdomains over
+        which boundary conditions were applied the last time it was
+        assembled are different from the subdomains of the current set
+        of boundary conditions.
+        """
+        old_subdomains = set(flatten(as_tuple(bc.sub_domain)
+                             for bc in self._bcs_at_point_of_assembly))
+        new_subdomains = set(flatten(as_tuple(bc.sub_domain)
+                             for bc in self._bcs))
+        return old_subdomains != new_subdomains
 
     def __repr__(self):
         return "%s(a=%r, bcs=%r)" % (type(self).__name__,
@@ -132,6 +144,7 @@ class Matrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
+    :arg mat_type: matrix type of assembled matrix.
 
     A :class:`pyop2.Mat` will be built from the remaining
     arguments, for valid values, see :class:`pyop2.Mat`.
@@ -144,15 +157,16 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(Matrix, self).__init__(a, bcs)
+    def __init__(self, a, bcs, mat_type, *args, **kwargs):
+        # sets self._a, self._bcs, and self._mat_type
+        super(Matrix, self).__init__(a, bcs, mat_type)
+        options_prefix = kwargs.pop("options_prefix")
         self._M = op2.Mat(*args, **kwargs)
         self.petscmat = self._M.handle
+        self.petscmat.setOptionsPrefix(options_prefix)
         self._thunk = None
-        self._assembled = False
-
-        self._bcs_at_point_of_assembly = []
+        self.assembled = False
+        self.mat_type = mat_type
 
     @utils.known_pyop2_safe
     def assemble(self):
@@ -178,17 +192,17 @@ class Matrix(MatrixBase):
             solve, but both `bc1` and `bc2` in the second solve.
         """
         if self._assembly_callback is None:
-            self._assembled = True
+            self.assembled = True
             return
-        if self._assembled:
+        if self.assembled:
             if self._needs_reassembly:
                 from firedrake.assemble import _assemble
                 _assemble(self.a, tensor=self, bcs=self.bcs)
                 return self.assemble()
             return
-        self._bcs_at_point_of_assembly = copy.copy(self.bcs)
         self._assembly_callback(self.bcs)
-        self._assembled = True
+        self.assembled = True
+        super().assemble()
 
     @property
     def _assembly_callback(self):
@@ -206,12 +220,7 @@ class Matrix(MatrixBase):
         Assigning to this property sets the :attr:`assembled` property
         to False, necessitating a re-assembly."""
         self._thunk = thunk
-        self._assembled = False
-
-    @property
-    def assembled(self):
-        """Return True if this :class:`Matrix` has been assembled."""
-        return self._assembled
+        self.assembled = False
 
     @property
     def M(self):
@@ -226,21 +235,6 @@ class Matrix(MatrixBase):
         # User wants to see it, so force the evaluation.
         self._M._force_evaluation()
         return self._M
-
-    @property
-    def _needs_reassembly(self):
-        """Does this :class:`Matrix` need reassembly.
-
-        The :class:`Matrix` needs reassembling if the subdomains over
-        which boundary conditions were applied the last time it was
-        assembled are different from the subdomains of the current set
-        of boundary conditions.
-        """
-        old_subdomains = set(flatten(as_tuple(bc.sub_domain)
-                             for bc in self._bcs_at_point_of_assembly))
-        new_subdomains = set(flatten(as_tuple(bc.sub_domain)
-                             for bc in self.bcs))
-        return old_subdomains != new_subdomains
 
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
@@ -268,9 +262,10 @@ class ImplicitMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a and self._bcs
-        super(ImplicitMatrix, self).__init__(a, bcs)
+        # sets self._a, self._bcs, and self._mat_type
+        super(ImplicitMatrix, self).__init__(a, bcs, "matfree")
 
+        options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
 
         from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -284,18 +279,21 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)
         self.petscmat.setPythonContext(ctx)
+        self.petscmat.setOptionsPrefix(options_prefix)
         self.petscmat.setUp()
         self.petscmat.assemble()
+        self.assembled = False
 
     def assemble(self):
         # Bump petsc matrix state by assembling it.
         # Ensures that if the matrix changed, the preconditioner is
         # updated if necessary.
+        if self._needs_reassembly:
+            ctx = self.petscmat.getPythonContext()
+            ctx.row_bcs = self.bcs
+            ctx.col_bcs = self.bcs
         self.petscmat.assemble()
+        self.assembled = True
+        super().assemble()
 
     force_evaluation = assemble
-
-    @property
-    def assembled(self):
-        self.assemble()
-        return True

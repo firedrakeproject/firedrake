@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-from ufl import as_ufl, SpatialCoordinate, UFLException
+from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
 from ufl.algorithms.analysis import has_type
+import finat
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
@@ -18,7 +19,7 @@ __all__ = ['DirichletBC', 'homogenize']
 
 
 class DirichletBC(object):
-    '''Implementation of a strong Dirichlet boundary condition.
+    r'''Implementation of a strong Dirichlet boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
@@ -43,6 +44,11 @@ class DirichletBC(object):
     '''
 
     def __init__(self, V, g, sub_domain, method="topological"):
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
         self._function_space = V
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
@@ -94,6 +100,20 @@ class DirichletBC(object):
                 self._original_arg = self.function_arg
         return self._function_arg
 
+    def reconstruct(self, *, V=None, g=None, sub_domain=None, method=None):
+        if V is None:
+            V = self.function_space()
+        if g is None:
+            g = self._original_arg
+        if sub_domain is None:
+            sub_domain = self.sub_domain
+        if method is None:
+            method = self.method
+        if V == self.function_space() and g == self._original_arg and \
+           sub_domain == self.sub_domain and method == self.method:
+            return self
+        return type(self)(V, g, sub_domain, method=method)
+
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
@@ -105,9 +125,11 @@ class DirichletBC(object):
                 as_ufl(g)
             except UFLException:
                 try:
-                    # List of bare constants? Convert to Expression
-                    g = expression.to_expression(g)
-                except ValueError:
+                    # List of bare constants? Convert to UFL expression
+                    g = as_ufl(as_tensor(g))
+                    if g.ufl_shape != self._function_space.shape:
+                        raise ValueError("%r doesn't match the shape of the function space." % (g,))
+                except UFLException:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
             if isinstance(g, expression.Expression):
@@ -154,7 +176,7 @@ class DirichletBC(object):
 
     @utils.cached_property
     def domain_args(self):
-        """The sub_domain the BC applies to."""
+        r"""The sub_domain the BC applies to."""
         if isinstance(self.sub_domain, str):
             return (self.sub_domain, )
         return (as_tuple(self.sub_domain), )
@@ -162,7 +184,11 @@ class DirichletBC(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
-        return self._function_space.boundary_nodes(self.sub_domain, self.method)
+        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
+        if isinstance(self._function_space.finat_element, finat.Hermite) and \
+           self._function_space.mesh().topological_dimension() == 1:
+            bcnodes = bcnodes[::2]  # every second dof is the vertex value
+        return bcnodes
 
     @utils.cached_property
     def node_set(self):
@@ -173,7 +199,7 @@ class DirichletBC(object):
 
     @timed_function('ApplyBC')
     def apply(self, r, u=None):
-        """Apply this boundary condition to ``r``.
+        r"""Apply this boundary condition to ``r``.
 
         :arg r: a :class:`.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
@@ -225,7 +251,7 @@ class DirichletBC(object):
             r.assign(self.function_arg, subset=self.node_set)
 
     def zero(self, r):
-        """Zero the boundary condition nodes on ``r``.
+        r"""Zero the boundary condition nodes on ``r``.
 
         :arg r: a :class:`.Function` to which the
             boundary condition should be applied.
@@ -242,7 +268,7 @@ class DirichletBC(object):
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
     def set(self, r, val):
-        """Set the boundary nodes to a prescribed (external) value.
+        r"""Set the boundary nodes to a prescribed (external) value.
         :arg r: the :class:`Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
@@ -253,7 +279,7 @@ class DirichletBC(object):
 
 
 def homogenize(bc):
-    """Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
+    r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
     then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
 

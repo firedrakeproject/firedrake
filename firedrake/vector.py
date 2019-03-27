@@ -109,6 +109,9 @@ class Vector(object):
             sum += other
         return sum
 
+    def __radd__(self, other):
+        return self + other
+
     def __iadd__(self, other):
         """Add other to self"""
         try:
@@ -133,6 +136,9 @@ class Vector(object):
         except AttributeError:
             self.dat -= other
         return self
+
+    def __rsub__(self, other):
+        return -1.0 * self + other
 
     def apply(self, action):
         """Finalise vector assembly. This is not actually required in
@@ -204,7 +210,7 @@ class Vector(object):
             is_ = PETSc.IS().createGeneral(global_indices, comm=PETSc.COMM_SELF)
 
         with self.dat.vec_ro as vec:
-            vscat = PETSc.Scatter().create(vec, is_, v, None)
+            vscat = PETSc.Scatter().createWithData(vec, is_, v, None)
             vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
             vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
         return v.array

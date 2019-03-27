@@ -1,3 +1,15 @@
+import firedrake_configuration
+import os
+import sys
+config = firedrake_configuration.get_config()
+if "PETSC_DIR" in os.environ and not config["options"]["honour_petsc_dir"]:
+    raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
+                      "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
+    raise ImportError("Firedrake was installed with --honour-petsc-dir, but PETSC_DIR is not set.\n"
+                      "Please set PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+del os, sys, config
+
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
@@ -23,7 +35,6 @@ except AttributeError:
 del ufl
 from ufl import *
 # Set up the cache directories before importing PyOP2.
-import firedrake_configuration
 firedrake_configuration.setup_cache_dirs()
 
 from firedrake_citations import Citations    # noqa: F401
@@ -43,11 +54,12 @@ from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
-from firedrake.matrix_free.preconditioners import *
+from firedrake.preconditioners import *
 from firedrake.mesh import *
 from firedrake.meshadapt import *
 from firedrake.mg.mesh import *
 from firedrake.mg.interface import *
+from firedrake.mg.embedded import *
 from firedrake.norms import *
 from firedrake.nullspace import *
 from firedrake.optimizer import *
@@ -63,6 +75,8 @@ from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
+from firedrake.ensemble import *
+from firedrake.randomfunctiongen import *
 
 from firedrake.logging import *
 # Set default log level

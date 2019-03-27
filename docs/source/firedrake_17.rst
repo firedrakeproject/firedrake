@@ -1,7 +1,5 @@
 .. title:: Firedrake '17
 
-.. container:: firedrake_17
-
 .. image:: images/imperial_night.jpg
    :width: 30%
    :alt: Queen's Tower, Imperial College

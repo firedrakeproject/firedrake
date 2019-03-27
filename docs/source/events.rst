@@ -6,12 +6,26 @@
 Firedrake events
 ----------------
 
+Firedrake tutorial Jan 11 2019
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team hosted an introductory tutorial at Imperial
+College London on 11 January. For details and links to the material, see :doc:`the
+tutorial page <tutorial_jan_19>`.
+
+
 Firedrake '18
 ~~~~~~~~~~~~~
 
-The second Firedrake user and developer workshop will be held at
+The second Firedrake user and developer workshop was held at
 Imperial College London on 7 and 8 June 2018.  For more information
 see :doc:`the workshop page <firedrake_18>`.
+
+PETSc '18
+~~~~~~~~~
+
+The Firedrake team hosted PETSc '18 at Imperial College London from
+4-6 Junr 2018. For more information, see `the meeting page <http://www.mcs.anl.gov/petsc/meetings/2018/index.html>`_.
 
 Firedrake tutorial Jan 12 2018
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

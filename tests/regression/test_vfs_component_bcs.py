@@ -80,15 +80,16 @@ def test_poisson_in_components(V):
 
     expect = Function(V)
 
-    expect.interpolate(Expression(("42*x[0]", "5*x[1] + 10")))
+    x = SpatialCoordinate(V.mesh())
+    expect.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
 @pytest.mark.parametrize("mat_type", ["aij", "nest"])
 @pytest.mark.parametrize("make_val",
                          [lambda x: x,
-                          lambda x: Expression("%g" % x)],
-                         ids=["UFL value", "C expression"])
+                          lambda x: x],
+                         ids=["UFL value", "UFL value"])
 def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
     # Solve five decoupled poisson problems with different boundary
     # conditions in a mixed space composed of two VectorFunctionSpaces
@@ -130,9 +131,10 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
     u, p, r = expected.split()
 
-    u.interpolate(Expression(("42*x[0]", "5*x[1] + 10")))
-    p.interpolate(Expression("6*x[0] + 4"))
-    r.interpolate(Expression(("20*x[0] - 10", "-10*x[1] + 15")))
+    x = SpatialCoordinate(V.mesh())
+    u.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
+    p.interpolate(6*x[0] + 4)
+    r.interpolate(as_vector((20*x[0] - 10, -10*x[1] + 15)))
 
     for actual, expect in zip(g.dat.data, expected.dat.data):
         assert np.allclose(actual, expect)
@@ -248,8 +250,3 @@ def test_component_full_bcs_overlap(V):
     A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
 
     assert np.allclose(A_1, A_2)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

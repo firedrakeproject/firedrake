@@ -1,13 +1,13 @@
+import numpy as np
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
+from functools import singledispatch
 
-from firedrake.slate.slac.utils import (topological_sort, traverse_dags,
-                                        eigen_tensor, Transformer)
+from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
 
-from functools import reduce
-
+from tsfc.finatinterface import create_element
 from ufl import MixedElement
 
 import firedrake.slate.slate as slate
@@ -17,7 +17,8 @@ CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
                               "shape",
-                              "vector"])
+                              "vector",
+                              "local_temp"])
 CoefficientInfo.__doc__ = """\
 Context information for creating coefficient temporaries.
 
@@ -28,6 +29,7 @@ Context information for creating coefficient temporaries.
               the coefficient temporary.
 :param vector: The :class:`slate.AssembledVector` containing the
                relevant data to be placed into the temporary.
+:param local_temp: The local temporary for the coefficient vector.
 """
 
 
@@ -52,6 +54,7 @@ class LocalKernelBuilder(object):
     cell_facet_sym = ast.Symbol("cell_facets")
     it_sym = ast.Symbol("i0")
     mesh_layer_sym = ast.Symbol("layer")
+    cell_size_sym = ast.Symbol("cell_sizes")
 
     # Supported integral types
     supported_integral_types = [
@@ -77,8 +80,7 @@ class LocalKernelBuilder(object):
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
-                              TSFC when constructing subkernels associated
-                              with the expression.
+            TSFC when constructing subkernels associated with the expression.
         """
         assert isinstance(expression, slate.TensorBase)
 
@@ -91,7 +93,6 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
@@ -103,35 +104,116 @@ class LocalKernelBuilder(object):
             if isinstance(tensor, slate.AssembledVector):
                 function = tensor._function
 
+                def dimension(e):
+                    return create_element(e).space_dimension()
+
                 # Ensure coefficient temporaries aren't duplicated
                 if function not in seen_coeff:
-                    shapes = [(V.finat_element.space_dimension(), V.value_size)
-                              for V in function.function_space().split()]
-                    c_shape = (sum(n * d for (n, d) in shapes),)
+                    if type(function.ufl_element()) == MixedElement:
+                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
+                    else:
+                        shapes = [dimension(function.ufl_element())]
+
+                    # Local temporary
+                    local_temp = ast.Symbol("VecTemp%d" % len(seen_coeff))
 
                     offset = 0
-                    for fs_i, fs_shape in enumerate(shapes):
-                        cinfo = CoefficientInfo(space_index=fs_i,
+                    for i, shape in enumerate(shapes):
+                        cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=c_shape,
-                                                vector=tensor)
-                        coeff_vecs.setdefault(fs_shape, []).append(cinfo)
-                        offset += reduce(lambda x, y: x*y, fs_shape)
+                                                shape=(sum(shapes), ),
+                                                vector=tensor,
+                                                local_temp=local_temp)
+                        coeff_vecs.setdefault(shape, []).append(cinfo)
+                        offset += shape
 
                     seen_coeff.add(function)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-
-        # Terminal tensors do not need additional temps created for them
-        # and neither do Negative nodes.
-        self.aux_exprs = [tensor for tensor in topological_sort(expression_dag)
-                          if counter[tensor] > 1
-                          and not isinstance(tensor, (slate.Tensor,
-                                                      slate.Negative))]
+        self.ref_counter = counter
+        self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self._setup()
+
+    @cached_property
+    def terminal_flops(self):
+        flops = 0
+        nfacets = self.expression.ufl_domain().ufl_cell().num_facets()
+        for ctx in self.context_kernels:
+            itype = ctx.original_integral_type
+            for k in ctx.tsfc_kernels:
+                kinfo = k.kinfo
+                if itype == "cell":
+                    flops += kinfo.kernel.num_flops
+                elif itype.startswith("interior_facet"):
+                    # Executed once per facet (approximation)
+                    flops += kinfo.kernel.num_flops * nfacets
+                else:
+                    # Exterior facets basically contribute zero flops
+                    pass
+        return int(flops)
+
+    @cached_property
+    def expression_flops(self):
+        @singledispatch
+        def _flops(expr):
+            raise AssertionError("Unhandled type %r" % type(expr))
+
+        @_flops.register(slate.AssembledVector)
+        @_flops.register(slate.Block)
+        @_flops.register(slate.Tensor)
+        @_flops.register(slate.Transpose)
+        @_flops.register(slate.Negative)
+        def _flops_none(expr):
+            return 0
+
+        @_flops.register(slate.Factorization)
+        def _flops_factorization(expr):
+            m, n = expr.shape
+            decomposition = expr.decomposition
+            # Extracted from Golub & Van Loan
+            # These all ignore lower-order terms...
+            if decomposition in {"PartialPivLU", "FullPivLU"}:
+                return 2/3 * n**3
+            elif decomposition in {"LLT", "LDLT"}:
+                return (1/3)*n**3
+            elif decomposition in {"HouseholderQR", "ColPivHouseholderQR", "FullPivHouseholderQR"}:
+                return 4/3 * n**3
+            elif decomposition in {"BDCSVD", "JacobiSVD"}:
+                return 12 * n**3
+            else:
+                # Don't know, but don't barf just because of it.
+                return 0
+
+        @_flops.register(slate.Inverse)
+        def _flops_inverse(expr):
+            m, n = expr.shape
+            assert m == n
+            # Assume LU factorisation
+            return (2/3)*n**3
+
+        @_flops.register(slate.Add)
+        def _flops_add(expr):
+            return int(np.prod(expr.shape))
+
+        @_flops.register(slate.Mul)
+        def _flops_mul(expr):
+            A, B = expr.operands
+            *rest_a, col = A.shape
+            _, *rest_b = B.shape
+            return 2*col*int(np.prod(rest_a))*int(np.prod(rest_b))
+
+        @_flops.register(slate.Solve)
+        def _flops_solve(expr):
+            Afac, B = expr.operands
+            _, *rest = B.shape
+            m, n = Afac.shape
+            # Forward elimination + back sub on factorised matrix
+            return (m*n + n**2)*int(np.prod(rest))
+
+        return int(sum(map(_flops, traverse_dags([self.expression]))))
 
     def _setup(self):
         """A setup method to initialize all the local assembly
@@ -147,6 +229,7 @@ class LocalKernelBuilder(object):
         subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         oriented = False
+        needs_cell_sizes = False
 
         # Maps integral type to subdomain key
         subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
@@ -172,6 +255,7 @@ class LocalKernelBuilder(object):
                 indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
                 kint_type = kinfo.integral_type
+                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
                 args = [c for i in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
@@ -184,6 +268,9 @@ class LocalKernelBuilder(object):
                                  "interior_facet_vert",
                                  "exterior_facet_vert"]:
                     args.append(ast.FlatBlock("&%s" % self.it_sym))
+
+                if kinfo.needs_cell_sizes:
+                    args.append(self.cell_size_sym)
 
                 # Assembly calls within the macro kernel
                 tensor = eigen_tensor(exp, self.temps[exp], indices)
@@ -217,6 +304,7 @@ class LocalKernelBuilder(object):
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
         self.oriented = oriented
+        self.needs_cell_sizes = needs_cell_sizes
 
     @cached_property
     def coefficient_map(self):
@@ -246,7 +334,7 @@ class LocalKernelBuilder(object):
 
     @cached_property
     def context_kernels(self):
-        """Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
+        r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form

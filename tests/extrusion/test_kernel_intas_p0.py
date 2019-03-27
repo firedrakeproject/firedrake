@@ -70,8 +70,3 @@ void comp_reduction(double A[1], double *x[])
 @pytest.mark.parametrize(('family', 'degree'), [('DG', 0)])
 def test_firedrake_extrusion_assemble(family, degree):
     assert integrate_assemble_p0(family, degree) < 1.0e-14
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

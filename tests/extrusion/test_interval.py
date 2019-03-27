@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from firedrake import *
 
@@ -12,7 +11,7 @@ def integrate_one(intervals):
 
     u = Function(V)
 
-    u.interpolate(Expression("1"))
+    u.interpolate(Constant(1))
 
     return assemble(u * dx)
 
@@ -27,9 +26,10 @@ def test_interval_div_free():
 
     V = VectorFunctionSpace(mesh, 'CG', 3)
 
-    u = Function(V)
+    x, y = SpatialCoordinate(mesh)
 
-    u.interpolate(Expression(('x[0]*x[0]*x[1]', '-x[0]*x[1]*x[1]')))
+    u = Function(V)
+    u.interpolate(as_vector([x*x*y, -x*y*y]))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.
@@ -51,10 +51,10 @@ def test_periodic_interval_div_free():
 
     V = VectorFunctionSpace(mesh, 'CG', 3)
 
+    x, y = SpatialCoordinate(mesh
+                             )
     u = Function(V)
-
-    u.interpolate(Expression(('sin(2*pi*x[0])',
-                              '-2*pi*x[1]*cos(2*pi*x[0])')))
+    u.interpolate(as_vector([sin(2*np.pi*x), -2*np.pi*y*cos(2*np.pi*x)]))
 
     # u is pointwise divergence free, so the integral should also be
     # div-free.
@@ -68,8 +68,3 @@ def test_periodic_interval_div_free():
 
     # Check pointwise div-free
     assert np.allclose(f.dat.data, 0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

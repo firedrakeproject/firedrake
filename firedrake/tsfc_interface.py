@@ -18,7 +18,7 @@ from tsfc import compile_form as tsfc_compile_form
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD
 
 from coffee.base import Invert
 
@@ -35,7 +35,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "domain_number",
                                      "coefficient_map",
                                      "needs_cell_facets",
-                                     "pass_layer_arg"])
+                                     "pass_layer_arg",
+                                     "needs_cell_sizes"])
 
 
 class TSFCKernel(Cached):
@@ -70,13 +71,12 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        val = pickle.loads(val)
-        cls._cache[key] = val
-        return val
+        return cls._cache.setdefault(key, pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
+        cls._cache[key] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
@@ -90,27 +90,29 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map):
+    def _cache_key(cls, form, name, parameters, number_map, interface):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
         return md5((form.signature() + name
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
-                    + str(number_map)).encode()).hexdigest(), form.ufl_domains()[0].comm
+                    + str(number_map)
+                    + str(type(interface))).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map):
+    def __init__(self, form, name, parameters, number_map, interface):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
+        :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
             return
 
-        tree = tsfc_compile_form(form, prefix=name, parameters=parameters)
+        tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface)
         kernels = []
         for kernel in tree:
             # Set optimization options
@@ -126,7 +128,8 @@ class TSFCKernel(Cached):
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
                                       needs_cell_facets=False,
-                                      pass_layer_arg=False))
+                                      pass_layer_arg=False,
+                                      needs_cell_sizes=kernel.needs_cell_sizes))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -135,7 +138,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, inverse=False, split=True):
+def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -199,7 +202,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True):
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
         kinfos = TSFCKernel(f, name + "".join(map(str, idx)), parameters,
-                            number_map).kernels
+                            number_map, interface).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)
@@ -225,22 +228,18 @@ def _real_mangle(form):
 
 def clear_cache(comm=None):
     """Clear the Firedrake TSFC kernel cache."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if path.exists(TSFCKernel._cachedir):
-            import shutil
-            shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
-            _ensure_cachedir(comm=comm)
-    free_comm(comm)
+        import shutil
+        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+        _ensure_cachedir(comm=comm)
 
 
 def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
-    comm = dup_comm(comm or COMM_WORLD)
+    comm = comm or COMM_WORLD
     if comm.rank == 0:
-        if not path.exists(TSFCKernel._cachedir):
-            makedirs(TSFCKernel._cachedir)
-    free_comm(comm)
+        makedirs(TSFCKernel._cachedir, exist_ok=True)
 
 
 def _inverse(kernel):

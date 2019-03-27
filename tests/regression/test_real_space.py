@@ -238,14 +238,12 @@ def test_real_space_first():
     MixedFunctionSpace([V, Q])
 
 
-@pytest.mark.xfail(reason="ParLoop in PyOP2 accesses property of None")
 def test_real_space_assign():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
     f = Function(V)
-    f.assign(1)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+    f.assign(2)
+    g = Function(V)
+    g.assign(2*f + f**3)
+    assert np.allclose(f.dat.data_ro, 2.0)
+    assert np.allclose(g.dat.data_ro, 12.0)

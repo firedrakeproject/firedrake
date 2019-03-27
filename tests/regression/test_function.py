@@ -26,14 +26,14 @@ def W_nonstandard_shape():
 
 def test_firedrake_scalar_function(V):
     f = Function(V)
-    f.interpolate(Expression("1"))
+    f.interpolate(Constant(1))
     assert (f.dat.data_ro == 1.0).all()
 
     g = Function(f)
     assert (g.dat.data_ro == 1.0).all()
 
     # Check that g is indeed a deep copy
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
 
     assert (f.dat.data_ro == 2.0).all()
     assert (g.dat.data_ro == 1.0).all()
@@ -42,7 +42,7 @@ def test_firedrake_scalar_function(V):
 def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
-    f.interpolate(Expression(vals.astype(str)))
+    f.interpolate(as_tensor(vals))
     assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
@@ -50,7 +50,7 @@ def test_firedrake_tensor_function(W):
 
     # Check that g is indeed a deep copy
     fvals = np.array([5.0, 6.0, 7.0, 8.0]).reshape(2, 2)
-    f.interpolate(Expression(fvals.astype(str)))
+    f.interpolate(as_tensor(fvals))
 
     assert np.allclose(f.dat.data_ro, fvals)
     assert np.allclose(g.dat.data_ro, vals)
@@ -58,8 +58,8 @@ def test_firedrake_tensor_function(W):
 
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
-    vals = np.arange(1, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
-    f.interpolate(Expression(vals.astype(str)))
+    vals = np.arange(1.0, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
+    f.interpolate(as_tensor(vals))
     assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
@@ -67,7 +67,7 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 
     # Check that g is indeed a deep copy
     fvals = vals + 10
-    f.interpolate(Expression(fvals.astype(str)))
+    f.interpolate(as_tensor(fvals))
 
     assert np.allclose(f.dat.data_ro, fvals)
     assert np.allclose(g.dat.data_ro, vals)
@@ -76,22 +76,22 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 def test_mismatching_rank_interpolation(V):
     f = Function(V)
     with pytest.raises(RuntimeError):
-        f.interpolate(Expression(('1', '2')))
+        f.interpolate(Constant((1, 2)))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Expression(('1', '2')))
+        f.interpolate(Constant((1, 2)))
     VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VVV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Expression(('1', '2')))
+        f.interpolate(Constant((1, 2)))
 
 
 def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Expression(['1'] * (VV.ufl_element().value_shape()[0] + 1)))
+        f.interpolate(Constant(['1'] * (VV.ufl_element().value_shape()[0] + 1)))
 
 
 def test_function_val(V):
@@ -103,7 +103,7 @@ def test_function_val(V):
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
     f = Function(V, op2.Dat(V.node_set**V.value_size))
-    f.interpolate(Expression("1"))
+    f.interpolate(Constant(1))
     assert (f.dat.data_ro == 1.0).all()
 
 
@@ -148,8 +148,3 @@ def test_copy(V):
     assert np.allclose(f.dat.data_ro, 3.0)
 
     assert h.name() == "foo"
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

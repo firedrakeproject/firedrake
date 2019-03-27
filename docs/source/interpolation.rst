@@ -98,26 +98,11 @@ C string expressions
 
 .. warning::
 
-   This is a deprecated feature, but it remains supported for
-   compatibility with FEniCS.
+   C string expressions were a FEniCS compatibility feature which has
+   now been removed. Users should use UFL expressions instead. This
+   section only remains to assist in the transition of existing code.
 
-The :py:class:`~.Expression` class wraps a C string expression,
-e.g. ``Expression("sin(x[0]*pi)")``, which is then copy-pasted into
-the interpolation kernel.  Consequently, C syntax rules apply inside
-the string, with the following "environment":
-
-* The physical spatial coordinate is available as "vector" ``x``
-  (array in C), i.e. the coordinates `x`, `y`, and `z` are accessed as
-  ``x[0]``, ``x[1]``, and ``x[2]``.
-* The mathematical constant :math:`{\pi}` is available as ``pi``.
-* Mathematical functions from the C header `math.h`_.
-
-It is possible to augment this environment.  For example,
-``Expression('sin(x[0]*t)', t=t)`` takes the value from the Python
-variable ``t``, and uses that value for ``t`` inside the C string.
-
-Since C string expressions are deprecated, below are a few examples on
-how to replace them with UFL expressions:
+Here are a couple of old-style C string expressions, and their modern replacements.   
 
 .. code-block:: python
 
@@ -187,3 +172,29 @@ expressions:
 .. _math.h: http://en.cppreference.com/w/c/numeric/math
 .. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
 .. _TSFC: https://github.com/firedrakeproject/tsfc
+
+
+Generating Functions with randomised values
+-------------------------------------------
+
+The :py:mod:`~.randomfunctiongen` module wraps  the external package `randomgen <https://pypi.org/project/randomgen/>`__,
+which gives Firedrake users an easy access to many stochastically sound random number generators,
+including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
+All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__ 
+are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
+to generate a randomised :class:`.Function`.
+
+.. code-block:: python
+
+    mesh = UnitSquareMesh(2,2)
+    V = FunctionSpace(mesh, "CG", 1)
+    # PCG64 random number generator
+    pcg = PCG64(seed=123456789)
+    rg = RandomGenerator(pcg)
+    # beta distribution
+    f_beta = rg.beta(V, 1.0, 2.0)
+
+    print(f_beta.dat.data)
+
+    # produces:
+    # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]

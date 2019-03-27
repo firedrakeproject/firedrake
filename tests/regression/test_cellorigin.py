@@ -28,8 +28,3 @@ def test_cell_origin(mesh):
     coords = mesh.coordinates
     expected = coords.dat.data_ro[coords.function_space().cell_node_list[:, 0]]
     assert np.allclose(expected, f.dat.data_ro)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

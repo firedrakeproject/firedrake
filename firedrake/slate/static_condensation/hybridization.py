@@ -1,10 +1,7 @@
-"""This module provides custom python preconditioners utilizing
-the Slate language.
-"""
 import ufl
 import numpy as np
 
-from firedrake.matrix_free.preconditioners import PCBase
+from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
@@ -12,10 +9,14 @@ from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
+
 __all__ = ['HybridizationPC']
 
 
-class HybridizationPC(PCBase):
+class HybridizationPC(SCBase):
+
+    needs_python_pmat = True
+
     """A Slate-based python preconditioner that solves a
     mixed H(div)-conforming problem using hybridization.
     Currently, this preconditioner supports the hybridization
@@ -123,8 +124,8 @@ class HybridizationPC(PCBase):
         sigma = TrialFunctions(V_d)[self.vidx]
 
         if mesh.cell_set._extruded:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h +
-                     gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
+            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
+                     + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS)
 
@@ -155,14 +156,14 @@ class HybridizationPC(PCBase):
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
-            neumann_subdomains = neumann_subdomains.difference(extruded_neumann_subdomains)
+            neumann_subdomains = neumann_subdomains - extruded_neumann_subdomains
 
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
             if mesh.cell_set._extruded:
                 ds = ufl.ds_v
-                for subdomain in extruded_neumann_subdomains:
+                for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
                 trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
             else:
@@ -170,8 +171,9 @@ class HybridizationPC(PCBase):
             if "on_boundary" in neumann_subdomains:
                 measures.append(ds)
             else:
-                measures.extend([ds(sd) for sd in neumann_subdomains])
-                dirichlet_subdomains = set(mesh.exterior_facets.unique_markers) - neumann_subdomains
+                measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
+                markers = [int(x) for x in mesh.exterior_facets.unique_markers]
+                dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
             for measure in measures:
@@ -199,13 +201,18 @@ class HybridizationPC(PCBase):
             tensor=self.schur_rhs,
             form_compiler_parameters=self.ctx.fc_params)
 
+        mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
+
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
-                                 form_compiler_parameters=self.ctx.fc_params)
+                                 form_compiler_parameters=self.ctx.fc_params,
+                                 mat_type=mat_type,
+                                 options_prefix=prefix)
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params)
+                                                    form_compiler_parameters=self.ctx.fc_params,
+                                                    mat_type=mat_type)
 
         self._assemble_S()
         self.S.force_evaluation()
@@ -265,27 +272,17 @@ class HybridizationPC(PCBase):
 
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.inv * (f - C * A.inv * g - R * lambdar)
+        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
+                        decomposition="PartialPivLU")
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.ctx.fc_params)
 
-        sigma_rec = A.inv * (g - B * AssembledVector(u) - K_0.T * lambdar)
+        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
+                            decomposition="PartialPivLU")
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.ctx.fc_params)
-
-    @timed_function("HybridRecon")
-    def _reconstruct(self):
-        """Reconstructs the system unknowns using the multipliers.
-        Note that the reconstruction calls are assumed to be
-        initialized at this point.
-        """
-        # We assemble the unknown which is an expression
-        # of the first eliminated variable.
-        self._sub_unknown()
-        # Recover the eliminated unknown
-        self._elim_unknown()
 
     @timed_function("HybridUpdate")
     def update(self, pc):
@@ -295,13 +292,13 @@ class HybridizationPC(PCBase):
         self._assemble_S()
         self.S.force_evaluation()
 
-    def apply(self, pc, x, y):
-        """We solve the forward eliminated problem for the
-        approximate traces of the scalar solution (the multipliers)
-        and reconstruct the "broken flux and scalar variable."
+    def forward_elimination(self, pc, x):
+        """Perform the forward elimination of fields and
+        provide the reduced right-hand side for the condensed
+        system.
 
-        Lastly, we project the broken solutions into the mimetic
-        non-broken finite element space.
+        :arg pc: a Preconditioner instance.
+        :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
         with timed_region("HybridBreak"):
@@ -315,14 +312,12 @@ class HybridizationPC(PCBase):
             broken_scalar_data = self.broken_residual.split()[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
-        with timed_region("HybridRHS"):
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
             # gives R'[w] = R[w] when w is in the unbroken space.
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-
             unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
             broken_res_hdiv = self.broken_residual.split()[self.vidx]
             broken_res_hdiv.assign(0)
@@ -331,23 +326,40 @@ class HybridizationPC(PCBase):
                       "vec_in": (unbroken_res_hdiv, READ),
                       "vec_out": (broken_res_hdiv, INC)})
 
+        with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
-        with timed_region("HybridSolve"):
-            # Solve the system for the Lagrange multipliers
-            with self.schur_rhs.dat.vec_ro as b:
-                if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec
-                else:
-                    acc = self.trace_solution.dat.vec_wo
-                with acc as x_trace:
-                    self.trace_ksp.solve(b, x_trace)
+    def sc_solve(self, pc):
+        """Solve the condensed linear system for the
+        condensed field.
 
-        # Reconstruct the unknowns
-        self._reconstruct()
+        :arg pc: a Preconditioner instance.
+        """
 
-        with timed_region("HybridRecover"):
+        # Solve the system for the Lagrange multipliers
+        with self.schur_rhs.dat.vec_ro as b:
+            if self.trace_ksp.getInitialGuessNonzero():
+                acc = self.trace_solution.dat.vec
+            else:
+                acc = self.trace_solution.dat.vec_wo
+            with acc as x_trace:
+                self.trace_ksp.solve(b, x_trace)
+
+    def backward_substitution(self, pc, y):
+        """Perform the backwards recovery of eliminated fields.
+
+        :arg pc: a Preconditioner instance.
+        :arg y: a PETSc vector for placing the resulting fields.
+        """
+
+        # We assemble the unknown which is an expression
+        # of the first eliminated variable.
+        self._sub_unknown()
+        # Recover the eliminated unknown
+        self._elim_unknown()
+
+        with timed_region("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]
@@ -363,12 +375,8 @@ class HybridizationPC(PCBase):
                       "vec_in": (broken_hdiv, READ),
                       "vec_out": (unbroken_hdiv, INC)})
 
-            with self.unbroken_solution.dat.vec_ro as v:
-                v.copy(y)
-
-    def applyTranspose(self, pc, x, y):
-        """Apply the transpose of the preconditioner."""
-        raise NotImplementedError("The transpose application of the PC is not implemented.")
+        with self.unbroken_solution.dat.vec_ro as v:
+            v.copy(y)
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""

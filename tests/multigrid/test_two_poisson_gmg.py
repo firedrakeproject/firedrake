@@ -30,7 +30,7 @@ def run_two_poisson(typ):
                       "fieldsplit_pc_type": "mg",
                       "fieldsplit_pc_mg_type": "full",
                       "fieldsplit_mg_levels_ksp_type": "chebyshev",
-                      "fieldsplit_mg_levels_ksp_max_it": 2,
+                      "fieldsplit_mg_levels_ksp_max_it": 3,
                       "fieldsplit_mg_levels_pc_type": "jacobi",
                       "snes_convergence_test": "skip"}
     elif typ == "fas":
@@ -47,7 +47,7 @@ def run_two_poisson(typ):
                       "fas_levels_snes_linesearch_type": "basic",
                       "fas_levels_snes_max_it": 1,
                       "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
+                      "fas_levels_ksp_max_it": 3,
                       "fas_levels_pc_type": "fieldsplit",
                       "fas_levels_pc_fieldsplit_type": "additive",
                       "fas_levels_fieldsplit_pc_type": "jacobi",
@@ -79,8 +79,9 @@ def run_two_poisson(typ):
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
-    for x in f.split():
-        x.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
+    x = SpatialCoordinate(W.mesh())
+    for h in f.split():
+        h.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
 
     problem = NonlinearVariationalProblem(F, u, bcs=bcs)
 
@@ -91,7 +92,7 @@ def run_two_poisson(typ):
     exact_P2 = Function(P2)
     exact_P1 = Function(P1)
     for exact in [exact_P2, exact_P1]:
-        exact.interpolate(Expression("sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])"))
+        exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
 
     sol_P2, sol_P1 = u.split()
     return norm(assemble(exact_P2 - sol_P2)), norm(assemble(exact_P1 - sol_P1))
@@ -126,8 +127,3 @@ def test_two_poisson_gmg_parallel_fas():
     P2, P1 = run_two_poisson("fas")
     assert P2 < 4e-6
     assert P1 < 1e-3
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

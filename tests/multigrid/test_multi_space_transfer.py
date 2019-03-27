@@ -29,9 +29,3 @@ def test_transfer_scalar_vector(typ):
         donor.assign(Constant(val))
         transfer(donor, target)
         assert numpy.allclose(target.dat.data_ro, val)
-
-
-if __name__ == "__main__":
-    import os
-    import sys
-    pytest.main(args=[os.path.abspath(__file__)] + sys.argv[1:])

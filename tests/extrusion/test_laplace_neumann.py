@@ -30,7 +30,8 @@ def test_bottom_and_top(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_b - 10*v*ds_t
-    bc_expr = Expression("-10*x[2]")
+    xs = SpatialCoordinate(P2.mesh())
+    bc_expr = -10*xs[2]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -51,7 +52,8 @@ def test_top_and_bottom(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_t - 10*v*ds_b
-    bc_expr = Expression("10*x[2]")
+    xs = SpatialCoordinate(P2.mesh())
+    bc_expr = 10*xs[2]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, 3),
@@ -72,7 +74,8 @@ def test_left_right(P2):
 
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_v(2) - 10*v*ds_v(1)
-    bc_expr = Expression("10*x[0]")
+    xs = SpatialCoordinate(P2.mesh())
+    bc_expr = 10*xs[0]
     bcs = [DirichletBC(P2, bc_expr, "top"),
            DirichletBC(P2, bc_expr, "bottom"),
            DirichletBC(P2, bc_expr, 3),
@@ -91,9 +94,10 @@ def test_near_far(P2):
     u = TrialFunction(P2)
     v = TestFunction(P2)
 
+    xs = SpatialCoordinate(P2.mesh())
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_v(4) - 10*v*ds_v(3)
-    bc_expr = Expression("10*x[1]")
+    bc_expr = 10*xs[1]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
            DirichletBC(P2, bc_expr, "top"),
@@ -112,9 +116,10 @@ def test_2D_bottom_top(P2_2D):
     u = TrialFunction(P2_2D)
     v = TestFunction(P2_2D)
 
+    xs = SpatialCoordinate(P2_2D.mesh())
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_t - 10*v*ds_b
-    bc_expr = Expression("10*x[1]")
+    bc_expr = 10*xs[1]
     bcs = [DirichletBC(P2_2D, bc_expr, 1),
            DirichletBC(P2_2D, bc_expr, 2)]
 
@@ -131,9 +136,10 @@ def test_2D_left_right(P2_2D):
     u = TrialFunction(P2_2D)
     v = TestFunction(P2_2D)
 
+    xs = SpatialCoordinate(P2_2D.mesh())
     a = dot(grad(u), grad(v))*dx
     L = 10*v*ds_v(2) - 10*v*ds_v(1)
-    bc_expr = Expression("10*x[0]")
+    bc_expr = 10*xs[0]
     bcs = [DirichletBC(P2_2D, bc_expr, "top"),
            DirichletBC(P2_2D, bc_expr, "bottom")]
 
@@ -144,8 +150,3 @@ def test_2D_left_right(P2_2D):
     u_exact.interpolate(bc_expr)
 
     assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
