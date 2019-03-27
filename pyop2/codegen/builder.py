@@ -708,8 +708,8 @@ class WrapperBuilder(object):
                 for a in arg:
                     shape = (None, *a.data.shape[1:])
                     argument = Argument(shape, a.data.dtype, pfx="mdat")
-                    packs.append(DatPack(argument, arg.access, self.map_(a.map),
-                                         interior_horizontal=interior_horizontal))
+                    packs.append(a.data.pack(argument, arg.access, self.map_(a.map),
+                                             interior_horizontal=interior_horizontal))
                     self.arguments.append(argument)
                 pack = MixedDatPack(packs, arg.access, arg.dtype, interior_horizontal=interior_horizontal)
                 self.packed_args.append(pack)
@@ -725,9 +725,9 @@ class WrapperBuilder(object):
             argument = Argument(shape,
                                 arg.data.dtype,
                                 pfx="dat")
-            pack = DatPack(argument, arg.access, self.map_(arg.map),
-                           interior_horizontal=interior_horizontal,
-                           view_index=view_index)
+            pack = arg.data.pack(argument, arg.access, self.map_(arg.map),
+                                 interior_horizontal=interior_horizontal,
+                                 view_index=view_index)
         elif arg._is_global:
             argument = Argument(arg.data.dim,
                                 arg.data.dtype,

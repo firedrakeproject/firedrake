@@ -1553,6 +1553,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
     multiplication / division by a scalar.
     """
 
+    @cached_property
+    def pack(self):
+        from pyop2.codegen.builder import DatPack
+        return DatPack
+
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
