@@ -9,7 +9,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           LogicalNot, LogicalAnd, LogicalOr,
                                           Argument, Literal, NamedLiteral,
                                           Materialise, Accumulate, FunctionCall, When,
-                                          Symbol, Zero, Sum, Product, view)
+                                          Symbol, Zero, Sum, Product)
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
 
 from pyop2.utils import cached_property
@@ -289,14 +289,21 @@ class DatPack(Pack):
         self.view_index = view_index
         self.layer_bounds = layer_bounds
 
+    def _mask(self, map_):
+        """Override this if the map_ needs a masking condition."""
+        return None
+
     def _rvalue(self, multiindex, loop_indices=None):
+        """Returns indexed Dat and masking condition to apply to reads/writes.
+
+        If None, no mask is applied (used for pcpatch).
+        """
         f, i, *j = multiindex
         n, layer = self.pick_loop_indices(*loop_indices)
         if self.view_index is not None:
             j = tuple(j) + tuple(FixedIndex(i) for i in self.view_index)
         map_, (f, i) = self.map_.indexed((n, i, f), layer=layer)
-        return Indexed(self.outer,
-                       MultiIndex(map_, *j))
+        return Indexed(self.outer, MultiIndex(map_, *j)), self._mask(map_)
 
     def pack(self, loop_indices=None):
         if self.map_ is None:
@@ -320,9 +327,10 @@ class DatPack(Pack):
             self._pack = Materialise(PackInst(), val, multiindex)
         else:
             multiindex = MultiIndex(*(Index(e) for e in shape))
-            self._pack = Materialise(PackInst(),
-                                     self._rvalue(multiindex, loop_indices=loop_indices),
-                                     multiindex)
+            expr, mask = self._rvalue(multiindex, loop_indices=loop_indices)
+            if mask is not None:
+                expr = When(mask, expr)
+            self._pack = Materialise(PackInst(), expr, multiindex)
         return self._pack
 
     def kernel_arg(self, loop_indices=None):
@@ -353,15 +361,20 @@ class DatPack(Pack):
             yield None
         elif self.access is INC:
             multiindex = tuple(Index(e) for e in pack.shape)
-            rvalue = self._rvalue(multiindex, loop_indices=loop_indices)
-            yield Accumulate(UnpackInst(),
-                             rvalue,
-                             Sum(rvalue, Indexed(pack, multiindex)))
+            rvalue, mask = self._rvalue(multiindex, loop_indices=loop_indices)
+            acc = Accumulate(UnpackInst(), rvalue, Sum(rvalue, Indexed(pack, multiindex)))
+            if mask is None:
+                yield acc
+            else:
+                yield When(mask, acc)
         else:
             multiindex = tuple(Index(e) for e in pack.shape)
-            yield Accumulate(UnpackInst(),
-                             self._rvalue(multiindex, loop_indices=loop_indices),
-                             Indexed(pack, multiindex))
+            rvalue, mask = self._rvalue(multiindex, loop_indices=loop_indices)
+            acc = Accumulate(UnpackInst(), rvalue, Indexed(pack, multiindex))
+            if mask is None:
+                yield acc
+            else:
+                yield When(mask, acc)
 
 
 class MixedDatPack(Pack):
@@ -395,11 +408,13 @@ class MixedDatPack(Pack):
             for p in self.packs:
                 shape = _shape + p.map_.shape[1:] + p.outer.shape[1:]
                 mi = MultiIndex(*(Index(e) for e in shape))
-                expr = p._rvalue(mi, loop_indices)
+                expr, mask = p._rvalue(mi, loop_indices)
                 extents = [numpy.prod(shape[i+1:], dtype=numpy.int32) for i in range(len(shape))]
                 index = reduce(Sum, [Product(i, Literal(IntType.type(e), casting=False)) for i, e in zip(mi, extents)], Literal(IntType.type(0), casting=False))
                 indices = MultiIndex(Sum(index, Literal(IntType.type(offset), casting=False)),)
                 offset += numpy.prod(shape, dtype=numpy.int32)
+                if mask is not None:
+                    expr = When(mask, expr)
                 expressions.append(expr)
                 expressions.append(indices)
 
@@ -425,7 +440,7 @@ class MixedDatPack(Pack):
             for p in self.packs:
                 shape = _shape + p.map_.shape[1:] + p.outer.shape[1:]
                 mi = MultiIndex(*(Index(e) for e in shape))
-                rvalue = p._rvalue(mi, loop_indices)
+                rvalue, mask = p._rvalue(mi, loop_indices)
                 extents = [numpy.prod(shape[i+1:], dtype=numpy.int32) for i in range(len(shape))]
                 index = reduce(Sum, [Product(i, Literal(IntType.type(e), casting=False)) for i, e in zip(mi, extents)], Literal(IntType.type(0), casting=False))
                 indices = MultiIndex(Sum(index, Literal(IntType.type(offset), casting=False)),)
@@ -435,7 +450,11 @@ class MixedDatPack(Pack):
                 if self.access is INC:
                     rhs = Sum(rvalue, rhs)
 
-                yield Accumulate(UnpackInst(), rvalue, rhs)
+                acc = Accumulate(UnpackInst(), rvalue, rhs)
+                if mask is None:
+                    yield acc
+                else:
+                    yield When(mask, acc)
 
 
 class MatPack(Pack):
