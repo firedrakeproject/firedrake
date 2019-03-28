@@ -109,17 +109,27 @@ def compile_element(expression, coordinates, parameters=None):
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
-        "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
-        "nlayers": ", f->n_layers" if extruded else "",
+        # "extruded_arg": ", %int* layers" if extruded else "",
+        "layers_arg": ", int const *__restrict__ layers" if extruded else "",
+        "layers": ", layers" if extruded else "",
         "IntType": as_cstr(IntType),
     }
+    # if maps are the same, only need to pass one of them
+    if coordinates.cell_node_map() == coefficient.cell_node_map():
+        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map" % code
+        code["map_args"] = "f->coords_map"
+    else:
+        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
+        code["map_args"] = "f->coords_map, f->f_map"
 
-    evaluate_template_c = """static inline void wrap_evaluate(double *result, double *X, double *coords, %(IntType)s *coords_map, double *f, %(IntType)s *f_map%(extruded_arg)s, %(IntType)s cell);
+    evaluate_template_c = """
+static inline void wrap_evaluate(double* const result, double* const X, int const start, int const end%(layers_arg)s,
+    double const *__restrict__ coords, double const *__restrict__ f, %(wrapper_map_args)s);
 
 int evaluate(struct Function *f, double *x, double *result)
 {
     struct ReferenceCoords reference_coords;
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
     if (cell == -1) {
         return -1;
     }
@@ -127,8 +137,14 @@ int evaluate(struct Function *f, double *x, double *result)
     if (!result) {
         return 0;
     }
+    int layers[2] = {0, 0};
+    if (f->extruded != 0) {
+        int nlayers = f->n_layers;
+        layers[1] = cell %% nlayers + 2;
+        cell = cell / nlayers;
+    }
 
-    wrap_evaluate(result, reference_coords.X, f->coords, f->coords_map, f->f, f->f_map%(nlayers)s, cell);
+    wrap_evaluate(result, reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
     return 0;
 }
 """

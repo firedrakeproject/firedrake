@@ -90,8 +90,8 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
                       (P1.cell_node_map(),
                        Pk.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-    matarg = mat(op2.WRITE, (P1.cell_node_map(P1_bcs)[op2.i[0]],
-                             Pk.cell_node_map(Pk_bcs)[op2.i[1]]))
+    matarg = mat(op2.WRITE, (P1.cell_node_map(P1_bcs),
+                             Pk.cell_node_map(Pk_bcs)))
     # # HACK HACK HACK, this seems like it might be a pyop2 bug
     # sh = matarg._block_shape
     # assert len(sh) == 1 and len(sh[0]) == 1 and len(sh[0][0]) == 2

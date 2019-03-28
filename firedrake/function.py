@@ -25,6 +25,7 @@ __all__ = ['Function', 'PointNotInDomainError']
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", c_int),
+                ("extruded", c_int),
                 ("n_layers", c_int),
                 ("coords", POINTER(c_double)),
                 ("coords_map", POINTER(as_ctypes(IntType))),
@@ -444,8 +445,11 @@ class Function(ufl.Coefficient):
         c_function = _CFunction()
         c_function.n_cols = mesh.num_cells()
         if mesh.layers is not None:
+            # TODO: assert constant layer. Can we do variable though?
+            c_function.extruded = 1
             c_function.n_layers = mesh.layers - 1
         else:
+            c_function.extruded = 0
             c_function.n_layers = 1
         c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
@@ -611,27 +615,30 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.sequential import generate_cell_wrapper
+    from pyop2.sequential import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
     mesh = function.ufl_domain()
-    src = pq_utils.src_locate_cell(mesh, tolerance=tolerance)
-    src += compile_element(function, mesh.coordinates)
+    src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
+    src.append(compile_element(function, mesh.coordinates))
 
     args = []
 
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
     arg.position = 0
     args.append(arg)
 
-    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
+    arg = function.dat(op2.READ, function.cell_node_map())
     arg.position = 1
     args.append(arg)
 
-    src += generate_cell_wrapper(mesh.cell_set, args,
-                                 forward_args=["double*", "double*"],
-                                 kernel_name="evaluate_kernel",
-                                 wrapper_name="wrap_evaluate")
+    src.append(generate_single_cell_wrapper(mesh.cell_set, args,
+                                            forward_args=["double*", "double*"],
+                                            kernel_name="evaluate_kernel",
+                                            wrapper_name="wrap_evaluate",
+                                            restart_counter=True))
+
+    src = "\n".join(src)
 
     if ldargs is None:
         ldargs = []

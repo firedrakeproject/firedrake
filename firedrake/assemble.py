@@ -330,8 +330,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         def mat(testmap, trialmap, i, j):
             m = testmap(test.function_space()[i])
             n = trialmap(trial.function_space()[j])
-            maps = (m[op2.i[0]] if m else None,
-                    n[op2.i[1 if m else 0]] if n else None)
+            maps = (m if m else None,
+                    n if n else None)
             return tensor[i, j](op2.INC, maps)
         result = lambda: result_matrix
         if allocate_only:
@@ -349,7 +349,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         def vec(testmap, i):
             _testmap = testmap(test.function_space()[i])
-            return tensor[i](op2.INC, _testmap[op2.i[0]] if _testmap else None)
+            return tensor[i](op2.INC, _testmap if _testmap else None)
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -506,18 +506,19 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             coords = m.coordinates
             args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords)[op2.i[0]])]
+                    coords.dat(op2.READ, get_map(coords))]
             if needs_orientations:
                 o = m.cell_orientations()
-                args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
+                args.append(o.dat(op2.READ, get_map(o)))
             if needs_cell_sizes:
                 o = m.cell_sizes
-                args.append(o.dat(op2.READ, get_map(o)[op2.i[0]]))
+                args.append(o.dat(op2.READ, get_map(o)))
+
             for n in coeff_map:
                 c = coefficients[n]
                 for c_ in c.split():
                     m_ = get_map(c_)
-                    args.append(c_.dat(op2.READ, m_ and m_[op2.i[0]]))
+                    args.append(c_.dat(op2.READ, m_))
             if needs_cell_facets:
                 assert integral_type == "cell"
                 extra_args.append(m.cell_to_facets(op2.READ))

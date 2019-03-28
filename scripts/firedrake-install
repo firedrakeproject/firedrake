@@ -556,13 +556,14 @@ def git_clone(url):
     try:
         if options["disable_ssh"]:
             raise InstallError("Skipping ssh clone because --disable-ssh")
-        check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
+        # note: so far only loopy requires submodule
+        check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "ssh")])
         log.info("Successfully cloned repository %s" % name)
     except (subprocess.CalledProcessError, InstallError):
         if not options["disable_ssh"]:
             log.warning("Failed to clone %s using ssh, falling back to https." % name)
         try:
-            check_call(["git", "clone", "-q", git_url(plain_url, "https")])
+            check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "https")])
             log.info("Successfully cloned repository %s." % name)
         except subprocess.CalledProcessError:
             log.error("Failed to clone %s branch %s." % (name, branch))
@@ -659,6 +660,9 @@ def pip_requirements(package):
                         log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
                     else:
                         raise e
+        elif package == "loopy":
+            # loopy dependencies are installed in setup.py
+            return
         else:
             run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
@@ -1228,6 +1232,12 @@ if mode == "install":
         build_and_install_h5py()
         build_and_install_libspatialindex()
         build_and_install_libsupermesh()
+
+        if "loopy" in packages:
+            # We do want to install loopy's dependencies.
+            install("loopy/")
+            packages.remove("loopy")
+
         with pipargs("--no-deps"):
             for p in packages:
                 install(p+"/")
@@ -1311,6 +1321,12 @@ else:
             build_and_install_libspatialindex()
             build_and_install_libsupermesh()
 
+    if "loopy" in packages:
+        # We do want to install loopy's dependencies.
+        clean("loopy")
+        install("loopy/")
+        packages.remove("loopy")
+    with pipargs("--no-deps"):
         try:
             packages.remove("PyOP2")
             packages.remove("firedrake")

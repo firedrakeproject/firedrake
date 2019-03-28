@@ -8,8 +8,7 @@ from ufl.domain import join_domains
 
 from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
-
-import coffee.base as ast
+import loopy
 
 from firedrake import constant
 
@@ -62,10 +61,9 @@ _maps = {
 r"""Map a measure to the correct maps."""
 
 
-def _form_kernel(kernel, measure, args, **kwargs):
+def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     kargs = []
-    lkernel = kernel
 
     for var, (func, intent) in args.items():
         if isinstance(func, constant.Constant):
@@ -74,38 +72,50 @@ def _form_kernel(kernel, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
-                                  qualifiers=["const"]))
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].finat_element.space_dimension()
+                cdim = c.dat[idx].cdim
+                dtype = c.dat[idx].dtype
             else:
-                if len(func.function_space()) > 1:
-                    raise NotImplementedError("Must index mixed function in par_loop.")
-                ndof = func.function_space().finat_element.space_dimension()
+                if func.function_space().ufl_element().family() == "Real":
+                    ndof = func.function_space().dim()  # == 1
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    continue
+                else:
+                    if len(func.function_space()) > 1:
+                        raise NotImplementedError("Must index mixed function in par_loop.")
+                    ndof = func.function_space().finat_element.space_dimension()
+                    cdim = func.dat.cdim
+                    dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-            if measure is direct:
-                kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
-            else:
-                kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
-        lkernel = lkernel.replace(var+".dofs", str(ndof))
+            # FIXME: shape for facets [2][ndof]?
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+        kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
-    body = ast.FlatBlock(lkernel)
+    if kernel_domains == "":
+        kernel_domains = "[] -> {[]}"
+    kargs.append(...)
+    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
+                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
 
-    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
-                        "par_loop_kernel", **kwargs)
+    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
+def par_loop(kernel_domains, instructions, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel: is a string containing the C code to be executed.
+    :arg kernel_domains: the iteration domain for the kernel, in Integer Set
+        Libarary (ISL) syntax. function_name.dofs can be used as a magic word.
+    :arg instructions: is a string containing the instruction for the kernel
+        in loo.py syntax.
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
@@ -136,8 +146,13 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
-          {'A' : (A, RW), 'B': (B, READ)})
+      domain = '{[i]: 0 <= i < A.dofs}'
+      instructions = '''
+      for i
+          A[i] = fmax(A[i], B[0])
+      end
+      '''
+      par_loop(domain, instructions, dx, {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
@@ -265,7 +280,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         domain, = domains
         mesh = domain
 
-    op2args = [_form_kernel(kernel, measure, args, **kernel_kwargs)]
+    op2args = [_form_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
