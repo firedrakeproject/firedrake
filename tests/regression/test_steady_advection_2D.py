@@ -14,10 +14,12 @@ def mesh(request):
     return UnitSquareMesh(5, 5, quadrilateral=request.param)
 
 
-@pytest.fixture
-def DG0(mesh):
-    return FunctionSpace(mesh, "DG", 0)
-
+@pytest.fixture(params=["DG", "DPC"])
+def DG0(request, mesh):
+    if mesh.ufl_cell() == triangle:
+        return FunctionSpace(mesh, "DG", 0)
+    else:
+        return FunctionSpace(mesh, request.param, 0)
 
 @pytest.fixture
 def DG1(mesh):
@@ -67,7 +69,7 @@ def test_left_to_right(mesh, DG0, W):
     run_left_to_right(mesh, DG0, W)
 
 
-@pytest.mark.parallel
+#@pytest.mark.parallel
 def test_left_to_right_parallel(mesh, DG0, W):
     run_left_to_right(mesh, DG0, W)
 
@@ -104,6 +106,6 @@ def test_up_to_down(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
 
 
-@pytest.mark.parallel
+#@pytest.mark.parallel
 def test_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
