@@ -12,7 +12,8 @@ def meshdata(request):
         m = UnitSquareMesh(3, 3, quadrilateral=True)
     V = FunctionSpace(m, 'DG', 0)
     f = Function(V)
-    f.interpolate(Expression("3*x[0] + 9*x[1] - 1"))
+    x = SpatialCoordinate(m)
+    f.interpolate(3*x[0] + 9*x[1] - 1)
     return m, f
 
 
@@ -30,10 +31,4 @@ def test_locate_cells(meshdata, points, values):
 
 def test_locate_cell_not_found(meshdata):
     m, f = meshdata
-
     assert m.locate_cells(np.array([[0.2, -0.4]]))[0] == -1
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

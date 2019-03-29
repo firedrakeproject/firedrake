@@ -2,7 +2,6 @@
 of an extruded unit square. We then check against the actual solution
 of the equation.
 """
-import pytest
 from firedrake import *
 
 
@@ -14,7 +13,8 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", 1)
-    exp = Expression('x[0]*x[0] - x[1]*x[1] - x[2]*x[2]')
+    x, y, z = SpatialCoordinate(mesh)
+    exp = x*x - y*y - z*z
     bcs = [DirichletBC(V, exp, "bottom"),
            DirichletBC(V, exp, "top"),
            DirichletBC(V, exp, 1),
@@ -55,7 +55,8 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", 1)
-    exp = Expression('x[0]*x[0] - 2*x[1]*x[1]')
+    x, y = SpatialCoordinate(mesh)
+    exp = x*x - 2*y*y
     bcs = [DirichletBC(V, exp, "bottom"),
            DirichletBC(V, exp, "top"),
            DirichletBC(V, exp, 1),
@@ -132,8 +133,3 @@ def test_get_all_bc_nodes():
     # And there is 1 base facet with the "1" marker.  So we expect to
     # see 15 dofs in the bc object.
     assert len(bc.nodes) == 15
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

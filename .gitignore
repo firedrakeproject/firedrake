@@ -16,9 +16,11 @@
 /docs/source/firedrake.mg.rst
 /docs/source/firedrake.slope_limiter.rst
 /docs/source/firedrake.matrix_free.rst
+/docs/source/firedrake.preconditioners.rst
 /docs/source/firedrake.rst
 /docs/source/obtaining_pyop2.rst
 /docs/source/teamgrid.rst
+/docs/source/teaminactive.rst
 /docs/source/demos
 /demos/**/*.py
 /firedrake/mg/impl.c

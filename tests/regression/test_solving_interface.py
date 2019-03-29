@@ -205,8 +205,3 @@ def test_quasinewton_ops_assembled():
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
 
     assert solver.snes.ksp.pc.getOperators()[0].assembled
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

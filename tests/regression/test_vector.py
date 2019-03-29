@@ -8,7 +8,7 @@ def f():
     mesh = UnitIntervalMesh(2)
     V = FunctionSpace(mesh, "CG", 1)
     f = Function(V)
-    f.interpolate(Expression("1"))
+    f.interpolate(Constant(1))
     return f
 
 
@@ -68,14 +68,14 @@ def test_mixed_vector_copy():
 
 
 def test_vector_gather_works(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     gathered = v.gather([0])
     assert len(gathered) == 1 and gathered[0] == 2.0
 
 
 def test_axpy(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     y = Vector(v)
     y[:] = 4
@@ -86,7 +86,7 @@ def test_axpy(f):
 
 
 def test_addition(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     y = Vector(v)
     w = v + y
@@ -95,9 +95,12 @@ def test_addition(f):
     w = v + 3.
     assert (w.array() == 5.).all()
 
+    w = 3. + v
+    assert (w.array() == 5.).all()
+
 
 def test_iadd(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     y = Vector(v)
     v += y
@@ -105,7 +108,7 @@ def test_iadd(f):
 
 
 def test_subtraction(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     y = Vector(v)
     w = v - y
@@ -114,9 +117,12 @@ def test_subtraction(f):
     w = v - 3.0
     assert (w.array() == -1.).all()
 
+    w = 3.0 - v
+    assert (w.array() == 1.).all()
+
 
 def test_isub(f):
-    f.interpolate(Expression("2"))
+    f.interpolate(Constant(2))
     v = f.vector()
     y = Vector(v)
     v -= y
@@ -124,7 +130,7 @@ def test_isub(f):
 
 
 def test_scale(f):
-    f.interpolate(Expression("3"))
+    f.interpolate(Constant(3))
     v = f.vector()
     v._scale(7)
 
@@ -152,8 +158,3 @@ def test_parallel_gather():
 
     gathered = v.gather([0])
     assert len(gathered) == 1 and gathered[0] == 0
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

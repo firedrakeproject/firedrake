@@ -776,13 +776,13 @@ view flag to the solve call.  For linear solves pass:
 
 .. code-block:: python
 
-   solver_parameters={'ksp_view': True}
+   solver_parameters={'ksp_view': None}
 
 For nonlinear solves use:
 
 .. code-block:: python
 
-   solver_parameters={'snes_view': True}
+   solver_parameters={'snes_view': None}
 
 PETSc will then print its view of the solver objects that Firedrake
 has constructed.  This is especially useful for debugging complicated
@@ -914,9 +914,9 @@ options are not being passed in correctly):
 
 .. code-block:: python
 
-   solver_parameters={'ksp_converged_reason': True,
-                      'ksp_monitor_true_residual': True,
-                      'ksp_view': True}
+   solver_parameters={'ksp_converged_reason': None,
+                      'ksp_monitor_true_residual': None,
+                      'ksp_view': None}
 
 If the problem is converging, but only slowly, it may be that it is
 badly conditioned.  If the problem is small, we can try using a direct
@@ -971,11 +971,11 @@ the correct options:
 
 .. code-block:: python
 
-   solver_parameters={'snes_monitor': True,
-                      'snes_view': True,
-                      'ksp_monitor_true_residual': True,
-                      'snes_converged_reason': True,
-                      'ksp_converged_reason': True}
+   solver_parameters={'snes_monitor': None,
+                      'snes_view': None,
+                      'ksp_monitor_true_residual': None,
+                      'snes_converged_reason': None,
+                      'ksp_converged_reason': None}
 
 If the linear solve fails to converge, debug the problem as above for
 linear systems.  If the linear solve converges but the outer Newton

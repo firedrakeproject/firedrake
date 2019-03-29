@@ -29,25 +29,26 @@ def helmholtz(n, el_type, degree, perturb):
         mesh = Mesh(new)
 
     V = FunctionSpace(mesh, el_type, degree)
+    x = SpatialCoordinate(V.mesh())
 
     # Define variational problem
     lmbda = 1
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Function(V)
-    f.project(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    f.project((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
     a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
     L = f * v * dx
 
     # Compute solution
     assemble(a)
     assemble(L)
-    x = Function(V)
-    solve(a == L, x, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    sol = Function(V)
+    solve(a == L, sol, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     # Analytical solution
-    f.project(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
-    return sqrt(assemble(dot(x - f, x - f) * dx))
+    f.project(cos(x[0]*pi*2)*cos(x[1]*pi*2))
+    return sqrt(assemble(dot(sol - f, sol - f) * dx))
 
 
 # Test convergence on Hermite, Bell, and Argyris
@@ -57,7 +58,7 @@ def helmholtz(n, el_type, degree, perturb):
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Hermite', 3, 3.8),
                           ('Bell', 5, 4.8),
-                          ('Argyris', 5, 5)])
+                          ('Argyris', 5, 4.8)])
 @pytest.mark.parametrize("perturb", [False, True], ids=["Regular", "Perturbed"])
 def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate, perturb):
     diff = np.array([helmholtz(i, el, deg, perturb) for i in range(1, 4)])

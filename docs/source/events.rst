@@ -6,6 +6,14 @@
 Firedrake events
 ----------------
 
+Firedrake tutorial Jan 11 2019
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team hosted an introductory tutorial at Imperial
+College London on 11 January. For details and links to the material, see :doc:`the
+tutorial page <tutorial_jan_19>`.
+
+
 Firedrake '18
 ~~~~~~~~~~~~~
 

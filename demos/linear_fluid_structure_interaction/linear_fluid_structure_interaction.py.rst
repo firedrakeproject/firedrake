@@ -201,7 +201,7 @@ Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it
     a_X = dot( trial_B, v_B ) * dx(structure_id)
     L_X = dot( (X + dt * U), v_B ) * dx(structure_id)
     # no-motion beam bottom boundary condition
-    BC_bottom = DirichletBC( V_B, Expression([0.,0.]), bottom_id)
+    BC_bottom = DirichletBC( V_B, as_vector([0.,0.]), bottom_id)
     LVP_X = LinearVariationalProblem(a_X, L_X, X, bcs = [BC_bottom, BC_exclude_beyond_solid])
     LVS_X = LinearVariationalSolver( LVP_X )
 
@@ -209,7 +209,7 @@ Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in
 
     # phi-U
     # no-motion beam bottom boundary condition in the mixed space
-    BC_bottom_mixed = DirichletBC( mixed_V.sub(1), Expression([0.,0.]), bottom_id )
+    BC_bottom_mixed = DirichletBC( mixed_V.sub(1), as_vector([0.,0.]), bottom_id )
     # boundary condition to set phi_f at the free surface
     BC_phi_f = DirichletBC( mixed_V.sub(0), phi_f, top_id )
     delX = nabla_grad(X)

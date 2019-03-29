@@ -13,6 +13,7 @@ def V(request):
 def test_nullspace(V):
     u = TrialFunction(V)
     v = TestFunction(V)
+    x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
     L = -v*ds(3) + v*ds(4)
@@ -22,7 +23,7 @@ def test_nullspace(V):
     solve(a == L, u, nullspace=nullspace)
 
     exact = Function(V)
-    exact.interpolate(Expression('x[1] - 0.5'))
+    exact.interpolate(x[1] - 0.5)
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
 
 
@@ -72,6 +73,7 @@ def test_transpose_nullspace():
 def test_nullspace_preassembled(V):
     u = TrialFunction(V)
     v = TestFunction(V)
+    x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
     L = -v*ds(3) + v*ds(4)
@@ -83,12 +85,13 @@ def test_nullspace_preassembled(V):
     solve(A, u, b, nullspace=nullspace)
 
     exact = Function(V)
-    exact.interpolate(Expression('x[1] - 0.5'))
+    exact.interpolate(x[1] - 0.5)
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
 
 
 def test_nullspace_mixed():
     m = UnitSquareMesh(5, 5)
+    x = SpatialCoordinate(m)
     BDM = FunctionSpace(m, 'BDM', 1)
     DG = FunctionSpace(m, 'DG', 0)
     W = BDM * DG
@@ -98,8 +101,11 @@ def test_nullspace_mixed():
 
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
 
-    bcs = [DirichletBC(W.sub(0), (0, 0), (1, 2)),
-           DirichletBC(W.sub(0), (0, 1), (3, 4))]
+    bc1 = Function(BDM).assign(0.0)
+    bc2 = Function(BDM).project(Constant((0, 1)))
+
+    bcs = [DirichletBC(W.sub(0), bc1, (1, 2)),
+           DirichletBC(W.sub(0), bc2, (3, 4))]
 
     w = Function(W)
 
@@ -113,7 +119,7 @@ def test_nullspace_mixed():
     solve(a == L, w, bcs=bcs, nullspace=nullspace)
 
     exact = Function(DG)
-    exact.interpolate(Expression('x[1] - 0.5'))
+    exact.interpolate(x[1] - 0.5)
 
     sigma, u = w.split()
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 1e-7
@@ -172,6 +178,7 @@ def test_near_nullspace(tmpdir):
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
+        'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'}, near_nullspace=nsp)
 
     w2 = Function(V)
@@ -179,6 +186,7 @@ def test_near_nullspace(tmpdir):
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
+        'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
@@ -195,8 +203,3 @@ def test_near_nullspace(tmpdir):
 
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

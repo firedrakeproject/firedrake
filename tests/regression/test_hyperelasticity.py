@@ -67,8 +67,3 @@ def test_hyperelastic_convergence(opt_level):
     finally:
         # Reset to original values
         parameters["coffee"] = val
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

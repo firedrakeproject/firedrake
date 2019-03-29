@@ -4,6 +4,7 @@ cimport mpi4py.MPI as MPI
 cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef double PetscReal
+   ctypedef double PetscScalar
    ctypedef enum PetscBool:
        PETSC_TRUE, PETSC_FALSE
    ctypedef enum PetscCopyMode:

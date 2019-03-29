@@ -27,20 +27,6 @@ pipeline {
         }
       }
     }
-    stage('Lint'){
-      steps {
-        dir('tmp') {
-          timestamps {
-            sh '''
-. ./firedrake/bin/activate
-python -m pip install flake8
-cd firedrake/src/firedrake
-make lint
-'''
-          }
-        }
-      }
-    }
     stage('Test'){
       steps {
         dir('tmp') {
@@ -88,6 +74,20 @@ cd firedrake/src/firedrake/docs; make html
       steps {
         timestamps {
           sh 'scripts/firedrake-install --test-doi-resolution || (cat firedrake-install.log && /bin/false)'
+        }
+      }
+    }
+    stage('Lint'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+python -m pip install flake8
+cd firedrake/src/firedrake
+make lint
+'''
+          }
         }
       }
     }

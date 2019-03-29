@@ -58,8 +58,3 @@ def test_split_function_derivative():
     expect = assemble(2*TestFunction(V)*TrialFunction(V)*dx)
 
     assert np.allclose(actual.M.values, expect.M.values)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

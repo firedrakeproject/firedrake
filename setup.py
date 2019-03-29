@@ -44,6 +44,7 @@ try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
     dmplex_sources = ["firedrake/dmplex.pyx"]
+    supermesh_sources = ["firedrake/supermeshimpl.pyx"]
     extnum_sources = ["firedrake/extrusion_numbering.pyx"]
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
@@ -51,6 +52,7 @@ try:
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
+    supermesh_sources = ["firedrake/supermeshimpl.c"]
     extnum_sources = ["firedrake/extrusion_numbering.c"]
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
@@ -107,6 +109,14 @@ setup(name='firedrake',
                              libraries=["spatialindex_c"],
                              extra_link_args=["-L%s/lib" % sys.prefix,
                                               "-Wl,-rpath,%s/lib" % sys.prefix]),
+                   Extension('firedrake.supermeshimpl',
+                             sources=supermesh_sources,
+                             include_dirs=include_dirs,
+                             libraries=["supermesh", "petsc"],
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs]
+                             + ["-L%s/lib" % sys.prefix]
+                             + ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]
+                             + ["-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('firedrake.mg.impl',
                              sources=mg_sources,
                              include_dirs=include_dirs,

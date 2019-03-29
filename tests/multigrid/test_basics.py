@@ -70,8 +70,3 @@ def test_refining_overlapped_mesh_fails_parallel():
 
     with pytest.raises(RuntimeError):
         MeshHierarchy(m, 1)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

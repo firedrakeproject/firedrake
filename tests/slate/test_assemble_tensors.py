@@ -35,10 +35,20 @@ def function_space(request, mesh):
 def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
-    if function_space.rank >= 1:
-        f.interpolate(Expression(("x[0]*x[1]",) * function_space.value_size))
-    else:
-        f.interpolate(Expression("x[0]*x[1]"))
+    f_split = f.split()
+    x = SpatialCoordinate(function_space.mesh())
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in f_split:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(as_vector((x[0]*x[1],) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension())]
+                                      for j in range(fs_i.rank)]))
+        else:
+            fi.interpolate(x[0]*x[1])
     return f
 
 
@@ -46,10 +56,20 @@ def f(function_space):
 def g(function_space):
     """Generates a Firedrake function given a particular function space."""
     g = Function(function_space)
-    if function_space.rank >= 1:
-        g.interpolate(Expression(("x[0]*sin(x[1])",) * function_space.value_size))
-    else:
-        g.interpolate(Expression("x[0]*sin(x[1])"))
+    g_split = g.split()
+    x = SpatialCoordinate(function_space.mesh())
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for gi in g_split:
+        fs_i = gi.function_space()
+        if fs_i.rank == 1:
+            gi.interpolate(as_vector((x[0]*sin(x[1]),) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension())]
+                                      for j in range(fs_i.rank)]))
+        else:
+            gi.interpolate(x[0]*sin(x[1]))
     return g
 
 
@@ -248,8 +268,3 @@ def test_matrix_subblocks(mesh):
     for tensor, form in items:
         ref = assemble(form).M.values
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
