@@ -16,6 +16,7 @@ if outfile == "teamgrid.rst":
         ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),
         ("Rob Kirby", "http://www.baylor.edu/math/index.php?id=90540"),
+        ("Koki Sagiyama", "http://www.imperial.ac.uk/people/k.sagiyama")
     ])
 elif outfile == "teaminactive.rst":
     team = OrderedDict([
