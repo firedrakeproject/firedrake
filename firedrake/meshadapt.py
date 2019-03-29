@@ -60,7 +60,7 @@ class AnisotropicAdaptation(AdaptationBase):
         # hence the following bloc of code
         entity_dofs = np.zeros(dim+1, dtype=np.int32)
         entity_dofs[0] = self.mesh.geometric_dimension()
-        coordSection = plex.createSection([1], entity_dofs, perm=self.mesh.topology._plex_renumbering)
+        coordSection = dmplex.create_section(self.mesh, entity_dofs)
         dmCoords = plex.getCoordinateDM()
         dmCoords.setDefaultSection(coordSection)
         coords_local = dmCoords.createLocalVec()
@@ -70,7 +70,7 @@ class AnisotropicAdaptation(AdaptationBase):
         dmMetric = dmCoords.clone()
         entity_dofs = np.zeros(dim+1, dtype=np.int32)
         entity_dofs[0] = dim*dim
-        msection = plex.createSection([1], entity_dofs, perm=self.mesh.topology._plex_renumbering)
+        msection = dmplex.create_section(self.mesh, entity_dofs)
         dmMetric.setDefaultSection(msection)
         metric_local = dmMetric.createLocalVec()
         metric_local.array[:] = np.reshape(self.metric.dat.data_ro_with_halos, metric_local.array.shape)

@@ -2255,7 +2255,7 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
 
 
 def to_petsc_local_numbering(PETSc.Vec vec, V):
-    """Reorder a PETSc Vec corresponding to a Firedrake Function 
+    """Reorder a PETSc Vec corresponding to a Firedrake Function
        w.r.t. to initial PETSc numbering
 
     :arg vec: the PETSc Vec to reorder
