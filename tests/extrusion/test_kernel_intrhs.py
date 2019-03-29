@@ -38,4 +38,4 @@ def integrate_rhs(family, degree):
 def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-    assert integrate_rhs(family, degree) < 1.0e-13
+    assert integrate_rhs(family, degree) < 5.0e-13
