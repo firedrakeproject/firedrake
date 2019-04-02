@@ -5,8 +5,6 @@ FROM ubuntu:18.04
 # This DockerFile is looked after by
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
 
-
-
 # Update and install required packages for Firedrake
 USER root
 RUN apt-get update \
