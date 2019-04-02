@@ -4,9 +4,10 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 
+from collections import namedtuple
+import operator
 from functools import partial
 import numpy
-import operator
 from ufl import VectorElement, MixedElement
 from tsfc.kernel_interface.firedrake import make_builder
 
@@ -131,6 +132,9 @@ class JITModule(seq.JITModule):
         return None
 
 
+CompiledKernel = namedtuple('CompiledKernel', ["funptr", "kinfo"])
+
+
 def matrix_funptr(form, state):
     from firedrake.tsfc_interface import compile_form
     test, trial = map(operator.methodcaller("function_space"), form.arguments())
@@ -142,57 +146,74 @@ def matrix_funptr(form, state):
     else:
         interface = None
 
-    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
-    kinfo = kernel.kinfo
+    cell_kernels = []
+    int_facet_kernels = []
+    for kernel in kernels:
+        kinfo = kernel.kinfo
 
-    if kinfo.subdomain_id != "otherwise":
-        raise NotImplementedError("Only for full domain integrals")
-    if kinfo.integral_type != "cell":
-        raise NotImplementedError("Only for cell integrals")
+        if kinfo.subdomain_id != "otherwise":
+            raise NotImplementedError("Only for full domain integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet"}:
+            raise NotImplementedError("Only for cell or interior facet integrals")
 
-    # OK, now we've validated the kernel, let's build the callback
-    args = []
+        # OK, now we've validated the kernel, let's build the callback
+        args = []
 
-    toset = op2.Set(1, comm=test.comm)
-    dofset = op2.DataSet(toset, 1)
-    arity = sum(m.arity*s.cdim
-                for m, s in zip(test.cell_node_map(),
-                                test.dof_dset))
-    iterset = test.cell_node_map().iterset
-    cell_node_map = op2.Map(iterset,
-                            toset, arity,
-                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    mat = DenseMat(dofset)
+        if kinfo.integral_type == "cell":
+            get_map = operator.methodcaller("cell_node_map")
+            kernels = cell_kernels
+        elif kinfo.integral_type == "interior_facet":
+            get_map = operator.methodcaller("interior_facet_node_map")
+            kernels = int_facet_kernels
+        else:
+            get_map = None
 
-    arg = mat(op2.INC, (cell_node_map[op2.i[0]],
-                        cell_node_map[op2.i[1]]))
-    arg.position = 0
-    args.append(arg)
-    statedat = DenseDat(dofset)
-    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
+        toset = op2.Set(1, comm=test.comm)
+        dofset = op2.DataSet(toset, 1)
+        arity = sum(m.arity*s.cdim
+                    for m, s in zip(get_map(test),
+                                    test.dof_dset))
+        iterset = get_map(test).iterset
+        entity_node_map = op2.Map(iterset,
+                                  toset, arity,
+                                  values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        mat = DenseMat(dofset)
 
-    mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
-    arg.position = 1
-    args.append(arg)
-    for n in kinfo.coefficient_map:
-        c = form.coefficients()[n]
-        if c is state:
-            statearg.position = len(args)
-            args.append(statearg)
-            continue
-        for (i, c_) in enumerate(c.split()):
-            map_ = c_.cell_node_map()
-            if map_ is not None:
-                map_ = map_[op2.i[0]]
-            arg = c_.dat(op2.READ, map_)
+        arg = mat(op2.INC, (entity_node_map[op2.i[0]],
+                            entity_node_map[op2.i[1]]))
+        arg.position = 0
+        args.append(arg)
+        statedat = DenseDat(dofset)
+        statearg = statedat(op2.READ, entity_node_map[op2.i[0]])
+
+        mesh = form.ufl_domains()[kinfo.domain_number]
+        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates)[op2.i[0]])
+        arg.position = 1
+        args.append(arg)
+        for n in kinfo.coefficient_map:
+            c = form.coefficients()[n]
+            if c is state:
+                statearg.position = len(args)
+                args.append(statearg)
+                continue
+            for (i, c_) in enumerate(c.split()):
+                map_ = get_map(c_)
+                if map_ is not None:
+                    map_ = map_[op2.i[0]]
+                arg = c_.dat(op2.READ, map_)
+                arg.position = len(args)
+                args.append(arg)
+
+        if kinfo.integral_type == "interior_facet":
+            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-
-    iterset = op2.Subset(mesh.cell_set, [0])
-    mod = JITModule(kinfo.kernel, iterset, *args)
-    return mod._fun, kinfo
+        iterset = op2.Subset(iterset, [0])
+        mod = JITModule(kinfo.kernel, iterset, *args)
+        kernels.append(CompiledKernel(mod._fun, kinfo))
+    return cell_kernels, int_facet_kernels
 
 
 def residual_funptr(form, state):
@@ -207,55 +228,72 @@ def residual_funptr(form, state):
     else:
         interface = None
 
-    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
-    kinfo = kernel.kinfo
+    cell_kernels = []
+    int_facet_kernels = []
+    for kernel in kernels:
+        kinfo = kernel.kinfo
 
-    if kinfo.subdomain_id != "otherwise":
-        raise NotImplementedError("Only for full domain integrals")
-    if kinfo.integral_type != "cell":
-        raise NotImplementedError("Only for cell integrals")
-    args = []
+        if kinfo.subdomain_id != "otherwise":
+            raise NotImplementedError("Only for full domain integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet"}:
+            raise NotImplementedError("Only for cell integrals or interior_facet integrals")
+        args = []
 
-    toset = op2.Set(1, comm=test.comm)
-    dofset = op2.DataSet(toset, 1)
-    arity = sum(m.arity*s.cdim
-                for m, s in zip(test.cell_node_map(),
-                                test.dof_dset))
-    iterset = test.cell_node_map().iterset
-    cell_node_map = op2.Map(iterset,
-                            toset, arity,
-                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    dat = DenseDat(dofset)
+        if kinfo.integral_type == "cell":
+            get_map = operator.methodcaller("cell_node_map")
+            kernels = cell_kernels
+        elif kinfo.integral_type == "interior_facet":
+            get_map = operator.methodcaller("interior_facet_node_map")
+            kernels = int_facet_kernels
+        else:
+            get_map = None
 
-    statedat = DenseDat(dofset)
-    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
+        toset = op2.Set(1, comm=test.comm)
+        dofset = op2.DataSet(toset, 1)
+        arity = sum(m.arity*s.cdim
+                    for m, s in zip(get_map(test),
+                                    test.dof_dset))
+        iterset = get_map(test).iterset
+        entity_node_map = op2.Map(iterset,
+                                  toset, arity,
+                                  values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        dat = DenseDat(dofset)
 
-    arg = dat(op2.INC, cell_node_map[op2.i[0]])
-    arg.position = 0
-    args.append(arg)
+        statedat = DenseDat(dofset)
+        statearg = statedat(op2.READ, entity_node_map[op2.i[0]])
 
-    mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
-    arg.position = 1
-    args.append(arg)
-    for n in kinfo.coefficient_map:
-        c = form.coefficients()[n]
-        if c is state:
-            statearg.position = len(args)
-            args.append(statearg)
-            continue
-        for (i, c_) in enumerate(c.split()):
-            map_ = c_.cell_node_map()
-            if map_ is not None:
-                map_ = map_[op2.i[0]]
-            arg = c_.dat(op2.READ, map_)
+        arg = dat(op2.INC, entity_node_map[op2.i[0]])
+        arg.position = 0
+        args.append(arg)
+
+        mesh = form.ufl_domains()[kinfo.domain_number]
+        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates)[op2.i[0]])
+        arg.position = 1
+        args.append(arg)
+        for n in kinfo.coefficient_map:
+            c = form.coefficients()[n]
+            if c is state:
+                statearg.position = len(args)
+                args.append(statearg)
+                continue
+            for (i, c_) in enumerate(c.split()):
+                map_ = get_map(c_)
+                if map_ is not None:
+                    map_ = map_[op2.i[0]]
+                arg = c_.dat(op2.READ, map_)
+                arg.position = len(args)
+                args.append(arg)
+
+        if kinfo.integral_type == "interior_facet":
+            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-
-    iterset = op2.Subset(mesh.cell_set, [0])
-    mod = JITModule(kinfo.kernel, iterset, *args)
-    return mod._fun, kinfo
+        iterset = op2.Subset(iterset, [0])
+        mod = JITModule(kinfo.kernel, iterset, *args)
+        kernels.append(CompiledKernel(mod._fun, kinfo))
+    return cell_kernels, int_facet_kernels
 
 
 def bcdofs(bc, ghost=True):
@@ -439,9 +477,10 @@ class PatchBase(PCSNESBase):
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        Jfunptr, Jkinfo = matrix_funptr(J, Jstate)
+        Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
         Jop_coeffs = [mesh.coordinates]
-        for n in Jkinfo.coefficient_map:
+        Jcell_kernel, = Jcell_kernels
+        for n in Jcell_kernel.kinfo.coefficient_map:
             Jop_coeffs.append(J.coefficients()[n])
 
         Jop_args = []
@@ -466,22 +505,48 @@ class PatchBase(PCSNESBase):
                 dofsWithAll = cell_dofmapWithAll.ctypes.data
             else:
                 dofsWithAll = None
-            mat.zeroEntries()
             if Jop_state_slot is not None:
                 assert dofsWithAll is not None
                 Jop_args[Jop_state_slot] = vec.array_r.ctypes.data
                 Jop_args[Jop_state_slot + 1] = dofsWithAll
-            Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
-                    dofs, dofs, *Jop_args)
-            mat.assemble()
-        patch.setPatchComputeOperator(Jop)
+            Jcell_kernel.funptr(0, ncell, cells.ctypes.data, mat.handle,
+                                dofs, dofs, *Jop_args)
 
-        if hasattr(ctx, "F") and isinstance(obj, PETSc.SNES):
+        Jhas_int_facet_kernel = False
+        if len(Jint_facet_kernels) > 0:
+            Jint_facet_kernel, = Jint_facet_kernels
+            Jhas_int_facet_kernel = True
+            facet_Jop_coeffs = [mesh.coordinates]
+            for n in Jint_facet_kernel.kinfo.coefficient_map:
+                facet_Jop_coeffs.append(J.coefficients()[n])
+
+            facet_Jop_args = []
+            for c in facet_Jop_coeffs:
+                for c_ in c.split():
+                    facet_Jop_args.append(c_.dat._data.ctypes.data)
+                    c_map = c_.interior_facet_node_map()
+                    if c_map is not None:
+                        facet_Jop_args.append(c_map._values.ctypes.data)
+            facet_Jop_args.append(J.ufl_domain().interior_facets.local_facet_dat._data.ctypes.data)
+
+            point2facetnumber = J.ufl_domain().interior_facets.point2facetnumber
+
+            def Jfacet_op(pc, point, vec, mat, facetIS, facet_dofmap, facet_dofmapWithAll):
+                facets = numpy.asarray(list(map(point2facetnumber.__getitem__, facetIS.indices)),
+                                       dtype=IntType)
+                nfacet = len(facets)
+                dofs = facet_dofmap.ctypes.data
+                Jint_facet_kernel.funptr(0, nfacet, facets.ctypes.data, mat.handle,
+                                         dofs, dofs, *facet_Jop_args)
+
+        set_residual = hasattr(ctx, "F") and isinstance(obj, PETSc.SNES)
+        if set_residual:
             F = ctx.F
             Fstate = ctx._problem.u
-            Ffunptr, Fkinfo = residual_funptr(F, Fstate)
+            Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
             Fop_coeffs = [mesh.coordinates]
-            for n in Fkinfo.coefficient_map:
+            Fcell_kernel, = Fcell_kernels
+            for n in Fcell_kernel.kinfo.coefficient_map:
                 Fop_coeffs.append(F.coefficients()[n])
             assert any(c is Fstate for c in Fop_coeffs), "Couldn't find state vector in F.coefficients()"
 
@@ -510,9 +575,35 @@ class PatchBase(PCSNESBase):
                 outdata = out.array
                 Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
                 Fop_args[Fop_state_slot + 1] = dofsWithAll
-                Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
-                        dofs, *Fop_args)
-            patch.setPatchComputeFunction(Fop)
+                Fcell_kernel.funptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
+                                    dofs, *Fop_args)
+
+            Fhas_int_facet_kernel = False
+            if len(Fint_facet_kernels) > 0:
+                Fint_facet_kernel, = Fint_facet_kernels
+                Fhas_int_facet_kernel = True
+                facet_Fop_coeffs = [mesh.coordinates]
+                for n in Fint_facet_kernel.kinfo.coefficient_map:
+                    facet_Fop_coeffs.append(J.coefficients()[n])
+
+                facet_Fop_args = []
+                for c in facet_Fop_coeffs:
+                    for c_ in c.split():
+                        facet_Fop_args.append(c_.dat._data.ctypes.data)
+                        c_map = c_.interior_facet_node_map()
+                        if c_map is not None:
+                            facet_Fop_args.append(c_map._values.ctypes.data)
+                facet_Fop_args.append(F.ufl_domain().interior_facets.local_facet_dat._data.ctypes.data)
+
+                point2facetnumber = F.ufl_domain().interior_facets.point2facetnumber
+
+                def Ffacet_op(pc, point, vec, mat, facetIS, facet_dofmap, facet_dofmapWithAll):
+                    facets = numpy.asarray(list(map(point2facetnumber.__getitem__, facetIS.indices)),
+                                           dtype=IntType)
+                    nfacet = len(facets)
+                    dofs = facet_dofmap.ctypes.data
+                    Fint_facet_kernel.funptr(0, nfacet, facets.ctypes.data, mat.handle,
+                                             dofs, dofs, *facet_Fop_args)
 
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -526,8 +617,15 @@ class PatchBase(PCSNESBase):
                                          offsets,
                                          ghost_bc_nodes,
                                          global_bc_nodes)
-        patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON,
-                                    operator=self.user_construction_op)
+        patch.setPatchComputeOperator(Jop)
+        if Jhas_int_facet_kernel:
+            patch.setPatchComputeOperatorInteriorFacets(Jfacet_op)
+        if set_residual:
+            patch.setPatchComputeFunction(Fop)
+            if Fhas_int_facet_kernel:
+                patch.setPatchComputeFunctionInteriorFacets(Ffacet_op)
+
+        patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=obj)
         patch.setFromOptions()
