@@ -5,6 +5,8 @@ FROM ubuntu:18.04
 # This DockerFile is looked after by
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
 
+
+
 # Update and install required packages for Firedrake
 USER root
 RUN apt-get update \
@@ -18,6 +20,8 @@ RUN apt-get update \
                  zlib1g-dev libboost-dev sudo \
     && rm -rf /var/lib/apt/lists/*
 
+# Use a more sane locale
+ENV LC_ALL C.UTF-8
 
 # Set up user so that we do not run as root
 RUN useradd -m -s /bin/bash -G sudo firedrake && \
