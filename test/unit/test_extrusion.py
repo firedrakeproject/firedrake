@@ -291,7 +291,7 @@ def xtr_coords(xtr_dvnodes):
 
 @pytest.fixture
 def extrusion_kernel():
-        kernel_code = """
+    kernel_code = """
 void extrusion_kernel(double *xtr[], double *x[], int* j[])
 {
     //Only the Z-coord is increased, the others stay the same
@@ -299,44 +299,44 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
     xtr[0][1] = x[0][1];
     xtr[0][2] = 0.1*j[0][0];
 }"""
-        return op2.Kernel(kernel_code, "extrusion_kernel")
+    return op2.Kernel(kernel_code, "extrusion_kernel")
 
 
 @pytest.fixture
 def vol_comp():
-        init = FlatBlock("""
+    init = FlatBlock("""
 double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
            + x[4][0]*(x[0][1]-x[2][1]);
 if (area < 0)
 area = area * (-1.0);
 """)
-        assembly = Incr(Symbol("A", ("i0", "i1")),
-                        FlatBlock("0.5 * area * (x[1][2] - x[0][2])"))
-        assembly = c_for("i0", 6, c_for("i1", 6, assembly))
-        kernel_code = FunDecl("void", "vol_comp",
-                              [Decl("double", Symbol("A", (6, 6))),
-                               Decl("double", c_sym("*x[]"))],
-                              Block([init, assembly], open_scope=False))
-        return op2.Kernel(kernel_code, "vol_comp")
+    assembly = Incr(Symbol("A", ("i0", "i1")),
+                    FlatBlock("0.5 * area * (x[1][2] - x[0][2])"))
+    assembly = c_for("i0", 6, c_for("i1", 6, assembly))
+    kernel_code = FunDecl("void", "vol_comp",
+                          [Decl("double", Symbol("A", (6, 6))),
+                           Decl("double", c_sym("*x[]"))],
+                          Block([init, assembly], open_scope=False))
+    return op2.Kernel(kernel_code, "vol_comp")
 
 
 @pytest.fixture
 def vol_comp_rhs():
-        init = FlatBlock("""
+    init = FlatBlock("""
 double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
            + x[4][0]*(x[0][1]-x[2][1]);
 if (area < 0)
 area = area * (-1.0);
-""")
-        assembly = Incr(Symbol("A", ("i0",)),
-                        FlatBlock("0.5 * area * (x[1][2] - x[0][2]) * y[0][0]"))
-        assembly = c_for("i0", 6, assembly)
-        kernel_code = FunDecl("void", "vol_comp_rhs",
-                              [Decl("double", Symbol("A", (6,))),
-                               Decl("double", c_sym("*x[]")),
-                               Decl("int", c_sym("*y[]"))],
-                              Block([init, assembly], open_scope=False))
-        return op2.Kernel(kernel_code, "vol_comp_rhs")
+    """)
+    assembly = Incr(Symbol("A", ("i0",)),
+                    FlatBlock("0.5 * area * (x[1][2] - x[0][2]) * y[0][0]"))
+    assembly = c_for("i0", 6, assembly)
+    kernel_code = FunDecl("void", "vol_comp_rhs",
+                          [Decl("double", Symbol("A", (6,))),
+                           Decl("double", c_sym("*x[]")),
+                           Decl("int", c_sym("*y[]"))],
+                          Block([init, assembly], open_scope=False))
+    return op2.Kernel(kernel_code, "vol_comp_rhs")
 
 
 class TestExtrusion:

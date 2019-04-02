@@ -2475,7 +2475,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     def data(self):
         """Data array."""
         _trace.evaluate(set([self]), set())
-        if len(self._data) is 0:
+        if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 

@@ -457,11 +457,11 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 
 @pytest.fixture
 def expected_matrix():
-        expected_vals = [(0.25, 0.125, 0.0, 0.125),
-                         (0.125, 0.291667, 0.0208333, 0.145833),
-                         (0.0, 0.0208333, 0.0416667, 0.0208333),
-                         (0.125, 0.145833, 0.0208333, 0.291667)]
-        return np.asarray(expected_vals, dtype=valuetype)
+    expected_vals = [(0.25, 0.125, 0.0, 0.125),
+                     (0.125, 0.291667, 0.0208333, 0.145833),
+                     (0.0, 0.0208333, 0.0416667, 0.0208333),
+                     (0.125, 0.145833, 0.0208333, 0.291667)]
+    return np.asarray(expected_vals, dtype=valuetype)
 
 
 @pytest.fixture
