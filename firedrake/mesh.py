@@ -588,9 +588,14 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        return _Facets(self, classes, kind,
-                       facet_cell, local_facet_number,
-                       markers, unique_markers=unique_markers)
+        point2facetnumber = {}
+        for i, f in enumerate(facets):
+            point2facetnumber[f] = i
+        obj = _Facets(self, classes, kind,
+                      facet_cell, local_facet_number,
+                      markers, unique_markers=unique_markers)
+        obj.point2facetnumber = point2facetnumber
+        return obj
 
     @utils.cached_property
     def exterior_facets(self):
