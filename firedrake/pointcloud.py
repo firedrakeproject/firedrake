@@ -142,7 +142,7 @@ class PointCloud(object):
         # elements.
         located_elements = np.full((len(self.points), 2), -1, dtype=IntType)
 
-        # Check if points are located normally.
+        # Check if points are located locally.
         local_results = self.mesh.locate_cells(self.points)
 
         # Update points that have been found locally.
