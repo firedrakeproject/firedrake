@@ -10,9 +10,9 @@ from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
                  action, interval, quadrilateral, dot, grad)
 
 from FIAT import ufc_cell
-from FIAT.quadrature import GaussLobattoLegendreQuadratureLineRule
+from FIAT.quadrature import GaussLobattoLegendreQuadratureLineRule, GaussLegendreQuadratureLineRule
 
-from finat.point_set import GaussLobattoLegendrePointSet
+from finat.point_set import GaussLobattoLegendrePointSet, GaussLegendrePointSet
 from finat.quadrature import QuadratureRule, TensorProductQuadratureRule
 
 from tsfc import compile_form
@@ -28,12 +28,22 @@ def gll_quadrature_rule(cell, elem_deg):
     return finat_rule
 
 
+def gl_quadrature_rule(cell, elem_deg):
+    fiat_cell = ufc_cell("interval")
+    fiat_rule = GaussLegendreQuadratureLineRule(fiat_cell, elem_deg + 1)
+    line_rules = [QuadratureRule(GaussLegendrePointSet(fiat_rule.get_points()),
+                                 fiat_rule.get_weights())
+                  for _ in range(cell.topological_dimension())]
+    finat_rule = reduce(lambda a, b: TensorProductQuadratureRule([a, b]), line_rules)
+    return finat_rule
+
+
 def mass_cg(cell, degree):
     m = Mesh(VectorElement('Q', cell, 1))
     V = FunctionSpace(m, FiniteElement('Q', cell, degree, variant='spectral'))
     u = TrialFunction(V)
     v = TestFunction(V)
-    return u*v*dx(rule=gll_quadrature_rule(cell, degree))
+    return u*v*dx(scheme=gll_quadrature_rule(cell, degree))
 
 
 def mass_dg(cell, degree):
@@ -41,9 +51,7 @@ def mass_dg(cell, degree):
     V = FunctionSpace(m, FiniteElement('DQ', cell, degree, variant='spectral'))
     u = TrialFunction(V)
     v = TestFunction(V)
-    # In this case, the estimated quadrature degree will give the
-    # correct number of quadrature points by luck.
-    return u*v*dx
+    return u*v*dx(scheme=gl_quadrature_rule(cell, degree))
 
 
 def laplace(cell, degree):
@@ -51,7 +59,7 @@ def laplace(cell, degree):
     V = FunctionSpace(m, FiniteElement('Q', cell, degree, variant='spectral'))
     u = TrialFunction(V)
     v = TestFunction(V)
-    return dot(grad(u), grad(v))*dx(rule=gll_quadrature_rule(cell, degree))
+    return dot(grad(u), grad(v))*dx(scheme=gll_quadrature_rule(cell, degree))
 
 
 def count_flops(form):
