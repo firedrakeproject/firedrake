@@ -6,7 +6,7 @@ import numpy as np
 import randomgen
 
 
-brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name != 'RandomGenerator']
+brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name not in ('RandomGenerator', 'RandomState')]
 meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) if not name.startswith('_') and name not in ('state', 'poisson_lam_max', 'seed', 'random_integers')]
 
 
