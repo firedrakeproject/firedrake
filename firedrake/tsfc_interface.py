@@ -56,7 +56,8 @@ class TSFCKernel(Cached):
     def _read_from_disk(cls, key, comm):
         if comm.rank == 0:
             cache = cls._cachedir
-            filepath = os.path.join(cache, key)
+            shard, disk_key = key[:2], key[2:]
+            filepath = os.path.join(cache, shard, disk_key)
             val = None
             if os.path.exists(filepath):
                 try:
@@ -80,10 +81,12 @@ class TSFCKernel(Cached):
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
-            filepath = os.path.join(cls._cachedir, key)
-            tempfile = os.path.join(cls._cachedir, "%s_p%d.tmp" % (key, os.getpid()))
+            shard, disk_key = key[:2], key[2:]
+            filepath = os.path.join(cls._cachedir, shard, disk_key)
+            tempfile = os.path.join(cls._cachedir, shard, "%s_p%d.tmp" % (disk_key, os.getpid()))
             # No need for a barrier after this, since non root
             # processes will never race on this file.
+            os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
             with gzip.open(tempfile, 'wb') as f:
                 pickle.dump(val, f, 0)
             os.rename(tempfile, filepath)

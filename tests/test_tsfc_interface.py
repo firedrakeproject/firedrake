@@ -79,8 +79,9 @@ with open("{file}", "w") as f:
 
     def test_tsfc_cache_persist_on_disk(self, cache_key):
         """TSFCKernel should be persisted on disk."""
+        shard, key = cache_key[:2], cache_key[2:]
         assert os.path.exists(
-            os.path.join(tsfc_interface.TSFCKernel._cachedir, cache_key))
+            os.path.join(tsfc_interface.TSFCKernel._cachedir, shard, key))
 
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
