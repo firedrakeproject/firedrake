@@ -226,6 +226,9 @@ class Compiler(object):
         basename = hsh.hexdigest()
 
         cachedir = configuration['cache_dir']
+
+        dirpart, basename = basename[:2], basename[2:]
+        cachedir = os.path.join(cachedir, dirpart)
         pid = os.getpid()
         cname = os.path.join(cachedir, "%s_p%d.%s" % (basename, pid, extension))
         oname = os.path.join(cachedir, "%s_p%d.o" % (basename, pid))
@@ -246,8 +249,7 @@ class Compiler(object):
                 output = os.path.join(cachedir, "mismatching-kernels")
                 srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
                 if self.comm.rank == 0:
-                    if not os.path.exists(output):
-                        os.makedirs(output, exist_ok=True)
+                    os.makedirs(output, exist_ok=True)
                 self.comm.barrier()
                 with open(srcfile, "w") as f:
                     f.write(get_code(jitmodule))
@@ -260,8 +262,7 @@ class Compiler(object):
             # No, let's go ahead and build
             if self.comm.rank == 0:
                 # No need to do this on all ranks
-                if not os.path.exists(cachedir):
-                    os.makedirs(cachedir, exist_ok=True)
+                os.makedirs(cachedir, exist_ok=True)
                 logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
