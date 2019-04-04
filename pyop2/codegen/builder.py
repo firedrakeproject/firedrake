@@ -270,7 +270,6 @@ class GlobalPack(Pack):
     def kernel_arg(self, loop_indices=None):
         return Indexed(self.outer, (Index(e) for e in self.outer.shape))
 
-    # TODO: do we make a temporary and zero it?
     def pack(self, loop_indices=None):
         return None
 
@@ -296,7 +295,9 @@ class DatPack(Pack):
     def _rvalue(self, multiindex, loop_indices=None):
         """Returns indexed Dat and masking condition to apply to reads/writes.
 
-        If None, no mask is applied (used for pcpatch).
+        If the masking condition is None, no mask is applied,
+        otherwise the pack/unpack will be wrapped in When(mask, expr).
+        This is used for the case where maps might have negative entries.
         """
         f, i, *j = multiindex
         n, layer = self.pick_loop_indices(*loop_indices)

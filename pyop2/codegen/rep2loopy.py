@@ -233,7 +233,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
                 nesting[insn] = runtime_indices([insn])
         else:
             assert isinstance(insn, FunctionCall)
-            if insn.name in [kernel_name, "MatSetValuesBlockedLocal", "MatSetValuesLocal"]:
+            if insn.name in (petsc_functions | {kernel_name}):
                 nesting[insn] = outer_inames
             else:
                 nesting[insn] = runtime_indices([insn])
@@ -656,6 +656,9 @@ def expression_multiindex(expr, parameters):
 @expression.register(Extent)
 def expression_extent(expr, parameters):
     multiindex, = expr.children
+    # TODO: If loopy eventually gains the ability to vectorise
+    # functions that use this, we will need a symbolic node for the
+    # index extent.
     return int(numpy.prod(tuple(i.extent for i in multiindex)))
 
 

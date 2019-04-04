@@ -40,7 +40,7 @@ def index_merger(instructions, cache=None):
     same level of the loop nest.
 
     :arg instructions:  Iterable of nodes to merge indices across.
-    :returns: iterable of instructions, possibly with indices replaced.
+    :returns: a memoized callable suitable for index merging.
     """
     if cache is None:
         cache = {}
