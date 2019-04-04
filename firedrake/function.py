@@ -65,7 +65,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
-        self._split = None
 
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
@@ -76,7 +75,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
 
-    @property
+    @utils.cached_property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
@@ -100,14 +99,22 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
+    @utils.cached_property
+    def _split(self):
+        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+                     for i, (fs, dat) in
+                     enumerate(zip(self.function_space(), self.dat)))
+
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if self._split is None:
-            self._split = tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
-                                for i, (fs, dat) in
-                                enumerate(zip(self.function_space(), self.dat)))
         return self._split
+
+    @utils.cached_property
+    def _components(self):
+        return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                                            name="view[%d](%s)" % (i, self.name()))
+                     for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -117,14 +124,12 @@ class CoordinatelessFunction(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        rank-1 :class:`~.FunctionSpace`, this returns a proxy object
+        rank-n :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1 and self.function_space().rank == 1:
-            fs = self.function_space().sub(i)
-            return CoordinatelessFunction(fs, val=op2.DatView(self.dat, i),
-                                          name="view[%d](%s)" % (i, self.name()))
-        return self.split()[i]
+        if len(self.function_space()) == 1:
+            return self._components[i]
+        return self._split[i]
 
     @property
     def cell_set(self):
@@ -147,16 +152,16 @@ class CoordinatelessFunction(ufl.Coefficient):
         this :class:`Function`."""
         return self.function_space().dof_dset
 
-    def cell_node_map(self, bcs=None):
-        return self.function_space().cell_node_map(bcs)
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
     cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
 
-    def interior_facet_node_map(self, bcs=None):
-        return self.function_space().interior_facet_node_map(bcs)
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map()
     interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
 
-    def exterior_facet_node_map(self, bcs=None):
-        return self.function_space().exterior_facet_node_map(bcs)
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map()
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def vector(self):
@@ -245,7 +250,6 @@ class Function(ufl.Coefficient):
 
         self._function_space = V
         ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
-        self._split = None
 
         if cachetools:
             # LRU cache for expressions assembled onto this function
@@ -279,14 +283,20 @@ class Function(ufl.Coefficient):
         current = super(Function, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
+    @utils.cached_property
+    def _split(self):
+        return tuple(type(self)(V, val)
+                     for (V, val) in zip(self.function_space(), self.topological.split()))
+
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if self._split is None:
-            self._split = tuple(Function(fs, dat, name="%s[%d]" % (self.name(), i))
-                                for i, (fs, dat) in
-                                enumerate(zip(self.function_space(), self.dat)))
         return self._split
+
+    @utils.cached_property
+    def _components(self):
+        return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+                     for i in range(self.function_space().value_size))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -299,11 +309,9 @@ class Function(ufl.Coefficient):
         :class:`~.VectorFunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1 and self.function_space().rank == 1:
-            fs = self.function_space().sub(i)
-            return Function(fs, val=op2.DatView(self.dat, i),
-                            name="view[%d](%s)" % (i, self.name()))
-        return self.split()[i]
+        if len(self.function_space()) == 1:
+            return self._components[i]
+        return self._split[i]
 
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
