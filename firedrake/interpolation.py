@@ -65,28 +65,6 @@ class Interpolator(object):
         return self.callable()
 
 
-class SubExpression(object):
-    """A helper class for interpolating onto mixed functions.
-
-    Allows using the user arguments from a provided expression, but
-    overrides the code to pull out.
-    """
-    def __init__(self, expr, idx, shape):
-        self._expr = expr
-        self.code = numpy.array(expr.code[idx]).flatten()
-        self._shape = shape
-        self.ufl_shape = shape
-
-    def value_shape(self):
-        return self._shape
-
-    def rank(self):
-        return len(self.ufl_shape)
-
-    def __getattr__(self, name):
-        return getattr(self._expr, name)
-
-
 def make_interpolator(expr, V, subset):
     assert isinstance(expr, ufl.classes.Expr)
 
@@ -116,15 +94,7 @@ def make_interpolator(expr, V, subset):
                 "Python expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, f.dat, expr, subset))
     else:
-        # Slice the expression and pass in the right number of values for
-        # each component function space of this function
-        d = 0
-        for fs, dat, dim in zip(V, f.dat, dims):
-            idx = d if fs.rank == 0 else slice(d, d+dim)
-            loops.extend(_interpolator(fs, dat,
-                                       SubExpression(expr, idx, fs.ufl_element().value_shape()),
-                                       subset))
-            d += dim
+        raise ValueError("Don't know how to interpolate a %r" % expr)
 
     def callable(loops, f):
         for l in loops:
@@ -160,7 +130,7 @@ def _interpolator(V, dat, expr, subset):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
-    if not isinstance(expr, (firedrake.Expression, SubExpression)):
+    if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
@@ -171,9 +141,6 @@ def _interpolator(V, dat, expr, subset):
     elif hasattr(expr, "eval"):
         kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
         indexed = False
-    elif expr.code is not None:
-        kernel, oriented, needs_cell_sizes, coefficients = compile_c_kernel(expr, to_pts, to_element, V, coords)
-        indexed = True
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
 
@@ -253,82 +220,3 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     for _, arg in expression._user_args:
         coefficients.append(GlobalWrapper(arg))
     return kernel, False, False, tuple(coefficients)
-
-
-def compile_c_kernel(expression, to_pts, to_element, fs, coords):
-    """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
-
-    coords_space = coords.function_space()
-    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
-
-    names = {v[0] for v in expression._user_args}
-
-    X_data = list(coords_element.tabulate(0, to_pts).values())[0].T
-
-    import pymbolic.primitives as p
-
-    A = p.Variable(utils.unique_name("A", names))
-    X = p.Variable(utils.unique_name("X", names))
-    crd = p.Variable(utils.unique_name("coords", names))
-    k = p.Variable(utils.unique_name("k", names))
-    d = p.Variable(utils.unique_name("d", names))
-    i = p.Variable(utils.unique_name("i", names))
-    # x is a reserved name.
-    x = p.Variable("x")
-    if "x" in names:
-        raise ValueError("cannot use 'x' as a user-defined Expression variable")
-
-    dim = coords_space.value_size
-    ndof = to_element.space_dimension()
-    xndof = coords_element.space_dimension()
-
-    # x[d] = 0
-    insn0 = loopy.Assignment(x.index(d), 0, id="insn0", within_inames=frozenset([k.name, d.name]))
-    # x[d] += X[k, i] * coord[i,d]
-    insn1 = loopy.Assignment(
-        x.index(d), x.index(d) + X.index((k, i)) * crd.index((i, d)), id="insn1",
-        within_inames=frozenset([k.name, d.name, i.name]), depends_on=frozenset(["insn0"])
-    )
-    instructions = [insn0, insn1]
-
-    from loopy.kernel.creation import parse_instructions
-    for cmp, code in enumerate(expression.code):
-        # A[k, c] = expression
-        code = '{0}[{1}, {2}]'.format(A.name, k.name, cmp) + " = " + str(code)
-        (insn, ), _, _ = parse_instructions(code, {})
-        insn = insn.copy(within_inames=frozenset([k.name]), depends_on=frozenset(["insn1"]))
-        instructions.append(insn)
-
-    import islpy as isl
-
-    inames = isl.make_zero_and_vars([k.name, d.name, i.name])
-    domain = (inames[0].le_set(inames[k.name])) & (inames[k.name].lt_set(inames[0] + ndof))
-    domain = domain & (inames[0].le_set(inames[d.name])) & (inames[d.name].lt_set(inames[0] + dim))
-    domain = domain & (inames[0].le_set(inames[i.name])) & (inames[i.name].lt_set(inames[0] + xndof))
-
-    data = [loopy.GlobalArg(A.name, dtype=numpy.float64, shape=(ndof, len(expression.code))),
-            loopy.GlobalArg(crd.name, dtype=coords.dat.dtype, shape=(xndof, dim)),
-            loopy.TemporaryVariable(X.name, initializer=X_data, dtype=X_data.dtype, shape=X_data.shape,
-                                    read_only=True, address_space=loopy.AddressSpace.LOCAL),
-            loopy.TemporaryVariable("x", dtype=numpy.float64, shape=(dim,), address_space=loopy.AddressSpace.LOCAL)]
-
-    coefficients = [coords]
-    for _i, (name, arg) in enumerate(expression._user_args):
-        coefficients.append(GlobalWrapper(arg))
-        if arg.shape == (1, ):
-            name += "_"
-            # arg = arg_[0]
-            user_arg_insn = loopy.Assignment(p.Variable(arg.name), p.Variable(name).index(0), id="user_arg_{0}".format(_i))
-            instructions.insert(0, user_arg_insn)
-            insn0 = insn0.copy(depends_on=insn0.depends_on | frozenset([user_arg_insn.id]))
-            data.append(loopy.TemporaryVariable(arg.name, dtype=arg.dtype, shape=(), address_space=loopy.AddressSpace.LOCAL))
-        data.append(loopy.GlobalArg(name, dtype=arg.dtype, shape=arg.shape))
-
-    if any("pi" in str(_c) for _c in expression.code):
-        data.append(loopy.TemporaryVariable("pi", dtype=numpy.float64, initializer=numpy.array(numpy.pi),
-                                            read_only=True, address_space=loopy.AddressSpace.LOCAL))
-
-    knl = loopy.make_function([domain], instructions, data, name="expression_kernel",
-                              silenced_warnings=["summing_if_branches_ops"])
-
-    return op2.Kernel(knl, knl.name), False, False, tuple(coefficients)
