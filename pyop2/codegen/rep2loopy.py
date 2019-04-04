@@ -2,6 +2,9 @@ import ctypes
 import numpy
 
 import loopy
+from loopy.symbolic import SubArrayRef
+from loopy.types import OpaqueType
+
 import islpy as isl
 import pymbolic.primitives as pym
 
@@ -220,7 +223,6 @@ def imperatives(exprs):
 
 
 def loop_nesting(instructions, deps, outer_inames, kernel_name):
-
     nesting = {}
 
     for insn in imperatives(instructions):
@@ -267,7 +269,6 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
 
 
 def instruction_dependencies(instructions, initialisers):
-
     deps = {}
     names = {}
     instructions_by_type = defaultdict(list)
@@ -326,7 +327,6 @@ def instruction_dependencies(instructions, initialisers):
 
 
 def generate(builder, wrapper_name=None):
-
     if builder.layer_index is not None:
         outer_inames = frozenset([builder._loop_index.name,
                                   builder.layer_index.name])
@@ -482,8 +482,7 @@ def generate(builder, wrapper_name=None):
     wrapper = loopy.register_preamble_generators(wrapper, [_PreambleGen(preamble)])
 
     # register petsc functions
-    wrapper = loopy.register_function_id_to_in_knl_callable_mapper(
-        wrapper, petsc_function_lookup)
+    wrapper = loopy.register_function_id_to_in_knl_callable_mapper(wrapper, petsc_function_lookup)
 
     return wrapper
 
@@ -538,10 +537,6 @@ def statement_assign(expr, context):
 
 @statement.register(FunctionCall)
 def statement_functioncall(expr, context):
-
-    from loopy.symbolic import SubArrayRef
-    from loopy.types import OpaqueType
-
     parameters = context.parameters
 
     free_indices = set(i.name for i in expr.free_indices)

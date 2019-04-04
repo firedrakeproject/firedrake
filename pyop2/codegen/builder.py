@@ -338,9 +338,6 @@ class DatPack(Pack):
             if loop_indices is None:
                 raise ValueError("Need iteration index")
             n, layer = self.pick_loop_indices(*loop_indices)
-            # Direct dats on extruded sets never get a layer index
-            # (they're defined on the "base" set, effectively).
-            # FIXME: is this a bug?
             shape = self.outer.shape
             if self.view_index is None:
                 multiindex = (n, ) + tuple(Index(e) for e in shape[1:])
@@ -647,7 +644,6 @@ class WrapperBuilder(object):
     def variable_entity_masks(self):
         if self.extruded:
             off = Argument((None, ), IntType, name="entity_offset")
-            # FIXME: this is never actually used.
             dof = Argument((None, ), IntType, name="entity_dof")
             bottom = Argument((None, ), numpy.int64, name="entity_bottom_mask")
             top = Argument((None, ), numpy.int64, name="entity_top_mask")
