@@ -102,9 +102,8 @@ _rename_node.register(Node)(reuse_if_untouched)
 
 @_rename_node.register(Index)
 def _rename_node_index(node, self):
-    if node.name in self.replace:
-        return Index(extent=node.extent, name=self.replace[node.name])
-    return node
+    name = self.replace.get(node, node.name)
+    return Index(extent=node.extent, name=name)
 
 
 @_rename_node.register(FunctionCall)
@@ -117,25 +116,20 @@ def _rename_node_func(node, self):
 @_rename_node.register(RuntimeIndex)
 def _rename_node_rtindex(node, self):
     children = tuple(map(self, node.children))
-    if node.name in self.replace:
-        name = self.replace[node.name]
-    else:
-        name = node.name
+    name = self.replace.get(node, node.name)
     return RuntimeIndex(*children, name=name)
 
 
 @_rename_node.register(Variable)
 def _rename_node_variable(node, self):
-    if node.name in self.replace:
-        return Variable(self.replace[node.name], node.shape, node.dtype)
-    return node
+    name = self.replace.get(node, node.name)
+    return Variable(name, node.shape, node.dtype)
 
 
 @_rename_node.register(Argument)
 def _rename_node_argument(node, self):
-    if node.name in self.replace:
-        return Argument(node.shape, node.dtype, name=self.replace[node.name])
-    return node
+    name = self.replace.get(node, node.name)
+    return Argument(node.shape, node.dtype, name=name)
 
 
 def rename_nodes(instructions, replace):

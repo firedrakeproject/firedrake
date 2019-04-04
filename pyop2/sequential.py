@@ -212,7 +212,7 @@ class ParLoop(petsc_base.ParLoop):
             fun(part.offset, part.offset + part.size, *arglist)
 
 
-def generate_single_cell_wrapper(iterset, args, forward_args=(), kernel_name=None, wrapper_name=None, restart_counter=True):
+def generate_single_cell_wrapper(iterset, args, forward_args=(), kernel_name=None, wrapper_name=None):
     """Generates wrapper for a single cell. No iteration loop, but cellwise data is extracted.
     Cell is expected as an argument to the wrapper. For extruded, the numbering of the cells
     is columnwise continuous, bottom to top.
@@ -223,8 +223,6 @@ def generate_single_cell_wrapper(iterset, args, forward_args=(), kernel_name=Non
                          give an iterable of strings describing their C types.
     :param kernel_name: Kernel function name
     :param wrapper_name: Wrapper function name
-    :param restart_counter: Whether to restart counter in naming variables and indices
-                            in code generation.
 
     :return: string containing the C code for the single-cell wrapper
     """
@@ -237,7 +235,7 @@ def generate_single_cell_wrapper(iterset, args, forward_args=(), kernel_name=Non
     for arg in args:
         builder.add_argument(arg)
     builder.set_kernel(Kernel("", kernel_name))
-    wrapper = generate(builder, wrapper_name, restart_counter)
+    wrapper = generate(builder, wrapper_name)
     code = loopy.generate_code_v2(wrapper)
 
     return code.device_code()

@@ -8,6 +8,7 @@ import pymbolic.primitives as pym
 from collections import OrderedDict, defaultdict
 from functools import singledispatch, reduce
 import itertools
+import re
 import operator
 
 from pyop2.codegen.node import traversal, Node, Memoizer, reuse_if_untouched
@@ -324,7 +325,7 @@ def instruction_dependencies(instructions, initialisers):
     return deps
 
 
-def generate(builder, wrapper_name=None, restart_counter=True):
+def generate(builder, wrapper_name=None):
 
     if builder.layer_index is not None:
         outer_inames = frozenset([builder._loop_index.name,
@@ -359,30 +360,24 @@ def generate(builder, wrapper_name=None, restart_counter=True):
     instructions = instructions + initialiser
     mapper.initialisers = [tuple(merger(i) for i in inits) for inits in mapper.initialisers]
 
-    # rename indices and nodes (so that the counter start from zero)
-    if restart_counter:
-        import re
-        pattern = re.compile(r"^([a-zA-Z_]+)([0-9]+$)")
-        replace = {}
-        names = defaultdict(list)
-        for node in traversal(instructions):
-            if isinstance(node, (Index, RuntimeIndex, Variable, Argument)):
-                match = pattern.match(node.name)
-                if match is not None:
-                    prefix, idx = match.groups()  # string, index
-                    names[prefix].append(int(idx))
+    # rename indices and nodes (so that the counters start from zero)
+    pattern = re.compile(r"^([a-zA-Z_]+)([0-9]+$)")
+    replacements = {}
+    counter = defaultdict(itertools.count)
+    for node in traversal(instructions):
+        if isinstance(node, (Index, RuntimeIndex, Variable, Argument)):
+            match = pattern.match(node.name)
+            if match is None:
+                continue
+            prefix, _ = match.groups()
+            replacements[node] = "%s%d" % (prefix, next(counter[prefix]))
 
-        for prefix, indices in names.items():
-            for old_idx, new_idx in zip(sorted(indices), range(len(indices))):
-                replace["{0}{1}".format(prefix, old_idx)] = "{0}{1}".format(prefix, new_idx)
-
-        instructions = rename_nodes(instructions, replace)
-        mapper.initialisers = [rename_nodes(inits, replace) for inits in mapper.initialisers]
-        parameters.wrapper_arguments = rename_nodes(parameters.wrapper_arguments, replace)
-        if parameters.layer_start in replace:
-            parameters.layer_start = replace[parameters.layer_start]
-        if parameters.layer_end in replace:
-            parameters.layer_end = replace[parameters.layer_end]
+    instructions = rename_nodes(instructions, replacements)
+    mapper.initialisers = [rename_nodes(inits, replacements) for inits in mapper.initialisers]
+    parameters.wrapper_arguments = rename_nodes(parameters.wrapper_arguments, replacements)
+    s, e = rename_nodes([mapper(e) for e in builder.layer_extents], replacements)
+    parameters.layer_start = s.name
+    parameters.layer_end = e.name
 
     # scheduling and loop nesting
     deps = instruction_dependencies(instructions, mapper.initialisers)
