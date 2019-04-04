@@ -436,6 +436,7 @@ class ExpressionWalker(ReuseTransformer):
 
 
 class Bag():
+    r"""An empty class which will be used to store arbitrary properties."""
     pass
 
 
@@ -542,21 +543,16 @@ def loopy_inst_assign(expr, context):
 def loopy_inst_aug_assign(expr, context):
     lhs, rhs = [loopy_instructions(o, context) for o in expr.ufl_operands]
     import operator
-    if isinstance(expr, IAdd):
-        op = operator.add
-    elif isinstance(expr, ISub):
-        op = operator.sub
-    elif isinstance(expr, IMul):
-        op = operator.mul
-    elif isinstance(expr, IDiv):
-        op = operator.truediv
+    op = {IAdd: operator.add,
+          ISub: operator.sub,
+          IMul: operator.mul,
+          IDiv: operator.truediv}[expr]
     return loopy.Assignment(lhs, op(lhs, rhs), within_inames=context.within_inames)
 
 
 @loopy_instructions.register(DummyFunction)
 def loopy_inst_func(expr, context):
-    if (isinstance(expr.function, constant.Constant)
-            and len(expr.function.ufl_element().value_shape()) == 0):
+    if (isinstance(expr.function, constant.Constant) and len(expr.function.ufl_element().value_shape()) == 0):
         # Broadcast if constant
         return p.Variable(expr.name).index((0,))
     return p.Variable(expr.name).index(context.indices)
@@ -564,6 +560,7 @@ def loopy_inst_func(expr, context):
 
 @loopy_instructions.register(ufl.constantvalue.Zero)
 def loopy_inst_zero(expr, context):
+    assert expr.ufl_shape == ()
     return 0
 
 
@@ -576,18 +573,12 @@ def loopy_inst_scalar(expr, context):
 @loopy_instructions.register(ufl.algebra.Sum)
 @loopy_instructions.register(ufl.algebra.Division)
 def loopy_inst_binary(expr, context):
-    if len(expr.ufl_operands) > 1:
-        children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-        import operator
-        if isinstance(expr, ufl.algebra.Product):
-            op = operator.mul
-        elif isinstance(expr, ufl.algebra.Sum):
-            op = operator.add
-        elif isinstance(expr, ufl.algebra.Division):
-            assert len(expr.ufl_operands) == 2
-            op = operator.truediv
-        return reduce(op, children)
-    return loopy_instructions(expr.ufl_operands[0], context)
+    left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    import operator
+    op = {ufl.algebra.Sum: operator.add,
+          ufl.algebra.Product: operator.mul,
+          ufl.algebra.Division: operator.truediv}[expr]
+    return op(left, right)
 
 
 @loopy_instructions.register(MathFunction)

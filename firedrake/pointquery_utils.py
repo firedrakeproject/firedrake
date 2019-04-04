@@ -159,11 +159,8 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),
         "X_isub_dX": X_isub_dX(cell.topological_dimension()),
         "extruded_arg": ", int const *__restrict__ layers" if extruded else "",
-        # "layer_arg": ", int layer" if extruded else "",
-        # "layers_init":"int layers[2] = [layer, layer+1]" if extruded else "",
         "extr_comment_out": "//" if extruded else "",
         "non_extr_comment_out": "//" if not extruded else "",
-        # "layers": ", layers" if extruded else "",
         "IntType": as_cstr(IntType),
     }
 
