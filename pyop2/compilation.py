@@ -211,12 +211,7 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        if isinstance(jitmodule, JITModule):
-            code_hashee = str(jitmodule.cache_key)
-        else:
-            # we got a string
-            code_hashee = jitmodule
-        hsh = md5(code_hashee.encode())
+        hsh = md5(str(jitmodule.cache_key).encode())
         hsh.update(self._cc.encode())
         if self._ld:
             hsh.update(self._ld.encode())
@@ -237,11 +232,6 @@ class Compiler(object):
         # atomically (avoiding races).
         tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
-        def get_code(jitmodule):
-            if isinstance(jitmodule, JITModule):
-                return jitmodule.code_to_compile
-            return jitmodule  # we got a string
-
         if configuration['check_src_hashes'] or configuration['debug']:
             matching = self.comm.allreduce(basename, op=_check_op)
             if matching != basename:
@@ -252,7 +242,7 @@ class Compiler(object):
                     os.makedirs(output, exist_ok=True)
                 self.comm.barrier()
                 with open(srcfile, "w") as f:
-                    f.write(get_code(jitmodule))
+                    f.write(jitmodule.code_to_compile)
                 self.comm.barrier()
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
@@ -267,7 +257,7 @@ class Compiler(object):
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
                     with open(cname, "w") as f:
-                        f.write(get_code(jitmodule))
+                        f.write(jitmodule.code_to_compile)
                     # Compiler also links
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
@@ -441,7 +431,17 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
-    assert isinstance(jitmodule, (str, JITModule))
+    if isinstance(jitmodule, str):
+        class StrCode(object):
+            def __init__(self, code, argtypes):
+                self.code_to_compile = code
+                self.cache_key = code
+                self.argtypes = argtypes
+        code = StrCode(jitmodule, argtypes)
+    elif isinstance(jitmodule, JITModule):
+        code = jitmodule
+    else:
+        raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
 
     platform = sys.platform
     cpp = extension == "cpp"
@@ -459,13 +459,10 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)
-    dll = compiler.get_so(jitmodule, extension)
+    dll = compiler.get_so(code, extension)
 
     fn = getattr(dll, fn_name)
-    if isinstance(jitmodule, JITModule):
-        fn.argtypes = jitmodule.argtypes
-    else:
-        fn.argtypes = argtypes
+    fn.argtypes = code.argtypes
     fn.restype = restype
     return fn
 
