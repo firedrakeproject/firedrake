@@ -823,8 +823,11 @@ class WrapperBuilder(object):
         return FunctionCall(self.kernel.name, KernelInst(), access, free_indices, *args)
 
     def emit_instructions(self):
-        loop_indices = [x for x in self.loop_indices if x is not None]
-        yield DummyInstruction(PackInst(), *loop_indices)
+        # Sometimes, actual instructions do not refer to all the loop
+        # indices (e.g. all of them are globals). To ensure that loopy
+        # knows about these indices, we emit a dummy instruction (that
+        # doesn't generate any code) that does depend on them.
+        yield DummyInstruction(PackInst(), *(x for x in self.loop_indices if x is not None))
         yield self.kernel_call()
         for pack in self.packed_args:
             insns = pack.emit_unpack_instruction(loop_indices=self.loop_indices)
