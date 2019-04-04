@@ -43,7 +43,7 @@ from pyop2.sequential import par_loop, Kernel  # noqa: F401
 from pyop2.sequential import READ, WRITE, RW, INC, MIN, MAX  # noqa: F401
 from pyop2.base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL  # noqa: F401
 from pyop2.sequential import Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet  # noqa: F401
-from pyop2.sequential import Map, MixedMap, DecoratedMap, Sparsity, Halo  # noqa: F401
+from pyop2.sequential import Map, MixedMap, Sparsity, Halo  # noqa: F401
 from pyop2.sequential import Global, GlobalDataSet        # noqa: F401
 from pyop2.sequential import Dat, MixedDat, DatView, Mat  # noqa: F401
 
@@ -56,7 +56,7 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'par_loop',
-           'DatView', 'DecoratedMap']
+           'DatView']
 
 
 _initialised = False

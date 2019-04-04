@@ -89,7 +89,7 @@ def elem_node(elements, nodes):
 
 @pytest.fixture(scope='module')
 def mat(elem_node, dnodes):
-    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
+    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), name="sparsity")
     return op2.Mat(sparsity, valuetype, "mat")
 
 
