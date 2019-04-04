@@ -290,14 +290,14 @@ def xtr_coords(xtr_dvnodes):
 @pytest.fixture
 def extrusion_kernel():
     kernel_code = """
-void pyop2_kernel_extrusion(double *xtr, double *x, int* j)
+void extrusion(double *xtr, double *x, int* j)
 {
     //Only the Z-coord is increased, the others stay the same
     xtr[0] = x[0];
     xtr[1] = x[1];
     xtr[2] = 0.1*j[0];
 }"""
-    return op2.Kernel(kernel_code, "pyop2_kernel_extrusion")
+    return op2.Kernel(kernel_code, "extrusion")
 
 
 @pytest.fixture
@@ -311,11 +311,11 @@ area = area * (-1.0);
     assembly = Incr(Symbol("A", ("i0", "i1")),
                     FlatBlock("0.5 * area * (x[1][2] - x[0][2])"))
     assembly = c_for("i0", 6, c_for("i1", 6, assembly))
-    kernel_code = FunDecl("void", "pyop2_kernel_vol_comp",
+    kernel_code = FunDecl("void", "vol_comp",
                           [Decl("double", Symbol("A", (6, 6))),
                            Decl("double", Symbol("x", (6, 3)))],
                           Block([init, assembly], open_scope=False))
-    return op2.Kernel(kernel_code.gencode(), "pyop2_kernel_vol_comp")
+    return op2.Kernel(kernel_code.gencode(), "vol_comp")
 
 
 @pytest.fixture
@@ -329,12 +329,12 @@ area = area * (-1.0);
     assembly = Incr(Symbol("A", ("i0",)),
                     FlatBlock("0.5 * area * (x[1][2] - x[0][2]) * y[0]"))
     assembly = c_for("i0", 6, assembly)
-    kernel_code = FunDecl("void", "pyop2_kernel_vol_comp_rhs",
+    kernel_code = FunDecl("void", "vol_comp_rhs",
                           [Decl("double", Symbol("A", (6,))),
                            Decl("double", Symbol("x", (6, 3))),
                            Decl("int", Symbol("y", (1,)))],
                           Block([init, assembly], open_scope=False))
-    return op2.Kernel(kernel_code.gencode(), "pyop2_kernel_vol_comp_rhs")
+    return op2.Kernel(kernel_code.gencode(), "vol_comp_rhs")
 
 
 class TestExtrusion:
@@ -346,13 +346,13 @@ class TestExtrusion:
     def test_extrusion(self, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g')
         mass = op2.Kernel("""
-void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
+void comp_vol(double A[1], double x[6][2], double y[1])
 {
     double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
     if (abs < 0)
       abs = abs * (-1.0);
     A[0]+=0.5*abs*0.1 * y[0];
-}""", "pyop2_kernel_comp_vol")
+}""", "comp_vol")
 
         op2.par_loop(mass, elements,
                      g(op2.INC),
@@ -368,9 +368,9 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
     def test_direct_loop_inc(self, iterset, diterset):
         dat = op2.Dat(diterset)
         xtr_iterset = op2.ExtrudedSet(iterset, layers=10)
-        k = 'void pyop2_kernel_k(double *x) { *x += 1.0; }'
+        k = 'void k(double *x) { *x += 1.0; }'
         dat.data[:] = 0
-        op2.par_loop(op2.Kernel(k, 'pyop2_kernel_k'),
+        op2.par_loop(op2.Kernel(k, 'k'),
                      xtr_iterset, dat(op2.INC))
         assert numpy.allclose(dat.data[:], 9.0)
 
@@ -379,11 +379,11 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
         to in the parloop."""
 
         kernel_blah = """
-        void pyop2_kernel_blah(double* x, int layer_arg){
+        void blah(double* x, int layer_arg){
         x[0] = layer_arg;
         }"""
 
-        op2.par_loop(op2.Kernel(kernel_blah, "pyop2_kernel_blah"),
+        op2.par_loop(op2.Kernel(kernel_blah, "blah"),
                      elements, dat_f(op2.WRITE, field_map),
                      pass_layer_arg=True)
         end = layers - 1
@@ -393,16 +393,16 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
                 for n in range(int(len(dat_f.data)/end) - 1)]
 
     def test_write_data_field(self, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
-        kernel_wo = "void pyop2_kernel_wo(double* x) { x[0] = 42.0; }\n"
+        kernel_wo = "void wo(double* x) { x[0] = 42.0; }\n"
 
-        op2.par_loop(op2.Kernel(kernel_wo, "pyop2_kernel_wo"),
+        op2.par_loop(op2.Kernel(kernel_wo, "wo"),
                      elements, dat_f(op2.WRITE, field_map))
 
         assert all(map(lambda x: x == 42, dat_f.data))
 
     def test_write_data_coords(self, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
         kernel_wo_c = """
-        void pyop2_kernel_wo_c(double x[6][2]) {
+        void wo_c(double x[6][2]) {
            x[0][0] = 42.0; x[0][1] = 42.0;
            x[1][0] = 42.0; x[1][1] = 42.0;
            x[2][0] = 42.0; x[2][1] = 42.0;
@@ -410,7 +410,7 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
            x[4][0] = 42.0; x[4][1] = 42.0;
            x[5][0] = 42.0; x[5][1] = 42.0;
         }"""
-        op2.par_loop(op2.Kernel(kernel_wo_c, "pyop2_kernel_wo_c"),
+        op2.par_loop(op2.Kernel(kernel_wo_c, "wo_c"),
                      elements, dat_c(op2.WRITE, coords_map))
 
         assert all(map(lambda x: x[0] == 42 and x[1] == 42, dat_c.data))
@@ -419,14 +419,14 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
         self, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
         kernel_wtf = """
-        void pyop2_kernel_wtf(double* y, double x[6][2]) {
+        void wtf(double* y, double x[6][2]) {
            double sum = 0.0;
            for (int i=0; i<6; i++){
                 sum += x[i][0] + x[i][1];
            }
            y[0] = sum;
         }"""
-        op2.par_loop(op2.Kernel(kernel_wtf, "pyop2_kernel_wtf"), elements,
+        op2.par_loop(op2.Kernel(kernel_wtf, "wtf"), elements,
                      dat_f(op2.WRITE, field_map),
                      dat_coords(op2.READ, coords_map),)
         assert all(dat_f.data >= 0)
@@ -435,7 +435,7 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
         kernel_inc = """
-        void pyop2_kernel_inc(double y[6][2], double x[6][2]) {
+        void inc(double y[6][2], double x[6][2]) {
            for (int i=0; i<6; i++){
              if (y[i][0] == 0){
                 y[i][0] += 1;
@@ -443,7 +443,7 @@ void pyop2_kernel_comp_vol(double A[1], double x[6][2], double y[1])
              }
            }
         }"""
-        op2.par_loop(op2.Kernel(kernel_inc, "pyop2_kernel_inc"), elements,
+        op2.par_loop(op2.Kernel(kernel_inc, "inc"), elements,
                      dat_c(op2.RW, coords_map),
                      dat_coords(op2.READ, coords_map))
 

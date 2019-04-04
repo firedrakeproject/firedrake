@@ -355,9 +355,9 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void pyop2_kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "pyop2_kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
@@ -365,7 +365,7 @@ class TestGeneratedCodeCache:
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "pyop2_kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
@@ -377,9 +377,9 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void pyop2_kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "pyop2_kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
@@ -387,9 +387,9 @@ class TestGeneratedCodeCache:
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        kernel_cpy = "void pyop2_kernel_cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
+        kernel_cpy = "void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "pyop2_kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
@@ -402,7 +402,7 @@ class TestGeneratedCodeCache:
         assert len(self.cache) == 0
 
         kernel_swap = """
-void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
+void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -410,7 +410,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
   *y = t;
 }
 """
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x(op2.RW, iter2ind1),
                      y(op2.RW, iter2ind1))
@@ -418,7 +418,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
         base._trace.evaluate(set([x]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      y(op2.RW, iter2ind1),
                      x(op2.RW, iter2ind1))
@@ -431,7 +431,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
+void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -439,7 +439,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
   *y = t;
 }
 """
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      a(op2.RW),
                      b(op2.RW))
@@ -447,7 +447,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      b(op2.RW),
                      a(op2.RW))
@@ -460,7 +460,7 @@ void pyop2_kernel_swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void pyop2_kernel_swap(unsigned int* x)
+void swap(unsigned int* x)
 {
   unsigned int t;
   t = x[0];
@@ -469,14 +469,14 @@ void pyop2_kernel_swap(unsigned int* x)
 }
 """
 
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
         base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "pyop2_kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
@@ -486,10 +486,10 @@ void pyop2_kernel_swap(unsigned int* x)
     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
         self.cache.clear()
         assert len(self.cache) == 0
-        kernel_code = FunDecl("void", "pyop2_kernel_k",
+        kernel_code = FunDecl("void", "k",
                               [Decl("int*", c_sym("x"), qualifiers=["unsigned"])],
                               c_for("i", 1, ""))
-        k = op2.Kernel(kernel_code.gencode(), 'pyop2_kernel_k')
+        k = op2.Kernel(kernel_code.gencode(), 'k')
 
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))
@@ -508,7 +508,7 @@ void pyop2_kernel_swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
 
-        k = op2.Kernel("""void pyop2_kernel_k(void *x) {}""", 'pyop2_kernel_k')
+        k = op2.Kernel("""void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, d(op2.WRITE))
 
@@ -526,7 +526,7 @@ void pyop2_kernel_swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
 
-        k = op2.Kernel("""void pyop2_kernel_k(void *x) {}""", 'pyop2_kernel_k')
+        k = op2.Kernel("""void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, g(op2.INC))
 
@@ -550,35 +550,35 @@ class TestKernelCache:
 
     def test_kernels_same_code_same_name(self):
         """Kernels with same code and name should be retrieved from cache."""
-        code = "void pyop2_kernel_k(void *x) {}"
+        code = "void k(void *x) {}"
         self.cache.clear()
-        k1 = op2.Kernel(code, 'pyop2_kernel_k')
-        k2 = op2.Kernel(code, 'pyop2_kernel_k')
+        k1 = op2.Kernel(code, 'k')
+        k2 = op2.Kernel(code, 'k')
         assert k1 is k2 and len(self.cache) == 1
 
     def test_kernels_same_code_differing_name(self):
         """Kernels with same code and different name should not be retrieved
         from cache."""
         self.cache.clear()
-        code = "void pyop2_kernel_k(void *x) {}"
-        k1 = op2.Kernel(code, 'pyop2_kernel_k')
-        k2 = op2.Kernel(code, 'pyop2_kernel_l')
+        code = "void k(void *x) {}"
+        k1 = op2.Kernel(code, 'k')
+        k2 = op2.Kernel(code, 'l')
         assert k1 is not k2 and len(self.cache) == 2
 
     def test_kernels_differing_code_same_name(self):
         """Kernels with different code and same name should not be retrieved
         from cache."""
         self.cache.clear()
-        k1 = op2.Kernel("void pyop2_kernel_k(void *x) {}", 'pyop2_kernel_k')
-        k2 = op2.Kernel("void pyop2_kernel_l(void *x) {}", 'pyop2_kernel_k')
+        k1 = op2.Kernel("void k(void *x) {}", 'k')
+        k2 = op2.Kernel("void l(void *x) {}", 'k')
         assert k1 is not k2 and len(self.cache) == 2
 
     def test_kernels_differing_code_differing_name(self):
         """Kernels with different code and different name should not be
         retrieved from cache."""
         self.cache.clear()
-        k1 = op2.Kernel("void pyop2_kernel_k(void *x) {}", 'pyop2_kernel_k')
-        k2 = op2.Kernel("void pyop2_kernel_l(void *x) {}", 'pyop2_kernel_l')
+        k1 = op2.Kernel("void k(void *x) {}", 'k')
+        k2 = op2.Kernel("void l(void *x) {}", 'l')
         assert k1 is not k2 and len(self.cache) == 2
 
 

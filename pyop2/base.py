@@ -3748,7 +3748,6 @@ class Kernel(Cached):
         on all ranks.
     """
 
-    _globalcount = 0
     _cache = {}
 
     @classmethod
@@ -3780,9 +3779,8 @@ class Kernel(Cached):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
-        self._name = name or "pyop2_kernel_%d" % Kernel._globalcount
+        self._name = name
         self._cpp = cpp
-        Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
         self._include_dirs = include_dirs
