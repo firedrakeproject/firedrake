@@ -153,12 +153,6 @@ def test_cant_subscript_outside_components(V, cmpt):
         return V.sub(cmpt)
 
 
-def test_cant_subscript_3_cmpt(m):
-    V = VectorFunctionSpace(m, 'CG', 1, dim=4)
-    with pytest.raises(NotImplementedError):
-        V.sub(3)
-
-
 def test_stokes_component_all():
     mesh = UnitSquareMesh(10, 10)
 

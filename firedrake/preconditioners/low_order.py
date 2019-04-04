@@ -1,6 +1,7 @@
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import numpy
+from itertools import chain
 
 from ufl.algorithms import MultiFunction, map_integrands
 
@@ -90,14 +91,14 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
                       (P1.cell_node_map(),
                        Pk.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-    matarg = mat(op2.WRITE, (P1.cell_node_map(P1_bcs),
-                             Pk.cell_node_map(Pk_bcs)))
-    # # HACK HACK HACK, this seems like it might be a pyop2 bug
-    # sh = matarg._block_shape
-    # assert len(sh) == 1 and len(sh[0]) == 1 and len(sh[0][0]) == 2
-    # a, b = sh[0][0]
-    # nsh = (((a*self.P1.dof_dset.cdim, b*self.V.dof_dset.cdim), ), )
-    # matarg._block_shape = nsh
+
+    rlgmap, clgmap = mat.local_to_global_maps
+    rlgmap = P1.local_to_global_map(P1_bcs, lgmap=rlgmap)
+    clgmap = Pk.local_to_global_map(Pk_bcs, lgmap=clgmap)
+    unroll = any(bc.function_space().component is not None
+                 for bc in chain(P1_bcs, Pk_bcs) if bc is not None)
+    matarg = mat(op2.WRITE, (P1.cell_node_map(), Pk.cell_node_map()),
+                 lgmaps=(rlgmap, clgmap), unroll_map=unroll)
     mesh = Pk.ufl_domain()
     op2.par_loop(transfer_kernel(Pk, P1), mesh.cell_set,
                  matarg)

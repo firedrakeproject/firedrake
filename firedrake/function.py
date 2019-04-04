@@ -112,9 +112,12 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                            name="view[%d](%s)" % (i, self.name()))
-                     for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+        if self.dof_dset.cdim == 1:
+            return (self, )
+        else:
+            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                                                name="view[%d](%s)" % (i, self.name()))
+                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -295,8 +298,11 @@ class Function(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                     for i in range(self.function_space().value_size))
+        if self.function_space().value_size == 1:
+            return (self, )
+        else:
+            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+                         for i in range(self.function_space().value_size))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -306,7 +312,7 @@ class Function(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`~.VectorFunctionSpace`, this returns a proxy object
+        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if len(self.function_space()) == 1:
