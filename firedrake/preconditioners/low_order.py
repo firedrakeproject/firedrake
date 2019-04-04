@@ -126,7 +126,7 @@ class P1PC(PCBase):
         mesh = Pk.ufl_domain()
         if len(shape) == 0:
             P1 = firedrake.FunctionSpace(mesh, "CG", 1)
-        elif len(shape) == 2:
+        elif len(shape) == 1:
             P1 = firedrake.VectorFunctionSpace(mesh, "CG", 1, dim=shape[0])
         else:
             P1 = firedrake.TensorFunctionSpace(mesh, "CG", 1, shape=shape,
