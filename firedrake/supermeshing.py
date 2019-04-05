@@ -198,12 +198,12 @@ each supermesh cell.
     %(evaluate_B)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
-    void print_array(double *arr, int d)
+    static void print_array(double *arr, int d)
     {
         for(int j=0; j<d; j++)
             PrintInfo("%%+.2f ", arr[j]);
     }
-    void print_coordinates(double *simplex, int d)
+    static void print_coordinates(double *simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
