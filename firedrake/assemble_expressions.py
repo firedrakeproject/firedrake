@@ -18,7 +18,7 @@ from firedrake import constant
 from firedrake import function
 from firedrake import utils
 
-from functools import singledispatch, reduce
+from functools import singledispatch
 
 
 def ufl_type(*args, **kwargs):
@@ -59,17 +59,6 @@ class DummyFunction(ufl.Coefficient):
         # LHS of augmented assignment operators. In those cases, the
         # operator will have to change the intent.
         self.intent = intent
-
-    def __str__(self):
-        if isinstance(self.function, constant.Constant):
-            if len(self.function.ufl_element().value_shape()) == 0:
-                return "fn_%d[0]" % self.argnum
-            else:
-                return "fn_%d[dim]" % self.argnum
-        if self.function.function_space().rank == 1:
-            return "fn_%d[dim]" % self.argnum
-        else:
-            return "fn_%d[0]" % self.argnum
 
     @property
     def arg(self):
@@ -190,22 +179,6 @@ class IDiv(AugmentedAssignment):
     _symbol = "/="
     _identity = IntValue(1)
     __slots__ = ()
-
-
-class ComponentTensor(ufl.tensors.ComponentTensor):
-    r"""Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
-    first operand."""
-
-    def __str__(self):
-        return str(self.ufl_operands[0])
-
-
-class Indexed(ufl.indexed.Indexed):
-    r"""Subclass of :class:`ufl.indexed.Indexed` which only prints the first
-    operand."""
-
-    def __str__(self):
-        return str(self.ufl_operands[0])
 
 
 class ExpressionSplitter(ReuseTransformer):
@@ -410,14 +383,6 @@ class ExpressionWalker(ReuseTransformer):
     condition = ReuseTransformer.reuse_if_possible
     math_function = ReuseTransformer.reuse_if_possible
 
-    def component_tensor(self, o, *operands):
-        r"""Override string representation to only print first operand."""
-        return ComponentTensor(*operands)
-
-    def indexed(self, o, *operands):
-        r"""Override string representation to only print first operand."""
-        return Indexed(*operands)
-
     def operator(self, o):
 
         # Need pre-traversal of operators so as to correctly set the
@@ -546,7 +511,7 @@ def loopy_inst_aug_assign(expr, context):
     op = {IAdd: operator.add,
           ISub: operator.sub,
           IMul: operator.mul,
-          IDiv: operator.truediv}[expr]
+          IDiv: operator.truediv}[type(expr)]
     return loopy.Assignment(lhs, op(lhs, rhs), within_inames=context.within_inames)
 
 
@@ -560,7 +525,8 @@ def loopy_inst_func(expr, context):
 
 @loopy_instructions.register(ufl.constantvalue.Zero)
 def loopy_inst_zero(expr, context):
-    assert expr.ufl_shape == ()
+    # Shape doesn't matter because this turns into a scalar assignment
+    # to an indexed expression in loopy.
     return 0
 
 
@@ -577,7 +543,7 @@ def loopy_inst_binary(expr, context):
     import operator
     op = {ufl.algebra.Sum: operator.add,
           ufl.algebra.Product: operator.mul,
-          ufl.algebra.Division: operator.truediv}[expr]
+          ufl.algebra.Division: operator.truediv}[type(expr)]
     return op(left, right)
 
 
@@ -621,7 +587,9 @@ def loopy_inst_compare(expr, context):
     return p.Comparison(left, op, right)
 
 
-@loopy_instructions.register(ComponentTensor)
-@loopy_instructions.register(Indexed)
+@loopy_instructions.register(ufl.classes.ComponentTensor)
+@loopy_instructions.register(ufl.classes.Indexed)
 def loopy_inst_component_tensor(expr, context):
+    # The expression walker just needs the tensor operand for these.
+    # The indices are handled elsewhere.
     return loopy_instructions(expr.ufl_operands[0], context)

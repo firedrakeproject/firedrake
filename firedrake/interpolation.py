@@ -5,7 +5,6 @@ import FIAT
 import ufl
 
 from pyop2 import op2
-import loopy
 
 from tsfc.fiatinterface import create_element
 from tsfc import compile_expression_at_points as compile_ufl_kernel
