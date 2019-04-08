@@ -32,9 +32,16 @@ Key Dates
 
 * Early registration deadline: 16 August 2019
 * Registration deadline: 6 September 2019
-* Abstract submission deadline: 16 August 2019
+* Abstract submission deadline: 16 August 2019 (`via Easychair
+  <https://easychair.org/conferences/?conf=firedrake19>`_).
 * Workshop: 26-27 September 2019
 
+
+Abstract submission
+-------------------
+
+Submission is `now open on Easychair
+<https://easychair.org/conferences/?conf=firedrake19>`_.
 
 Programme
 ---------
