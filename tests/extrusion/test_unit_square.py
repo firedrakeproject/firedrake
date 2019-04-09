@@ -25,7 +25,8 @@ def integrate_unit_square(family, degree):
     <float64> area = (x[1,1]-x[0,1])*(x[2,0]-x[0,0])
     A[0] = A[0] + fabs(area)
     """
-    par_loop(domain, instructions, dx, {'A': (g, INC), 'x': (coords, READ)})
+    par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)},
+             is_loopy_kernel=True)
 
     return np.abs(g.dat.data[0] - 1.0)
 

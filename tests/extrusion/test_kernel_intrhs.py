@@ -28,7 +28,8 @@ def integrate_rhs(family, degree):
     x[0,0] = (c[1,2] + c[0,2]) / 2
     """
 
-    par_loop(domain, instructions, dx, {'x': (f, INC), 'c': (coords, READ)})
+    par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
+             is_loopy_kernel=True)
 
     g = assemble(f * dx)
 

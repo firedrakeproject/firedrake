@@ -130,10 +130,11 @@ cells are not currently supported")
 
     cL = Constant(length)
 
-    par_loop(domain, instructions, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
-              "L": (cL, READ)})
+              "L": (cL, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -538,11 +539,12 @@ cells in each direction are not currently supported")
     cLx = Constant(Lx)
     cLy = Constant(Ly)
 
-    par_loop(domain, instructions, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -1379,11 +1381,12 @@ cells in each direction are not currently supported")
     cLx = Constant(La)
     cLy = Constant(Lb)
 
-    par_loop(domain, instructions, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     if direction == "y":
         # flip x and y coordinates

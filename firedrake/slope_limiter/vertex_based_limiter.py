@@ -90,21 +90,23 @@ class VertexBasedLimiter(Limiter):
         self.max_field.assign(-1.0e10)  # small number
         self.min_field.assign(1.0e10)  # big number
 
-        par_loop(*self._min_max_loop,
+        par_loop(self._min_max_loop,
                  dx,
                  {"maxq": (self.max_field, MAX),
                   "minq": (self.min_field, MIN),
-                  "q": (self.centroids, READ)})
+                  "q": (self.centroids, READ)},
+                 is_loopy_kernel=True)
 
     def apply_limiter(self, field):
         """
         Only applies limiting loop on the given field
         """
-        par_loop(*self._limit_kernel, dx,
+        par_loop(self._limit_kernel, dx,
                  {"qbar": (self.centroids, READ),
                   "q": (field, RW),
                   "qmax": (self.max_field, READ),
-                  "qmin": (self.min_field, READ)})
+                  "qmin": (self.min_field, READ)},
+                 is_loopy_kernel=True)
 
     def apply(self, field):
         """

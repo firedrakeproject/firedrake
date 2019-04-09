@@ -106,7 +106,8 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-        par_loop(domain, instructions, ufl.dx, {"w": (self.weight, INC)})
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
 
         instructions = """
         for i, j
@@ -323,10 +324,11 @@ class HybridizationPC(SCBase):
             unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
             broken_res_hdiv = self.broken_residual.split()[self.vidx]
             broken_res_hdiv.assign(0)
-            par_loop(*self.average_kernel, ufl.dx,
+            par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)})
+                      "vec_out": (broken_res_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -372,10 +374,11 @@ class HybridizationPC(SCBase):
             unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
             unbroken_hdiv.assign(0)
 
-            par_loop(*self.average_kernel, ufl.dx,
+            par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)})
+                      "vec_out": (unbroken_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

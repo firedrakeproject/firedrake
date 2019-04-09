@@ -38,6 +38,7 @@ def test_consistent_facet_orientation(mesh_thunk):
         R[0, 0] = fmax(R[0, 0], fabs(C[i, 0] - D[i, 0]))
     end
     """
-    par_loop(domain, instructions, dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
+    par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)},
+             is_loopy_kernel=True)
 
     assert np.allclose(q.dat.data, 0.0)
