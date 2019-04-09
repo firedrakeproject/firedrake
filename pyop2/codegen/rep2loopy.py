@@ -28,7 +28,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           LogicalNot, LogicalAnd, LogicalOr,
                                           Materialise, Accumulate, FunctionCall, When,
                                           Argument, Variable, Literal, NamedLiteral,
-                                          Symbol, Zero, Sum, Product)
+                                          Symbol, Zero, Sum, Min, Max, Product)
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
 from pytools import ImmutableRecord
 
@@ -757,6 +757,14 @@ def expression_binop(expr, parameters):
             LogicalAnd: pym.LogicalAnd,
             BitwiseOr: pym.BitwiseOr,
             BitwiseAnd: pym.BitwiseAnd}[type(expr)](children)
+
+
+@expression.register(Min)
+@expression.register(Max)
+def expression_minmax(expr, parameters):
+    children = tuple(expression(c, parameters) for c in expr.children)
+    return {Min: pym.Variable("min"),
+            Max: pym.Variable("max")}[type(expr)](*children)
 
 
 @expression.register(BitShift)

@@ -237,6 +237,34 @@ class NamedLiteral(Terminal):
         return self.value.dtype
 
 
+class Min(Scalar):
+    __slots__ = ("children", )
+
+    def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+        self.children = a, b
+
+    @cached_property
+    def dtype(self):
+        a, b = self.children
+        return a.dtype
+
+
+class Max(Scalar):
+    __slots__ = ("children", )
+
+    def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+        self.children = a, b
+
+    @cached_property
+    def dtype(self):
+        a, b = self.children
+        return a.dtype
+
+
 class Sum(Scalar):
     __slots__ = ("children", )
 

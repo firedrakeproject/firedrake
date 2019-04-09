@@ -9,13 +9,13 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           LogicalNot, LogicalAnd, LogicalOr,
                                           Argument, Literal, NamedLiteral,
                                           Materialise, Accumulate, FunctionCall, When,
-                                          Symbol, Zero, Sum, Product)
+                                          Symbol, Zero, Sum, Min, Max, Product)
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
 
 from pyop2.utils import cached_property
 from pyop2.datatypes import IntType
 from pyop2.op2 import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL, Subset, DecoratedMap
-from pyop2.op2 import READ, INC, WRITE
+from pyop2.op2 import READ, INC, MIN, MAX, WRITE, RW
 from loopy.types import OpaqueType
 from functools import reduce
 import itertools
@@ -322,16 +322,18 @@ class DatPack(Pack):
         if self.view_index is None:
             shape = shape + self.outer.shape[1:]
 
-        if self.access in {INC, WRITE}:
+        if self.access in {INC, WRITE, MIN, MAX}:
             val = Zero((), self.outer.dtype)
             multiindex = MultiIndex(*(Index(e) for e in shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        else:
+        elif self.access in {READ, RW}:
             multiindex = MultiIndex(*(Index(e) for e in shape))
             expr, mask = self._rvalue(multiindex, loop_indices=loop_indices)
             if mask is not None:
                 expr = When(mask, expr)
             self._pack = Materialise(PackInst(), expr, multiindex)
+        else:
+            raise ValueError("Don't know how to initialise pack for '%s' access" % self.access)
         return self._pack
 
     def kernel_arg(self, loop_indices=None):
@@ -357,10 +359,13 @@ class DatPack(Pack):
             yield None
         elif self.access is READ:
             yield None
-        elif self.access is INC:
+        elif self.access in {INC, MIN, MAX}:
+            op = {INC: Sum,
+                  MIN: Min,
+                  MAX: Max}[self.access]
             multiindex = tuple(Index(e) for e in pack.shape)
             rvalue, mask = self._rvalue(multiindex, loop_indices=loop_indices)
-            acc = Accumulate(UnpackInst(), rvalue, Sum(rvalue, Indexed(pack, multiindex)))
+            acc = Accumulate(UnpackInst(), rvalue, op(rvalue, Indexed(pack, multiindex)))
             if mask is None:
                 yield acc
             else:
@@ -394,11 +399,11 @@ class MixedDatPack(Pack):
         else:
             _shape = (1,)
 
-        if self.access in {INC, WRITE}:
+        if self.access in {INC, WRITE, MIN, MAX}:
             val = Zero((), self.dtype)
             multiindex = MultiIndex(Index(flat_shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        else:
+        elif self.access in {READ, RW}:
             multiindex = MultiIndex(Index(flat_shape))
             val = Zero((), self.dtype)
             expressions = []
@@ -417,6 +422,8 @@ class MixedDatPack(Pack):
                 expressions.append(indices)
 
             self._pack = Materialise(PackInst(), val, multiindex, *expressions)
+        else:
+            raise ValueError("Don't know how to initialise pack for '%s' access" % self.access)
 
         return self._pack
 
@@ -445,8 +452,11 @@ class MixedDatPack(Pack):
                 rhs = Indexed(pack, indices)
                 offset += numpy.prod(shape, dtype=numpy.int32)
 
-                if self.access is INC:
-                    rhs = Sum(rvalue, rhs)
+                if self.access in {INC, MIN, MAX}:
+                    op = {INC: Sum,
+                          MIN: Min,
+                          MAX: Max}[self.access]
+                    rhs = op(rvalue, rhs)
 
                 acc = Accumulate(UnpackInst(), rvalue, rhs)
                 if mask is None:
