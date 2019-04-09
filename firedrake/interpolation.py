@@ -15,7 +15,7 @@ from firedrake import utils
 __all__ = ("interpolate", "Interpolator")
 
 
-def interpolate(expr, V, subset=None):
+def interpolate(expr, V, subset=None, access=op2.WRITE):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: an :class:`.Expression`.
@@ -23,6 +23,7 @@ def interpolate(expr, V, subset=None):
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
+    :kwarg access: The access descriptor for combining updates to shared dofs.
 
     Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
     it was a Function).
@@ -33,7 +34,7 @@ def interpolate(expr, V, subset=None):
        (for example in a time loop) you may find you get better
        performance by using a :class:`Interpolator` instead.
     """
-    return Interpolator(expr, V, subset=subset).interpolate()
+    return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
 
 class Interpolator(object):
@@ -52,8 +53,8 @@ class Interpolator(object):
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
     """
-    def __init__(self, expr, V, subset=None):
-        self.callable = make_interpolator(expr, V, subset)
+    def __init__(self, expr, V, subset=None, access=op2.WRITE):
+        self.callable = make_interpolator(expr, V, subset, access)
 
     @utils.known_pyop2_safe
     def interpolate(self):
@@ -64,7 +65,7 @@ class Interpolator(object):
         return self.callable()
 
 
-def make_interpolator(expr, V, subset):
+def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
     if isinstance(V, firedrake.Function):
@@ -86,12 +87,12 @@ def make_interpolator(expr, V, subset):
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset, access))
     elif hasattr(expr, 'eval'):
         if len(V) > 1:
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset, access))
     else:
         raise ValueError("Don't know how to interpolate a %r" % expr)
 
@@ -103,10 +104,12 @@ def make_interpolator(expr, V, subset):
     return partial(callable, loops, f)
 
 
-def _interpolator(V, dat, expr, subset):
+def _interpolator(V, dat, expr, subset, access):
     to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
 
+    if access is op2.READ:
+        raise ValueError("Can't have READ access for output function")
     if V.ufl_element().mapping() != "identity":
         raise NotImplementedError("Can only interpolate onto elements "
                                   "with affine mapping. Try projecting instead")
@@ -136,10 +139,8 @@ def _interpolator(V, dat, expr, subset):
             raise ValueError("UFL expression has incorrect shape for interpolation.")
         ast, oriented, needs_cell_sizes, coefficients, _ = compile_ufl_kernel(expr, to_pts, coords, coffee=False)
         kernel = op2.Kernel(ast, ast.name)
-        indexed = True
     elif hasattr(expr, "eval"):
         kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
-        indexed = False
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
 
@@ -149,15 +150,18 @@ def _interpolator(V, dat, expr, subset):
         cell_set = subset
     args = [kernel, cell_set]
 
-    copy_back = False
     if dat in set((c.dat for c in coefficients)):
         output = dat
         dat = op2.Dat(dat.dataset)
-        copy_back = True
-    if indexed:
-        args.append(dat(op2.WRITE, V.cell_node_map()))
+        if access is not op2.WRITE:
+            copyin = (partial(output.copy, dat), )
+        else:
+            copyin = ()
+        copyout = (partial(dat.copy, output), )
     else:
-        args.append(dat(op2.WRITE, V.cell_node_map()))
+        copyin = ()
+        copyout = ()
+    args.append(dat(access, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
         args.append(co.dat(op2.READ, co.cell_node_map()))
@@ -166,20 +170,14 @@ def _interpolator(V, dat, expr, subset):
         args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         m_ = coefficient.cell_node_map()
-        if indexed:
-            args.append(coefficient.dat(op2.READ, m_))
-        else:
-            args.append(coefficient.dat(op2.READ, m_))
+        args.append(coefficient.dat(op2.READ, m_))
 
     for o in coefficients:
         domain = o.ufl_domain()
         if domain is not None and domain.topology != mesh.topology:
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
-    if copy_back:
-        return partial(op2.par_loop, *args), partial(dat.copy, output)
-    else:
-        return (partial(op2.par_loop, *args), )
+    return copyin + (partial(op2.par_loop, *args), ) + copyout
 
 
 class GlobalWrapper(object):
