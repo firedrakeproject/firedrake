@@ -361,16 +361,18 @@ def generate(builder, wrapper_name=None):
     mapper.initialisers = [tuple(merger(i) for i in inits) for inits in mapper.initialisers]
 
     # rename indices and nodes (so that the counters start from zero)
-    pattern = re.compile(r"^([a-zA-Z_]+)([0-9]+$)")
+    pattern = re.compile(r"^([a-zA-Z_]+)([0-9]+)(_offset)?$")
     replacements = {}
     counter = defaultdict(itertools.count)
     for node in traversal(instructions):
-        if isinstance(node, (Index, RuntimeIndex, Variable, Argument)):
+        if isinstance(node, (Index, RuntimeIndex, Variable, Argument, NamedLiteral)):
             match = pattern.match(node.name)
             if match is None:
                 continue
-            prefix, _ = match.groups()
-            replacements[node] = "%s%d" % (prefix, next(counter[prefix]))
+            prefix, _, postfix = match.groups()
+            if postfix is None:
+                postfix = ""
+            replacements[node] = "%s%d%s" % (prefix, next(counter[(prefix, postfix)]), postfix)
 
     instructions = rename_nodes(instructions, replacements)
     mapper.initialisers = [rename_nodes(inits, replacements) for inits in mapper.initialisers]
@@ -716,7 +718,7 @@ def expression_namedliteral(expr, parameters):
     val = loopy.TemporaryVariable(name,
                                   dtype=expr.dtype,
                                   shape=expr.shape,
-                                  address_space=loopy.AddressSpace.GLOBAL,
+                                  address_space=loopy.AddressSpace.LOCAL,
                                   read_only=True,
                                   initializer=expr.value)
     parameters.temporaries[name] = val

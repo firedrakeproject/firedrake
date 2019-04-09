@@ -1,7 +1,8 @@
 from pyop2.codegen.node import traversal, reuse_if_untouched, Memoizer
 from functools import singledispatch
 from pyop2.codegen.representation import (Index, RuntimeIndex, FixedIndex, Node,
-                                          FunctionCall, Variable, Argument)
+                                          FunctionCall, Variable, Argument,
+                                          NamedLiteral)
 
 
 def collect_indices(expressions):
@@ -118,6 +119,12 @@ def _rename_node_rtindex(node, self):
     children = tuple(map(self, node.children))
     name = self.replace.get(node, node.name)
     return RuntimeIndex(*children, name=name)
+
+
+@_rename_node.register(NamedLiteral)
+def _rename_node_namedliteral(node, self):
+    name = self.replace.get(node, node.name)
+    return NamedLiteral(node.value, name)
 
 
 @_rename_node.register(Variable)
