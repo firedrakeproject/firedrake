@@ -126,7 +126,7 @@ class TestVectorMap:
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
-        void sum(unsigned int* edge, unsigned int *nodes) {
+        static void sum(unsigned int* edge, unsigned int *nodes) {
         *edge = nodes[0] + nodes[1];
         }
         """
@@ -141,7 +141,7 @@ class TestVectorMap:
     def test_read_1d_vector_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = numpy.arange(nele)
         k = """
-        void k(int *d, int *vd) {
+        static void k(int *d, int *vd) {
         *d = vd[0];
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
@@ -152,7 +152,7 @@ class TestVectorMap:
 
     def test_write_1d_vector_map(self, node, vd1, node2ele):
         k = """
-        void k(int *vd) {
+        static void k(int *vd) {
         vd[0] = 2;
         }
         """
@@ -166,7 +166,7 @@ class TestVectorMap:
         d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
 
         k = """
-        void k(int *vd, int *d) {
+        static void k(int *vd, int *d) {
         vd[0] += *d;
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
@@ -183,7 +183,7 @@ class TestVectorMap:
     def test_read_2d_vector_map(self, node, d2, vd2, node2ele):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         k = """
-        void k(int d[2], int vd[1][2]) {
+        static void k(int d[2], int vd[1][2]) {
         d[0] = vd[0][0];
         d[1] = vd[0][1];
         }"""
@@ -197,7 +197,7 @@ class TestVectorMap:
 
     def test_write_2d_vector_map(self, node, vd2, node2ele):
         k = """
-        void k(int vd[1][2]) {
+        static void k(int vd[1][2]) {
         vd[0][0] = 2;
         vd[0][1] = 3;
         }
@@ -214,7 +214,7 @@ class TestVectorMap:
         d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)
 
         k = """
-        void k(int vd[1][2], int d[2]) {
+        static void k(int vd[1][2], int d[2]) {
         vd[0][0] += d[0];
         vd[0][1] += d[1];
         }"""

@@ -290,7 +290,7 @@ def xtr_coords(xtr_dvnodes):
 @pytest.fixture
 def extrusion_kernel():
     kernel_code = """
-void extrusion(double *xtr, double *x, int* j)
+static void extrusion(double *xtr, double *x, int* j)
 {
     //Only the Z-coord is increased, the others stay the same
     xtr[0] = x[0];
@@ -314,7 +314,8 @@ area = area * (-1.0);
     kernel_code = FunDecl("void", "vol_comp",
                           [Decl("double", Symbol("A", (6, 6))),
                            Decl("double", Symbol("x", (6, 3)))],
-                          Block([init, assembly], open_scope=False))
+                          Block([init, assembly], open_scope=False),
+                          pred=["static"])
     return op2.Kernel(kernel_code.gencode(), "vol_comp")
 
 
@@ -333,7 +334,8 @@ area = area * (-1.0);
                           [Decl("double", Symbol("A", (6,))),
                            Decl("double", Symbol("x", (6, 3))),
                            Decl("int", Symbol("y", (1,)))],
-                          Block([init, assembly], open_scope=False))
+                          Block([init, assembly], open_scope=False),
+                          pred=["static"])
     return op2.Kernel(kernel_code.gencode(), "vol_comp_rhs")
 
 
@@ -346,7 +348,7 @@ class TestExtrusion:
     def test_extrusion(self, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g')
         mass = op2.Kernel("""
-void comp_vol(double A[1], double x[6][2], double y[1])
+static void comp_vol(double A[1], double x[6][2], double y[1])
 {
     double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
     if (abs < 0)
@@ -368,7 +370,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
     def test_direct_loop_inc(self, iterset, diterset):
         dat = op2.Dat(diterset)
         xtr_iterset = op2.ExtrudedSet(iterset, layers=10)
-        k = 'void k(double *x) { *x += 1.0; }'
+        k = 'static void k(double *x) { *x += 1.0; }'
         dat.data[:] = 0
         op2.par_loop(op2.Kernel(k, 'k'),
                      xtr_iterset, dat(op2.INC))
@@ -379,7 +381,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
         to in the parloop."""
 
         kernel_blah = """
-        void blah(double* x, int layer_arg){
+        static void blah(double* x, int layer_arg){
         x[0] = layer_arg;
         }"""
 
@@ -393,7 +395,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
                 for n in range(int(len(dat_f.data)/end) - 1)]
 
     def test_write_data_field(self, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
-        kernel_wo = "void wo(double* x) { x[0] = 42.0; }\n"
+        kernel_wo = "static void wo(double* x) { x[0] = 42.0; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "wo"),
                      elements, dat_f(op2.WRITE, field_map))
@@ -402,7 +404,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
 
     def test_write_data_coords(self, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
         kernel_wo_c = """
-        void wo_c(double x[6][2]) {
+        static void wo_c(double x[6][2]) {
            x[0][0] = 42.0; x[0][1] = 42.0;
            x[1][0] = 42.0; x[1][1] = 42.0;
            x[2][0] = 42.0; x[2][1] = 42.0;
@@ -419,7 +421,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
         self, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
         kernel_wtf = """
-        void wtf(double* y, double x[6][2]) {
+        static void wtf(double* y, double x[6][2]) {
            double sum = 0.0;
            for (int i=0; i<6; i++){
                 sum += x[i][0] + x[i][1];
@@ -435,7 +437,7 @@ void comp_vol(double A[1], double x[6][2], double y[1])
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
         kernel_inc = """
-        void inc(double y[6][2], double x[6][2]) {
+        static void inc(double y[6][2], double x[6][2]) {
            for (int i=0; i<6; i++){
              if (y[i][0] == 0){
                 y[i][0] += 1;

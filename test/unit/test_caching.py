@@ -297,7 +297,7 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
@@ -319,7 +319,7 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
@@ -329,7 +329,7 @@ class TestGeneratedCodeCache:
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        kernel_cpy = "void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
+        kernel_cpy = "static void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
@@ -344,7 +344,7 @@ class TestGeneratedCodeCache:
         assert len(self.cache) == 0
 
         kernel_swap = """
-void swap(unsigned int* x, unsigned int* y)
+static void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -373,7 +373,7 @@ void swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void swap(unsigned int* x, unsigned int* y)
+static void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -402,7 +402,7 @@ void swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void swap(unsigned int* x)
+static void swap(unsigned int* x)
 {
   unsigned int t;
   t = x[0];
@@ -430,7 +430,8 @@ void swap(unsigned int* x)
         assert len(self.cache) == 0
         kernel_code = FunDecl("void", "k",
                               [Decl("int*", c_sym("x"), qualifiers=["unsigned"])],
-                              c_for("i", 1, ""))
+                              c_for("i", 1, ""),
+                              pred=["static"])
         k = op2.Kernel(kernel_code.gencode(), 'k')
 
         op2.par_loop(k, iterset,
@@ -450,7 +451,7 @@ void swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
 
-        k = op2.Kernel("""void k(void *x) {}""", 'k')
+        k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, d(op2.WRITE))
 
@@ -468,7 +469,7 @@ void swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
 
-        k = op2.Kernel("""void k(void *x) {}""", 'k')
+        k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, g(op2.INC))
 
@@ -492,7 +493,7 @@ class TestKernelCache:
 
     def test_kernels_same_code_same_name(self):
         """Kernels with same code and name should be retrieved from cache."""
-        code = "void k(void *x) {}"
+        code = "static void k(void *x) {}"
         self.cache.clear()
         k1 = op2.Kernel(code, 'k')
         k2 = op2.Kernel(code, 'k')
@@ -502,7 +503,7 @@ class TestKernelCache:
         """Kernels with same code and different name should not be retrieved
         from cache."""
         self.cache.clear()
-        code = "void k(void *x) {}"
+        code = "static void k(void *x) {}"
         k1 = op2.Kernel(code, 'k')
         k2 = op2.Kernel(code, 'l')
         assert k1 is not k2 and len(self.cache) == 2
@@ -511,16 +512,16 @@ class TestKernelCache:
         """Kernels with different code and same name should not be retrieved
         from cache."""
         self.cache.clear()
-        k1 = op2.Kernel("void k(void *x) {}", 'k')
-        k2 = op2.Kernel("void l(void *x) {}", 'k')
+        k1 = op2.Kernel("static void k(void *x) {}", 'k')
+        k2 = op2.Kernel("static void l(void *x) {}", 'k')
         assert k1 is not k2 and len(self.cache) == 2
 
     def test_kernels_differing_code_differing_name(self):
         """Kernels with different code and different name should not be
         retrieved from cache."""
         self.cache.clear()
-        k1 = op2.Kernel("void k(void *x) {}", 'k')
-        k2 = op2.Kernel("void l(void *x) {}", 'l')
+        k1 = op2.Kernel("static void k(void *x) {}", 'k')
+        k2 = op2.Kernel("static void l(void *x) {}", 'l')
         assert k1 is not k2 and len(self.cache) == 2
 
 

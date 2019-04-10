@@ -72,28 +72,28 @@ class TestGlobalReductions:
     @pytest.fixture(scope='module')
     def k1_write_to_dat(cls):
         k = """
-        void k(unsigned int *x, unsigned int *g) { *x = *g; }
+        static void k(unsigned int *x, unsigned int *g) { *x = *g; }
         """
         return op2.Kernel(k, "k")
 
     @pytest.fixture(scope='module')
     def k1_inc_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) { *g += *x; }
+        static void k(unsigned int *g, unsigned int *x) { *g += *x; }
         """
         return op2.Kernel(k, "k")
 
     @pytest.fixture(scope='module')
     def k1_min_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) { if (*x < *g) *g = *x; }
+        static void k(unsigned int *g, unsigned int *x) { if (*x < *g) *g = *x; }
         """
         return op2.Kernel(k, "k")
 
     @pytest.fixture(scope='module')
     def k2_min_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) {
+        static void k(unsigned int *g, unsigned int *x) {
         if (x[0] < g[0]) g[0] = x[0];
         if (x[1] < g[1]) g[1] = x[1];
         }
@@ -103,7 +103,7 @@ class TestGlobalReductions:
     @pytest.fixture(scope='module')
     def k1_max_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) {
+        static void k(unsigned int *g, unsigned int *x) {
         if (*x > *g) *g = *x;
         }
         """
@@ -112,7 +112,7 @@ class TestGlobalReductions:
     @pytest.fixture(scope='module')
     def k2_max_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) {
+        static void k(unsigned int *g, unsigned int *x) {
         if (x[0] > g[0]) g[0] = x[0];
         if (x[1] > g[1]) g[1] = x[1];
         }
@@ -122,14 +122,14 @@ class TestGlobalReductions:
     @pytest.fixture(scope='module')
     def k2_write_to_dat(cls, request):
         k = """
-        void k(unsigned int *x, unsigned int *g) { *x = g[0] + g[1]; }
+        static void k(unsigned int *x, unsigned int *g) { *x = g[0] + g[1]; }
         """
         return op2.Kernel(k, "k")
 
     @pytest.fixture(scope='module')
     def k2_inc_to_global(cls):
         k = """
-        void k(unsigned int *g, unsigned int *x) { g[0] += x[0]; g[1] += x[1]; }
+        static void k(unsigned int *g, unsigned int *x) { g[0] += x[0]; g[1] += x[1]; }
         """
         return op2.Kernel(k, "k")
 
@@ -151,7 +151,7 @@ class TestGlobalReductions:
 
     def test_direct_min_uint32(self, set, duint32):
         kernel_min = """
-void k(unsigned int* g, unsigned int* x)
+static void k(unsigned int* g, unsigned int* x)
 {
   if ( *x < *g ) *g = *x;
 }
@@ -165,7 +165,7 @@ void k(unsigned int* g, unsigned int* x)
 
     def test_direct_min_int32(self, set, dint32):
         kernel_min = """
-void k(int* g, int* x)
+static void k(int* g, int* x)
 {
   if ( *x < *g ) *g = *x;
 }
@@ -179,7 +179,7 @@ void k(int* g, int* x)
 
     def test_direct_max_int32(self, set, dint32):
         kernel_max = """
-void k(int* g, int* x)
+static void k(int* g, int* x)
 {
   if ( *x > *g ) *g = *x;
 }
@@ -193,7 +193,7 @@ void k(int* g, int* x)
 
     def test_direct_min_float(self, set, dfloat32):
         kernel_min = """
-void k(float* g, float* x)
+static void k(float* g, float* x)
 {
   if ( *x < *g ) *g = *x;
 }
@@ -208,7 +208,7 @@ void k(float* g, float* x)
 
     def test_direct_max_float(self, set, dfloat32):
         kernel_max = """
-void k(float* g, float* x)
+static void k(float* g, float* x)
 {
   if ( *x > *g ) *g = *x;
 }
@@ -222,7 +222,7 @@ void k(float* g, float* x)
 
     def test_direct_min_double(self, set, dfloat64):
         kernel_min = """
-void k(double* g, double* x)
+static void k(double* g, double* x)
 {
   if ( *x < *g ) *g = *x;
 }
@@ -236,7 +236,7 @@ void k(double* g, double* x)
 
     def test_direct_max_double(self, set, dfloat64):
         kernel_max = """
-void k(double* g, double* x)
+static void k(double* g, double* x)
 {
   if ( *x > *g ) *g = *x;
 }
@@ -423,7 +423,7 @@ void k(double* g, double* x)
     def test_globals_with_different_types(self, set):
         g_uint32 = op2.Global(1, [0], numpy.uint32, "g_uint32")
         g_double = op2.Global(1, [0.0], numpy.float64, "g_double")
-        k = """void k(unsigned int* i, double* d) { *i += 1; *d += 1.0f; }"""
+        k = """static void k(unsigned int* i, double* d) { *i += 1; *d += 1.0f; }"""
         op2.par_loop(op2.Kernel(k, "k"),
                      set,
                      g_uint32(op2.INC),
@@ -433,7 +433,7 @@ void k(double* g, double* x)
 
     def test_inc_repeated_loop(self, set):
         g = op2.Global(1, 0, dtype=numpy.uint32)
-        k = """void k(unsigned int* g) { *g += 1; }"""
+        k = """static void k(unsigned int* g) { *g += 1; }"""
         op2.par_loop(op2.Kernel(k, "k"),
                      set,
                      g(op2.INC))
@@ -451,7 +451,7 @@ void k(double* g, double* x)
     def test_inc_reused_loop(self, set):
         from pyop2.base import collecting_loops
         g = op2.Global(1, 0, dtype=numpy.uint32)
-        k = """void k(unsigned int* g) { *g += 1; }"""
+        k = """static void k(unsigned int* g) { *g += 1; }"""
         with collecting_loops(True):
             loop = op2.par_loop(op2.Kernel(k, "k"),
                                 set,
