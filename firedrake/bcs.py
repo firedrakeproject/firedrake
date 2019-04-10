@@ -1,4 +1,6 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+import numpy as np
+
 import ufl
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
@@ -94,6 +96,17 @@ class BCBase(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
+        # Define facet, edge, vertex using tuples:
+        # facet  = (1,)
+        # edge   = (1,2)
+        # vertex = (1,2,3)
+        """
+        if isinstance(self.sub_domain, int):
+            self.sub_domain = (self.sub_domain, )
+        elif isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], int):
+            tpl = ((i, ) for i in range(len(self.sub_domain)))
+            self.sub_domain = tpl
+        """
         bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
         if isinstance(self._function_space.finat_element, finat.Hermite) and \
            self._function_space.mesh().topological_dimension() == 1:
