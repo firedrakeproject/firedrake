@@ -253,13 +253,14 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface):
     return builder.construct_kernel(kernel_name, body, quad_rule)
 
 
-def compile_expression_at_points(expression, points, coordinates, interface=None, parameters=None):
+def compile_expression_at_points(expression, points, to_element, coordinates, interface=None, parameters=None):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
     function spaces with only point evaluation nodes.
 
     :arg expression: UFL expression
     :arg points: reference coordinates of the evaluation points
+    :arg to_element: UFL element to interpolate onto
     :arg coordinates: the coordinate function
     :arg parameters: parameters object
     :arg interface: backend module for the kernel interface
@@ -273,10 +274,6 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
         _.update(parameters)
         parameters = _
 
-    # No arguments, please!
-    if extract_arguments(expression):
-        return ValueError("Cannot interpolate UFL expression with Arguments!")
-
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
 
@@ -289,6 +286,9 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
         interface = firedrake_interface.ExpressionKernelBuilder
 
     builder = interface(parameters["scalar_type"])
+    arguments = extract_arguments(expression)
+    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
 
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
@@ -311,7 +311,8 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
-                  point_set=point_set)
+                  point_set=point_set,
+                  argument_multiindices=argument_multiindices)
     ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
     # Deal with non-scalar expressions
@@ -321,8 +322,8 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
         ir = gem.Indexed(ir, tensor_indices)
 
     # Build kernel body
-    return_shape = (len(points),) + value_shape
-    return_indices = point_set.indices + tensor_indices
+    return_indices = point_set.indices + tensor_indices + tuple(chain(*argument_multiindices))
+    return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
     return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
