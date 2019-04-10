@@ -59,22 +59,27 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False):
-        self.callable, nargs = make_interpolator(expr, V, subset)
-        self.nargs = nargs
+        self.callable, args = make_interpolator(expr, V, subset)
+        self.args = args
+        self.nargs = len(args)
         self.freeze_expr = freeze_expr
         self.V = V
 
     @utils.known_pyop2_safe
-    def interpolate(self, *function, output=None):
+    def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
 
         :arg function: If the expression being interpolated contains an
            :class:`ufl.Argument`, then the :class:`.Function` value to
            interpolate.
         :kwarg output: Optional. A :class:`.Function` to contain the output.
+        :kwarg transpose: Set to true to apply the transpose (adjoint) of the
+           interpolation operator.
 
         :returns: The resulting interpolated :class:`.Function`.
         """
+        if transpose and not self.nargs:
+            raise ValueError("Cannot currently apply transpose interpolation with no argument.")
         if self.nargs != len(function):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
                              % (len(function), self.nargs))
@@ -89,12 +94,19 @@ class Interpolator(object):
                     self.frozen_callable = callable.copy()
 
         if self.nargs:
-            result = output or firedrake.Function(self.V)
-            function, = function
             callable._force_evaluation()
-            with function.dat.vec_ro as x:
-                with result.dat.vec_wo as out:
-                    callable.handle.mult(x, out)
+            function, = function
+            if not transpose:
+                result = output or firedrake.Function(self.V)
+                with function.dat.vec_ro as x:
+                    with result.dat.vec_wo as out:
+                        callable.handle.mult(x, out)
+            else:
+                result = output or firedrake.Function(self.args[0].function_space())
+                with function.dat.vec_ro as x:
+                    with result.dat.vec_wo as out:
+                        callable.handle.multTranspose(x, out)
+
             return result
         else:
             if output:
@@ -190,7 +202,7 @@ def make_interpolator(expr, V, subset):
             l()
         return f
 
-    return partial(callable, loops, f), len(arguments)
+    return partial(callable, loops, f), arguments
 
 
 def _interpolator(V, tensor, expr, subset, arguments):
