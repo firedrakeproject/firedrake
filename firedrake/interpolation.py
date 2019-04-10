@@ -3,6 +3,7 @@ from functools import partial
 
 import FIAT
 import ufl
+from ufl.algorithms import extract_arguments
 
 from coffee import base as ast
 from pyop2 import op2
@@ -43,6 +44,10 @@ class Interpolator(object):
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
+    :kwarg subset: An optional :class:`pyop2.Subset` to apply the
+        interpolation over.
+    :kwarg freeze_expr: Set to True to prevent the expression being
+        re-evaluated on each call.
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
@@ -53,16 +58,53 @@ class Interpolator(object):
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
     """
-    def __init__(self, expr, V, subset=None):
-        self.callable = make_interpolator(expr, V, subset)
+    def __init__(self, expr, V, subset=None, freeze_expr=False):
+        self.callable, nargs = make_interpolator(expr, V, subset)
+        self.nargs = nargs
+        self.freeze_expr = freeze_expr
+        self.V = V
 
     @utils.known_pyop2_safe
-    def interpolate(self):
+    def interpolate(self, *function, output=None):
         """Compute the interpolation.
+
+        :arg function: If the expression being interpolated contains an
+           :class:`ufl.Argument`, then the :class:`.Function` value to
+           interpolate.
+        :kwarg output: Optional. A :class:`.Function` to contain the output.
 
         :returns: The resulting interpolated :class:`.Function`.
         """
-        return self.callable()
+        if self.nargs != len(function):
+            raise ValueError("Passed %d Functions to interpolate, expected %d"
+                             % (len(function), self.nargs))
+        try:
+            callable = self.frozen_callable
+        except AttributeError:
+            callable = self.callable()
+            if self.freeze_expr:
+                if self.nargs:
+                    self.frozen_callable = callable
+                else:
+                    self.frozen_callable = callable.copy()
+
+        if self.nargs:
+            result = output or firedrake.Function(self.V)
+            function, = function
+            callable._force_evaluation()
+            with function.dat.vec_ro as x:
+                with result.dat.vec_wo as out:
+                    callable.handle.mult(x, out)
+            return result
+        else:
+            if output:
+                output.assign(callable)
+                return output
+            if isinstance(self.V, firedrake.Function):
+                self.V.assign(callable)
+                return self.V
+            else:
+                return callable.copy()
 
 
 class SubExpression(object):
@@ -90,11 +132,28 @@ class SubExpression(object):
 def make_interpolator(expr, V, subset):
     assert isinstance(expr, ufl.classes.Expr)
 
-    if isinstance(V, firedrake.Function):
-        f = V
-        V = f.function_space()
+    arguments = extract_arguments(expr)
+    if len(arguments) == 0:
+        if isinstance(V, firedrake.Function):
+            f = V
+            V = f.function_space()
+        else:
+            f = firedrake.Function(V)
+        tensor = f.dat
+    elif len(arguments) == 1:
+        if isinstance(V, firedrake.Function):
+            raise ValueError("Cannot interpolate an expression with an argument into a Function")
+
+        argfs = arguments[0].function_space()
+        sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
+                                ((V.cell_node_map(), argfs.cell_node_map()),),
+                                "%s_%s_sparsity" % (V.name, argfs.name),
+                                nest=False,
+                                block_sparse=True)
+        tensor = op2.Mat(sparsity)
+        f = tensor
     else:
-        f = firedrake.Function(V)
+        raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
 
     # Make sure we have an expression of the right length i.e. a value for
     # each component in the value shape of each function space
@@ -109,12 +168,12 @@ def make_interpolator(expr, V, subset):
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, tensor, expr, subset, arguments))
     elif hasattr(expr, 'eval'):
         if len(V) > 1:
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, tensor, expr, subset, arguments))
     else:
         # Slice the expression and pass in the right number of values for
         # each component function space of this function
@@ -123,7 +182,7 @@ def make_interpolator(expr, V, subset):
             idx = d if fs.rank == 0 else slice(d, d+dim)
             loops.extend(_interpolator(fs, dat,
                                        SubExpression(expr, idx, fs.ufl_element().value_shape()),
-                                       subset))
+                                       subset, arguments))
             d += dim
 
     def callable(loops, f):
@@ -131,10 +190,10 @@ def make_interpolator(expr, V, subset):
             l()
         return f
 
-    return partial(callable, loops, f)
+    return partial(callable, loops, f), len(arguments)
 
 
-def _interpolator(V, dat, expr, subset):
+def _interpolator(V, tensor, expr, subset, arguments):
     to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
 
@@ -165,7 +224,7 @@ def _interpolator(V, dat, expr, subset):
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_ufl_kernel(expr, to_pts, coords)
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_ufl_kernel(expr, to_pts, V.ufl_element(), coords)
         kernel = op2.Kernel(ast, ast.name)
         indexed = True
     elif hasattr(expr, "eval"):
@@ -184,14 +243,18 @@ def _interpolator(V, dat, expr, subset):
     args = [kernel, cell_set]
 
     copy_back = False
-    if dat in set((c.dat for c in coefficients)):
-        output = dat
-        dat = op2.Dat(dat.dataset)
+    if tensor in set((c.dat for c in coefficients)):
+        output = tensor
+        tensor = op2.Dat(tensor.dataset)
         copy_back = True
     if indexed:
-        args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
+        if isinstance(tensor, op2.Dat):
+            args.append(tensor(op2.WRITE, V.cell_node_map()[op2.i[0]]))
+        else:
+            args.append(tensor(op2.WRITE, (V.cell_node_map()[op2.i[0]],
+                                           arguments[0].function_space().cell_node_map()[op2.i[1]])))
     else:
-        args.append(dat(op2.WRITE, V.cell_node_map()))
+        args.append(tensor(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
         args.append(co.dat(op2.READ, co.cell_node_map()[op2.i[0]]))
@@ -211,7 +274,9 @@ def _interpolator(V, dat, expr, subset):
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
     if copy_back:
-        return partial(op2.par_loop, *args), partial(dat.copy, output)
+        return partial(op2.par_loop, *args), partial(tensor.copy, output)
+    elif isinstance(tensor, op2.Mat):
+        return partial(op2.par_loop, *args), tensor.assemble()
     else:
         return (partial(op2.par_loop, *args), )
 
