@@ -199,6 +199,26 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False):
     return 4 + array.nbytes     # 4 is for the array size (uint32)
 
 
+def active_field_attributes(ofunctions):
+    # select first function of each rank present as "active field"
+    # and return the corresponding attributes for the (P)PointData element
+    s = ''
+    ranks = set()
+    for ofunction in ofunctions:
+        array, name, _ = ofunction
+        rank = len(array.shape[1:])
+        if rank in ranks:
+            continue
+        ranks.add(rank)
+        if rank == 0:
+            s += ' Scalars="%s"' % name
+        elif rank == 1:
+            s += ' Vectors="%s"' % name
+        elif rank == 2:
+            s += ' Tensors="%s"' % name
+    return s.encode('ascii')
+
+
 def get_vtu_name(basename, rank, size):
     if size == 1:
         return "%s.vtu" % basename
@@ -444,7 +464,7 @@ class File(object):
             offset += write_array_descriptor(f, types, offset=offset)
             f.write(b'</Cells>\n')
 
-            f.write(b'<PointData>\n')
+            f.write(b'<PointData%s>\n' % active_field_attributes(functions))
             for function in functions:
                 offset += write_array_descriptor(f, function, offset=offset)
             f.write(b'</PointData>\n')
@@ -489,7 +509,7 @@ class File(object):
             write_array_descriptor(f, types, parallel=True)
             f.write(b'</PCells>\n')
 
-            f.write(b'<PPointData>\n')
+            f.write(b'<PPointData%s>\n' % active_field_attributes(functions))
             for function in functions:
                 write_array_descriptor(f, function, parallel=True)
             f.write(b'</PPointData>\n')
