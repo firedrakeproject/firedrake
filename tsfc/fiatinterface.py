@@ -42,7 +42,6 @@ supported_elements = {
     "FacetBubble": FIAT.FacetBubble,
     "Crouzeix-Raviart": FIAT.CrouzeixRaviart,
     "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
-    "DPC": FIAT.DPC,
     "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
     "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
     "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
@@ -61,6 +60,8 @@ supported_elements = {
     "RTCF": None,
     "NCE": None,
     "NCF": None,
+    "DPC": FIAT.DPC,
+    "S": FIAT.Serendipity
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -140,14 +141,14 @@ def convert_finiteelement(element, vector_is_mixed):
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     elif element.family() == "DPC":
-        if element.get_spatial_dimension() == 2:
+        if element.cell().geometric_dimension() == 2:
             element = element.reconstruct(cell=ufl.hypercube(2))
-        elif element.get_spatial_dimension() == 3:
+        elif element.cell.geometric_dimension() == 3:
             element = element.reconstruct(cell=ufl.hypercube(3))
     elif element.family() == "S":
-        if element.get_spatial_dimension() == 2:
+        if element.cell().geometric_dimension() == 2:
             element = element.reconstruct(cell=ufl.hypercube(2))
-        elif element.get_spatial_dimension() == 3:
+        elif element.cell().geometric_dimension() == 3:
             element = element.reconstruct(cell=ufl.hypercube(3))
     return lmbda(cell, element.degree())
 
