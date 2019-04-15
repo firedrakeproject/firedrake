@@ -89,9 +89,14 @@ class BCBase(object):
     @utils.cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
-        if isinstance(self.sub_domain, str):
-            return (self.sub_domain, )
-        return (as_tuple(self.sub_domain), )
+        if isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], tuple):
+            return self.sub_domain
+        elif isinstance(self.sub_domain, tuple):
+            return as_tuple([(i, ) for i in self.sub_domain])
+        elif isinstance(self.sub_domain, (str, int)):
+            return ((self.sub_domain, ), )
+        else:
+            raise TypeError("Unknown sub_domain type")
 
     @utils.cached_property
     def nodes(self):
@@ -100,17 +105,26 @@ class BCBase(object):
         # facet  = (1,)
         # edge   = (1,2)
         # vertex = (1,2,3)
-        """
-        if isinstance(self.sub_domain, int):
-            self.sub_domain = (self.sub_domain, )
-        elif isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], int):
-            tpl = ((i, ) for i in range(len(self.sub_domain)))
-            self.sub_domain = tpl
-        """
-        bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
-        if isinstance(self._function_space.finat_element, finat.Hermite) and \
-           self._function_space.mesh().topological_dimension() == 1:
-            bcnodes = bcnodes[::2]  # every second dof is the vertex value
+        if isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], tuple):
+            bcnodes = np.empty(0, dtype=int)
+            for iboun in range(len(self.sub_domain)):
+                _bcnodes = self._function_space.boundary_nodes(self.sub_domain[iboun][0], self.method)
+                if isinstance(self._function_space.finat_element, finat.Hermite) and \
+                    self._function_space.mesh().topological_dimension() == 1:
+                    _bcnodes = _bcnodes[::2]  # every second dof is the vertex value
+                for i in range(1, len(self.sub_domain[iboun])):
+                    # intersection of facets
+                    _bcnodes1 = self._function_space.boundary_nodes(self.sub_domain[iboun][i], self.method)
+                    if isinstance(self._function_space.finat_element, finat.Hermite) and \
+                        self._function_space.mesh().topological_dimension() == 1:
+                        _bcnodes1 = _bcnodes1[::2]  # every second dof is the vertex value
+                    _bcnodes = np.intersect1d(_bcnodes, _bcnodes1)
+                bcnodes = np.concatenate((bcnodes, _bcnodes))
+        else:
+            bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
+            if isinstance(self._function_space.finat_element, finat.Hermite) and \
+                self._function_space.mesh().topological_dimension() == 1:
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
         return bcnodes
 
     @utils.cached_property
@@ -412,19 +426,22 @@ class EquationBC(BCBase):
 
 
 class EquationBCSplit(BCBase):
-    def __init__(self, ebc, form, bcs=[], V=None):
+    def __init__(self, ebc, form, bcs=None, V=None):
         if not isinstance(ebc, (EquationBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
         if V is None:
             V = ebc._function_space
-        super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method="topological")
+        super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method=ebc.method)
         self.f = form
-        self.bcs = bcs
+        if bcs is None:
+            self.bcs = []
+        else:
+            self.bcs = bcs
 
     def integrals(self):
         return self.f.integrals()
 
     def add(self, bc):
-        if not isinstance(bc, (DirichletBC, EquationBC)):
+        if not isinstance(bc, (DirichletBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit.add expects an instance of DirichletBC or EquationBCSplit.")
         self.bcs.append(bc)

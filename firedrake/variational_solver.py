@@ -40,7 +40,6 @@ class NonlinearVariationalProblem(object):
         self.F = F
         self.Jp = Jp
         self.bcs = solving._extract_bcs(bcs)
-
         # Argument checking
         if not isinstance(self.u, function.Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
@@ -222,10 +221,17 @@ class NonlinearVariationalSolver(OptionsManager):
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         # Apply the boundary conditions to the initial guess.
-        from firedrake.bcs import DirichletBC
-        for bc in self._problem.bcs:
-            if isinstance(bc, DirichletBC):
-                bc.apply(self._problem.u)
+        from firedrake.bcs import DirichletBC, EquationBC
+
+        # Recursively apply DirichletBCs
+        def rapply(bcs, u):
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
+                    bc.apply(u)
+                elif isinstance(bc, EquationBC):
+                    rapply(bc.bcs, u)
+
+        rapply(self._problem.bcs, self._problem.u)
 
         if bounds is not None:
             lower, upper = bounds

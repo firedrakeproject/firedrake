@@ -446,27 +446,35 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # Extract block from tensor and test/trial spaces
         # FIXME Ugly variable renaming required because functions are not
         # lexical closures in Python and we're writing to these variables
+        tsbc = []
+        trbc = []
         if is_mat and result_matrix.block_shape > (1, 1):
-            tsbc = []
-            trbc = []
             # Unwind ComponentFunctionSpace to check for matching BCs
-            if bcs is not None:
-                for bc in bcs:
-                    fs = bc.function_space()
-                    if fs.component is not None:
-                        fs = fs.parent
-                    if fs.index == i:
-                        tsbc.append(bc)
-                    if fs.index == j and isinstance(bc, DirichletBC):
-                        trbc.append(bc)
+            def collect_dbc(bcs):
+                if bcs is not None:
+                    for bc in bcs:
+                        fs = bc.function_space()
+                        if fs.component is not None:
+                            fs = fs.parent
+                        if fs.index == i:
+                            tsbc.append(bc)
+                        if fs.index == j:
+                            if isinstance(bc, DirichletBC):
+                                trbc.append(bc)
+                            elif isinstance(bc, EquationBCSplit):
+                                collect_dbc(bc.bcs)
+            collect_dbc(bcs)
         elif is_mat:
-            tsbc = []
-            trbc = []
-            if bcs is not None:
-                for bc in bcs:
-                    tsbc.append(bc)
-                    if isinstance(bc, DirichletBC):
-                        trbc.append(bc)
+            # Recursively add Dirichlet BCs
+            def collect_dbc(bcs):
+                if bcs is not None:
+                    for bc in bcs:
+                        tsbc.append(bc)
+                        if isinstance(bc, DirichletBC):
+                            trbc.append(bc)
+                        elif isinstance(bc, EquationBCSplit):
+                            collect_dbc(bc.bcs)
+            collect_dbc(bcs)
 
         # Now build arguments for the par_loop
         kwargs = {}
@@ -629,8 +637,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                 yield tensor[i, j].set_local_diagonal_entries(nodes)
                             else:
                                 raise RuntimeError("Unhandled BC case")
-        for bc in bcs:
-            if isinstance(bc, EquationBCSplit):
+            elif isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
@@ -639,25 +646,19 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                      assemble_now=assemble_now,
                                      allocate_only=False,
                                      zero_tensor=False)
-        for bc in bcs:
-            if not isinstance(bc, (DirichletBC, EquationBCSplit)):
+            else:
                 raise NotImplementedError("Undefined type of bcs class provided.")
 
     if bcs is not None and is_vec:
-        # We first apply DirichletBCs, and then add contribution
-        # of EquationBCs, being consistent with the Jacobian.
-        for bc in bcs:
-            yield functools.partial(bc.zero, result_function)
-        # Populate boundary condition rows
-        # Insertion
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 if assemble_now:
                     yield functools.partial(bc.apply, result_function)
-        # Addition
-        for bc in bcs:
-            if isinstance(bc, EquationBCSplit):
-                yield from _assemble(bc.f, tensor=result_function, bcs=None,
+                else:
+                    yield functools.partial(bc.zero, result_function)
+            elif isinstance(bc, EquationBCSplit):
+                yield functools.partial(bc.zero, result_function)
+                yield from _assemble(bc.f, tensor=result_function, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
                                      inverse=inverse, mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,

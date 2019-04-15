@@ -130,17 +130,11 @@ class _SNESContext(object):
             self.bcs_J = None
             self.bcs_Jp = None
         else:
-            # For each of F, J, and Jp, we need to make deep
+            # For each in (F, J, Jp), we need to make deep
             # (partial) copy if bc objects themselves have .bcs;
             # see bcs.py.
             def create_bc_tree(ebc, form_type):
-                if form_type == "F":
-                    ebcsplit = EquationBCSplit(ebc, ebc.F)
-                elif form_type == "J":
-                    ebcsplit = EquationBCSplit(ebc, ebc.J)
-                elif form_type == "Jp":
-                    ebcsplit = EquationBCSplit(ebc, ebc.Jp)
-
+                ebcsplit = EquationBCSplit(ebc, getattr(ebc, form_type))
                 for bbc in ebc.bcs:
                     if isinstance(bbc, DirichletBC):
                         ebcsplit.add(bbc)
@@ -370,7 +364,7 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake.bcs import DirichletBC
+        from firedrake.bcs import DirichletBC, EquationBC
 
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
@@ -387,9 +381,15 @@ class _SNESContext(object):
         if fine is not None:
             _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
-            for bc in ctx._problem.bcs:
-                if isinstance(bc, DirichletBC):
-                    bc.apply(ctx._x)
+
+            def rapply(bcs, u):
+                for bc in bcs:
+                    if isinstance(bc, DirichletBC):
+                        bc.apply(u)
+                    elif isinstance(bc, EquationBC):
+                        rapply(bc.bcs, u)
+
+            rapply(ctx._problem.bcs, ctx._x)
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()
