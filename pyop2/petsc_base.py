@@ -565,6 +565,10 @@ class MatBlock(base.Mat):
                                                       iscol=colis)
         self.comm = parent.comm
 
+    @utils.cached_property
+    def _kernel_args_(self):
+        return (self.handle.handle, )
+
     @property
     def assembly_state(self):
         # Track our assembly state only
@@ -663,6 +667,10 @@ class Mat(base.Mat):
         base.Mat.__init__(self, *args, **kwargs)
         self._init()
         self.assembly_state = Mat.ASSEMBLED
+
+    @utils.cached_property
+    def _kernel_args_(self):
+        return (self.handle.handle, )
 
     @collective
     def _init(self):
@@ -813,22 +821,17 @@ class Mat(base.Mat):
     def __call__(self, access, path):
         """Override the parent __call__ method in order to special-case global
         blocks in matrices."""
-        try:
-            # Usual case
-            return super(Mat, self).__call__(access, path)
-        except TypeError:
-            # One of the path entries was not an Arg.
-            if path == (None, None):
-                return _make_object('Arg',
-                                    data=self.handle.getPythonContext().global_,
-                                    access=access)
-            elif None in path:
-                thispath = path[0] or path[1]
-                return _make_object('Arg', data=self.handle.getPythonContext().dat,
-                                    map=thispath.map, idx=thispath.idx,
-                                    access=access)
-            else:
-                raise
+        # One of the path entries was not an Arg.
+        if path == (None, None):
+            return _make_object('Arg',
+                                data=self.handle.getPythonContext().global_,
+                                access=access)
+        elif None in path:
+            thispath = path[0] or path[1]
+            return _make_object('Arg', data=self.handle.getPythonContext().dat,
+                                map=thispath, access=access)
+        else:
+            return super().__call__(access, path)
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``

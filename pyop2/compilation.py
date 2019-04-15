@@ -46,6 +46,7 @@ from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
+from pyop2.base import JITModule
 
 
 def _check_hashes(x, y, datatype):
@@ -197,20 +198,23 @@ class Compiler(object):
             if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
                 return ["-fno-tree-loop-vectorize"]
+            if version.StrictVersion("7.3") <= ver < version.StrictVersion("7.4"):
+                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
+                return ["-fno-tree-loop-vectorize"]
         return []
 
     @collective
-    def get_so(self, src, extension):
+    def get_so(self, jitmodule, extension):
         """Build a shared library and load it
 
-        :arg src: The source string to compile.
+        :arg jitmodule: The JIT Module which can generate the code to compile.
         :arg extension: extension of the source file (c, cpp).
 
         Returns a :class:`ctypes.CDLL` object of the resulting shared
         library."""
 
         # Determine cache key
-        hsh = md5(src.encode())
+        hsh = md5(str(jitmodule.cache_key).encode())
         hsh.update(self._cc.encode())
         if self._ld:
             hsh.update(self._ld.encode())
@@ -220,6 +224,9 @@ class Compiler(object):
         basename = hsh.hexdigest()
 
         cachedir = configuration['cache_dir']
+
+        dirpart, basename = basename[:2], basename[2:]
+        cachedir = os.path.join(cachedir, dirpart)
         pid = os.getpid()
         cname = os.path.join(cachedir, "%s_p%d.%s" % (basename, pid, extension))
         oname = os.path.join(cachedir, "%s_p%d.o" % (basename, pid))
@@ -235,11 +242,10 @@ class Compiler(object):
                 output = os.path.join(cachedir, "mismatching-kernels")
                 srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
                 if self.comm.rank == 0:
-                    if not os.path.exists(output):
-                        os.makedirs(output, exist_ok=True)
+                    os.makedirs(output, exist_ok=True)
                 self.comm.barrier()
                 with open(srcfile, "w") as f:
-                    f.write(src)
+                    f.write(jitmodule.code_to_compile)
                 self.comm.barrier()
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
@@ -249,13 +255,12 @@ class Compiler(object):
             # No, let's go ahead and build
             if self.comm.rank == 0:
                 # No need to do this on all ranks
-                if not os.path.exists(cachedir):
-                    os.makedirs(cachedir, exist_ok=True)
+                os.makedirs(cachedir, exist_ok=True)
                 logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
                     with open(cname, "w") as f:
-                        f.write(src)
+                        f.write(jitmodule.code_to_compile)
                     # Compiler also links
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
@@ -379,6 +384,7 @@ class LinuxCompiler(Compiler):
             stdargs = []
         cppargs = stdargs + ['-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
+
         super(LinuxCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
                                             cpp=cpp, comm=comm)
 
@@ -409,40 +415,57 @@ class LinuxIntelCompiler(Compiler):
 
 
 @collective
-def load(src, extension, fn_name, cppargs=[], ldargs=[],
+def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
          argtypes=None, restype=None, compiler=None, comm=None):
     """Build a shared library and return a function pointer from it.
 
-    :arg src: A string containing the source to build
+    :arg jitmodule: The JIT Module which can generate the code to compile, or
+        the string representing the source code.
     :arg extension: extension of the source file (c, cpp)
     :arg fn_name: The name of the function to return from the resulting library
     :arg cppargs: A list of arguments to the C compiler (optional)
     :arg ldargs: A list of arguments to the linker (optional)
-    :arg argtypes: A list of ctypes argument types matching the
-         arguments of the returned function (optional, pass ``None``
-         for ``void``).
+    :arg argtypes: A list of ctypes argument types matching the arguments of
+         the returned function (optional, pass ``None`` for ``void``). This is
+         only used when string is passed in instead of JITModule.
     :arg restype: The return type of the function (optional, pass
          ``None`` for ``void``).
     :arg compiler: The name of the C compiler (intel, ``None`` for default).
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
+    if isinstance(jitmodule, str):
+        class StrCode(object):
+            def __init__(self, code, argtypes):
+                self.code_to_compile = code
+                self.cache_key = code
+                self.argtypes = argtypes
+        code = StrCode(jitmodule, argtypes)
+    elif isinstance(jitmodule, JITModule):
+        code = jitmodule
+    else:
+        raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
+
     platform = sys.platform
     cpp = extension == "cpp"
+    if not compiler:
+        compiler = configuration["compiler"]
     if platform.find('linux') == 0:
-        if compiler == 'intel':
+        if compiler == 'icc':
             compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
-        else:
+        elif compiler == 'gcc':
             compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
+        else:
+            raise CompilationError("Unrecognized compiler name '%s'" % compiler)
     elif platform.find('darwin') == 0:
         compiler = MacCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)
-    dll = compiler.get_so(src, extension)
+    dll = compiler.get_so(code, extension)
 
     fn = getattr(dll, fn_name)
-    fn.argtypes = argtypes
+    fn.argtypes = code.argtypes
     fn.restype = restype
     return fn
 

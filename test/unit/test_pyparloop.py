@@ -182,7 +182,7 @@ class TestPyParLoop:
                              [0., 1., 2., 1.],
                              [1., 0., 1., 2.]])
 
-        op2.par_loop(fn, s1, mat(op2.INC, (m2[op2.i[0]], m2[op2.i[0]])))
+        op2.par_loop(fn, s1, mat(op2.INC, (m2, m2)))
 
         assert (mat.values == expected).all()
 
@@ -196,7 +196,7 @@ class TestPyParLoop:
                              [0., 1., 1., 1.],
                              [1., 0., 1., 1.]])
 
-        op2.par_loop(fn, s1, mat(op2.WRITE, (m2[op2.i[0]], m2[op2.i[0]])))
+        op2.par_loop(fn, s1, mat(op2.WRITE, (m2, m2)))
 
         assert (mat.values == expected).all()
 

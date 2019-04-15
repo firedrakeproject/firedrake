@@ -74,6 +74,7 @@ Example usage::
   #  [ 3.  0.]]
 """
 
+from operator import attrgetter
 import numpy as np
 from pyop2 import base
 
@@ -126,19 +127,14 @@ class ParLoop(base.ParLoop):
                 elif arg._is_direct:
                     args.append(arrayview(arg.data._data[idx, ...], arg.access))
                 elif arg._is_indirect:
-                    if isinstance(arg.idx, base.IterationIndex):
-                        raise NotImplementedError
-                    if arg._is_vec_map:
-                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
-                    else:
-                        args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1],
-                                                             ...]), arg.access)
+                    args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
                 elif arg._is_mat:
                     if arg.access not in [base.INC, base.WRITE]:
                         raise NotImplementedError
                     if arg._is_mixed_mat:
                         raise ValueError("Mixed Mats must be split before assembly")
-                    args.append(np.zeros(arg._block_shape[0][0], dtype=arg.data.dtype))
+                    shape = tuple(map(attrgetter("arity"), arg.map_tuple))
+                    args.append(np.zeros(shape, dtype=arg.data.dtype))
                 if args[-1].shape == ():
                     args[-1] = args[-1].reshape(1)
             self._kernel(*args)
@@ -150,10 +146,7 @@ class ParLoop(base.ParLoop):
                 elif arg._is_direct:
                     arg.data._data[idx, ...] = tmp[:]
                 elif arg._is_indirect:
-                    if arg._is_vec_map:
-                        arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
-                    else:
-                        arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1]] = tmp[:]
+                    arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
                 elif arg._is_mat:
                     if arg.access is base.INC:
                         arg.data.addto_values(arg.map[0].values_with_halo[idx],

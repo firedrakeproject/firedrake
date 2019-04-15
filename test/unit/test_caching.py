@@ -355,20 +355,20 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
-                     x(op2.READ, iter2ind1[0]))
+                     x(op2.READ, iter2ind1))
 
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
-                     x(op2.READ, iter2ind1[0]))
+                     x(op2.READ, iter2ind1))
 
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
@@ -377,22 +377,22 @@ class TestGeneratedCodeCache:
         self.cache.clear()
         assert len(self.cache) == 0
 
-        kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+        kernel_cpy = "void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
-                     x(op2.READ, iter2ind1[0]))
+                     x(op2.READ, iter2ind1))
 
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        kernel_cpy = "void kernel_cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
+        kernel_cpy = "void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
-        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
-                     x(op2.READ, iter2ind1[0]))
+                     x(op2.READ, iter2ind1))
 
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 2
@@ -402,7 +402,7 @@ class TestGeneratedCodeCache:
         assert len(self.cache) == 0
 
         kernel_swap = """
-void kernel_swap(unsigned int* x, unsigned int* y)
+void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -410,18 +410,18 @@ void kernel_swap(unsigned int* x, unsigned int* y)
   *y = t;
 }
 """
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
-                     x(op2.RW, iter2ind1[0]),
-                     y(op2.RW, iter2ind1[0]))
+                     x(op2.RW, iter2ind1),
+                     y(op2.RW, iter2ind1))
 
         base._trace.evaluate(set([x]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
-                     y(op2.RW, iter2ind1[0]),
-                     x(op2.RW, iter2ind1[0]))
+                     y(op2.RW, iter2ind1),
+                     x(op2.RW, iter2ind1))
 
         base._trace.evaluate(set([y]), set())
         assert len(self.cache) == 1
@@ -431,7 +431,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void kernel_swap(unsigned int* x, unsigned int* y)
+void swap(unsigned int* x, unsigned int* y)
 {
   unsigned int t;
   t = *x;
@@ -439,7 +439,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
   *y = t;
 }
 """
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      a(op2.RW),
                      b(op2.RW))
@@ -447,7 +447,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
         base._trace.evaluate(set([a]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      b(op2.RW),
                      a(op2.RW))
@@ -460,47 +460,28 @@ void kernel_swap(unsigned int* x, unsigned int* y)
         assert len(self.cache) == 0
 
         kernel_swap = """
-void kernel_swap(unsigned int* x[2])
+void swap(unsigned int* x)
 {
   unsigned int t;
-  t = x[0][0];
-  x[0][0] = x[0][1];
-  x[0][1] = t;
+  t = x[0];
+  x[0] = x[1];
+  x[1] = t;
 }
 """
 
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
         base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1
 
-        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
         base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1
-
-    def test_map_index_order_matters(self, iterset, x2, iter2ind2):
-        self.cache.clear()
-        assert len(self.cache) == 0
-        k = op2.Kernel("""void k(unsigned int *x, unsigned int *y) {}""", 'k')
-
-        op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2[0]),
-                     x2(op2.INC, iter2ind2[1]))
-
-        base._trace.evaluate(set([x2]), set())
-        assert len(self.cache) == 1
-
-        op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2[1]),
-                     x2(op2.INC, iter2ind2[0]))
-
-        base._trace.evaluate(set([x2]), set())
-        assert len(self.cache) == 2
 
     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
         self.cache.clear()
@@ -508,16 +489,16 @@ void kernel_swap(unsigned int* x[2])
         kernel_code = FunDecl("void", "k",
                               [Decl("int*", c_sym("x"), qualifiers=["unsigned"])],
                               c_for("i", 1, ""))
-        k = op2.Kernel(kernel_code, 'k')
+        k = op2.Kernel(kernel_code.gencode(), 'k')
 
         op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2[op2.i[0]]))
+                     x2(op2.INC, iter2ind2))
 
         base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1
 
         op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2[op2.i[0]]))
+                     x2(op2.INC, iter2ind2))
 
         base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1

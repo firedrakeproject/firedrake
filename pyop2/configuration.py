@@ -42,9 +42,9 @@ from pyop2.exceptions import ConfigurationError
 class Configuration(dict):
     r"""PyOP2 configuration parameters
 
-    :param compiler: compiler identifier used by COFFEE (one of `gnu`, `intel`).
-    :param simd_isa: Instruction set architecture (ISA) COFFEE is optimising
-        for (one of `sse`, `avx`).
+    :param compiler: compiler identifier (one of `gcc`, `icc`).
+    :param simd_width: number of doubles in SIMD instructions
+        (e.g. 4 for AVX2, 8 for AVX512).
     :param blas: COFFEE BLAS backend (one of `mkl`, `atlas`, `eigen`).
     :param cflags: extra flags to be passed to the C compiler.
     :param ldflags: extra flags to be passed to the linker.
@@ -65,11 +65,6 @@ class Configuration(dict):
     :param lazy_max_trace_length: How many :func:`par_loop`\s
         should be queued lazily before forcing evaluation?  Pass
         `0` for an unbounded length.
-    :param loop_fusion: Should loop fusion be on or off?
-    :param dump_gencode: Should PyOP2 write the generated code
-        somewhere for inspection?
-    :param dump_gencode_path: Where should the generated code be
-        written to?
     :param print_cache_size: Should PyOP2 print the size of caches at
         program exit?
     :param print_summary: Should PyOP2 print a summary of timings at
@@ -82,10 +77,9 @@ class Configuration(dict):
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
-        "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
-        "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
+        "compiler": ("PYOP2_BACKEND_COMPILER", str, "gcc"),
+        "simd_width": ("PYOP2_SIMD_WIDTH", int, 4),
         "debug": ("PYOP2_DEBUG", bool, False),
-        "blas": ("PYOP2_BLAS", str, ""),
         "cflags": ("PYOP2_CFLAGS", str, ""),
         "ldflags": ("PYOP2_LDFLAGS", str, ""),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
@@ -93,8 +87,6 @@ class Configuration(dict):
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "lazy_evaluation": ("PYOP2_LAZY", bool, True),
         "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 100),
-        "loop_fusion": ("PYOP2_LOOP_FUSION", bool, False),
-        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
         "cache_dir": ("PYOP2_CACHE_DIR", str,
                       os.path.join(gettempdir(),
                                    "pyop2-cache-uid%s" % os.getuid())),
@@ -102,8 +94,6 @@ class Configuration(dict):
         "no_fork_available": ("PYOP2_NO_FORK_AVAILABLE", bool, False),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
-        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
-                              os.path.join(gettempdir(), "pyop2-gencode")),
         "matnest": ("PYOP2_MATNEST", bool, True),
         "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True),
     }

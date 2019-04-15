@@ -42,17 +42,6 @@ def as_ctypes(dtype):
             "float64": ctypes.c_double}[numpy.dtype(dtype).name]
 
 
-class _MapMask(ctypes.Structure):
-    _fields_ = [("section", ctypes.c_voidp),
-                ("indices", ctypes.c_voidp)]
-
-
-class _EntityMask(ctypes.Structure):
-    _fields_ = [("section", ctypes.c_voidp),
-                ("bottom", ctypes.c_voidp),
-                ("top", ctypes.c_voidp)]
-
-
 def dtype_limits(dtype):
     """Attempt to determine the min and max values of a datatype.
 
