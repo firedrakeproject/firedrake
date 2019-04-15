@@ -17,7 +17,6 @@ import mimetypes
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
     ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
-    ("SLOPE", "a library for fusing and tiling irregular loops."),
     ("tsfc", "The Two Stage Form Compiler"),
     ("COFFEE", "A Compiler for Fast Expression Evaluation"),
     ("ufl", "The Unified Form Language"),
@@ -25,13 +24,13 @@ descriptions = OrderedDict([
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("petsc4py", "The Python interface to PETSc"),
+    ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
     ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
     ("slepc4py", "The Python interface to SLEPc")])
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
      ("PyOP2", "OP2"),
-     ("SLOPE", "coneoproject"),
      ("tsfc", "firedrakeproject"),
      ("COFFEE", "coneoproject"),
      ("ufl", "firedrakeproject"),
@@ -39,12 +38,13 @@ projects = dict(
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
      ("petsc4py", "firedrakeproject"),
+     ("loopy", "firedrakeproject"),
      ("slepc", "firedrakeproject"),
      ("slepc4py", "firedrakeproject")])
 
 components = list(descriptions.keys())
 
-optional_components = ("SLOPE", "slepc", "slepc4py")
+optional_components = ("slepc", "slepc4py")
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
