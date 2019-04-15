@@ -23,18 +23,13 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, precision, scalar_type=None, roots=(), argument_indices=()):
+def generate(impero_c, index_names, precision, scalar_type=None):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
     :arg precision: floating-point precision for printing
     :arg scalar_type: type of scalars as C typename string
-    :arg roots: list of expression DAG roots for attaching
-        #pragma coffee expression
-    :arg argument_indices: argument indices for attaching
-        #pragma coffee linear loop
-        to the argument loops
     :returns: COFFEE function body
     """
     params = Bunch()
@@ -42,8 +37,6 @@ def generate(impero_c, index_names, precision, scalar_type=None, roots=(), argum
     params.indices = impero_c.indices
     params.precision = precision
     params.epsilon = 10.0 * eval("1e-%d" % precision)
-    params.roots = roots
-    params.argument_indices = argument_indices
     params.scalar_type = scalar_type or SCALAR_TYPE
 
     params.names = {}
@@ -87,15 +80,6 @@ def _ref_symbol(expr, parameters):
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
-def _root_pragma(expr, parameters):
-    """Decides whether to annonate the expression with
-    #pragma coffee expression"""
-    if expr in parameters.roots:
-        return "#pragma coffee expression"
-    else:
-        return None
-
-
 @singledispatch
 def statement(tree, parameters):
     """Translates an Impero (sub)tree into a COFFEE AST corresponding
@@ -119,10 +103,6 @@ def statement_block(tree, parameters):
 
 @statement.register(imp.For)
 def statement_for(tree, parameters):
-    if tree.index in parameters.argument_indices:
-        pragma = "#pragma coffee linear loop"
-    else:
-        pragma = None
     extent = tree.index.extent
     assert extent
     i = _coffee_symbol(parameters.index_names[tree.index])
@@ -130,8 +110,7 @@ def statement_for(tree, parameters):
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
                       coffee.Incr(i, 1),
-                      statement(tree.children[0], parameters),
-                      pragma=pragma)
+                      statement(tree.children[0], parameters))
 
 
 @statement.register(imp.Initialise)
@@ -144,26 +123,20 @@ def statement_initialise(leaf, parameters):
 
 @statement.register(imp.Accumulate)
 def statement_accumulate(leaf, parameters):
-    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(_ref_symbol(leaf.indexsum, parameters),
-                       expression(leaf.indexsum.children[0], parameters),
-                       pragma=pragma)
+                       expression(leaf.indexsum.children[0], parameters))
 
 
 @statement.register(imp.Return)
 def statement_return(leaf, parameters):
-    pragma = _root_pragma(leaf.expression, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.expression, parameters),
-                       pragma=pragma)
+                       expression(leaf.expression, parameters))
 
 
 @statement.register(imp.ReturnAccumulate)
 def statement_returnaccumulate(leaf, parameters):
-    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.indexsum.children[0], parameters),
-                       pragma=pragma)
+                       expression(leaf.indexsum.children[0], parameters))
 
 
 @statement.register(imp.Evaluate)
