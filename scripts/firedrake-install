@@ -1198,24 +1198,9 @@ if mode == "install":
         for p in packages:
             pip_requirements(p)
 
-<<<<<<< HEAD
-    build_and_install_h5py()
-    build_and_install_libspatialindex()
-    pipinstall.append("--no-deps")
-    for p in packages:
-        if p == "loopy":
-            # loopy dependencies are handled in setup.py, pop --no-deps
-            pipinstall.pop()
-            install(p + "/")
-            pipinstall.append("--no-deps")
-        else:
-            install(p+"/")
-            sys.path.append(os.getcwd() + "/" + p)
-=======
         build_and_install_h5py()
         build_and_install_libspatialindex()
         build_and_install_libsupermesh()
->>>>>>> wence/lgmap-bcs
 
         if "loopy" in packages:
             # We do want to install loopy's dependencies.
@@ -1289,33 +1274,6 @@ else:
     for p in packages:
         pip_requirements(p)
 
-<<<<<<< HEAD
-    try:
-        packages.remove("PyOP2")
-        packages.remove("firedrake")
-    except ValueError:
-        pass
-    packages += ("PyOP2", "firedrake")
-    for p in packages:
-        clean(p)
-        if p == "loopy":
-            # install loopy dependencies in setup.py
-            pipinstall.pop()
-            install(p + "/")
-            pipinstall.append("--no-deps")
-            continue
-        install(p+"/")
-
-    # Ensure pytest is at the latest version
-    run_pip(["install", "-U", "pytest"])
-
-if options["slepc"]:
-    build_and_install_slepc()
-if options["slope"]:
-    build_and_install_slope()
-if args.documentation_dependencies:
-    install_documentation_dependencies()
-=======
     with pipargs("--no-deps"):
         with environment(**compiler_env):
             # Only rebuild petsc if it has changed.
@@ -1357,7 +1315,6 @@ with environment(**compiler_env):
             build_and_install_slepc()
     if args.documentation_dependencies:
         install_documentation_dependencies()
->>>>>>> wence/lgmap-bcs
 
 try:
     import firedrake_configuration

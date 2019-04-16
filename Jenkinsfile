@@ -29,25 +29,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-<<<<<<< HEAD
-            sh '../scripts/firedrake-install --package-branch tsfc tsfc2loopy --package-branch PyOP2 lgmap-bcs --disable-ssh --minimal-petsc ${SLEPC} --slope --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
-          }
-        }
-      }
-    }
-    stage('Lint'){
-      steps {
-        dir('tmp') {
-          timestamps {
-            sh '''
-. ./firedrake/bin/activate
-python -m pip install flake8
-cd firedrake/src/firedrake
-make lint
-'''
-=======
             sh '../scripts/firedrake-install --package-branch PyOP2 wence/lgmap-bcs --disable-ssh --minimal-petsc ${SLEPC} --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
->>>>>>> wence/lgmap-bcs
           }
         }
       }
