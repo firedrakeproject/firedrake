@@ -83,18 +83,19 @@ def sniff_compiler_version(cc):
     ver = version.LooseVersion("unknown")
     if compiler in ["gcc", "icc"]:
         try:
-            # gcc-7 series only spits out patch level on dumpfullversion.
-            ver = subprocess.check_output([cc, "-dumpfullversion"],
+            ver = subprocess.check_output([cc, "-dumpversion"],
                                           stderr=subprocess.DEVNULL).decode("utf-8")
             ver = version.StrictVersion(ver.strip())
-        except subprocess.CalledProcessError:
-            try:
-                ver = subprocess.check_output([cc, "-dumpversion"],
-                                              stderr=subprocess.DEVNULL).decode("utf-8")
-                ver = version.StrictVersion(ver.strip())
-            except (subprocess.CalledProcessError, UnicodeDecodeError):
-                pass
-        except UnicodeDecodeError:
+            if compiler == "gcc" and ver >= version.StrictVersion("7.0"):
+                try:
+                    # gcc-7 series only spits out patch level on dumpfullversion.
+                    fullver = subprocess.check_output([cc, "-dumpfullversion"],
+                                                      stderr=subprocess.DEVNULL).decode("utf-8")
+                    fullver = version.StrictVersion(fullver.strip())
+                    ver = fullver
+                except (subprocess.CalledProcessError, UnicodeDecodeError):
+                    pass
+        except (subprocess.CalledProcessError, UnicodeDecodeError):
             pass
 
     return CompilerInfo(compiler, ver)
@@ -166,20 +167,24 @@ class Compiler(object):
     def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
                  cpp=False, comm=None):
         ccenv = 'CXX' if cpp else 'CC'
+        # Ensure that this is an internal communicator.
+        comm = dup_comm(comm or COMM_WORLD)
+        self.comm = compilation_comm(comm)
         self._cc = os.environ.get(ccenv, cc)
         self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs + configuration['cflags'].split() + self.workaround_cflags
         self._ldargs = ldargs + configuration['ldflags'].split()
-        # Ensure that this is an internal communicator.
-        comm = dup_comm(comm or COMM_WORLD)
-        self.comm = compilation_comm(comm)
 
     @property
     def compiler_version(self):
         try:
             return Compiler.compiler_versions[self._cc]
         except KeyError:
-            ver = sniff_compiler_version(self._cc)
+            if self.comm.rank == 0:
+                ver = sniff_compiler_version(self._cc)
+            else:
+                ver = None
+            ver = self.comm.bcast(ver, root=0)
             return Compiler.compiler_versions.setdefault(self._cc, ver)
 
     @property
