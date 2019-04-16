@@ -110,13 +110,8 @@ class _Facets(object):
         if isinstance(self.mesh, ExtrudedMeshTopology):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
-            if self.mesh.variable_layers:
-                masks = extnum.facet_entity_masks(self.mesh, layers, label)
-            else:
-                masks = None
             base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers,
-                                   masks=masks)
+            return op2.ExtrudedSet(base, layers=layers)
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
@@ -839,11 +834,9 @@ class ExtrudedMeshTopology(MeshTopology):
             the first two extents are used for allocation and the last
             two for iteration.
             """
-            masks = extnum.cell_entity_masks(self)
         else:
             self.variable_layers = False
-            masks = None
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, masks=masks)
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @property
     def name(self):
