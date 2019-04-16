@@ -56,7 +56,6 @@ class Interpolator(object):
     def __init__(self, expr, V, subset=None, access=op2.WRITE):
         self.callable = make_interpolator(expr, V, subset, access)
 
-    @utils.known_pyop2_safe
     def interpolate(self):
         """Compute the interpolation.
 
@@ -104,6 +103,7 @@ def make_interpolator(expr, V, subset, access):
     return partial(callable, loops, f)
 
 
+@utils.known_pyop2_safe
 def _interpolator(V, dat, expr, subset, access):
     to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
@@ -177,7 +177,7 @@ def _interpolator(V, dat, expr, subset, access):
         if domain is not None and domain.topology != mesh.topology:
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
-    return copyin + (partial(op2.par_loop, *args), ) + copyout
+    return copyin + (op2.ParLoop(*args).compute, ) + copyout
 
 
 class GlobalWrapper(object):
