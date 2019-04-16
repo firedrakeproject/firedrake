@@ -33,6 +33,7 @@
 
 from contextlib import contextmanager
 from petsc4py import PETSc
+import itertools
 import numpy as np
 
 from pyop2.datatypes import IntType, ScalarType
@@ -843,9 +844,7 @@ class Mat(base.Mat):
 
     def __iter__(self):
         """Iterate over all :class:`Mat` blocks by row and then by column."""
-        for row in self.blocks:
-            for s in row:
-                yield s
+        yield from itertools.chain(*self.blocks)
 
     @collective
     def zero(self):

@@ -205,29 +205,6 @@ class TestClassAPI:
         assert not issubclass(type(dat), op2.Set)
 
 
-class TestAccessAPI:
-
-    """
-    Access API unit tests
-    """
-
-    @pytest.mark.parametrize("mode", base.Access._modes)
-    def test_access_repr(self, mode):
-        "Access repr should produce an Access object when eval'd."
-        from pyop2.base import Access
-        assert isinstance(eval(repr(Access(mode))), Access)
-
-    @pytest.mark.parametrize("mode", base.Access._modes)
-    def test_access_str(self, mode):
-        "Access should have the expected string representation."
-        assert str(base.Access(mode)) == "OP2 Access: %s" % mode
-
-    def test_illegal_access(self):
-        "Illegal access modes should raise an exception."
-        with pytest.raises(exceptions.ModeValueError):
-            base.Access('ILLEGAL_ACCESS')
-
-
 class TestArgAPI:
 
     """
