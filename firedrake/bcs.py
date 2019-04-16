@@ -1,8 +1,12 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+<<<<<<< HEAD
 import numpy as np
 
 import ufl
 from ufl import as_ufl, SpatialCoordinate, UFLException
+=======
+from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
+>>>>>>> wence/lgmap-bcs
 from ufl.algorithms.analysis import has_type
 import finat
 
@@ -78,6 +82,7 @@ class BCBase(object):
         # Used for indexing functions passed in.
         self._indices = tuple(reversed(indices))
         # Used for finding local to global maps with boundary conditions applied
+<<<<<<< HEAD
         self._cache_key = (self.domain_args + (self.method, ) + tuple(indexing), tuple(components))
 
     def function_space(self):
@@ -203,6 +208,9 @@ class DirichletBC(BCBase):
         self.function_arg = g
         self._original_arg = self.function_arg
         self._currently_zeroed = False
+=======
+        self._cache_key = (self.domain_args, (self.method, tuple(indexing), tuple(components)))
+>>>>>>> wence/lgmap-bcs
 
     @property
     def function_arg(self):
@@ -241,9 +249,11 @@ class DirichletBC(BCBase):
                 as_ufl(g)
             except UFLException:
                 try:
-                    # List of bare constants? Convert to Expression
-                    g = expression.to_expression(g)
-                except ValueError:
+                    # List of bare constants? Convert to UFL expression
+                    g = as_ufl(as_tensor(g))
+                    if g.ufl_shape != self._function_space.shape:
+                        raise ValueError("%r doesn't match the shape of the function space." % (g,))
+                except UFLException:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
             if isinstance(g, expression.Expression):

@@ -32,8 +32,3 @@ def test_subdomain_cell_integral(mesh, subdomain, expected):
 @pytest.mark.parallel(nprocs=2)
 def test_subdomain_cell_integral_parallel(mesh, subdomain, expected):
     assert np.allclose(assemble(Constant(1)*dx(subdomain, domain=mesh)), expected)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

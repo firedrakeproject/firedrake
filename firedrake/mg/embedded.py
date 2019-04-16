@@ -91,13 +91,11 @@ class SingleTransfer(object):
             # global Vector counting the number of cells that see each
             # dof.
             f = firedrake.Function(V)
-            firedrake.par_loop(
-                """for (int i = 0; i < A.dofs; i++)
-                       for (int j = 0; j < {}; j++)
-                          A[i][j] += 1;
-                """.format(V.value_size),
-                firedrake.dx,
-                {"A": (f, firedrake.INC)})
+            firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.value_size,
+                               "A[i, j] = A[i, j] + 1"),
+                               firedrake.dx,
+                               {"A": (f, firedrake.INC)},
+                               is_loopy_kernel=True)
             with f.dat.vec_ro as fv:
                 return self._V_dof_weights.setdefault(key, fv.copy())
 
@@ -289,17 +287,28 @@ class MixedTransfer(object):
 
     This just makes :class:`SingleTransfer` objects for each sub element."""
     def __init__(self, element, use_fortin_interpolation=True):
-        self.transfers = tuple(SingleTransfer(e, use_fortin_interpolation=use_fortin_interpolation)
-                               for e in element.sub_elements())
+        self._transfers = {}
+        self._use_fortin_interpolation = use_fortin_interpolation
+
+    def transfers(self, element):
+        try:
+            return self._transfers[element]
+        except KeyError:
+            transfers = tuple(SingleTransfer(e, use_fortin_interpolation=self._use_fortin_interpolation)
+                              for e in element.sub_elements())
+            return self._transfers.setdefault(element, transfers)
 
     def prolong(self, uc, uf):
-        for c, f, t in zip(uc.split(), uf.split(), self.transfers):
+        element = uc.function_space().ufl_element()
+        for c, f, t in zip(uc.split(), uf.split(), self.transfers(element)):
             t.prolong(c, f)
 
     def inject(self, uf, uc):
-        for f, c, t in zip(uf.split(), uc.split(), self.transfers):
+        element = uf.function_space().ufl_element()
+        for f, c, t in zip(uf.split(), uc.split(), self.transfers(element)):
             t.inject(f, c)
 
     def restrict(self, uf_dual, uc_dual):
-        for f, c, t in zip(uf_dual.split(), uc_dual.split(), self.transfers):
+        element = uf_dual.function_space().ufl_element()
+        for f, c, t in zip(uf_dual.split(), uc_dual.split(), self.transfers(element)):
             t.restrict(f, c)

@@ -33,11 +33,18 @@ def W(mesh):
 
 
 def run_left_to_right(mesh, DG0, W):
-    velocity = Expression(("1.0", "0.0"))
+    velocity = as_vector((1.0, 0.0))
     u0 = project(velocity, W)
 
+<<<<<<< HEAD
     x = SpatialCoordinate(mesh)
     inflow = interpolate(conditional(And(x[1] > 0.25, x[1] < 0.75), 1, 0.5), DG0)
+=======
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
+    inflow = Function(DG0)
+    inflow.interpolate(inflowexpr)
+>>>>>>> wence/lgmap-bcs
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
@@ -71,10 +78,11 @@ def test_left_to_right_parallel(mesh, DG0, W):
 
 
 def run_up_to_down(mesh, DG1, W):
-    velocity = Expression(("0.0", "-1.0"))
+    velocity = as_vector((0.0, -1.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("1.0 + x[0]")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = 1 + xs[0]
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -104,8 +112,3 @@ def test_up_to_down(mesh, DG1, W):
 @pytest.mark.parallel
 def test_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

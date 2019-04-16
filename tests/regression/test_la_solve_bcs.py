@@ -9,7 +9,7 @@ def test_la_solve_bcs():
 
     bcs = []
     for i in [0, 1]:
-        bc = DirichletBC(V.sub(i), 0, "on_boundary")  # different components
+        bc = DirichletBC(V.sub(i), Constant(0), "on_boundary")  # different components
         bcs.insert(0, bc)
         bc.apply(A)
 

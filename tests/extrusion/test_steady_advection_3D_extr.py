@@ -46,10 +46,11 @@ def W(mesh):
 
 
 def test_left_to_right(mesh, DG1, W):
-    velocity = Expression(("1.0", "0.0", "0.0"))
+    velocity = as_vector((1.0, 0.0, 0.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[1] + x[2]")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = xs[1] + xs[2]
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -76,10 +77,15 @@ def test_left_to_right(mesh, DG1, W):
 
 
 def test_right_to_left(mesh, DG0, W):
-    velocity = Expression(("-1.0", "0.0", "0.0"))
+    velocity = as_vector((-1.0, 0.0, 0.0))
     u0 = project(velocity, W)
 
+<<<<<<< HEAD
     inflowexpr = Expression("if(x[1] > 0.25 and x[1] < 0.75, 1, 0.5)")
+=======
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
+>>>>>>> wence/lgmap-bcs
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -103,10 +109,11 @@ def test_right_to_left(mesh, DG0, W):
 
 
 def test_near_to_far(mesh, DG1, W):
-    velocity = Expression(("0.0", "1.0", "0.0"))
+    velocity = as_vector((0.0, 1.0, 0.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("0.5 + fabs(x[2] - 0.5)")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = 0.5 + abs(xs[2] - 0.5)
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -130,10 +137,15 @@ def test_near_to_far(mesh, DG1, W):
 
 
 def test_far_to_near(mesh, DG0, W):
-    velocity = Expression(("0.0", "-1.0", "0.0"))
+    velocity = as_vector((0.0, -1.0, 0.0))
     u0 = project(velocity, W)
 
+<<<<<<< HEAD
     inflowexpr = Expression("if(x[2] > 0.25 and x[2] < 0.75, 1, 0.5)")
+=======
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[2] > 0.25, xs[2] < 0.75), 1.0, 0.5)
+>>>>>>> wence/lgmap-bcs
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -157,10 +169,11 @@ def test_far_to_near(mesh, DG0, W):
 
 
 def test_bottom_to_top(mesh, DG1, W):
-    velocity = Expression(("0.0", "0.0", "1.0"))
+    velocity = as_vector((0.0, 0.0, 1.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("0.5 + x[0]")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = 0.5 + xs[0]
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -184,10 +197,15 @@ def test_bottom_to_top(mesh, DG1, W):
 
 
 def test_top_to_bottom(mesh, DG0, W):
-    velocity = Expression(("0.0", "0.0", "-1.0"))
+    velocity = as_vector((0.0, 0.0, -1.0))
     u0 = project(velocity, W)
 
+<<<<<<< HEAD
     inflowexpr = Expression("if(x[0] > 0.25 and x[0] < 0.75, 1, 0.5)")
+=======
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(xs[0] > 0.25, xs[0] < 0.75), 1.0, 0.5)
+>>>>>>> wence/lgmap-bcs
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -208,8 +226,3 @@ def test_top_to_bottom(mesh, DG0, W):
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

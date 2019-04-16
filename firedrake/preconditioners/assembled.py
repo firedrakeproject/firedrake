@@ -4,9 +4,9 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
-from firedrake.dmhooks import get_function_space
+from firedrake.dmhooks import get_function_space, get_appctx, push_appctx, pop_appctx
 
-__all__ = ("AssembledPC", "ExplicitSchurPC")
+__all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 
 
 class AssembledPC(PCBase):
@@ -74,11 +74,25 @@ class AssembledPC(PCBase):
         # a KSP, we can do iterative by -assembled_pc_type ksp.
         pc = PETSc.PC().create(comm=opc.comm)
         pc.incrementTabLevel(1, parent=opc)
+
+        # We set a DM and an appropriate SNESContext on the constructed PC so one
+        # can do e.g. multigrid or patch solves.
+        from firedrake.variational_solver import NonlinearVariationalProblem
+        from firedrake.solving_utils import _SNESContext
+        dm = opc.getDM()
+        octx = get_appctx(dm)
+        oproblem = octx._problem
+        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
+        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        push_appctx(dm, nctx)
+        pc.setDM(dm)
+
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(Pmat, Pmat)
         pc.setFromOptions()
         pc.setUp()
         self.pc = pc
+        pop_appctx(dm)
 
     def update(self, pc):
         self._assemble_P()
@@ -107,12 +121,12 @@ class AssembledPC(PCBase):
             self.pc.view(viewer)
 
 
-class ExplicitSchurPC(AssembledPC):
+class AuxiliaryOperatorPC(AssembledPC):
     """A preconditioner that builds a PC on a specified form.
     Mainly used for describing approximations to Schur complements.
     """
 
-    _prefix = "schur_"
+    _prefix = "aux_"
 
     @abc.abstractmethod
     def form(self, pc, test, trial):

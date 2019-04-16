@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 
 
@@ -17,8 +16,11 @@ def test_all_dofs_on_facets():
     assert abs(assemble(dot(f, f)*ds) - assemble(dot(g, g)*ds)) < 1e-12
     assert abs(assemble(dot(f, n)*ds) - assemble(dot(g, n)*ds)) < 1e-12
     assert abs(assemble(dot(f('+'), n('+'))*dS) - assemble(dot(g('+'), n('+'))*dS)) < 1e-12
+<<<<<<< HEAD
 
 
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
+=======
+>>>>>>> wence/lgmap-bcs

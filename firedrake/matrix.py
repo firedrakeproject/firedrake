@@ -35,6 +35,21 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         or 'matfree' for matrix-free."""
 
     @abc.abstractmethod
+<<<<<<< HEAD
+=======
+    def assemble(self):
+        """Actually assemble this matrix.
+
+        Ensures any pending calculations needed to populate this
+        matrix are queued up.
+
+        Note that this does not guarantee that those calculations are
+        executed.  If you want the latter, see :meth:`force_evaluation`.
+        """
+        self._bcs_at_point_of_assembly = tuple(self._bcs)
+
+    @abc.abstractmethod
+>>>>>>> wence/lgmap-bcs
     def force_evaluation(self):
         """Force any pending writes to this matrix.
 

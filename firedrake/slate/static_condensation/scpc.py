@@ -9,6 +9,9 @@ __all__ = ['SCPC']
 
 
 class SCPC(SCBase):
+
+    needs_python_pmat = True
+
     """A Slate-based python preconditioner implementation of
     static condensation for problems with up to three fields.
     """

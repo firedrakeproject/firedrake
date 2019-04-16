@@ -13,6 +13,7 @@ from firedrake import *
 
 def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     dt = 0.0001
+    Dt = Constant(dt)
     T = 0.01
 
     # Create mesh and define function space
@@ -28,9 +29,9 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     diffusivity = 0.1
 
     adv = p * q * dx
-    adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
+    adv_rhs = (q * t + Dt * dot(grad(q), u) * t) * dx
 
-    d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
+    d = -Dt * diffusivity * dot(grad(q), grad(p)) * dx
 
     diff = adv - 0.5 * d
     diff_rhs = action(adv + 0.5 * d, t)
@@ -43,10 +44,12 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     # Set initial condition:
     # A*(e^(-r^2/(4*D*T)) / (4*pi*D*T))
     # with normalisation A = 0.1, diffusivity D = 0.1
-    r2 = "(pow(x[0]-(0.45+%(T)f), 2.0) + pow(x[1]-0.5, 2.0))"
-    fexpr = "0.1 * (exp(-" + r2 + "/(0.4*%(T)f)) / (0.4*pi*%(T)f))"
-    t.interpolate(Expression(fexpr % {'T': T}))
-    u.interpolate(Expression([1.0, 0.0]))
+    x = SpatialCoordinate(mesh)
+    cT = Constant(T)
+    r2 = pow(x[0] - (0.45 + cT), 2.0) + pow(x[1] - 0.5, 2.0)
+    fexpr = 0.1 * (exp(-r2 / (0.4 * cT)) / (0.4 * pi * cT))
+    t.interpolate(fexpr)
+    u.interpolate(as_vector([1.0, 0.0]))
 
     while T < 0.012:
 
@@ -63,7 +66,8 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
         T = T + dt
 
     # Analytical solution
-    a = Function(V).interpolate(Expression(fexpr % {'T': T}))
+    cT.assign(T)
+    a = Function(V).interpolate(fexpr)
     return sqrt(assemble(dot(t - a, t - a) * dx))
 
 
@@ -97,8 +101,3 @@ def test_adv_diff_on_quadrilaterals_serial():
 @pytest.mark.parallel
 def test_adv_diff_on_quadrilaterals_parallel():
     run_adv_diff_on_quadrilaterals()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

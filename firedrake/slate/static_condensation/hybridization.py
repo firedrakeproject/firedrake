@@ -14,6 +14,9 @@ __all__ = ['HybridizationPC']
 
 
 class HybridizationPC(SCBase):
+
+    needs_python_pmat = True
+
     """A Slate-based python preconditioner that solves a
     mixed H(div)-conforming problem using hybridization.
     Currently, this preconditioner supports the hybridization
@@ -103,7 +106,12 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
+<<<<<<< HEAD
         par_loop(domain, instructions, ufl.dx, {"w": (self.weight, INC)})
+=======
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
         instructions = """
         for i, j
@@ -292,7 +300,12 @@ class HybridizationPC(SCBase):
         self.S.force_evaluation()
 
     def forward_elimination(self, pc, x):
-        """
+        """Perform the forward elimination of fields and
+        provide the reduced right-hand side for the condensed
+        system.
+
+        :arg pc: a Preconditioner instance.
+        :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
         with timed_region("HybridBreak"):
@@ -318,14 +331,18 @@ class HybridizationPC(SCBase):
             par_loop(*self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)})
+                      "vec_out": (broken_res_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
     def sc_solve(self, pc):
-        """
+        """Solve the condensed linear system for the
+        condensed field.
+
+        :arg pc: a Preconditioner instance.
         """
 
         # Solve the system for the Lagrange multipliers
@@ -338,7 +355,10 @@ class HybridizationPC(SCBase):
                 self.trace_ksp.solve(b, x_trace)
 
     def backward_substitution(self, pc, y):
-        """
+        """Perform the backwards recovery of eliminated fields.
+
+        :arg pc: a Preconditioner instance.
+        :arg y: a PETSc vector for placing the resulting fields.
         """
 
         # We assemble the unknown which is an expression
@@ -361,7 +381,8 @@ class HybridizationPC(SCBase):
             par_loop(*self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)})
+                      "vec_out": (unbroken_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

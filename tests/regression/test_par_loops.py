@@ -52,7 +52,12 @@ def test_direct_par_loop(f):
     instructions = """
     c[0, 0] = 1
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, direct, {'c': (c, WRITE)})
+=======
+    par_loop((domain, instructions), direct, {'c': (c, WRITE)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(c.dat.data, 1.0)
 
@@ -63,7 +68,12 @@ def test_mixed_direct_par_loop(f_mixed):
         instructions = """
         c[0, 0] = 1
         """
+<<<<<<< HEAD
         par_loop(domain, instructions, direct, {'c': (f_mixed, WRITE)})
+=======
+        par_loop((domain, instructions), direct, {'c': (f_mixed, WRITE)},
+                 is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
         assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.split())
 
 
@@ -73,7 +83,12 @@ def test_mixed_direct_par_loop_components(f_mixed, idx):
     instructions = """
     c[0, 0] = 1
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, direct, {'c': (f_mixed[idx], WRITE)})
+=======
+    par_loop((domain, instructions), direct, {'c': (f_mixed[idx], WRITE)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(f_mixed.dat[idx].data, 1.0)
 
@@ -86,7 +101,12 @@ def test_direct_par_loop_read_const(f, const):
     instructions = """
     c[0, 0] = constant[0]
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, direct, {'c': (c, WRITE), 'constant': (const, READ)})
+=======
+    par_loop((domain, instructions), direct, {'c': (c, WRITE), 'constant': (const, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(c.dat.data, const.dat.data)
 
@@ -101,7 +121,12 @@ def test_indirect_par_loop_read_const(f, const):
         d[i, 0] = constant[0]
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, {'d': (d, WRITE), 'constant': (const, READ)})
+=======
+    par_loop((domain, instructions), dx, {'d': (d, WRITE), 'constant': (const, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(d.dat.data, const.dat.data)
 
@@ -116,7 +141,12 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
             d[i, 0] = constant[0]
         end
         """
+<<<<<<< HEAD
         par_loop(domain, instructions, dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+=======
+        par_loop((domain, instructions), dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)},
+                 is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
         assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.split())
 
 
@@ -146,7 +176,11 @@ def test_dict_order_parallel():
         d[i, 0] = c10[0]
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, arg)
+=======
+    par_loop((domain, instructions), dx, arg, is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(d.dat.data, consts[10].dat.data)
 
@@ -161,7 +195,12 @@ def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
         d[i, 0] = constant[0]
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
+=======
+    par_loop((domain, instructions), dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
 
@@ -173,12 +212,22 @@ def test_par_loop_const_write_error(f, const):
         instructions = """
         c[0] = d[0, 0]
         """
+<<<<<<< HEAD
         par_loop(domain, instructions, direct, {'c': (const, WRITE), 'd': (d, READ)})
+=======
+        par_loop((domain, instructions), direct, {'c': (const, WRITE), 'd': (d, READ)},
+                 is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
 
 def test_cg_max_field(f):
     c, d = f
+<<<<<<< HEAD
     d.interpolate(Expression("x[0]"))
+=======
+    x = SpatialCoordinate(d.function_space().mesh())
+    d.interpolate(x[0])
+>>>>>>> wence/lgmap-bcs
 
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
@@ -186,14 +235,20 @@ def test_cg_max_field(f):
         c[i, 0] = fmax(c[i, 0], d[0, 0])
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, {'c': (c, RW), 'd': (d, READ)})
+=======
+    par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert (c.dat.data == [1./4, 3./4, 3./4]).all()
 
 
 def test_cg_max_field_extruded(f_extruded):
     c, d = f_extruded
-    d.interpolate(Expression("x[0]"))
+    x = SpatialCoordinate(d.function_space().mesh())
+    d.interpolate(x[0])
 
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
@@ -202,7 +257,19 @@ def test_cg_max_field_extruded(f_extruded):
     end
     """
 
+<<<<<<< HEAD
+    domain = "{[i]: 0 <= i < c.dofs}"
+    instructions = """
+    for i
+        c[i, 0] = if(c[i, 0] > d[0, 0], c[i, 0], d[0, 0])
+    end
+    """
+
     par_loop(domain, instructions, dx, {'c': (c, RW), 'd': (d, READ)})
+=======
+    par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert (c.dat.data == [1./4, 1./4, 1./4,
                            3./4, 3./4, 3./4,
@@ -226,19 +293,25 @@ def test_cell_subdomain(subdomain):
         f[i, 0] = 1.0
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx(subdomain), {'f': (f, WRITE)})
+=======
+    par_loop((domain, instructions), dx(subdomain), {'f': (f, WRITE)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert np.allclose(f.dat.data, expect.dat.data)
 
 
 def test_walk_facets_rt():
     m = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(m)
     V = FunctionSpace(m, 'RT', 1)
 
     f1 = Function(V)
     f2 = Function(V)
 
-    project(Expression(('x[0]', 'x[1]')), f1)
+    project(as_vector((x[0], x[1])), f1)
 
     domain = "{[i]: 0 <= i < f1.dofs}"
     instructions = """
@@ -246,8 +319,16 @@ def test_walk_facets_rt():
         f2[i, 0] = f1[i, 0]
     end
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dS, {'f1': (f1, READ), 'f2': (f2, WRITE)})
 
     par_loop(domain, instructions, ds, {'f1': (f1, READ), 'f2': (f2, WRITE)})
+=======
+    par_loop((domain, instructions), dS, {'f1': (f1, READ), 'f2': (f2, WRITE)},
+             is_loopy_kernel=True)
+
+    par_loop((domain, instructions), ds, {'f1': (f1, READ), 'f2': (f2, WRITE)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     assert errornorm(f1, f2, degree_rise=0) < 1e-10

@@ -59,8 +59,3 @@ def test_tensor_algebra_simplification(form_expect):
     actual = assemble(form).M.values
 
     assert np.allclose(expect, actual)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

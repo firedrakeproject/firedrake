@@ -44,7 +44,7 @@ unassembled operator using the ``"mat_type"`` solver parameter.::
   solve(a == L, uu, bcs=bcs, solver_parameters={"mat_type": "matfree",
                                                 "ksp_type": "cg",
                                                 "pc_type": "none",
-                                                "ksp_monitor": True})
+                                                "ksp_monitor": None})
 
 Finally, we demonstrate the use of a :class:`.AssembledPC`
 preconditioner.  This uses matrix-free actions but preconditions the
@@ -54,7 +54,7 @@ operator.::
   uu.assign(0)
   solve(a == L, uu, bcs=bcs, solver_parameters={"mat_type": "matfree",
                                                 "ksp_type": "cg",
-                                                "ksp_monitor": True,
+                                                "ksp_monitor": None,
 
 To use the assembled matrix for the preconditioner we select a
 ``"python"`` type::

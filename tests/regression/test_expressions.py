@@ -126,12 +126,6 @@ def ioptest(f, expr, x, op):
     return evaluate(op(f, expr).dat.data, x)
 
 
-def interpolatetest(f, expr, x):
-    if f.function_space().value_size > 1:
-        expr = (expr,) * f.function_space().value_size
-    return evaluate(f.interpolate(Expression(expr)).dat.data, x)
-
-
 exprtest = lambda expr, x: evaluate(assemble(expr).dat.data, x)
 assigntest = lambda f, expr, x: evaluate(f.assign(expr).dat.data, x)
 iaddtest = partial(ioptest, op=iadd)
@@ -160,8 +154,6 @@ common_tests = [
     'assigntest(f, one - one, 0)']
 
 scalar_tests = common_tests + [
-    'interpolatetest(f, 0.0, 0)',
-    'interpolatetest(f, "sin(pi/2)", 1)',
     'assigntest(f, sqrt(one), 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
@@ -169,7 +161,6 @@ scalar_tests = common_tests + [
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [
-    'interpolatetest(f, "sin(pi/2)", (1, 1))',
     'exprtest(one[0] + one[1], (1, 1))',
     'exprtest(one[1] + two[0], (2, 1))',
     'exprtest(one[0] - one[1], (1, -1))',
@@ -323,16 +314,6 @@ def test_assign_vector_const_to_mfs_scalars(cg1):
         assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
 
 
-def test_empty_expression():
-    with pytest.raises(ValueError):
-        Expression('')
-    with pytest.raises(ValueError):
-        Expression(["x[0]", ""])
-    with pytest.raises(ValueError):
-        Expression((("1", "0"),
-                    ("0", "")))
-
-
 def test_assign_to_mfs_sub(cg1, vcg1):
     W = cg1*vcg1
 
@@ -424,76 +405,6 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
-@pytest.mark.parametrize("uservar", ["A", "X", "x_", "k", "d", "i"])
-def test_scalar_user_defined_values(uservar):
-    m = UnitSquareMesh(2, 2)
-    V = FunctionSpace(m, 'CG', 1)
-    f = Function(V)
-    e = Expression(uservar, **{uservar: 1.0})
-    f.interpolate(e)
-
-    assert np.allclose(f.dat.data_ro, 1.0)
-
-    setattr(e, uservar, 2.0)
-    f.interpolate(e)
-
-    assert np.allclose(f.dat.data_ro, 2.0)
-
-
-def test_vector_user_defined_values():
-    m = UnitSquareMesh(2, 2)
-    V = FunctionSpace(m, 'CG', 1)
-    f = Function(V)
-    e = Expression('n[0] + n[1]', n=[1.0, 2.0])
-
-    f.interpolate(e)
-
-    assert np.allclose(f.dat.data_ro, 3.0)
-
-    e.n = [2.0, 4.0]
-    f.interpolate(e)
-
-    assert np.allclose(f.dat.data_ro, 6.0)
-
-
-def test_scalar_increment_fails():
-    e = Expression('n', n=1.0)
-
-    # Some versions of numpy raise RuntimeError on access to read-only
-    # array view, rather than ValueError.
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n += 1
-
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n[0] += 2
-
-    assert np.allclose(e.n, 1.0)
-
-
-def test_vector_increment_fails():
-    e = Expression('n', n=[1.0, 1.0])
-
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n += 1
-
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n[0] += 2
-
-    assert np.allclose(e.n, 1.0)
-
-
-def test_tensor_increment_fails():
-    e = Expression('n', n=[[1.0, 1.0], [1.0, 1.0]])
-
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n += 1
-
-    with pytest.raises((ValueError, RuntimeError)):
-        e.n[0] += 2
-
-    assert np.allclose(e.n, 1.0)
-
-
 @pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
                          ids=lambda v: "(f = %d)" % v)
 @pytest.mark.parametrize('expr', ['f',
@@ -522,8 +433,3 @@ def test_math_functions(expr, value):
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

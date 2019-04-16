@@ -16,7 +16,7 @@ def mesh2D():
 def test_vfs(mesh2D, degree):
     V = VectorFunctionSpace(mesh2D, 'CG', degree)
     u = Function(V)
-    u.interpolate(Expression(('1.0', '1.0')))
+    u.interpolate(Constant((1.0, 1.0)))
     n = FacetNormal(mesh2D)
 
     # Unit '+' normal is (1, 1)/sqrt2, and diagonal has length sqrt2.
@@ -24,7 +24,7 @@ def test_vfs(mesh2D, degree):
     assert abs(assemble(dot(u('+'), n('-'))*dS) + 2.0) < 1e-10
     assert abs(assemble(dot(u('+'), n('+'))*dS) - 2.0) < 1e-10
 
-    u.interpolate(Expression(('1.0', '-1.0')))
+    u.interpolate(Constant((1.0, -1.0)))
     assert abs(assemble(dot(u('+'), n('+'))*dS)) < 1e-10
 
 
@@ -33,7 +33,13 @@ def test_mfs(mesh2D):
     V2 = FunctionSpace(mesh2D, 'CG', 2)
     V3 = FunctionSpace(mesh2D, 'CG', 3)
     W = V3 * V1 * V2
-    u = project(Expression(('1.0', '-1.0', '-1.0', '1.0')), W)
+
+    u = Function(W)
+    u0, u1, u2 = u.split()
+    u0.interpolate(Constant(1))
+    u1.project(Constant((-1.0, -1.0)))
+    u2.interpolate(Constant(1))
+
     n = FacetNormal(mesh2D)
 
     # Unit '+' normal is (1, 1)/sqrt2, and diagonal has length sqrt2.
@@ -42,8 +48,3 @@ def test_mfs(mesh2D):
          + 10*u[1]('+')*n[0]('-') + 10*u[2]('-')*n[1]('-'))*dS
 
     assert abs(assemble(a) - 22.0) < 1e-9
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -75,6 +75,15 @@ class WithGeometry(ufl.FunctionSpace):
             return self._split
 
     def sub(self, i):
+<<<<<<< HEAD
+=======
+        if len(self) == 1:
+            bound = self.value_size
+        else:
+            bound = len(self)
+        if i < 0 or i >= bound:
+            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+>>>>>>> wence/lgmap-bcs
         return self._components[i]
 
     @utils.cached_property
@@ -755,13 +764,10 @@ def IndexedFunctionSpace(index, space, parent):
     :returns: A new :class:`ProxyFunctionSpace` with index and parent
         set.
     """
-
     if space.ufl_element().family() == "Real":
-        new = RealFunctionSpace(space.mesh(), space.ufl_element(),
-                                name=space.name)
+        new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
-                                 name=space.name)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -779,12 +785,20 @@ def ComponentFunctionSpace(parent, component):
     :returns: A new :class:`ProxyFunctionSpace` with the component set.
     """
     element = parent.ufl_element()
+<<<<<<< HEAD
     assert type(element) in {ufl.VectorElement, ufl.TensorElement}
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0],
                              name=parent.name)
+=======
+    assert type(element) in frozenset([ufl.VectorElement, ufl.TensorElement])
+    if not (0 <= component < parent.value_size):
+        raise IndexError("Invalid component %d. not in [0, %d)" %
+                         (component, parent.value_size))
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+>>>>>>> wence/lgmap-bcs
     new.identifier = "component"
     new.component = component
     new.parent = parent
@@ -866,3 +880,7 @@ class RealFunctionSpace(FunctionSpace):
 
     def dim(self):
         return 1
+
+    def local_to_global_map(self, bcs, lgmap=None):
+        assert len(bcs) == 0
+        return None

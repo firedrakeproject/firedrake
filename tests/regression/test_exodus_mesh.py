@@ -29,8 +29,3 @@ def test_sidesets(exodus_mesh):
     else:
         exodus_mesh.init()
         assert (exodus_mesh.exterior_facets.unique_markers == [200, 201]).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

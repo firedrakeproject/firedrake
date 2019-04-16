@@ -109,7 +109,10 @@ def compile_element(expression, coordinates, parameters=None):
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
+<<<<<<< HEAD
         # "extruded_arg": ", %int* layers" if extruded else "",
+=======
+>>>>>>> wence/lgmap-bcs
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "IntType": as_cstr(IntType),

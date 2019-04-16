@@ -1,12 +1,19 @@
 pipeline {
   agent {
-    label 'linux'
+    docker {
+        image 'firedrakeproject/firedrake-env:latest'
+        label 'firedrakeproject'
+        args '-v /var/run/docker.sock:/var/run/docker.sock'
+        alwaysPull true
+        }
   }
   environment {
     PATH = "/usr/local/bin:/usr/bin:/bin"
     CC = "mpicc"
     FIREDRAKE_CI_TESTS = "1"
     PYTHONHASHSEED = "12453221"
+    DOCKER_CREDENTIALS = credentials('f52ccab9-5250-4b17-9fb6-c3f1ebdcc986')
+    PETSC_CONFIGURE_OPTIONS = "--with-make-np=12"
   }
   stages {
     stage('Clean') {
@@ -22,6 +29,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
+<<<<<<< HEAD
             sh '../scripts/firedrake-install --package-branch tsfc tsfc2loopy --package-branch PyOP2 lgmap-bcs --disable-ssh --minimal-petsc ${SLEPC} --slope --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
@@ -37,6 +45,9 @@ python -m pip install flake8
 cd firedrake/src/firedrake
 make lint
 '''
+=======
+            sh '../scripts/firedrake-install --package-branch PyOP2 wence/lgmap-bcs --disable-ssh --minimal-petsc ${SLEPC} --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
+>>>>>>> wence/lgmap-bcs
           }
         }
       }
@@ -51,7 +62,7 @@ python $(which firedrake-clean)
 python -m pip install pytest-cov pytest-xdist
 python -m pip list
 cd firedrake/src/firedrake
-python -m pytest -n 4 --cov firedrake -v tests
+python -m pytest -n 12 --cov firedrake -v tests
 '''
           }
         }
@@ -89,6 +100,36 @@ cd firedrake/src/firedrake/docs; make html
         timestamps {
           sh 'scripts/firedrake-install --test-doi-resolution || (cat firedrake-install.log && /bin/false)'
         }
+      }
+    }
+    stage('Lint'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+python -m pip install flake8
+cd firedrake/src/firedrake
+make lint
+'''
+          }
+        }
+      }
+    }
+    stage('Docker'){
+      when {
+        branch 'master'
+      }
+      steps {
+        sh '''
+sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
+sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
+sudo docker push firedrakeproject/firedrake-env:latest
+sudo docker build --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-vanilla:latest -f docker/Dockerfile.vanilla .
+sudo docker push firedrakeproject/firedrake-vanilla:latest
+sudo docker build --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake:latest -f docker/Dockerfile.firedrake .
+sudo docker push firedrakeproject/firedrake:latest
+'''
       }
     }
   }

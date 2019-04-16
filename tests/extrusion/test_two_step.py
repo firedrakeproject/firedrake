@@ -1,6 +1,5 @@
 """Testing extruded RT elements."""
 
-import pytest
 import numpy as np
 from firedrake import *
 
@@ -28,8 +27,9 @@ def two_step(quadrilateral):
     X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
 
     # Define starting field
+    xs = SpatialCoordinate(mesh)
     f0 = Function(V)
-    f0.interpolate(Expression("1 + x[0]*x[0] + x[1]*x[1]"))
+    f0.interpolate(1 + xs[0]*xs[0] + xs[1]*xs[1])
 
     # DO IN ONE STEP
     u = TrialFunction(X)
@@ -75,8 +75,3 @@ def test_firedrake_extrusion_two_step():
 
 def test_firedrake_extrusion_two_step_quadrilateral():
     assert two_step(quadrilateral=True) < 1.0e-4
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

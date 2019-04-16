@@ -6,6 +6,20 @@
 Firedrake events
 ----------------
 
+Firedrake '19
+~~~~~~~~~~~~~
+
+The third Firedrake user and developer workshop will be held at Durham
+University on 26 and 27 September 2019. For more information see
+:doc:`the workshop page <firedrake_19>`.
+
+Firedrake tutorial Jan 11 2019
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team hosted an introductory tutorial at Imperial
+College London on 11 January. For details and links to the material, see :doc:`the
+tutorial page <tutorial_jan_19>`.
+
 Firedrake '18
 ~~~~~~~~~~~~~
 

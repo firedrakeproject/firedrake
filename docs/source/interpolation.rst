@@ -98,9 +98,9 @@ C string expressions
 
 .. warning::
 
-   This is a deprecated feature, which will be removed from Firedrake
-   in January 2019. This section only remains to assist users to
-   transition existing code.
+   C string expressions were a FEniCS compatibility feature which has
+   now been removed. Users should use UFL expressions instead. This
+   section only remains to assist in the transition of existing code.
 
 Here are a couple of old-style C string expressions, and their modern replacements.   
 
@@ -172,3 +172,29 @@ expressions:
 .. _math.h: http://en.cppreference.com/w/c/numeric/math
 .. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
 .. _TSFC: https://github.com/firedrakeproject/tsfc
+
+
+Generating Functions with randomised values
+-------------------------------------------
+
+The :py:mod:`~.randomfunctiongen` module wraps  the external package `randomgen <https://pypi.org/project/randomgen/>`__,
+which gives Firedrake users an easy access to many stochastically sound random number generators,
+including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
+All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__ 
+are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
+to generate a randomised :class:`.Function`.
+
+.. code-block:: python
+
+    mesh = UnitSquareMesh(2,2)
+    V = FunctionSpace(mesh, "CG", 1)
+    # PCG64 random number generator
+    pcg = PCG64(seed=123456789)
+    rg = RandomGenerator(pcg)
+    # beta distribution
+    f_beta = rg.beta(V, 1.0, 2.0)
+
+    print(f_beta.dat.data)
+
+    # produces:
+    # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]

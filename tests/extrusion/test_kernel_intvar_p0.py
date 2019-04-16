@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from firedrake import *
 
@@ -26,13 +25,23 @@ def integrate_var_p0(family, degree):
     instructions = """
     x[0] = (c[1,2] + c[0,2]) / 2
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, {'x': (f, INC), 'c': (coords, READ)})
+=======
+    par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     instructions = """
     <float64> area = x[0,0]*(x[2,1]-x[4,1]) + x[2,0]*(x[4,1]-x[0,1]) + x[4,0]*(x[0,1]-x[2,1])
     A[0] = A[0] + 0.5*fabs(area)*(x[1,2]-x[0,2])*y[0]
     """
+<<<<<<< HEAD
     par_loop(domain, instructions, dx, {'A': (g, INC), 'x': (coords, READ), 'y': (f, READ)})
+=======
+    par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ), 'y': (f, READ)},
+             is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
     return np.abs(g.dat.data[0] - 0.5)
 
@@ -42,8 +51,11 @@ def test_firedrake_extrusion_var_p0():
     degree = 0
 
     assert integrate_var_p0(family, degree) < 1.0e-13
+<<<<<<< HEAD
 
 
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
+=======
+>>>>>>> wence/lgmap-bcs

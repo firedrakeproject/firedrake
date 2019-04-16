@@ -93,8 +93,3 @@ def test_convergence_rates_trace_galerkin_projection(testdegree,
     conv = np.log2(l2errors[:-1] / l2errors[1:])[-1]
     print("Convergence order: ", conv)
     assert conv > 0.9*convrate
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

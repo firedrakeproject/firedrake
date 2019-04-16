@@ -156,7 +156,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
+<<<<<<< HEAD
     # result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+=======
+>>>>>>> wence/lgmap-bcs
     result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
@@ -340,11 +343,11 @@ def coefficient_temporaries(builder, declared_temps):
             c_shape = cinfo.shape
             vector = cinfo.vector
             function = vector._function
+            t = cinfo.local_temp
 
             if vector not in declared_temps:
                 # Declare and initialize coefficient temporary
                 c_type = eigen_matrixbase_type(shape=c_shape)
-                t = ast.Symbol("VT%d" % len(declared_temps))
                 statements.append(ast.Decl(c_type, t))
                 declared_temps[vector] = t
 

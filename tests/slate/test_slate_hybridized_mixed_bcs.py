@@ -103,8 +103,3 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
 
     assert sigma_err < 1e-11
     assert u_err < 1e-11
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

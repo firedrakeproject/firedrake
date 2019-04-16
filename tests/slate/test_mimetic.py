@@ -55,8 +55,3 @@ def test_hcurl_element(hfamily, hdegree, vfamily, vdegree):
     ref = assemble(form).M.values
 
     assert np.allclose(A, ref, rtol=1e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

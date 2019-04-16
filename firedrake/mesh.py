@@ -425,6 +425,12 @@ class MeshTopology(object):
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
+        # A set of weakrefs to meshes that are explicitly labelled as being
+        # parallel-compatible for interpolation/projection/supermeshing
+        # To set, do e.g.
+        # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
+        self._parallel_compatible = None
+
         def callback(self):
             """Finish initialisation."""
             del self._callback
@@ -578,9 +584,14 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        return _Facets(self, classes, kind,
-                       facet_cell, local_facet_number,
-                       markers, unique_markers=unique_markers)
+        point2facetnumber = {}
+        for i, f in enumerate(facets):
+            point2facetnumber[f] = i
+        obj = _Facets(self, classes, kind,
+                      facet_cell, local_facet_number,
+                      markers, unique_markers=unique_markers)
+        obj.point2facetnumber = point2facetnumber
+        return obj
 
     @utils.cached_property
     def exterior_facets(self):
@@ -1093,10 +1104,18 @@ values from f.)"""
             f_max[0, d] = fmax(f_max[0, d], f[i, d])
         end
         """
+<<<<<<< HEAD
         par_loop(domain, instructions, ufl.dx,
                  {'f': (self.coordinates, READ),
                   'f_min': (coords_min, RW),
                   'f_max': (coords_max, RW)})
+=======
+        par_loop((domain, instructions), ufl.dx,
+                 {'f': (self.coordinates, READ),
+                  'f_min': (coords_min, RW),
+                  'f_max': (coords_max, RW)},
+                 is_loopy_kernel=True)
+>>>>>>> wence/lgmap-bcs
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
