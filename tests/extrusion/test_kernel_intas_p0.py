@@ -29,21 +29,6 @@ def integrate_assemble_p0(family, degree):
     instructions = """
     x[0] = (c[1,2] + c[0,2]) / 2
     """
-<<<<<<< HEAD
-    par_loop(domain, instructions, dx, {'x': (f, INC), 'c': (coords, READ)})
-
-    instructions = """
-    <float64> area = x[0,0]*(x[2,1]-x[4,1]) + x[2,0]*(x[4,1]-x[0,1]) + x[4,0]*(x[0,1]-x[2,1])
-    rhs[0] = rhs[0] + 0.5*fabs(area)*(x[1,2]-x[0,2])*y[0]
-    """
-    par_loop(domain, instructions, dx, {'rhs': (f_rhs, INC), 'x': (coords, READ), 'y': (f, READ)})
-
-    instructions = """
-    A[0] = A[0] + x[0]
-    """
-    par_loop(domain, instructions, dx, {'A': (g, INC), 'x': (f_rhs, READ)})
-
-=======
     par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
              is_loopy_kernel=True)
 
@@ -60,16 +45,10 @@ def integrate_assemble_p0(family, degree):
     par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (f_rhs, READ)},
              is_loopy_kernel=True)
 
->>>>>>> wence/lgmap-bcs
     return np.abs(g.dat.data[0] - 0.5)
 
 
 @pytest.mark.parametrize(('family', 'degree'), [('DG', 0)])
 def test_firedrake_extrusion_assemble(family, degree):
-<<<<<<< HEAD
-    assert integrate_assemble_p0(family, degree) < 1.0e-13
-
-=======
->>>>>>> wence/lgmap-bcs
 
     assert integrate_assemble_p0(family, degree) < 1.0e-13

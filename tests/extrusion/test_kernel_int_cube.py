@@ -25,16 +25,9 @@ def integrate_unit_cube(family, degree):
     <float64> area = x[0,0]*(x[2,1]-x[4,1]) + x[2,0]*(x[4,1]-x[0,1]) + x[4,0]*(x[0,1]-x[2,1])
     A[0] = A[0] + 0.5*fabs(area)*(x[1,2]-x[0,2])
     """
-<<<<<<< HEAD
-
-    par_loop(domain, instructions, dx, {'A': (g, INC), 'x': (coords, READ)})
-
-=======
-
     par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)},
              is_loopy_kernel=True)
 
->>>>>>> wence/lgmap-bcs
     return np.abs(g.dat.data[0] - 1.0)
 
 

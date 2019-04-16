@@ -30,21 +30,7 @@ def test_consistent_facet_orientation(mesh_thunk):
     f = Function(V).interpolate(expression)
     g = Function(W).interpolate(expression)
 
-<<<<<<< HEAD
-    q = Function(Q).interpolate(Expression("0.0"))
-
-    domain = "{[i]: 0 <= i < C.dofs}"
-    instructions = """
-    for i
-        R[0, 0] = fmax(R[0, 0], fabs(C[i, 0] - D[i, 0]))
-    end
-    """
-    par_loop(domain, instructions, dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
-
-    assert np.allclose(q.dat.data, 0.0)
-=======
     q = Function(Q).interpolate(Constant(0.0))
->>>>>>> wence/lgmap-bcs
 
     domain = "{[i]: 0 <= i < C.dofs}"
     instructions = """

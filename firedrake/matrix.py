@@ -35,8 +35,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         or 'matfree' for matrix-free."""
 
     @abc.abstractmethod
-<<<<<<< HEAD
-=======
     def assemble(self):
         """Actually assemble this matrix.
 
@@ -49,7 +47,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         self._bcs_at_point_of_assembly = tuple(self._bcs)
 
     @abc.abstractmethod
->>>>>>> wence/lgmap-bcs
     def force_evaluation(self):
         """Force any pending writes to this matrix.
 

@@ -28,12 +28,8 @@ def integrate_rhs(family, degree):
     x[0,0] = (c[1,2] + c[0,2]) / 2
     """
 
-<<<<<<< HEAD
-    par_loop(domain, instructions, dx, {'x': (f, INC), 'c': (coords, READ)})
-=======
     par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
              is_loopy_kernel=True)
->>>>>>> wence/lgmap-bcs
 
     g = assemble(f * dx)
 
@@ -43,13 +39,4 @@ def integrate_rhs(family, degree):
 def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-<<<<<<< HEAD
-    assert integrate_rhs(family, degree) < 1.0e-13
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
-=======
     assert integrate_rhs(family, degree) < 5.0e-13
->>>>>>> wence/lgmap-bcs

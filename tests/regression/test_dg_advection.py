@@ -32,11 +32,7 @@ def run_test(mesh):
     dD1 = Function(V)
     D1 = Function(V)
 
-<<<<<<< HEAD
-    D0 = Expression("if(x[0] < 0, 1, 0)")
-=======
     D0 = conditional(le(x[0], 0), 1, 0.0)
->>>>>>> wence/lgmap-bcs
     D = Function(V).interpolate(D0)
 
     t = 0.0

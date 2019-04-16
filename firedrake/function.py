@@ -112,18 +112,12 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-<<<<<<< HEAD
-        return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                            name="view[%d](%s)" % (i, self.name()))
-                     for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
-=======
         if self.dof_dset.cdim == 1:
             return (self, )
         else:
             return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
                                                 name="view[%d](%s)" % (i, self.name()))
                          for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
->>>>>>> wence/lgmap-bcs
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -304,16 +298,11 @@ class Function(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-<<<<<<< HEAD
-        return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                     for i in range(self.function_space().value_size))
-=======
         if self.function_space().value_size == 1:
             return (self, )
         else:
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
                          for i in range(self.function_space().value_size))
->>>>>>> wence/lgmap-bcs
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -660,12 +649,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
                                             forward_args=["double*", "double*"],
                                             kernel_name="evaluate_kernel",
-<<<<<<< HEAD
-                                            wrapper_name="wrap_evaluate",
-                                            restart_counter=True))
-=======
                                             wrapper_name="wrap_evaluate"))
->>>>>>> wence/lgmap-bcs
 
     src = "\n".join(src)
 

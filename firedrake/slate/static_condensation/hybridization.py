@@ -106,12 +106,8 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-<<<<<<< HEAD
-        par_loop(domain, instructions, ufl.dx, {"w": (self.weight, INC)})
-=======
         par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
                  is_loopy_kernel=True)
->>>>>>> wence/lgmap-bcs
 
         instructions = """
         for i, j

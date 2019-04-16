@@ -320,11 +320,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 iteration_regions.append(tuple(exterior_facet_domains))
             if interior_facet_domains:
                 map_pairs.append((test.interior_facet_node_map(), trial.interior_facet_node_map()))
-<<<<<<< HEAD
-                iteration_regions.append(tuple(exterior_facet_domains))
-=======
                 iteration_regions.append(tuple(interior_facet_domains))
->>>>>>> wence/lgmap-bcs
 
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
@@ -359,26 +355,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         def mat(testmap, trialmap, rowbc, colbc, i, j):
             m = testmap(test.function_space()[i])
             n = trialmap(trial.function_space()[j])
-<<<<<<< HEAD
-            maps = (m if m else None,
-                    n if n else None)
-
-            # TODO: avoid this isinstance check.
-            # Get lgmap from Mat?
-            from pyop2.petsc_base import MatBlock
-            if isinstance(tensor[i, j], MatBlock):
-                rmap, cmap = tensor[i, j].handle.getLGMap()
-            else:
-                rmap = cmap = None
-
-            V = test.function_space()[i]
-            rmap = V.local_to_global_map(rowbc, lgmap=rmap)
-            V = trial.function_space()[j]
-            cmap = V.local_to_global_map(colbc, lgmap=cmap)
-            unroll = any(bc.function_space().component is not None
-                         for bc in chain(rowbc, colbc) if bc is not None)
-            return tensor[i, j](op2.INC, maps, lgmaps=(rmap, cmap), unroll_map=unroll)
-=======
             maps = (m if m else None, n if n else None)
 
             rlgmap, clgmap = tensor[i, j].local_to_global_maps
@@ -393,7 +369,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             unroll = any(bc.function_space().component is not None
                          for bc in chain(rowbc, colbc) if bc is not None)
             return tensor[i, j](op2.INC, maps, lgmaps=(rlgmap, clgmap), unroll_map=unroll)
->>>>>>> wence/lgmap-bcs
 
         result = lambda: result_matrix
         if allocate_only:
@@ -491,7 +466,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if bcs is not None:
                     for bc in bcs:
                         tsbc.append(bc)
-<<<<<<< HEAD
                         if isinstance(bc, DirichletBC):
                             trbc.append(bc)
                         elif isinstance(bc, EquationBCSplit):
@@ -547,97 +521,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
-=======
-                    if fs.index == j:
-                        trbc.append(bc)
-            elif is_mat:
-                tsbc, trbc = bcs, bcs
-
-            # Now build arguments for the par_loop
-            kwargs = {}
-            # Some integrals require non-coefficient arguments at the
-            # end (facet number information).
-            extra_args = []
-            # Decoration for applying to matrix maps in extruded case
-            decoration = None
-            itspace = m.measure_set(integral_type, subdomain_id,
-                                    all_integer_subdomain_ids)
-            if integral_type == "cell":
-                itspace = sdata or itspace
-
-                if subdomain_id not in ["otherwise", "everywhere"] and \
-                   sdata is not None:
-                    raise ValueError("Cannot use subdomain data and subdomain_id")
-
-                def get_map(x):
-                    return x.cell_node_map()
-
-            elif integral_type in ("exterior_facet", "exterior_facet_vert"):
-                extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
-
-                def get_map(x):
-                    return x.exterior_facet_node_map()
-
-            elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
-                # In the case of extruded meshes with horizontal facet integrals, two
-                # parallel loops will (potentially) get created and called based on the
-                # domain id: interior horizontal, bottom or top.
-                decoration = {"exterior_facet_top": op2.ON_TOP,
-                              "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
-                kwargs["iterate"] = decoration
-
-                def get_map(x):
-                    return x.cell_node_map()
-
-            elif integral_type in ("interior_facet", "interior_facet_vert"):
-                extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
-
-                def get_map(x):
-                    return x.interior_facet_node_map()
-
-            elif integral_type == "interior_facet_horiz":
-                decoration = op2.ON_INTERIOR_FACETS
-                kwargs["iterate"] = decoration
-
-                def get_map(x):
-                    return x.cell_node_map()
-
-            else:
-                raise ValueError("Unknown integral type '%s'" % integral_type)
-
-            # Output argument
-            if is_mat:
-                tensor_arg = mat(lambda s: get_map(s),
-                                 lambda s: get_map(s),
-                                 tsbc, trbc,
-                                 i, j)
-            elif is_vec:
-                tensor_arg = vec(lambda s: get_map(s), i)
-            else:
-                tensor_arg = tensor(op2.INC)
-
-            coords = m.coordinates
-            args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords))]
-            if needs_orientations:
-                o = m.cell_orientations()
-                args.append(o.dat(op2.READ, get_map(o)))
-            if needs_cell_sizes:
-                o = m.cell_sizes
-                args.append(o.dat(op2.READ, get_map(o)))
-
-            for n in coeff_map:
-                c = coefficients[n]
-                for c_ in c.split():
-                    m_ = get_map(c_)
-                    args.append(c_.dat(op2.READ, m_))
-            if needs_cell_facets:
-                assert integral_type == "cell"
-                extra_args.append(m.cell_to_facets(op2.READ))
-
-            args.extend(extra_args)
-            kwargs["pass_layer_arg"] = pass_layer_arg
->>>>>>> wence/lgmap-bcs
 
         # Output argument
         if is_mat:

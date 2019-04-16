@@ -469,11 +469,6 @@ class FunctionSpaceData(object):
             if fs.topological != V:
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
             bc_key.append(bc._cache_key)
-<<<<<<< HEAD
-        bc_key = tuple(sorted(bc_key))
-        node_set = V.node_set
-        key = (node_set, bc_key)
-=======
 
         def key(a):
             (domain, ), *rest = a
@@ -486,7 +481,6 @@ class FunctionSpaceData(object):
         bc_key = tuple(sorted(bc_key, key=key))
         node_set = V.node_set
         key = (node_set, V.value_size, lgmap is None, bc_key)
->>>>>>> wence/lgmap-bcs
         try:
             return self.map_cache[key]
         except KeyError:
@@ -502,16 +496,10 @@ class FunctionSpaceData(object):
                 bsize = lgmap.getBlockSize()
                 assert bsize == V.value_size
         else:
-<<<<<<< HEAD
-            # MatBlock case, LGMap is somehow already unrolled.
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-=======
             # MatBlock case, LGMap is already unrolled.
             indices = lgmap.block_indices.copy()
             bsize = lgmap.getBlockSize()
             unblocked = True
->>>>>>> wence/lgmap-bcs
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:

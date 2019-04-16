@@ -1104,18 +1104,11 @@ values from f.)"""
             f_max[0, d] = fmax(f_max[0, d], f[i, d])
         end
         """
-<<<<<<< HEAD
-        par_loop(domain, instructions, ufl.dx,
-                 {'f': (self.coordinates, READ),
-                  'f_min': (coords_min, RW),
-                  'f_max': (coords_max, RW)})
-=======
         par_loop((domain, instructions), ufl.dx,
                  {'f': (self.coordinates, READ),
                   'f_min': (coords_min, RW),
                   'f_max': (coords_max, RW)},
                  is_loopy_kernel=True)
->>>>>>> wence/lgmap-bcs
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)

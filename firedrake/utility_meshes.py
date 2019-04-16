@@ -130,11 +130,7 @@ cells are not currently supported")
 
     cL = Constant(length)
 
-<<<<<<< HEAD
-    par_loop(domain, instructions, dx,
-=======
     par_loop((domain, instructions), dx,
->>>>>>> wence/lgmap-bcs
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "L": (cL, READ)},
@@ -543,11 +539,7 @@ cells in each direction are not currently supported")
     cLx = Constant(Lx)
     cLy = Constant(Ly)
 
-<<<<<<< HEAD
-    par_loop(domain, instructions, dx,
-=======
     par_loop((domain, instructions), dx,
->>>>>>> wence/lgmap-bcs
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
@@ -1389,11 +1381,7 @@ cells in each direction are not currently supported")
     cLx = Constant(La)
     cLy = Constant(Lb)
 
-<<<<<<< HEAD
-    par_loop(domain, instructions, dx,
-=======
     par_loop((domain, instructions), dx,
->>>>>>> wence/lgmap-bcs
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),

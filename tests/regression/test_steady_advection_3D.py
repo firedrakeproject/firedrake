@@ -32,12 +32,8 @@ def run_near_to_far(mesh, DG0, W):
     velocity = as_vector((0.0, 1.0, 0.0))
     u0 = project(velocity, W)
 
-<<<<<<< HEAD
-    inflowexpr = Expression("if(x[2] > 0.33 and x[2] < 0.67, 1, 0.5)")
-=======
     xs = SpatialCoordinate(mesh)
     inflowexpr = conditional(And(xs[2] > 0.33, xs[2] < 0.67), 1.0, 0.5)
->>>>>>> wence/lgmap-bcs
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 

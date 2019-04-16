@@ -18,11 +18,7 @@ from firedrake import constant
 from firedrake import function
 from firedrake import utils
 
-<<<<<<< HEAD
-from functools import singledispatch, reduce
-=======
 from functools import singledispatch
->>>>>>> wence/lgmap-bcs
 
 
 def ufl_type(*args, **kwargs):
@@ -185,25 +181,6 @@ class IDiv(AugmentedAssignment):
     __slots__ = ()
 
 
-<<<<<<< HEAD
-class ComponentTensor(ufl.tensors.ComponentTensor):
-    r"""Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
-    first operand."""
-
-    def __str__(self):
-        return str(self.ufl_operands[0])
-
-
-class Indexed(ufl.indexed.Indexed):
-    r"""Subclass of :class:`ufl.indexed.Indexed` which only prints the first
-    operand."""
-
-    def __str__(self):
-        return str(self.ufl_operands[0])
-
-
-=======
->>>>>>> wence/lgmap-bcs
 class ExpressionSplitter(ReuseTransformer):
     r"""Split an expression tree into a subtree for each component of the
     appropriate :class:`.FunctionSpace`."""
@@ -406,17 +383,6 @@ class ExpressionWalker(ReuseTransformer):
     condition = ReuseTransformer.reuse_if_possible
     math_function = ReuseTransformer.reuse_if_possible
 
-<<<<<<< HEAD
-    def component_tensor(self, o, *operands):
-        r"""Override string representation to only print first operand."""
-        return ComponentTensor(*operands)
-
-    def indexed(self, o, *operands):
-        r"""Override string representation to only print first operand."""
-        return Indexed(*operands)
-
-=======
->>>>>>> wence/lgmap-bcs
     def operator(self, o):
 
         # Need pre-traversal of operators so as to correctly set the
@@ -435,10 +401,7 @@ class ExpressionWalker(ReuseTransformer):
 
 
 class Bag():
-<<<<<<< HEAD
-=======
     r"""An empty class which will be used to store arbitrary properties."""
->>>>>>> wence/lgmap-bcs
     pass
 
 
@@ -545,32 +508,16 @@ def loopy_inst_assign(expr, context):
 def loopy_inst_aug_assign(expr, context):
     lhs, rhs = [loopy_instructions(o, context) for o in expr.ufl_operands]
     import operator
-<<<<<<< HEAD
-    if isinstance(expr, IAdd):
-        op = operator.add
-    elif isinstance(expr, ISub):
-        op = operator.sub
-    elif isinstance(expr, IMul):
-        op = operator.mul
-    elif isinstance(expr, IDiv):
-        op = operator.truediv
-=======
     op = {IAdd: operator.add,
           ISub: operator.sub,
           IMul: operator.mul,
           IDiv: operator.truediv}[type(expr)]
->>>>>>> wence/lgmap-bcs
     return loopy.Assignment(lhs, op(lhs, rhs), within_inames=context.within_inames)
 
 
 @loopy_instructions.register(DummyFunction)
 def loopy_inst_func(expr, context):
-<<<<<<< HEAD
-    if (isinstance(expr.function, constant.Constant)
-            and len(expr.function.ufl_element().value_shape()) == 0):
-=======
     if (isinstance(expr.function, constant.Constant) and len(expr.function.ufl_element().value_shape()) == 0):
->>>>>>> wence/lgmap-bcs
         # Broadcast if constant
         return p.Variable(expr.name).index((0,))
     return p.Variable(expr.name).index(context.indices)
@@ -578,11 +525,8 @@ def loopy_inst_func(expr, context):
 
 @loopy_instructions.register(ufl.constantvalue.Zero)
 def loopy_inst_zero(expr, context):
-<<<<<<< HEAD
-=======
     # Shape doesn't matter because this turns into a scalar assignment
     # to an indexed expression in loopy.
->>>>>>> wence/lgmap-bcs
     return 0
 
 
@@ -595,27 +539,12 @@ def loopy_inst_scalar(expr, context):
 @loopy_instructions.register(ufl.algebra.Sum)
 @loopy_instructions.register(ufl.algebra.Division)
 def loopy_inst_binary(expr, context):
-<<<<<<< HEAD
-    if len(expr.ufl_operands) > 1:
-        children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-        import operator
-        if isinstance(expr, ufl.algebra.Product):
-            op = operator.mul
-        elif isinstance(expr, ufl.algebra.Sum):
-            op = operator.add
-        elif isinstance(expr, ufl.algebra.Division):
-            assert len(expr.ufl_operands) == 2
-            op = operator.truediv
-        return reduce(op, children)
-    return loopy_instructions(expr.ufl_operands[0], context)
-=======
     left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
     import operator
     op = {ufl.algebra.Sum: operator.add,
           ufl.algebra.Product: operator.mul,
           ufl.algebra.Division: operator.truediv}[type(expr)]
     return op(left, right)
->>>>>>> wence/lgmap-bcs
 
 
 @loopy_instructions.register(MathFunction)
@@ -658,15 +587,9 @@ def loopy_inst_compare(expr, context):
     return p.Comparison(left, op, right)
 
 
-<<<<<<< HEAD
-@loopy_instructions.register(ComponentTensor)
-@loopy_instructions.register(Indexed)
-def loopy_inst_component_tensor(expr, context):
-=======
 @loopy_instructions.register(ufl.classes.ComponentTensor)
 @loopy_instructions.register(ufl.classes.Indexed)
 def loopy_inst_component_tensor(expr, context):
     # The expression walker just needs the tensor operand for these.
     # The indices are handled elsewhere.
->>>>>>> wence/lgmap-bcs
     return loopy_instructions(expr.ufl_operands[0], context)

@@ -9,10 +9,7 @@ from ufl.domain import join_domains
 from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 import loopy
-<<<<<<< HEAD
-=======
 import coffee.base as ast
->>>>>>> wence/lgmap-bcs
 
 from firedrake.logging import warning
 from firedrake import constant
@@ -66,11 +63,7 @@ _maps = {
 r"""Map a measure to the correct maps."""
 
 
-<<<<<<< HEAD
-def _form_kernel(kernel_domains, instructions, measure, args, **kwargs):
-=======
 def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
->>>>>>> wence/lgmap-bcs
 
     kargs = []
 
@@ -82,8 +75,6 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # indirection
             ndof = func.dat.cdim
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
-<<<<<<< HEAD
-=======
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -134,7 +125,6 @@ def _form_string_kernel(body, measure, args, **kwargs):
             ndof = func.dat.cdim
             kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
->>>>>>> wence/lgmap-bcs
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -156,22 +146,6 @@ def _form_string_kernel(body, measure, args, **kwargs):
                     dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-<<<<<<< HEAD
-            # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
-        kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
-
-    if kernel_domains == "":
-        kernel_domains = "[] -> {[]}"
-    kargs.append(...)
-    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
-
-    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
-
-
-def par_loop(kernel_domains, instructions, measure, args, kernel_kwargs=None, **kwargs):
-=======
             kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, ))))
         body = body.replace(var+".dofs", str(ndof))
 
@@ -182,17 +156,10 @@ def par_loop(kernel_domains, instructions, measure, args, kernel_kwargs=None, **
 
 
 def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
->>>>>>> wence/lgmap-bcs
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-<<<<<<< HEAD
-    :arg kernel_domains: the iteration domain for the kernel, in Integer Set
-        Libarary (ISL) syntax. function_name.dofs can be used as a magic word.
-    :arg instructions: is a string containing the instruction for the kernel
-        in loo.py syntax.
-=======
     :arg kernel: a string containing the C code to be executed. Or a
         2-tuple of (domains, instructions) to create a loopy kernel
         (must also set ``is_loopy_kernel=True``). If loopy syntax is
@@ -200,7 +167,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         loopy kernel syntax. See the `loopy tutorial
         <https://documen.tician.de/loopy/tutorial.html>`_ for details.
 
->>>>>>> wence/lgmap-bcs
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
@@ -231,18 +197,8 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-<<<<<<< HEAD
-      domain = '{[i]: 0 <= i < A.dofs}'
-      instructions = '''
-      for i
-          A[i] = fmax(A[i], B[0])
-      end
-      '''
-      par_loop(domain, instructions, dx, {'A' : (A, RW), 'B': (B, READ)})
-=======
       par_loop('for (int i=0; i<A.dofs; i++) A[i] = fmax(A[i], B[0]);', dx,
           {'A' : (A, RW), 'B': (B, READ)})
->>>>>>> wence/lgmap-bcs
 
     The equivalent using loopy kernel syntax is::
 
@@ -381,15 +337,11 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         domain, = domains
         mesh = domain
 
-<<<<<<< HEAD
-    op2args = [_form_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
-=======
     if is_loopy_kernel:
         kernel_domains, instructions = kernel
         op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
     else:
         op2args = [_form_string_kernel(kernel, measure, args, **kernel_kwargs)]
->>>>>>> wence/lgmap-bcs
 
     op2args.append(_map['itspace'](mesh, measure))
 

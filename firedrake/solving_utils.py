@@ -270,7 +270,6 @@ class _SNESContext(object):
                         W = V.sub(field_renumbering[index])
                     if cmpt is not None:
                         W = W.sub(cmpt)
-<<<<<<< HEAD
                     if isinstance(bc, DirichletBC):
                         bcs.append(DirichletBC(W,
                                                bc.function_arg,
@@ -294,14 +293,7 @@ class _SNESContext(object):
                                               V=W,
                                               is_linear=bc.is_linear))
 
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None,
-=======
-                    bcs.append(type(bc)(W,
-                                        bc.function_arg,
-                                        bc.sub_domain,
-                                        method=bc.method))
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
->>>>>>> wence/lgmap-bcs
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None, #Jp
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,

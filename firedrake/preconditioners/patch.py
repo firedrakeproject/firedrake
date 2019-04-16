@@ -15,12 +15,8 @@ from tsfc.kernel_interface.firedrake_loopy import make_builder
 from pyop2 import op2
 from pyop2 import base as pyop2
 from pyop2 import sequential as seq
-<<<<<<< HEAD
-from pyop2.codegen.builder import MatPack
-=======
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
->>>>>>> wence/lgmap-bcs
 from pyop2.codegen.rep2loopy import register_petsc_function
 from pyop2.datatypes import IntType
 
@@ -56,32 +52,10 @@ class LocalMatPack(LocalPack, MatPack):
 class LocalMat(pyop2.Mat):
     pack = LocalMatPack
 
-<<<<<<< HEAD
-class LocalMatPack(MatPack):
-
-    insertion_names = {False: "MatSetValues",
-                       True: "MatSetValues"}
-
-    def pick_loop_indices(self, loop_index, layer_index, entity_index):
-        return (entity_index, layer_index)
-
-
-class LocalMat(pyop2.Mat):
-
-    pack = LocalMatPack
-
-    def __init__(self, sparsity, dtype=PETSc.ScalarType):
-        self._sparsity = sparsity
-        self.dtype = dtype
-
-    def __call__(self, access, path):
-        return seq.Arg(self, path, access)
-=======
     def __init__(self, dset):
         self._sparsity = DenseSparsity(dset, dset)
         self.dtype = numpy.dtype(PETSc.ScalarType)
 
->>>>>>> wence/lgmap-bcs
 
 class LocalDatPack(LocalPack, DatPack):
     def __init__(self, needs_mask, *args, **kwargs):
@@ -110,10 +84,6 @@ class LocalDat(pyop2.Dat):
     def pack(self):
         return partial(LocalDatPack, self.needs_mask)
 
-<<<<<<< HEAD
-register_petsc_function("MatSetValues")
-=======
->>>>>>> wence/lgmap-bcs
 
 register_petsc_function("MatSetValues")
 
@@ -126,44 +96,6 @@ def matrix_funptr(form, state):
     test, trial = map(operator.methodcaller("function_space"), form.arguments())
     if test != trial:
         raise NotImplementedError("Only for matching test and trial spaces")
-<<<<<<< HEAD
-    kernel, = compile_form(form, "subspace_form", split=False)
-
-    kinfo = kernel.kinfo
-
-    if kinfo.subdomain_id != "otherwise":
-        raise NotImplementedError("Only for full domain integrals")
-    if kinfo.integral_type != "cell":
-        raise NotImplementedError("Only for cell integrals")
-
-    # OK, now we've validated the kernel, let's build the callback
-    args = []
-
-    toset = op2.Set(1, comm=test.comm)
-    dofset = op2.DataSet(toset, 1)
-    arity = sum(m.arity*s.cdim
-                for m, s in zip(test.cell_node_map(),
-                                test.dof_dset))
-    iterset = test.cell_node_map().iterset
-    cell_node_map = op2.Map(iterset,
-                            toset, arity,
-                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    mat = LocalMat(DenseSparsity(dofset, dofset))
-
-    arg = mat(op2.INC, (cell_node_map, cell_node_map))
-    arg.position = 0
-    args.append(arg)
-
-    mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    arg.position = 1
-    args.append(arg)
-    for n in kinfo.coefficient_map:
-        c = form.coefficients()[n]
-        for (i, c_) in enumerate(c.split()):
-            map_ = c_.cell_node_map()
-            arg = c_.dat(op2.READ, map_)
-=======
 
     if state is not None:
         interface = make_builder(dont_split=(state, ))
@@ -232,7 +164,6 @@ def matrix_funptr(form, state):
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
->>>>>>> wence/lgmap-bcs
             arg.position = len(args)
             args.append(arg)
         iterset = op2.Subset(iterset, [0])
@@ -240,12 +171,6 @@ def matrix_funptr(form, state):
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
 
-<<<<<<< HEAD
-    iterset = op2.Subset(mesh.cell_set, [0])
-    from pyop2.sequential import JITModule
-    mod = JITModule(kinfo.kernel, iterset, *args)
-    return mod._fun, kinfo
-=======
 
 def residual_funptr(form, state):
     from firedrake.tsfc_interface import compile_form
@@ -326,7 +251,6 @@ def residual_funptr(form, state):
         mod = seq.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
->>>>>>> wence/lgmap-bcs
 
 
 def bcdofs(bc, ghost=True):

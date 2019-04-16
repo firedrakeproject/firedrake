@@ -221,12 +221,8 @@ def prolong_kernel(expression):
         my_kernel = """
         %(to_reference)s
         %(evaluate)s
-<<<<<<< HEAD
-        void pyop2_kernel_prolong(double *R, %(args)s, const double *X, const double *Xc)
-=======
         __attribute__((noinline)) /* Clang bug */
         static void pyop2_kernel_prolong(double *R, %(args)s, const double *X, const double *Xc)
->>>>>>> wence/lgmap-bcs
         {
             double Xref[%(tdim)d];
             int cell = -1;
@@ -285,12 +281,8 @@ def restrict_kernel(Vf, Vc):
         %(to_reference)s
         %(evaluate)s
 
-<<<<<<< HEAD
-        void pyop2_kernel_restrict(double *R, %(args)s, const double *X, const double *Xc)
-=======
         __attribute__((noinline)) /* Clang bug */
         static void pyop2_kernel_restrict(double *R, %(args)s, const double *X, const double *Xc)
->>>>>>> wence/lgmap-bcs
         {
             double Xref[%(tdim)d];
             int cell = -1;
@@ -345,12 +337,8 @@ def inject_kernel(Vf, Vc):
         %(to_reference)s
         %(evaluate)s
 
-<<<<<<< HEAD
-        void pyop2_kernel_inject(double *R, const double *X, const double *f, const double *Xf)
-=======
         __attribute__((noinline)) /* Clang bug */
         static void pyop2_kernel_inject(double *R, const double *X, const double *f, const double *Xf)
->>>>>>> wence/lgmap-bcs
         {
             double Xref[%(tdim)d];
             int cell = -1;
