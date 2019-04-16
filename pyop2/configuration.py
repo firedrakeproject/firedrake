@@ -45,7 +45,6 @@ class Configuration(dict):
     :param compiler: compiler identifier (one of `gcc`, `icc`).
     :param simd_width: number of doubles in SIMD instructions
         (e.g. 4 for AVX2, 8 for AVX512).
-    :param blas: COFFEE BLAS backend (one of `mkl`, `atlas`, `eigen`).
     :param cflags: extra flags to be passed to the C compiler.
     :param ldflags: extra flags to be passed to the linker.
     :param debug: Turn on debugging for generated code (turns off
