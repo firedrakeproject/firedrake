@@ -126,14 +126,14 @@ class TestIndirectLoop:
     def test_uninitialized_map(self, iterset, indset, x):
         """Accessing a par_loop argument via an uninitialized Map should raise
         an exception."""
-        kernel_wo = "void wo(unsigned int* x) { *x = 42; }\n"
+        kernel_wo = "static void wo(unsigned int* x) { *x = 42; }\n"
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel(kernel_wo, "wo"), iterset,
                          x(op2.WRITE, op2.Map(iterset, indset, 1)))
 
     def test_onecolor_wo(self, iterset, x, iterset2indset):
         """Set a Dat to a scalar value with op2.WRITE."""
-        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+        kernel_wo = "static void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
                      iterset, x(op2.WRITE, iterset2indset))
@@ -141,7 +141,7 @@ class TestIndirectLoop:
 
     def test_onecolor_rw(self, iterset, x, iterset2indset):
         """Increment each value of a Dat by one with op2.RW."""
-        kernel_rw = "void rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
+        kernel_rw = "static void rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "rw"),
                      iterset, x(op2.RW, iterset2indset))
@@ -150,7 +150,7 @@ class TestIndirectLoop:
     def test_indirect_inc(self, iterset, unitset, iterset2unitset):
         """Sum into a scalar Dat with op2.INC."""
         u = op2.Dat(unitset, np.array([0], dtype=np.uint32), np.uint32, "u")
-        kernel_inc = "void inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
+        kernel_inc = "static void inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
         op2.par_loop(op2.Kernel(kernel_inc, "inc"),
                      iterset, u(op2.INC, iterset2unitset))
         assert u.data[0] == nelems
@@ -159,7 +159,7 @@ class TestIndirectLoop:
         """Divide a Dat by a Global."""
         g = op2.Global(1, 2, np.uint32, "g")
 
-        kernel_global_read = "void global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
+        kernel_global_read = "static void global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
 
         op2.par_loop(op2.Kernel(kernel_global_read, "global_read"),
                      iterset,
@@ -172,7 +172,7 @@ class TestIndirectLoop:
         g = op2.Global(1, 0, np.uint32, "g")
 
         kernel_global_inc = """
-        void global_inc(unsigned int *x, unsigned int *inc) {
+        static void global_inc(unsigned int *x, unsigned int *inc) {
           (*x) = (*x) + 1; (*inc) += (*x);
         }"""
 
@@ -185,7 +185,7 @@ class TestIndirectLoop:
 
     def test_2d_dat(self, iterset, iterset2indset, x2):
         """Set both components of a vector-valued Dat to a scalar value."""
-        kernel_wo = "void wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
+        kernel_wo = "static void wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
         op2.par_loop(op2.Kernel(kernel_wo, "wo"), iterset,
                      x2(op2.WRITE, iterset2indset))
         assert all(all(v == [42, 43]) for v in x2.data)
@@ -204,7 +204,7 @@ class TestIndirectLoop:
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
-        void sum(unsigned int *edge, unsigned int *nodes) {
+        static void sum(unsigned int *edge, unsigned int *nodes) {
           *edge = nodes[0] + nodes[1];
         }"""
         op2.par_loop(op2.Kernel(kernel_sum, "sum"), edges,
@@ -236,7 +236,7 @@ class TestMixedIndirectLoop:
     def test_mixed_non_mixed_dat(self, mdat, mmap, iterset):
         """Increment into a MixedDat from a non-mixed Dat."""
         d = op2.Dat(iterset, np.ones(iterset.size))
-        kernel_inc = """void inc(double *d, double *x) {
+        kernel_inc = """static void inc(double *d, double *x) {
           d[0] += x[0]; d[1] += x[0];
         }"""
         op2.par_loop(op2.Kernel(kernel_inc, "inc"), iterset,
@@ -252,7 +252,8 @@ class TestMixedIndirectLoop:
         kernel_code = FunDecl("void", "inc",
                               [Decl("double", c_sym("*d")),
                                Decl("double", c_sym("*x"))],
-                              Block([assembly], open_scope=False))
+                              Block([assembly], open_scope=False),
+                              pred=["static"])
         op2.par_loop(op2.Kernel(kernel_code.gencode(), "inc"), iterset,
                      mdat(op2.INC, mmap),
                      d(op2.READ))

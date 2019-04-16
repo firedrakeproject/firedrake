@@ -137,6 +137,7 @@ def build_sparsity(sparsity):
                           bsize=1)
     preallocator.setUp()
 
+    iteration_regions = sparsity.iteration_regions
     if mixed:
         for i, r in enumerate(rset):
             for j, c in enumerate(cset):
@@ -146,6 +147,7 @@ def build_sparsity(sparsity):
                                                      iscol=cset.local_ises[j])
                 fill_with_zeros(mat, (r.cdim, c.cdim),
                                 maps,
+                                iteration_regions,
                                 set_diag=((i == j) and sparsity._has_diagonal))
                 mat.assemble()
                 preallocator.restoreLocalSubMatrix(isrow=rset.local_ises[i],
@@ -154,7 +156,8 @@ def build_sparsity(sparsity):
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
     else:
-        fill_with_zeros(preallocator, (1, 1), sparsity.maps, set_diag=sparsity._has_diagonal)
+        fill_with_zeros(preallocator, (1, 1), sparsity.maps,
+                        iteration_regions, set_diag=sparsity._has_diagonal)
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
         if not (sparsity._block_sparse and rset.cdim == cset.cdim):
@@ -167,7 +170,7 @@ def build_sparsity(sparsity):
     return nnz, onnz
 
 
-def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
+def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_diag=True):
     """Fill a PETSc matrix with zeros in all slots we might end up inserting into
 
     :arg mat: the PETSc Mat (must already be preallocated)
@@ -194,6 +197,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
         PetscInt *roffset
         PetscInt *coffset
 
+    from pyop2 import op2
     rdim, cdim = dims
     # Always allocate space for diagonal
     nrow, ncol = mat.getLocalSize()
@@ -202,7 +206,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
             if i < ncol:
                 CHKERR(MatSetValuesLocal(mat.mat, 1, &i, 1, &i, &zero, PETSC_INSERT_VALUES))
     extruded = maps[0][0].iterset._extruded
-    for pair in maps:
+    for iteration_region, pair in zip(iteration_regions, maps):
         # Iterate over row map values including value entries
         set_size = pair[0].iterset.size
         if set_size == 0:
@@ -241,23 +245,21 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
             CHKERR(PetscMalloc1(rarity, &roffset))
             CHKERR(PetscMalloc1(carity, &coffset))
             # Walk over the iteration regions on this map.
-            if pair[0].iteration_region != pair[1].iteration_region:
-                raise NotImplementedError("fill_with_zeros: iteration regions of row and col maps don't match")
-            for r in pair[0].iteration_region:
+            for r in iteration_region:
                 region_selector = -1
                 tmp_rarity = rarity
                 tmp_carity = carity
-                if r.where == "ON_BOTTOM":
+                if r == op2.ON_BOTTOM:
                     region_selector = 1
-                elif r.where == "ON_TOP":
+                elif r == op2.ON_TOP:
                     region_selector = 2
-                elif r.where == "ON_INTERIOR_FACETS":
+                elif r == op2.ON_INTERIOR_FACETS:
                     region_selector = 3
                     # Double up rvals and cvals (the map is over two
                     # cells, not one)
                     tmp_rarity *= 2
                     tmp_carity *= 2
-                elif r.where != "ALL":
+                elif r != op2.ALL:
                     raise RuntimeError("Unhandled iteration region %s", r)
                 for i in range(rarity):
                     roffset[i] = pair[0].offset[i]
@@ -288,11 +290,11 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
                     # But this means less special casing.
                     for i in range(tmp_rarity):
                         rvals[i] = rmap[set_entry, i % rarity] + \
-                                   (layer_start - layer_bottom + i / rarity) * roffset[i % rarity]
+                            (layer_start - layer_bottom + i / rarity) * roffset[i % rarity]
                     # Ditto
                     for i in range(tmp_carity):
                         cvals[i] = cmap[set_entry, i % carity] + \
-                                   (layer_start - layer_bottom + i / carity) * coffset[i % carity]
+                            (layer_start - layer_bottom + i / carity) * coffset[i % carity]
                     for layer in range(layer_start, layer_end):
                         CHKERR(MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
                                                         tmp_carity, cvals,

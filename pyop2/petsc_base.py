@@ -74,10 +74,13 @@ class DataSet(base.DataSet):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`DataSet` with a block size of 1.
         """
-        indices = self.lgmap.indices
-        lgmap = PETSc.LGMap().create(indices=indices,
-                                     bsize=1, comm=self.lgmap.comm)
-        return lgmap
+        if self.cdim == 1:
+            return self.lgmap
+        else:
+            indices = self.lgmap.indices
+            lgmap = PETSc.LGMap().create(indices=indices,
+                                         bsize=1, comm=self.lgmap.comm)
+            return lgmap
 
     @utils.cached_property
     def field_ises(self):
@@ -150,10 +153,13 @@ class GlobalDataSet(base.GlobalDataSet):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`DataSet` with a block size of 1.
         """
-        indices = self.lgmap.indices
-        lgmap = PETSc.LGMap().create(indices=indices,
-                                     bsize=1, comm=self.lgmap.comm)
-        return lgmap
+        if self.cdim == 1:
+            return self.lgmap
+        else:
+            indices = self.lgmap.indices
+            lgmap = PETSc.LGMap().create(indices=indices,
+                                         bsize=1, comm=self.lgmap.comm)
+            return lgmap
 
     @utils.cached_property
     def field_ises(self):
@@ -529,6 +535,7 @@ class SparsityBlock(base.Sparsity):
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
         self._blocks = [[self]]
+        self.iteration_regions = parent.iteration_regions
         self.lcomm = self.dsets[0].comm
         self.rcomm = self.dsets[1].comm
         # TODO: think about lcomm != rcomm
@@ -544,6 +551,17 @@ class SparsityBlock(base.Sparsity):
 
     def __repr__(self):
         return "SparsityBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+
+def masked_lgmap(lgmap, mask, block=True):
+    if block:
+        indices = lgmap.block_indices.copy()
+        bsize = lgmap.getBlockSize()
+    else:
+        indices = lgmap.indices.copy()
+        bsize = 1
+    indices[mask] = -1
+    return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
 class MatBlock(base.Mat):
@@ -564,6 +582,7 @@ class MatBlock(base.Mat):
         self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
                                                       iscol=colis)
         self.comm = parent.comm
+        self.local_to_global_maps = self.handle.getLGMap()
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -668,6 +687,9 @@ class Mat(base.Mat):
         self._init()
         self.assembly_state = Mat.ASSEMBLED
 
+    # Firedrake relies on this to distinguish between MatBlock and not for boundary conditions
+    local_to_global_maps = (None, None)
+
     @utils.cached_property
     def _kernel_args_(self):
         return (self.handle.handle, )
@@ -690,14 +712,8 @@ class Mat(base.Mat):
     def _init_monolithic(self):
         mat = PETSc.Mat()
         rset, cset = self.sparsity.dsets
-        if rset.cdim != 1:
-            rlgmap = rset.unblocked_lgmap
-        else:
-            rlgmap = rset.lgmap
-        if cset.cdim != 1:
-            clgmap = cset.unblocked_lgmap
-        else:
-            clgmap = cset.lgmap
+        rlgmap = rset.unblocked_lgmap
+        clgmap = cset.unblocked_lgmap
         mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
                       nnz=(self.sparsity.nnz, self.sparsity.onnz),
                       bsize=1,
@@ -727,6 +743,7 @@ class Mat(base.Mat):
                     sparsity.fill_with_zeros(self[i, j].handle,
                                              self[i, j].sparsity.dims[0][0],
                                              self[i, j].sparsity.maps,
+                                             self[i, j].sparsity.iteration_regions,
                                              set_diag=self[i, j].sparsity._has_diagonal)
                     self[i, j].handle.assemble()
 
@@ -798,7 +815,9 @@ class Mat(base.Mat):
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         # Put zeros in all the places we might eventually put a value.
         with timed_region("MatZeroInitial"):
-            sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps, set_diag=self.sparsity._has_diagonal)
+            sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0],
+                                     self.sparsity.maps, self.sparsity.iteration_regions,
+                                     set_diag=self.sparsity._has_diagonal)
         mat.assemble()
         mat.setOption(mat.Option.NEW_NONZERO_LOCATION_ERR, True)
         # Now we've filled up our matrix, so the sparsity is
@@ -818,11 +837,12 @@ class Mat(base.Mat):
             mat = _DatMat(self.sparsity)
         self.handle = mat
 
-    def __call__(self, access, path):
+    def __call__(self, access, path, lgmaps=None, unroll_map=False):
         """Override the parent __call__ method in order to special-case global
         blocks in matrices."""
         # One of the path entries was not an Arg.
         if path == (None, None):
+            assert all(l is None for l in lgmaps)
             return _make_object('Arg',
                                 data=self.handle.getPythonContext().global_,
                                 access=access)
@@ -831,7 +851,7 @@ class Mat(base.Mat):
             return _make_object('Arg', data=self.handle.getPythonContext().dat,
                                 map=thispath, access=access)
         else:
-            return super().__call__(access, path)
+            return super().__call__(access, path, lgmaps=lgmaps, unroll_map=unroll_map)
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``

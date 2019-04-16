@@ -89,7 +89,7 @@ def elem_node(elements, nodes):
 
 @pytest.fixture(scope='module')
 def mat(elem_node, dnodes):
-    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
+    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), name="sparsity")
     return op2.Mat(sparsity, valuetype, "mat")
 
 
@@ -197,7 +197,8 @@ def mass():
     kernel_code = FunDecl("void", "mass",
                           [Decl("double", Symbol("localTensor", (3, 3))),
                            Decl("double", Symbol("c0", (3, 2)))],
-                          Block([init, assembly], open_scope=False))
+                          Block([init, assembly], open_scope=False),
+                          pred=["static"])
 
     return op2.Kernel(kernel_code.gencode(), "mass")
 
@@ -205,7 +206,7 @@ def mass():
 @pytest.fixture
 def rhs():
     kernel_code = FlatBlock("""
-void rhs(double* localTensor, double c0[3][2], double* c1)
+static void rhs(double* localTensor, double c0[3][2], double* c1)
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
@@ -293,7 +294,8 @@ for (unsigned int ip = 0; ip < 3; ip++)
     kernel_code = FunDecl("void", "mass_ffc",
                           [Decl("double", Symbol("A", (3, 3))),
                            Decl("double", Symbol("x", (3, 2)))],
-                          Block([init, assembly], open_scope=False))
+                          Block([init, assembly], open_scope=False),
+                          pred=["static"])
 
     return op2.Kernel(kernel_code.gencode(), "mass_ffc")
 
@@ -301,7 +303,7 @@ for (unsigned int ip = 0; ip < 3; ip++)
 @pytest.fixture
 def rhs_ffc():
     kernel_code = FlatBlock("""
-void rhs_ffc(double *A, double x[3][2], double *w0)
+static void rhs_ffc(double *A, double x[3][2], double *w0)
 {
     double J_00 = x[1][0] - x[0][0];
     double J_01 = x[2][0] - x[0][0];
@@ -372,7 +374,8 @@ for (unsigned int ip = 0; ip < 3; ip++)
                           [Decl("double", Symbol("A", (3,))),
                            Decl("double", Symbol("x", (3, 2))),
                               Decl("double*", Symbol("w0"))],
-                          Block([init, assembly, end], open_scope=False))
+                          Block([init, assembly, end], open_scope=False),
+                          pred=["static"])
 
     return op2.Kernel(kernel_code.gencode(), "rhs_ffc_itspace")
 
@@ -380,7 +383,7 @@ for (unsigned int ip = 0; ip < 3; ip++)
 @pytest.fixture
 def zero_dat():
     kernel_code = """
-void zero_dat(double *dat)
+static void zero_dat(double *dat)
 {
   *dat = 0.0;
 }
@@ -391,7 +394,7 @@ void zero_dat(double *dat)
 @pytest.fixture
 def zero_vec_dat():
     kernel_code = """
-void zero_vec_dat(double *dat)
+static void zero_vec_dat(double *dat)
 {
   dat[0] = 0.0; dat[1] = 0.0;
 }
@@ -408,7 +411,8 @@ def kernel_inc():
     kernel_code = FunDecl("void", "inc",
                           [Decl("double", Symbol("entry", (3, 3))),
                            Decl("double*", c_sym("g"))],
-                          Block([code], open_scope=False))
+                          Block([code], open_scope=False),
+                          pred=["static"])
 
     return op2.Kernel(kernel_code.gencode(), "inc")
 
@@ -422,7 +426,8 @@ def kernel_set():
     kernel_code = FunDecl("void", "set",
                           [Decl("double", Symbol("entry", (3, 3))),
                            Decl("double*", c_sym("g"))],
-                          Block([code], open_scope=False))
+                          Block([code], open_scope=False),
+                          pred=["static"])
 
     return op2.Kernel(kernel_code.gencode(), "set")
 
@@ -430,7 +435,7 @@ def kernel_set():
 @pytest.fixture
 def kernel_inc_vec():
     kernel_code = """
-void inc_vec(double entry[2][2], double* g, int i, int j)
+static void inc_vec(double entry[2][2], double* g, int i, int j)
 {
   entry[0][0] += *g;
   entry[0][1] += *g;
@@ -444,7 +449,7 @@ void inc_vec(double entry[2][2], double* g, int i, int j)
 @pytest.fixture
 def kernel_set_vec():
     kernel_code = """
-void set_vec(double entry[2][2], double* g, int i, int j)
+static void set_vec(double entry[2][2], double* g, int i, int j)
 {
   entry[0][0] = *g;
   entry[0][1] = *g;
@@ -891,7 +896,8 @@ class TestMixedMatrices:
         addone = FunDecl("void", "addone_mat",
                          [Decl("double", Symbol("v", (3, 3))),
                           Decl("double", c_sym("**d"))],
-                         Block([code], open_scope=False))
+                         Block([code], open_scope=False),
+                         pred=["static"])
 
         addone = op2.Kernel(addone, "addone_mat")
         op2.par_loop(addone, mmap.iterset,
@@ -907,7 +913,8 @@ class TestMixedMatrices:
         kernel_code = FunDecl("void", "addone_rhs",
                               [Decl("double", Symbol("v", (3,))),
                                Decl("double", Symbol("d", (3,)))],
-                              c_for("i", 3, Incr(Symbol("v", ("i")), FlatBlock("d[i]"))))
+                              c_for("i", 3, Incr(Symbol("v", ("i")), FlatBlock("d[i]"))),
+                              pred=["static"])
         addone = op2.Kernel(kernel_code.gencode(), "addone_rhs")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap),
@@ -938,7 +945,8 @@ class TestMixedMatrices:
         kernel_code = FunDecl("void", "addone_rhs_vec",
                               [Decl("double", Symbol("v", (6,))),
                                Decl("double", Symbol("d", (3, 2)))],
-                              c_for("i", 3, assembly))
+                              c_for("i", 3, assembly),
+                              pred=["static"])
         addone = op2.Kernel(kernel_code.gencode(), "addone_rhs_vec")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap),

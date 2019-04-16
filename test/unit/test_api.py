@@ -370,7 +370,7 @@ class TestExtrudedSetAPI:
         """It should be possible to iterate over an extruded set reading dats
            defined on the base set (indirectly)."""
         e = op2.ExtrudedSet(iterset, 5)
-        k = op2.Kernel('void k() { }', 'k')
+        k = op2.Kernel('static void k() { }', 'k')
         dat1, dat2 = dats
         op2.par_loop(k, e, dat1(op2.READ, m_iterset_toset))
         op2.par_loop(k, e, dat2(op2.READ, m_iterset_set))
@@ -379,7 +379,7 @@ class TestExtrudedSetAPI:
         """It should not be possible to iteratve over an extruded set reading
            dats not defined on the base set (indirectly)."""
         e = op2.ExtrudedSet(set, 5)
-        k = op2.Kernel('void k() { }', 'k')
+        k = op2.Kernel('static void k() { }', 'k')
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(k, e, dat(op2.READ, m_iterset_toset))
 
@@ -1096,7 +1096,7 @@ class TestSparsityAPI:
 
     def test_sparsity_single_dset(self, di, mi):
         "Sparsity constructor should accept single Map and turn it into tuple"
-        s = op2.Sparsity(di, mi, "foo")
+        s = op2.Sparsity(di, mi, name="foo")
         assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
                 and s.name == "foo" and s.dsets == (di, di))
 
@@ -1108,26 +1108,26 @@ class TestSparsityAPI:
 
     def test_sparsity_map_pair(self, di, mi):
         "Sparsity constructor should accept a pair of maps"
-        s = op2.Sparsity((di, di), (mi, mi), "foo")
+        s = op2.Sparsity((di, di), (mi, mi), name="foo")
         assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
                 and s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_map_pair_different_dataset(self, mi, md, di, dd, m_iterset_toset):
         """Sparsity can be built from different row and column maps as long as
         the tosets match the row and column DataSet."""
-        s = op2.Sparsity((di, dd), (m_iterset_toset, md), "foo")
+        s = op2.Sparsity((di, dd), (m_iterset_toset, md), name="foo")
         assert (s.maps[0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1)
                 and s.name == "foo" and s.dsets == (di, dd))
 
     def test_sparsity_unique_map_pairs(self, mi, di):
         "Sparsity constructor should filter duplicate tuples of pairs of maps."
-        s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), "foo")
+        s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), name="foo")
         assert s.maps == [(mi, mi)] and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_different_itset(self, mi, di, dd, m_iterset_toset):
         "Sparsity constructor should accept maps with different iteration sets"
         maps = ((m_iterset_toset, m_iterset_toset), (mi, mi))
-        s = op2.Sparsity((di, di), maps, "foo")
+        s = op2.Sparsity((di, di), maps, name="foo")
         assert frozenset(s.maps) == frozenset(maps) and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_sorted(self, mi, di, dd, m_iterset_toset):
@@ -1650,12 +1650,12 @@ class TestKernelAPI:
 
     def test_kernel_repr(self, set):
         "Kernel should have the expected repr."
-        k = op2.Kernel("int foo() { return 0; }", 'foo')
+        k = op2.Kernel("static int foo() { return 0; }", 'foo')
         assert repr(k) == 'Kernel("""%s""", %r)' % (k.code, k.name)
 
     def test_kernel_str(self, set):
         "Kernel should have the expected string representation."
-        k = op2.Kernel("int foo() { return 0; }", 'foo')
+        k = op2.Kernel("static int foo() { return 0; }", 'foo')
         assert str(k) == "OP2 Kernel: %s" % k.name
 
 
@@ -1694,7 +1694,7 @@ class TestParLoopAPI:
         set1 = op2.Set(2)
         m = op2.Mat(sparsity)
         rmap, cmap = sparsity.maps[0]
-        kernel = op2.Kernel("void k() { }", "k")
+        kernel = op2.Kernel("static void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
             op2.par_loop(kernel, set1,
                          m(op2.INC, (rmap, cmap)))
@@ -1706,7 +1706,7 @@ class TestParLoopAPI:
         s2 = op2.Set(10)
         m = op2.Map(s1, s2, 3)
         d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
-        k = op2.Kernel("void k(int *x) {}", "k")
+        k = op2.Kernel("static void k(int *x) {}", "k")
         op2.par_loop(k, s1, d(op2.READ, m))
         # Force evaluation otherwise this loop will remain in the trace forever
         # in case of lazy evaluation mode

@@ -54,7 +54,7 @@ class TestLaziness:
         a = op2.Global(1, 0, numpy.uint32, "a")
 
         kernel = """
-void count(unsigned int* x)
+static void count(unsigned int* x)
 {
   (*x) += 1;
 }
@@ -70,7 +70,7 @@ void count(unsigned int* x)
         b = op2.Global(1, 0, numpy.uint32, "b")
 
         kernel = """
-void count(unsigned int* x)
+static void count(unsigned int* x)
 {
   (*x) += 1;
 }
@@ -112,21 +112,21 @@ void count(unsigned int* x)
         y = op2.Dat(iterset, numpy.zeros(nelems), numpy.uint32, "y")
 
         kernel_add_one = """
-void
+static void
 add_one(unsigned int* x)
 {
   (*x) += 1;
 }
 """
         kernel_copy = """
-void
+static void
 copy(unsigned int* dst, unsigned int* src)
 {
   (*dst) = (*src);
 }
 """
         kernel_sum = """
-void
+static void
 sum(unsigned int* sum, unsigned int* x)
 {
   (*sum) += (*x);

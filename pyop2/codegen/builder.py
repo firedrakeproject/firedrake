@@ -1,12 +1,10 @@
 from abc import ABCMeta, abstractmethod
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 import numpy
 
 from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           MultiIndex, Extent, Indexed,
-                                          BitShift, BitwiseNot, BitwiseAnd,
-                                          Conditional, Comparison, DummyInstruction,
-                                          LogicalNot, LogicalAnd, LogicalOr,
+                                          LogicalAnd, Comparison, DummyInstruction,
                                           Argument, Literal, NamedLiteral,
                                           Materialise, Accumulate, FunctionCall, When,
                                           Symbol, Zero, Sum, Min, Max, Product)
@@ -14,7 +12,7 @@ from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
 
 from pyop2.utils import cached_property
 from pyop2.datatypes import IntType
-from pyop2.op2 import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL, Subset, DecoratedMap
+from pyop2.op2 import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL, Subset
 from pyop2.op2 import READ, INC, MIN, MAX, WRITE, RW
 from loopy.types import OpaqueType
 from functools import reduce
@@ -27,73 +25,35 @@ class PetscMat(OpaqueType):
         super(PetscMat, self).__init__(name="Mat")
 
 
-class SparseArray(namedtuple("SparseArray", ("values", "dof", "offset"))):
-
-    @cached_property
-    def nrows(self):
-        extent, = self.offset.shape
-        return extent
-
-
 class Map(object):
 
-    __slots__ = ("values", "offset", "boundary_masks", "interior_horizontal",
-                 "variable", "vector_bc", "implicit_bcs", "layer_bounds",
-                 "variable_entity_masks", "prefetch")
+    __slots__ = ("values", "offset", "interior_horizontal",
+                 "variable", "unroll", "layer_bounds",
+                 "prefetch")
 
-    def __init__(self, map_, interior_horizontal, layer_bounds, variable_entity_masks,
-                 values=None, offset=None, boundary_masks=None):
+    def __init__(self, map_, interior_horizontal, layer_bounds,
+                 values=None, offset=None, unroll=False):
         self.variable = map_.iterset._extruded and not map_.iterset.constant_layers
-        self.vector_bc = map_.vector_index
-        self.implicit_bcs = map_.implicit_bcs
-        self.variable_entity_masks = variable_entity_masks
+        self.unroll = unroll
         self.layer_bounds = layer_bounds
         self.interior_horizontal = interior_horizontal
         self.prefetch = {}
         if values is not None:
+            raise RuntimeError
             self.values = values
             if map_.offset is not None:
                 assert offset is not None
             self.offset = offset
-            if map_.boundary_masks is not None:
-                assert boundary_masks is not None
-            self.boundary_masks = boundary_masks
             return
 
         offset = map_.offset
-        iterset = map_.iterset
-        boundary_masks = map_.boundary_masks
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
         if offset is not None:
             offset = NamedLiteral(offset, name=values.name + "_offset")
 
-        if boundary_masks is not None:
-            v = {}
-            for method, (section, indices, (*_, bottom, top)) in boundary_masks.items():
-                if iterset.constant_layers:
-                    vals = []
-                    for location, p in [("bottom", bottom),
-                                        ("top", top)]:
-                        dof = section.getDof(p)
-                        off = section.getOffset(p)
-                        name = values.name + ("_%s_%s_indices" % (method, location))
-                        vals.append(NamedLiteral(indices[off:off+dof], name))
-                    v[method] = tuple(vals)
-                else:
-                    name = values.name + ("_%s" % method)
-                    indices = NamedLiteral(indices, name + "_indices")
-                    chart = section.getChart()
-                    off = numpy.asarray(list(section.getOffset(p) for p in range(*chart)), dtype=IntType)
-                    dof = numpy.asarray(list(section.getDof(p) for p in range(*chart)),
-                                        dtype=IntType)
-                    off = NamedLiteral(off, name + "_offset")
-                    dof = NamedLiteral(dof, name + "_dof")
-                    v[method] = SparseArray(indices, dof, off)
-            boundary_masks = v
         self.values = values
         self.offset = offset
-        self.boundary_masks = boundary_masks
 
     @property
     def shape(self):
@@ -138,105 +98,8 @@ class Map(object):
             shape = (1, ) + shape
         f, i, j = (Index(e) for e in shape)
         base, (f, i) = self.indexed((n, i, f), layer=layer)
-        discard = Comparison("<", base, Zero((), self.dtype))
-        if self.vector_bc is not None:
-            # Exposition:
-            # Vector-index bcs are encoded in the high bits of the map.
-            # The incoming value is:
-            # input := ~(row + sum_i 2**(nbit - i))
-            # Where i are the components to zero
-            # The actual row is then:
-            # row := (~input) & (~(sum_{k<3} 2**(nbit - k)))
-            # And the high bits that are non-zero tell us which
-            # values to mask out.
-            nbits = Literal(self.dtype.type(self.dtype.itemsize*8 - 2))
-            mask = Literal(self.dtype.type(sum(2**(nbits.value - i) for i in range(3))))
-            flipped = BitwiseNot(base)
-            base = Conditional(discard,
-                               BitwiseAnd(flipped, BitwiseNot(mask)),
-                               base)
-            expr = LogicalNot(BitwiseAnd(flipped, mask))
-            expr = LogicalOr(expr,
-                             BitwiseAnd(flipped,
-                                        BitShift("<<", Literal(self.dtype.type(1)),
-                                                 Sum(nbits,
-                                                     Product(Literal(self.dtype.type(-1)), j)))))
-            discard = LogicalAnd(discard, expr)
-
-        init = Conditional(discard, Literal(self.dtype.type(-1)), Sum(Product(base, Literal(numpy.int32(j.extent))), j))
+        init = Sum(Product(base, Literal(numpy.int32(j.extent))), j)
         pack = Materialise(PackInst(), init, MultiIndex(f, i, j))
-        multiindex = tuple(Index(e) for e in pack.shape)
-        return Indexed(pack, multiindex), multiindex
-
-    def indexed_implicit(self, n, layer=None):
-        if layer is None:
-            raise ValueError("Implicit bcs and no layers?!")
-        shape = self.shape[1:]
-        if self.interior_horizontal:
-            shape = (2, ) + shape
-        else:
-            shape = (1, ) + shape
-        f, i = (Index(e) for e in shape)
-        base, (f, i) = self.indexed((n, i, f), layer=layer)
-
-        expressions = [PackInst(), base, MultiIndex(f, i)]
-        if self.variable:
-            for location, method in self.implicit_bcs:
-                index_array = self.boundary_masks[method]
-                # For facets
-                if self.interior_horizontal:
-                    f = Index(2)
-                else:
-                    f = FixedIndex(0)
-                bottom_mask, top_mask = self.variable_entity_masks
-
-                idx, = bottom_mask.multiindex
-                idx = Sum(idx, f)
-                if location == "bottom":
-                    mask = Indexed(bottom_mask.aggregate, (idx, ))
-                else:
-                    mask = Indexed(top_mask.aggregate, (idx, ))
-
-                if all(index_array.offset.value == 0):
-                    # No need to do this if there are no boundary dofs
-                    continue
-                bit = Index(index_array.nrows)
-                when = BitwiseAnd(mask, BitShift("<<", Literal(numpy.int64(1)), bit))
-                off = Materialise(PackInst(), Indexed(index_array.offset, (bit, )), MultiIndex())
-                dof = Materialise(PackInst(), Indexed(index_array.dof, (bit, )), MultiIndex())
-                k = RuntimeIndex(off, Sum(off, dof),
-                                 LogicalAnd(
-                                     Comparison("<=", Zero((), numpy.int32), off),
-                                     Comparison("<=", Zero((), numpy.int32), dof)))
-
-                index = Indexed(index_array.values, (k, ))
-
-                expr = When(when, Literal(self.dtype.type(-1)))
-                indices = MultiIndex(f, index)
-                expressions.append(expr)
-                expressions.append(indices)
-        else:
-            for location, method in self.implicit_bcs:
-                i = Index()
-                bottom, top = self.boundary_masks[method]
-                idx = FixedIndex(0)
-                if location == "bottom":
-                    indices = bottom
-                    bound = self.layer_bounds[0]
-                else:
-                    indices = top
-                    bound = Sum(self.layer_bounds[1], Literal(IntType.type(-1)))
-                    if self.interior_horizontal:
-                        idx = FixedIndex(1)
-
-                index = Indexed(indices, (i, ))
-                when = Comparison("==", layer, bound)
-
-                expr = When(when, Literal(self.dtype.type(-1)))
-                indices = MultiIndex(idx, index)
-                expressions.append(expr)
-                expressions.append(indices)
-        pack = Materialise(*expressions)
         multiindex = tuple(Index(e) for e in pack.shape)
         return Indexed(pack, multiindex), multiindex
 
@@ -511,27 +374,24 @@ class MatPack(Pack):
         ((rdim, cdim), ), = self.dims
         rmap, cmap = self.maps
         n, layer = self.pick_loop_indices(*loop_indices)
-        vector = rmap.vector_bc or cmap.vector_bc
-        if vector:
+        unroll = any(m.unroll for m in self.maps)
+        if unroll:
             maps = [map_.indexed_vector(n, (dim, ), layer=layer)
                     for map_, dim in zip(self.maps, (rdim, cdim))]
         else:
             maps = []
             for map_ in self.maps:
-                if map_.implicit_bcs:
-                    maps.append(map_.indexed_implicit(n, layer=layer))
+                i = Index()
+                if self.interior_horizontal:
+                    f = Index(2)
                 else:
-                    i = Index()
-                    if self.interior_horizontal:
-                        f = Index(2)
-                    else:
-                        f = Index(1)
-                    maps.append(map_.indexed((n, i, f), layer=layer))
+                    f = Index(1)
+                maps.append(map_.indexed((n, i, f), layer=layer))
         (rmap, cmap), (rindices, cindices) = zip(*maps)
 
         pack = self.pack(loop_indices=loop_indices)
-        name = self.insertion_names[vector is not None]
-        if vector:
+        name = self.insertion_names[unroll]
+        if unroll:
             # The shape of MatPack is
             # (row, cols) if it has vector BC
             # (block_rows, row_cmpt, block_cols, col_cmpt) otherwise
@@ -652,29 +512,6 @@ class WrapperBuilder(object):
             return end
 
     @cached_property
-    def variable_entity_masks(self):
-        if self.extruded:
-            off = Argument((None, ), IntType, name="entity_offset")
-            dof = Argument((None, ), IntType, name="entity_dof")
-            bottom = Argument((None, ), numpy.int64, name="entity_bottom_mask")
-            top = Argument((None, ), numpy.int64, name="entity_top_mask")
-            return SparseArray(bottom, dof, off), SparseArray(top, dof, off)
-        else:
-            return None
-
-    @cached_property
-    def indexed_variable_entity_masks(self):
-        if self.extruded:
-            bottom, top = self.variable_entity_masks
-            off = Indexed(bottom.offset, (self.loop_index, ))
-            index = Sum(off, Sum(self.layer_index, Product(Literal(numpy.int32(-1)),
-                                                           self.bottom_layer)))
-            bottom = Indexed(bottom.values, (index, ))
-            top = Indexed(top.values, (index, ))
-            return bottom, top
-        return None
-
-    @cached_property
     def layer_extents(self):
         if self.iteration_region == ON_BOTTOM:
             start = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
@@ -734,7 +571,7 @@ class WrapperBuilder(object):
                 for a in arg:
                     shape = (None, *a.data.shape[1:])
                     argument = Argument(shape, a.data.dtype, pfx="mdat")
-                    packs.append(a.data.pack(argument, arg.access, self.map_(a.map),
+                    packs.append(a.data.pack(argument, arg.access, self.map_(a.map, unroll=a.unroll_map),
                                              interior_horizontal=interior_horizontal))
                     self.arguments.append(argument)
                 pack = MixedDatPack(packs, arg.access, arg.dtype, interior_horizontal=interior_horizontal)
@@ -751,7 +588,7 @@ class WrapperBuilder(object):
             argument = Argument(shape,
                                 arg.data.dtype,
                                 pfx="dat")
-            pack = arg.data.pack(argument, arg.access, self.map_(arg.map),
+            pack = arg.data.pack(argument, arg.access, self.map_(arg.map, unroll=arg.unroll_map),
                                  interior_horizontal=interior_horizontal,
                                  view_index=view_index)
         elif arg._is_global:
@@ -761,7 +598,7 @@ class WrapperBuilder(object):
             pack = GlobalPack(argument, arg.access)
         elif arg._is_mat:
             argument = Argument((), PetscMat(), pfx="mat")
-            map_ = tuple(self.map_(m) for m in arg.map)
+            map_ = tuple(self.map_(m, unroll=arg.unroll_map) for m in arg.map)
             pack = arg.data.pack(argument, arg.access, map_,
                                  arg.data.dims, arg.data.dtype,
                                  interior_horizontal=interior_horizontal)
@@ -771,20 +608,17 @@ class WrapperBuilder(object):
         self.packed_args.append(pack)
         self.argument_accesses.append(arg.access)
 
-    def map_(self, map_):
+    def map_(self, map_, unroll=False):
         if map_ is None:
             return None
         interior_horizontal = self.iteration_region == ON_INTERIOR_FACETS
-        if isinstance(map_, DecoratedMap):
-            key = map_.map
-        else:
-            key = map_
+        key = map_
         try:
             return self.maps[key]
         except KeyError:
             map_ = Map(map_, interior_horizontal,
                        (self.bottom_layer, self.top_layer),
-                       self.indexed_variable_entity_masks)
+                       unroll=unroll)
             self.maps[key] = map_
             return map_
 
@@ -799,12 +633,6 @@ class WrapperBuilder(object):
         args.extend(self._loop_index.extents)
         if self.extruded:
             args.append(self._layers_array)
-            if not self.constant_layers:
-                bottom, top = self.variable_entity_masks
-                assert bottom.offset == top.offset
-                args.append(bottom.offset)
-                args.append(bottom.values)
-                args.append(top.values)
         if self.subset:
             args.append(self._subset_indices)
         # parloop args passed "as is"

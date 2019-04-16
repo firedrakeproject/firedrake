@@ -61,7 +61,7 @@ class TestSubSet:
         ss = op2.Subset(iterset, indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, ss, d(op2.RW))
         inds, = np.where(d.data)
         assert (inds == indices).all()
@@ -70,7 +70,7 @@ class TestSubSet:
         """Test a direct loop with an empty subset"""
         ss = op2.Subset(iterset, [])
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, ss, d(op2.RW))
         inds, = np.where(d.data)
         assert (inds == []).all()
@@ -84,7 +84,7 @@ class TestSubSet:
         ssodd = op2.Subset(iterset, odd)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sseven, d(op2.RW))
         op2.par_loop(k, ssodd, d(op2.RW))
         assert (d.data == 1).all()
@@ -98,7 +98,7 @@ class TestSubSet:
         ssodd = iterset(odd)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sseven, d(op2.RW))
         op2.par_loop(k, ssodd, d(op2.RW))
         assert (d.data == 1).all()
@@ -110,7 +110,7 @@ class TestSubSet:
         sss = op2.Subset(ss, indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sss, d(op2.RW))
 
         indices = np.arange(0, nelems, 4, dtype=np.int)
@@ -127,7 +127,7 @@ class TestSubSet:
         sss = ss(indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sss, d(op2.RW))
 
         indices = np.arange(0, nelems, 4, dtype=np.int)
@@ -146,7 +146,7 @@ class TestSubSet:
         map = op2.Map(iterset, indset, 1, [(1 if i % 2 else 0) for i in range(nelems)])
         d = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
 
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1;}", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1;}", "inc")
         op2.par_loop(k, ss, d(op2.INC, map))
 
         assert d.data[0] == nelems // 2
@@ -159,7 +159,7 @@ class TestSubSet:
         map = op2.Map(iterset, indset, 1, [(1 if i % 2 else 0) for i in range(nelems)])
         d = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
 
-        k = op2.Kernel("void inc(unsigned int* v) { *v += 1;}", "inc")
+        k = op2.Kernel("static void inc(unsigned int* v) { *v += 1;}", "inc")
         d.data[:] = 0
         op2.par_loop(k, ss, d(op2.INC, map))
 
@@ -178,7 +178,7 @@ class TestSubSet:
         dat1 = op2.Dat(iterset ** 1, data=values, dtype=np.uint32)
         dat2 = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
 
-        k = op2.Kernel("void inc(unsigned* d, unsigned int* s) { *d += *s;}", "inc")
+        k = op2.Kernel("static void inc(unsigned* d, unsigned int* s) { *d += *s;}", "inc")
         op2.par_loop(k, ss, dat2(op2.INC, map), dat1(op2.READ))
 
         assert dat2.data[0] == sum(values[::2])
@@ -197,7 +197,7 @@ class TestSubSet:
         dat2 = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
 
         k = op2.Kernel("""
-void inc(unsigned int* v1, unsigned int* v2) {
+static void inc(unsigned int* v1, unsigned int* v2) {
   *v1 += 1;
   *v2 += 1;
 }
@@ -230,7 +230,8 @@ void inc(unsigned int* v1, unsigned int* v2) {
         kernel_code = FunDecl("void", "unique_id",
                               [Decl("double", Symbol("mat", (4, 4))),
                                Decl("double*", c_sym("dat"))],
-                              Block([assembly], open_scope=False))
+                              Block([assembly], open_scope=False),
+                              pred=["static"])
         k = op2.Kernel(kernel_code.gencode(), "unique_id")
 
         mat.zero()

@@ -188,7 +188,7 @@ class TestLinAlgOp:
     def test_linalg_and_parloop(self, x, y):
         """Linear algebra operators should force computation"""
         x._data = np.zeros(x.dataset.total_size, dtype=np.float64)
-        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
+        k = op2.Kernel('static void k(double *x) { *x = 1.0; }', 'k')
         op2.par_loop(k, x.dataset.set, x(op2.WRITE))
         z = x + y
         assert all(z.data == y.data + 1)

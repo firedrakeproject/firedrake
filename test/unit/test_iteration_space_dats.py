@@ -112,7 +112,8 @@ class TestIterationSpaceDats:
                                  "int*", c_sym("edge"), qualifiers=["unsigned"]),
                               Decl(
                                   "int*", c_sym("nodes"), qualifiers=["unsigned"])],
-                             c_for("i", 2, Incr(c_sym("*edge"), Symbol("nodes", ("i",)))))
+                             c_for("i", 2, Incr(c_sym("*edge"), Symbol("nodes", ("i",)))),
+                             pred=["static"])
 
         op2.par_loop(op2.Kernel(kernel_sum.gencode(), "sum"), edges,
                      edge_vals(op2.INC),
@@ -125,7 +126,8 @@ class TestIterationSpaceDats:
         vd1.data[:] = numpy.arange(nele)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, Assign(Symbol("d", (0,)), Symbol("vd", ("i",)))))
+                    c_for("i", 1, Assign(Symbol("d", (0,)), Symbol("vd", ("i",)))),
+                    pred=["static"])
 
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      d1(op2.WRITE),
@@ -136,7 +138,8 @@ class TestIterationSpaceDats:
     def test_write_1d_itspace_map(self, node, vd1, node2ele):
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))))
+                    c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))),
+                    pred=["static"])
 
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      vd1(op2.WRITE, node2ele))
@@ -148,7 +151,8 @@ class TestIterationSpaceDats:
 
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd")), Decl("int*", c_sym("d"))],
-                    c_for("i", 1, Incr(Symbol("vd", ("i",)), c_sym("*d"))))
+                    c_for("i", 1, Incr(Symbol("vd", ("i",)), c_sym("*d"))),
+                    pred=["static"])
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      vd1(op2.INC, node2ele),
                      d1(op2.READ))
@@ -170,7 +174,8 @@ class TestIterationSpaceDats:
             open_scope=True)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, reads))
+                    c_for("i", 1, reads),
+                    pred=["static"])
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      d2(op2.WRITE),
                      vd2(op2.READ, node2ele))
@@ -185,7 +190,8 @@ class TestIterationSpaceDats:
                        open_scope=True)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, writes))
+                    c_for("i", 1, writes),
+                    pred=["static"])
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      vd2(op2.WRITE, node2ele))
         assert all(vd2.data[:, 0] == 2)
@@ -202,7 +208,8 @@ class TestIterationSpaceDats:
                      open_scope=True)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd")), Decl("int*", c_sym("d"))],
-                    c_for("i", 1, incs))
+                    c_for("i", 1, incs),
+                    pred=["static"])
 
         op2.par_loop(op2.Kernel(k.gencode(), 'k'), node,
                      vd2(op2.INC, node2ele),
