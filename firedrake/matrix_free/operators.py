@@ -29,8 +29,6 @@ def find_sub_block(iset, ises):
             if i in sfound:
                 continue
             lsize = iset_.getLocalSize()
-            if lsize > iset.getLocalSize():
-                continue
             indices = iset.indices
             tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
             if tmp.equal(iset_):
