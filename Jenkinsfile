@@ -107,9 +107,9 @@ make lint
 sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
 sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
 sudo docker push firedrakeproject/firedrake-env:latest
-sudo docker build --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-vanilla:latest -f docker/Dockerfile.vanilla .
+sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-vanilla:latest -f docker/Dockerfile.vanilla .
 sudo docker push firedrakeproject/firedrake-vanilla:latest
-sudo docker build --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake:latest -f docker/Dockerfile.firedrake .
+sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake:latest -f docker/Dockerfile.firedrake .
 sudo docker push firedrakeproject/firedrake:latest
 '''
       }
