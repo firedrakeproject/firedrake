@@ -36,18 +36,18 @@ class NonlinearVariationalProblem(object):
         from firedrake import function
 
         # Store input UFL forms and solution Function
+        self.u = u
         self.F = F
         self.Jp = Jp
-        self.u = u
         self.bcs = solving._extract_bcs(bcs)
-
         # Argument checking
+        if not isinstance(self.u, function.Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+
         if not isinstance(self.F, (ufl.Form, slate.slate.TensorBase)):
             raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(self.F).__name__)
         if len(self.F.arguments()) != 1:
             raise ValueError("Provided residual is not a linear form")
-        if not isinstance(self.u, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
 
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
@@ -225,8 +225,17 @@ class NonlinearVariationalSolver(OptionsManager):
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         # Apply the boundary conditions to the initial guess.
-        for bc in self._problem.bcs:
-            bc.apply(self._problem.u)
+        from firedrake.bcs import DirichletBC, EquationBC
+
+        # Recursively apply DirichletBCs
+        def rapply(bcs, u):
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
+                    bc.apply(u)
+                elif isinstance(bc, EquationBC):
+                    rapply(bc.bcs, u)
+
+        rapply(self._problem.bcs, self._problem.u)
 
         if bounds is not None:
             lower, upper = bounds
@@ -268,10 +277,11 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  varying fields).  If your Jacobian can change, set
                  this flag to ``False``.
         """
+
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if L is 0:  # noqa: F632
+        if L is 0:
             F = ufl_expr.action(J, u)
         else:
             if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
