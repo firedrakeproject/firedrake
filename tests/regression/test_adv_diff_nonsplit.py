@@ -31,8 +31,6 @@ def adv_diff(x, quadrilateral=False):
     a = M + 0.5 * d
     L = action(M - 0.5 * d, t)
 
-    A = assemble(a)
-
     # Set initial condition:
     # A*(e^(-r^2/(4*D*T)) / (4*pi*D*T))
     # with normalisation A = 0.1, diffusivity D = 0.1
@@ -42,6 +40,9 @@ def adv_diff(x, quadrilateral=False):
     fexpr = 0.1 * (exp(-r2 / (0.4 * cT)) / (0.4 * pi * cT))
     t.interpolate(fexpr)
     u.interpolate(as_vector([1.0, 0.0]))
+
+    # Must call assemble() after setting u, etc...
+    A = assemble(a)
 
     while T < 0.012:
         b = assemble(L)
