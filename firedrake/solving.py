@@ -44,9 +44,10 @@ def solve(*args, **kwargs):
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
     where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
-    If present, `bcs` should be a list of :class:`.DirichletBC`\s
-    specifying the strong boundary conditions to apply.  For the
-    format of `solver_parameters` see below.
+    If present, `bcs` should be a list of :class:`.DirichletBC`\s and
+    :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
+    to apply and PDEs to solve on the boundaries.
+    For the format of `solver_parameters` see below.
 
     *2. Solving linear variational problems*
 
@@ -137,6 +138,7 @@ def _solve_varproblem(*args, **kwargs):
         options_prefix = _extract_args(*args, **kwargs)
 
     appctx = kwargs.get("appctx", {})
+
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
 
@@ -169,6 +171,7 @@ def _solve_varproblem(*args, **kwargs):
                                                near_nullspace=near_nullspace,
                                                options_prefix=options_prefix,
                                                appctx=appctx)
+
         solver.solve()
 
 
@@ -178,7 +181,7 @@ def _la_solve(A, x, b, **kwargs):
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg bcs: an optional list of :class:`.DirichletBC`\s to apply.
+    :kwarg bcs: an optional list of :class:`.DirichletBC`\s and/or :class:`.EquationBC`\s to apply.
     :kwarg solver_parameters: optional solver parameters.
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
@@ -215,6 +218,13 @@ def _la_solve(A, x, b, **kwargs):
 
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
+
+    from firedrake.bcs import EquationBC
+    if bcs is not None:
+        for bc in _extract_bcs(bcs):
+            if isinstance(bc, EquationBC) and not bc.is_linear:
+                raise RuntimeError("EquationBC must also be linear when solving linear system.")
+
     if bcs is not None:
         A.bcs = bcs
 
@@ -319,7 +329,7 @@ def _extract_args(*args, **kwargs):
 
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
-    from firedrake.bcs import DirichletBC
+    from firedrake.bcs import BCBase
     if bcs is None:
         return ()
     try:
@@ -327,6 +337,6 @@ def _extract_bcs(bcs):
     except TypeError:
         bcs = (bcs,)
     for bc in bcs:
-        if not isinstance(bc, DirichletBC):
-            raise TypeError("Provided boundary condition is a '%s', not a DirichletBC" % type(bc).__name__)
+        if not isinstance(bc, BCBase):
+            raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
     return bcs
