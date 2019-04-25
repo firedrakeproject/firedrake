@@ -378,7 +378,7 @@ class EquationBC(BCBase):
         on which the equation boundary condition is applied
     '''
 
-    def __init__(self, eq, u, sub_domain, bcs=[], J=None, Jp=None, method="topological", V=None, is_linear=False):
+    def __init__(self, eq, u, sub_domain, bcs=None, J=None, Jp=None, method="topological", V=None, is_linear=False):
         # Can we extract function subspace/component in the same way from eq.lhs?
         if V is None:
             V = eq.lhs.arguments()[0].function_space()
@@ -393,8 +393,7 @@ class EquationBC(BCBase):
         #         # boundary conditions for boundary conditions for boun...
         #         ... _assemble(bc.f, bc.bcs, ...)
         #     ...
-        # Currently only support bcs = []
-        self.bcs = bcs
+        self.bcs = bcs or []
 
         self.Jp_eq_J = Jp is None
         self.is_linear = is_linear
@@ -441,10 +440,7 @@ class EquationBCSplit(BCBase):
             V = ebc._function_space
         super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method=ebc.method)
         self.f = form
-        if bcs is None:
-            self.bcs = []
-        else:
-            self.bcs = bcs
+        self.bcs = bcs or []
 
     def integrals(self):
         return self.f.integrals()

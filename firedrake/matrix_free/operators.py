@@ -91,7 +91,7 @@ class ImplicitMatrixContext(object):
 
         # all bcs (DirichletBC, EquationBCSplit)
         self.bcs = row_bcs
-        #self.bcs_col = col_bcs
+        self.bcs_col = col_bcs
 
         # DirichletBCs
         self.row_bcs = []
@@ -316,7 +316,7 @@ class ImplicitMatrixContext(object):
             # actually assemble in here.
             target.assemble()
             return target
-        from firedrake import DirichletBC
+        from firedrake import DirichletBC, EquationBCSplit
 
         # These are the sets of ISes of which the the row and column
         # space consist.
@@ -337,24 +337,45 @@ class ImplicitMatrixContext(object):
         row_bcs = []
         col_bcs = []
 
-        for bc in self.row_bcs:
+        for bc in self.bcs:
+            fs = bc.function_space()
+            cmpt = fs.component
+            if cmpt is not None:
+                fs = fs.parent
             for i, r in enumerate(row_inds):
-                if bc.function_space().index == r:
-                    row_bcs.append(DirichletBC(Wrow.split()[i],
-                                               bc.function_arg,
-                                               bc.sub_domain,
-                                               method=bc.method))
-
-        if Wrow == Wcol and row_inds == col_inds and self.row_bcs == self.col_bcs:
-            col_bcs = row_bcs
-        else:
-            for bc in self.col_bcs:
-                for i, c in enumerate(col_inds):
-                    if bc.function_space().index == c:
-                        col_bcs.append(DirichletBC(Wcol.split()[i],
+                if fs.index == r:
+                    W = Wrow.split()[i]
+                    if cmpt is not None:
+                        W = W.sub(cmpt)
+                    if isinstance(bc, DirichletBC):
+                        row_bcs.append(DirichletBC(W,
                                                    bc.function_arg,
                                                    bc.sub_domain,
                                                    method=bc.method))
+                    elif isinstance(bc, EquationBCSplit):
+                        row_bcs.append(EquationBCSplit(bc,
+                                                       ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
+                                                       V=W))
+
+        if Wrow == Wcol and row_inds == col_inds and self.bcs == self.bcs_col:
+            col_bcs = row_bcs
+        else:
+            for bc in self.bcs_col:
+                fs = bc.function_space()
+                cmpt = fs.component
+                if cmpt is not None:
+                    fs = fs.parent
+                for i, c in enumerate(col_inds):
+                    if fs.index == c:
+                        W = Wcol.split()[i]
+                        if cmpt is not None:
+                            W = W.sub(cmpt)
+                        if isinstance(bc, DirichletBC):
+                            col_bcs.append(DirichletBC(W,
+                                                       bc.function_arg,
+                                                       bc.sub_domain,
+                                                       method=bc.method))
+
         submat_ctx = ImplicitMatrixContext(asub,
                                            row_bcs=row_bcs,
                                            col_bcs=col_bcs,

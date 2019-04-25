@@ -43,7 +43,6 @@ class NonlinearVariationalProblem(object):
         # Argument checking
         if not isinstance(self.u, function.Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
-
         if not isinstance(self.F, (ufl.Form, slate.slate.TensorBase)):
             raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(self.F).__name__)
         if len(self.F.arguments()) != 1:
@@ -281,7 +280,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if L is 0:
+        if L is 0:  # noqa: F632
             F = ufl_expr.action(J, u)
         else:
             if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):

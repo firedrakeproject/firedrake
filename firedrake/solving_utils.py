@@ -108,11 +108,15 @@ class _SNESContext(object):
         self.F = problem.F
         self.J = problem.J
 
-        Jp_eq_J = problem.Jp is None
-        if problem.bcs is not None:
-            for bc in problem.bcs:
+        # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
+        def is_Jp_eq_J(bcs):
+            v = True
+            for bc in bcs:
                 if isinstance(bc, EquationBC):
-                    Jp_eq_J = Jp_eq_J and bc.Jp_eq_J
+                    v = v and bc.Jp_eq_J and is_Jp_eq_J(bc.bcs)
+            return v
+                    
+        Jp_eq_J = (problem.Jp is None) and is_Jp_eq_J(problem.bcs)
 
         if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want
@@ -122,7 +126,7 @@ class _SNESContext(object):
             else:
                 self.Jp = problem.Jp
         else:
-            # pmat_type == mat_type and not Jp_neq_J
+            # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
         if problem.bcs is None:
@@ -130,8 +134,8 @@ class _SNESContext(object):
             self.bcs_J = None
             self.bcs_Jp = None
         else:
-            # For each in (F, J, Jp), we need to make deep
-            # (partial) copy if bc objects themselves have .bcs;
+            # For each of (F, J, Jp), we need to make deep
+            # copy if bc objects themselves have .bcs;
             # see bcs.py.
             def create_bc_tree(ebc, form_type):
                 ebcsplit = EquationBCSplit(ebc, getattr(ebc, form_type))
@@ -140,7 +144,6 @@ class _SNESContext(object):
                         ebcsplit.add(bbc)
                     elif isinstance(bbc, EquationBC):
                         ebcsplit.add(create_bc_tree(bbc, form_type))
-
                 return ebcsplit
 
             self.bcs_F = []
@@ -254,8 +257,9 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u: u})
             else:
                 Jp = None
-            bcs = []
-            for bc in problem.bcs:
+
+            # Recursively add DirichletBCs/EquationBCs
+            def rcollect_bcs(bc):
                 Vbc = bc.function_space()
                 if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
                     index = Vbc.parent.index
@@ -271,29 +275,39 @@ class _SNESContext(object):
                     if cmpt is not None:
                         W = W.sub(cmpt)
                     if isinstance(bc, DirichletBC):
-                        bcs.append(DirichletBC(W,
-                                               bc.function_arg,
-                                               bc.sub_domain,
-                                               method=bc.method))
+                        return DirichletBC(W,
+                                           bc.function_arg,
+                                           bc.sub_domain,
+                                           method=bc.method)
                     elif isinstance(bc, EquationBC):
-                        # TODO: Generalize for recursive EquationBCs
-                        bc_F = splitter.split(bc.F, argument_indices=(field, ))
-                        bc_J = splitter.split(bc.J, argument_indices=(field, field))
-                        bc_Jp = splitter.split(bc.Jp, argument_indices=(field, field))
-                        bc_F = replace(bc_F, {bc.u: u})
-                        bc_J = replace(bc_J, {bc.u: u})
-                        bc_Jp = replace(bc_Jp, {bc.u: u})
-                        bcs.append(EquationBC(bc_F == 0,
-                                              subu,
-                                              bc.sub_domain,
-                                              method=bc.method,
-                                              bcs=bc.bcs,
-                                              J=bc_J,
-                                              Jp=None if bc.Jp_eq_J else bc_Jp,
-                                              V=W,
-                                              is_linear=bc.is_linear))
+                        bc_F = replace(splitter.split(bc.F, argument_indices=(field, )), {bc.u: u})
+                        bc_J = replace(splitter.split(bc.J, argument_indices=(field, field)), {bc.u: u})
+                        bc_Jp = None if bc.Jp is None else replace(splitter.split(bc.Jp, argument_indices=(field, field)), {bc.u: u})
+                        ebc = EquationBC(bc_F == 0,
+                                         subu,
+                                         bc.sub_domain,
+                                         method=bc.method,
+                                         bcs=None,
+                                         J=bc_J,
+                                         Jp=None if bc.Jp_eq_J else bc_Jp,
+                                         V=W,
+                                         is_linear=bc.is_linear)
+                        for bbc in bc.bcs:
+                            bc_temp = rcollect_bcs(bbc)
+                            # Due to the "if index", bc_temp can be None
+                            if bc_temp is not None:
+                                ebc.add(bc_temp)
+                        return ebc
+                    else:
+                        raise TypeError("Unknown BC type")
 
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None, #Jp
+            bcs = []
+            for bc in problem.bcs:
+                bc_temp = rcollect_bcs(bc)
+                if bc_temp is not None:
+                    bcs.append(bc_temp)
+
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
