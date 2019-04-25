@@ -90,16 +90,19 @@ class BCBase(object):
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         if isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], tuple):
-            return self.sub_domain
-        #elif isinstance(self.sub_domain, tuple):
-        #    return as_tuple([(i, ) for i in self.sub_domain])
+            # Edge/Vertex conditions
+            # e.g. ((1, 3), (1, 4))
+            sd = []
+            for i in range(len(self.sub_domain)):
+                v = 0.0
+                for ii in range(len(self.sub_domain[i])):
+                    v += np.sqrt(ii + 1) * self.sub_domain[i][ii]
+                sd.append(v)
+            return (as_tuple(sd), )
         elif isinstance(self.sub_domain, str):
             return (self.sub_domain, )
-        #elif isinstance(self.sub_domain, int):
         else:
             return (as_tuple(self.sub_domain), )
-        #else:
-        #    raise TypeError("Unknown sub_domain type")
 
     @utils.cached_property
     def nodes(self):
