@@ -309,15 +309,14 @@ class ImplicitMatrixContext(object):
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
     def createSubMatrix(self, mat, row_is, col_is, target=None):
+
         if target is not None:
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.
             target.assemble()
             return target
-        from firedrake import DirichletBC, EquationBCSplit
 
-        if any([isinstance(bc, EquationBCSplit) for bc in self.bcs]):
-            raise NotImplementedError("Fieldsplitting with EquationBCs is coming soon")
+        from firedrake import DirichletBC, EquationBCSplit
 
         # These are the sets of ISes of which the the row and column
         # space consist.
@@ -338,48 +337,43 @@ class ImplicitMatrixContext(object):
         row_bcs = []
         col_bcs = []
 
-        for bc in self.bcs:
+        def rcollect_bcs(bc, inds, row_inds, col_inds, Ws):
             fs = bc.function_space()
             cmpt = fs.component
             if cmpt is not None:
                 fs = fs.parent
-            for i, r in enumerate(row_inds):
+            for i, r in enumerate(inds):
                 if fs.index == r:
-                    W = Wrow.split()[i]
+                    W = Ws.split()[i]
                     if cmpt is not None:
                         W = W.sub(cmpt)
                     if isinstance(bc, DirichletBC):
-                        row_bcs.append(DirichletBC(W,
-                                                   bc.function_arg,
-                                                   bc.sub_domain,
-                                                   method=bc.method))
+                        return DirichletBC(W,
+                                           bc.function_arg,
+                                           bc.sub_domain,
+                                           method=bc.method)
                     elif isinstance(bc, EquationBCSplit):
-                        row_bcs.append(EquationBCSplit(bc,
-                                                       ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
-                                                       V=W))
+                        ebc = EquationBCSplit(bc,
+                                              ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
+                                              V=W)
+                        for bbc in bc.bcs:
+                            bc_temp = rcollect_bcs(bbc, inds, row_inds, col_inds, Ws)
+                            if bc_temp is not None:
+                                ebc.add(bc_temp)
+                        return ebc
+
+        for bc in self.bcs:
+            bc_temp = rcollect_bcs(bc, row_inds, row_inds, col_inds, Wrow)
+            if bc_temp is not None:
+                row_bcs.append(bc_temp)
 
         if Wrow == Wcol and row_inds == col_inds and self.bcs == self.bcs_col:
             col_bcs = row_bcs
         else:
             for bc in self.bcs_col:
-                fs = bc.function_space()
-                cmpt = fs.component
-                if cmpt is not None:
-                    fs = fs.parent
-                for i, c in enumerate(col_inds):
-                    if fs.index == c:
-                        W = Wcol.split()[i]
-                        if cmpt is not None:
-                            W = W.sub(cmpt)
-                        if isinstance(bc, DirichletBC):
-                            col_bcs.append(DirichletBC(W,
-                                                       bc.function_arg,
-                                                       bc.sub_domain,
-                                                       method=bc.method))
-                        elif isinstance(bc, EquationBCSplit):
-                            col_bcs.append(EquationBCSplit(bc,
-                                                           ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
-                                                           V=W))
+                bc_temp = rcollect_bcs(bc, col_inds, row_inds, col_inds, Wcol)
+                if bc_temp is not None:
+                    col_bcs.append(bc_temp)
 
         submat_ctx = ImplicitMatrixContext(asub,
                                            row_bcs=row_bcs,
