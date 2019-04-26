@@ -133,12 +133,6 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
     # has only one entry
     return next(loops_)()
 
-# Can we let assemble(..) also create callable?
-#
-# ... assemble(..., create_callable=True)
-#
-# The flag "create_callable" is essentially equivalent to "collect_loops".
-
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None, sub_mat_type=None):
@@ -248,9 +242,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
-
-    #if is_mat and assemble_now and not allocate_only:
-    #    raise DeprecationWarning("API compatibility for applying BCs after assembling a matrix has been dropped. Returning an assembled matrix.")
 
     zero_tensor_parloop = lambda: None
 
@@ -564,41 +555,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # to apply bcs to a block which is otherwise zero, and
     # therefore does not have an associated kernel.
     if bcs is not None and is_mat:
-        # On nodes where an EquationBC meets a DirichletBC (if any), we add
-        # their contributions, as, currently, application of BCs
-        # for an EquationBC is not supported; one can only apply EquationBCs
-        # that do not require boundary conditions.
-        # In such case both equations are correct, so we can add.
-        #
-        #
-        #  2D Example:     E
-        #              ---------|
-        #             |         |
-        #             |         |
-        #           D |         | E
-        #             |         |
-        #             @---------
-        #                 E  <- when assembling this, we often need DirichletBC
-        #                       at @, in which case we have to be able to drop
-        #                       rows corresponding to @ (TODO)
-        #
-        #  D: DirichletBC
-        #  E: EquationBC
-        #
-        #
-        # Example matrix structure:
-        #
-        #  D      1                              1
-        #  D          1                              1
-        #  D              1             TODO             1
-        #  DE    a0  a1  a2  1+a3  a4  ------>               1
-        #   E    a5  a6  a7   a8  a9            a5  a6  a7  a8  a9
-        #   E    a10 a11 a12 a13 a14            a10 a11 a12 a13 a14
-        #
-        # So, for now, we must apply DirichletBCs before EquationBCs, as
-        # tensor[i, j].set_local_diagonal_entries() is insertion, and add
-        # EquationBC rows later.
-        #
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 fs = bc.function_space()

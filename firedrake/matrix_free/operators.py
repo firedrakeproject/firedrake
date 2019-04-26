@@ -190,8 +190,6 @@ class ImplicitMatrixContext(object):
 
     def mult(self, mat, X, Y):
 
-        from firedrake.bcs import EquationBCSplit
-
         with self._x.dat.vec_wo as v:
             X.copy(v)
 
@@ -318,6 +316,9 @@ class ImplicitMatrixContext(object):
             return target
         from firedrake import DirichletBC, EquationBCSplit
 
+        if any([isinstance(bc, EquationBCSplit) for bc in self.bcs]):
+            raise NotImplementedError("Fieldsplitting with EquationBCs is coming soon")
+
         # These are the sets of ISes of which the the row and column
         # space consist.
         row_ises = self._y.function_space().dof_dset.field_ises
@@ -375,6 +376,10 @@ class ImplicitMatrixContext(object):
                                                        bc.function_arg,
                                                        bc.sub_domain,
                                                        method=bc.method))
+                        elif isinstance(bc, EquationBCSplit):
+                            col_bcs.append(EquationBCSplit(bc,
+                                                           ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
+                                                           V=W))
 
         submat_ctx = ImplicitMatrixContext(asub,
                                            row_bcs=row_bcs,

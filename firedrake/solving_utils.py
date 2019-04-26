@@ -115,7 +115,7 @@ class _SNESContext(object):
                 if isinstance(bc, EquationBC):
                     v = v and bc.Jp_eq_J and is_Jp_eq_J(bc.bcs)
             return v
-                    
+
         Jp_eq_J = (problem.Jp is None) and is_Jp_eq_J(problem.bcs)
 
         if mat_type != pmat_type or not Jp_eq_J:
