@@ -36,8 +36,8 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
     uex = cos(x*pi*2)*cos(y*pi*2)
     f = -div(grad(uex)) + uex
 
-    a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=8)
-    L = inner(f, v)*dx(degree=8)
+    a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=12)
+    L = inner(f, v)*dx(degree=12)
 
     params = {"snes_type": "ksponly",
               "ksp_type": "preonly",
@@ -46,8 +46,6 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
               "snes_atol": 1e-25}
 
     # Compute solution
-    #assemble(a)
-    #assemble(L)
     sol = Function(V)
     solve(a == L, sol, solver_parameters=params)
 
@@ -78,7 +76,9 @@ def test_firedrake_helmholtz_serial():
                          [((1, (4, 6)), 1.9),
                           ((2, (3, 6)), 2.9),
                           ((3, (2, 4)), 3.9),
-                          ((4, (2, 4)), 4.7)])
+                          ((4, (2, 4)), 4.7),
+                          ((5, (2, 4)), 5.7),
+                          ((6, (2, 4)), 6.7)])
 def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals_s(testcase, convrate):
     degree, (start, end) = testcase
     l2err = np.zeros(end - start)
