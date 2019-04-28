@@ -40,5 +40,4 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         solve(a == L, sol, solver_parameters=params)
 
         l2err[ii - start] = sqrt(assemble((sol-uex)*(sol-uex)*dx))
-    print(np.array(np.log2(l2err[:-1]/l2err[1:])))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
