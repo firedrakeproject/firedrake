@@ -32,22 +32,18 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    #uex = cos(pi*x)*cos(pi*y)
+    #uex = cos(pi*x)*cos(pi*y)  # Alternative problem
     uex = cos(x*pi*2)*cos(y*pi*2)
     f = -div(grad(uex)) + uex
 
-    a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=8)
-    L = inner(f, v)*dx(degree=8)
+    a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=12)
+    L = inner(f, v)*dx(degree=12)
 
     params = {"snes_type": "ksponly",
               "ksp_type": "preonly",
-              "pc_type": "lu",
-              "snes_rtol": 1e-16,
-              "snes_atol": 1e-25}
+              "pc_type": "lu"}
 
     # Compute solution
-    #assemble(a)
-    #assemble(L)
     sol = Function(V)
     solve(a == L, sol, solver_parameters=params)
 
@@ -69,22 +65,23 @@ def test_firedrake_helmholtz_serial():
     run_firedrake_helmholtz()
 
 
-#@pytest.mark.parallel
-#def test_firedrake_helmholtz_parallel():
-    #run_firedrake_helmholtz()
+@pytest.mark.parallel
+def test_firedrake_helmholtz_parallel():
+    run_firedrake_helmholtz()
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [((1, (4, 6)), 1.9),
                           ((2, (3, 6)), 2.9),
                           ((3, (2, 4)), 3.9),
-                          ((4, (2, 4)), 4.7)])
+                          ((4, (2, 4)), 4.7),
+                          ((5, (2, 4)), 5.7),
+                          ((6, (2, 4)), 6.7)])
 def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals_s(testcase, convrate):
     degree, (start, end) = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
         l2err[ii - start] = helmholtz(ii, quadrilateral=True, degree=degree)[0]
-    print(l2err)
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
 
 
@@ -97,6 +94,6 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
 
 
-#@pytest.mark.parallel
-#def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
-    #run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
+@pytest.mark.parallel
+def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
+    run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
