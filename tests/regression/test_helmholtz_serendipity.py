@@ -41,9 +41,7 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
 
     params = {"snes_type": "ksponly",
               "ksp_type": "preonly",
-              "pc_type": "lu",
-              "snes_rtol": 1e-16,
-              "snes_atol": 1e-25}
+              "pc_type": "lu"}
 
     # Compute solution
     sol = Function(V)

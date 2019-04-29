@@ -69,7 +69,7 @@ def test_left_to_right(mesh, DG0, W):
     run_left_to_right(mesh, DG0, W)
 
 
-#@pytest.mark.parallel
+@pytest.mark.parallel
 def test_left_to_right_parallel(mesh, DG0, W):
     run_left_to_right(mesh, DG0, W)
 
@@ -106,6 +106,6 @@ def test_up_to_down(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
 
 
-#@pytest.mark.parallel
+@pytest.mark.parallel
 def test_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
