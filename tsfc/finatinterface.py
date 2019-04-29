@@ -131,6 +131,12 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.Lagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
             lmbda = finat.GaussLobattoLegendre
+        elif kind in ['mgd', 'feec', 'qb', 'mse']:
+            degree = element.degree()
+            shift_axes = kwargs["shift_axes"]
+            restriction = kwargs["restriction"]
+            deps = {"shift_axes", "restriction"}
+            return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     elif element.family() == "Discontinuous Lagrange":
@@ -139,6 +145,12 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.DiscontinuousLagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
             lmbda = finat.GaussLegendre
+        elif kind in ['mgd', 'feec', 'qb', 'mse']:
+            degree = element.degree()
+            shift_axes = kwargs["shift_axes"]
+            restriction = kwargs["restriction"]
+            deps = {"shift_axes", "restriction"}
+            return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     elif element.family() == "DPC":
@@ -198,9 +210,17 @@ def convert_tensorproductelement(element, **kwargs):
     cell = element.cell()
     if type(cell) is not ufl.TensorProductCell:
         raise ValueError("TensorProductElement not on TensorProductCell?")
-    elements, deps = zip(*[_create_element(elem, **kwargs)
-                           for elem in element.sub_elements()])
-    return finat.TensorProductElement(elements), set.union(*deps)
+    shift_axes = kwargs["shift_axes"]
+    dim_offset = 0
+    elements = []
+    deps = set()
+    for elem in element.sub_elements():
+        kwargs["shift_axes"] = shift_axes + dim_offset
+        dim_offset += elem.cell().topological_dimension()
+        finat_elem, ds = _create_element(elem, **kwargs)
+        elements.append(finat_elem)
+        deps.update(ds)
+    return finat.TensorProductElement(elements), deps
 
 
 @convert.register(ufl.HDivElement)
@@ -231,14 +251,18 @@ quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 
-def create_element(ufl_element, shape_innermost=True):
+def create_element(ufl_element, shape_innermost=True, shift_axes=0, restriction=None):
     """Create a FInAT element (suitable for tabulating with) given a UFL element.
 
     :arg ufl_element: The UFL element to create a FInAT element from.
     :arg shape_innermost: Vector/tensor indices come after basis function indices
+    :arg restriction: cell restriction in interior facet integrals
+                      (only for runtime tabulated elements)
     """
     finat_element, deps = _create_element(ufl_element,
-                                          shape_innermost=shape_innermost)
+                                          shape_innermost=shape_innermost,
+                                          shift_axes=shift_axes,
+                                          restriction=restriction)
     return finat_element
 
 

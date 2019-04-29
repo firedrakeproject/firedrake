@@ -22,7 +22,7 @@ create_element = functools.partial(_create_element, shape_innermost=False)
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
         self.integral_type = integral_type
@@ -102,7 +102,24 @@ class KernelBuilder(KernelBuilderBase):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
-    def construct_kernel(self, name, body):
+    def construct_kernel(self, name, impero_c, precision, index_names, quadrature_rule=None):
+        """Construct a fully built kernel function.
+
+        This function contains the logic for building the argument
+        list for assembly kernels.
+
+        :arg name: function name
+        :arg impero_c: ImperoC tuple with Impero AST and other data
+        :arg precision: floating-point precision for printing
+        :arg index_names: pre-assigned index names
+        :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
+        :returns: a COFFEE function definition object
+        """
+        from tsfc.coffee import generate as generate_coffee
+        body = generate_coffee(impero_c, index_names, precision, scalar_type=self.scalar_type)
+        return self._construct_kernel_from_body(name, body)
+
+    def _construct_kernel_from_body(self, name, body, quadrature_rule):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -110,6 +127,7 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg body: function body (:class:`coffee.Block` node)
+        :arg quadrature rule: quadrature rule (ignored)
         :returns: a COFFEE function definition object
         """
         args = [self.local_tensor]
@@ -143,26 +161,7 @@ class KernelBuilder(KernelBuilderBase):
         :returns: a COFFEE function definition object
         """
         body = coffee.Block([])  # empty block
-        return self.construct_kernel(name, body)
-
-    @staticmethod
-    def require_cell_orientations():
-        # Nothing to do
-        pass
-
-    @staticmethod
-    def needs_cell_orientations(ir):
-        # UFC tabulate_tensor always have cell orientations
-        return True
-
-    @staticmethod
-    def require_cell_sizes():
-        pass
-
-    @staticmethod
-    def needs_cell_sizes(ir):
-        # Not hooked up right now.
-        return False
+        return self._construct_kernel_from_body(name, body)
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given

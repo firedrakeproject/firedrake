@@ -1,6 +1,6 @@
 from functools import partial, reduce
 
-from gem.node import traversal
+from gem.node import traversal, Memoizer
 from gem.gem import Failure, Sum, index_sum
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import collect_monomials
@@ -75,6 +75,7 @@ def optimise_expressions(expressions, argument_indices):
             return expressions
 
     # Apply argument factorisation unconditionally
-    classifier = partial(spectral.classify, set(argument_indices))
+    classifier = partial(spectral.classify, set(argument_indices),
+                         delta_inside=Memoizer(spectral._delta_inside))
     monomial_sums = collect_monomials(expressions, classifier)
     return [optimise_monomial_sum(ms, argument_indices) for ms in monomial_sums]

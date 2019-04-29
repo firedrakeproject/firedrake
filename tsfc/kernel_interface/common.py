@@ -97,3 +97,12 @@ class KernelBuilderBase(KernelInterface):
         assert isinstance(body, coffee.Block)
         body_ = coffee.Block(self.prepare + body.children + self.finalise)
         return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+
+    def register_requirements(self, ir):
+        """Inspect what is referenced by the IR that needs to be
+        provided by the kernel interface.
+
+        :arg ir: multi-root GEM expression DAG
+        """
+        # Nothing is required by default
+        pass

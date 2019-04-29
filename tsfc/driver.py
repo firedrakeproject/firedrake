@@ -2,6 +2,7 @@ import collections
 import operator
 import string
 import time
+import sys
 from functools import reduce
 from itertools import chain
 
@@ -23,28 +24,30 @@ from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
-from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 
-import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+
+# To handle big forms. The various transformations might need a deeper stack
+sys.setrecursionlimit(3000)
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None):
+def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
+    :arg coffee: compile coffee kernel instead of loopy kernel
     :returns: list of kernels
     """
     cpu_time = time.time()
 
     assert isinstance(form, Form)
 
-    if interface is None:
-        interface = firedrake_interface
     # Determine whether in complex mode:
     # complex nodes would break the refactoriser.
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
@@ -60,7 +63,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None):
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface)
+        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, coffee=coffee)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -69,8 +72,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None):
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters,
-                     interface=firedrake_interface):
+def compile_integral(integral_data, form_data, prefix, parameters, interface, coffee):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -86,6 +88,11 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _ = default_parameters()
         _.update(parameters)
         parameters = _
+    if interface is None:
+        if coffee:
+            interface = firedrake_interface_coffee.KernelBuilder
+        else:
+            interface = firedrake_interface_loopy.KernelBuilder
 
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
@@ -109,9 +116,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
-                                      domain_numbering[integral_data.domain],
-                                      parameters["scalar_type"])
+    builder = interface(integral_type, integral_data.subdomain_id,
+                        domain_numbering[integral_data.domain],
+                        parameters["scalar_type"])
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
@@ -204,19 +211,17 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         return_variables = []
         expressions = []
 
-    # Need optimised roots for COFFEE
+    # Need optimised roots
     options = dict(reduce(operator.and_,
                           [mode.finalise_options.items()
                            for mode in mode_irs.keys()]))
     expressions = impero_utils.preprocess_gem(expressions, **options)
     assignments = list(zip(return_variables, expressions))
 
-    # Look for cell orientations in the IR
-    if builder.needs_cell_orientations(expressions):
-        builder.require_cell_orientations()
-
-    if builder.needs_cell_sizes(expressions):
-        builder.require_cell_sizes()
+    # Let the kernel interface inspect the optimised IR to register
+    # what kind of external data is required (e.g., cell orientations,
+    # cell sizes, etc.).
+    builder.register_requirements(expressions)
 
     # Construct ImperoC
     split_argument_indices = tuple(chain(*[var.index_ordering()
@@ -249,14 +254,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
 
-    # Construct kernel
-    body = generate_coffee(impero_c, index_names, parameters["precision"],
-                           parameters["scalar_type"], expressions, split_argument_indices)
-
-    return builder.construct_kernel(kernel_name, body)
+    return builder.construct_kernel(kernel_name, impero_c, parameters["precision"], index_names, quad_rule)
 
 
-def compile_expression_at_points(expression, points, coordinates, parameters=None):
+def compile_expression_at_points(expression, points, coordinates, interface=None, parameters=None, coffee=True):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
     function spaces with only point evaluation nodes.
@@ -264,9 +265,12 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     :arg expression: UFL expression
     :arg points: reference coordinates of the evaluation points
     :arg coordinates: the coordinate function
+    :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
+    :arg coffee: compile coffee kernel instead of loopy kernel
     """
     import coffee.base as ast
+    import loopy as lp
 
     if parameters is None:
         parameters = default_parameters()
@@ -287,7 +291,13 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                                                  complex_mode=complex_mode)
 
     # Initialise kernel builder
-    builder = firedrake_interface.ExpressionKernelBuilder(parameters["scalar_type"])
+    if interface is None:
+        if coffee:
+            interface = firedrake_interface_coffee.ExpressionKernelBuilder
+        else:
+            interface = firedrake_interface_loopy.ExpressionKernelBuilder
+
+    builder = interface(parameters["scalar_type"])
 
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
@@ -323,21 +333,20 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_shape = (len(points),) + value_shape
     return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
-    return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
+    if coffee:
+        return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
+    else:
+        return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
+
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
     point_index, = point_set.indices
-    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"], parameters["scalar_type"])
 
-    # Handle cell orientations
-    if builder.needs_cell_orientations([ir]):
-        builder.require_cell_orientations()
-    # Handle cell sizes (physically mapped elements)
-    if builder.needs_cell_sizes([ir]):
-        builder.require_cell_sizes()
+    # Handle kernel interface requirements
+    builder.register_requirements([ir])
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, body)
+    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
 
 
 def lower_integral_type(fiat_cell, integral_type):
