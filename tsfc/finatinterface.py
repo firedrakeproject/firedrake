@@ -124,7 +124,7 @@ def convert_finiteelement(element, **kwargs):
 
     kind = element.variant()
     if kind is None:
-        kind = 'equispaced'  # default variant
+        kind = 'spectral' if element.cell().cellname() == 'interval' else 'equispaced'  # default variant
 
     if element.family() == "Lagrange":
         if kind == 'equispaced':
