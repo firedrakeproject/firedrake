@@ -1,3 +1,7 @@
+from collections import OrderedDict
+
+import numpy as np
+
 from firedrake.mesh import spatialindex
 from firedrake.dmplex import build_two_sided
 from firedrake.utils import cached_property
@@ -5,7 +9,7 @@ from firedrake.petsc import PETSc
 from firedrake import logging
 from pyop2.mpi import MPI
 from pyop2.datatypes import IntType, ScalarType
-import numpy as np
+from pyop2.profiling import timed_region
 
 
 __all__ = ["PointCloud"]
@@ -46,6 +50,13 @@ class PointCloud(object):
 
         # Build spatial index of processes for point location.
         self.processes_index = self._build_processes_spatial_index()
+
+        # Initialise dictionary to store location statistics for evaluation.
+        self.statistics = OrderedDict()
+        # Initialise counters.
+        self.statistics["num_messages_sent"] = 0
+        self.statistics["num_points_evaluated"] = 0
+        self.statistics["num_points_found"] = 0
 
     @cached_property
     def locations(self):
@@ -128,6 +139,7 @@ class PointCloud(object):
         for rank, points in send_data.items():
             req = self.mesh.comm.Isend(points, dest=rank)
             send_reqs.append(req)
+            self.statistics["num_messages_sent"] += 1
 
         MPI.Request.Waitall(recv_reqs + send_reqs)
 
@@ -143,33 +155,45 @@ class PointCloud(object):
         located_elements = np.full((len(self.points), 2), -1, dtype=IntType)
 
         # Check if points are located locally.
-        local_results = self.mesh.locate_cells(self.points)
+        with timed_region("LocalLocation"):
+            with timed_region("LocalQuerying"):
+                # Evaluate all points locally.
+                local_results = self.mesh.locate_cells(self.points)
+                self.statistics["num_points_evaluated"] += len(self.points)
 
-        # Update points that have been found locally.
-        located_elements[:, 1] = local_results
-        located_elements[local_results != -1, 0] = self.mesh.comm.rank
+                # Update points that have been found locally.
+                located_elements[:, 1] = local_results
+                located_elements[local_results != -1, 0] = self.mesh.comm.rank
 
-        # Store the points and that have not been found locally, and the indices of those
-        # points in `self.points`.
-        not_found_indices, = np.where(local_results == -1)
-        points_not_found = self.points[not_found_indices]
+                # Store the points and that have not been found locally, and the indices
+                # of those points in `self.points`.
+                not_found_indices, = np.where(local_results == -1)
+                points_not_found = self.points[not_found_indices]
 
-        # Create dictionaries for storing processes that may contain these points.
-        local_candidates = {}
-        local_candidate_indices = {}
+            with timed_region("CandidateIdentification"):
+                # Create dictionaries for storing processes that may contain these points.
+                local_candidates = {}
+                local_candidate_indices = {}
 
-        for point, idx in zip(points_not_found, not_found_indices):
-            # Point not found locally -- get candidates from processes spatial index.
-            point_candidates = self._get_candidate_processes(point)
-            for candidate in point_candidates:
-                local_candidates.setdefault(candidate, []).append(point)
-                local_candidate_indices.setdefault(candidate, []).append(idx)
+                for point, idx in zip(points_not_found, not_found_indices):
+                    # Point not found locally -- get candidates from processes spatial
+                    # index.
+                    point_candidates = self._get_candidate_processes(point)
+                    for candidate in point_candidates:
+                        local_candidates.setdefault(candidate, []).append(point)
+                        local_candidate_indices.setdefault(candidate, []).append(idx)
 
-            syncPrint("[%d] Cell not found locally for point %s. Candidates: %s"
-                      % (self.mesh.comm.rank, point, point_candidates),
-                      comm=self.mesh.comm)
+                    syncPrint("[%d] Cell not found locally for point %s. Candidates: %s"
+                              % (self.mesh.comm.rank, point, point_candidates),
+                              comm=self.mesh.comm)
 
-        syncFlush(comm=self.mesh.comm)
+            syncFlush(comm=self.mesh.comm)
+
+        self.statistics["num_points_found"] += \
+            np.count_nonzero(located_elements[:, 0] != -1)
+        self.statistics["local_found_frac"] = \
+            self.statistics["num_points_found"] / len(self.points)
+        self.statistics["num_candidates"] = len(local_candidates)
 
         syncPrint("[%d] Located elements: %s" % (self.mesh.comm.rank,
                                                  located_elements.tolist()),
@@ -179,36 +203,40 @@ class PointCloud(object):
                   comm=self.mesh.comm)
         syncFlush(comm=self.mesh.comm)
 
-        # Get number of points to receive from each rank through sparse communication
-        # round.
+        # Exchange data for point requests.
+        with timed_region("PointExchange"):
+            # First get number of points to receive from each rank through sparse
+            # communication round.
 
-        # Create input arrays from candidates dictionary.
-        to_ranks = np.zeros(len(local_candidates), dtype=IntType)
-        to_data = np.zeros(len(local_candidates), dtype=IntType)
-        for i, (rank, points) in enumerate(local_candidates.items()):
-            to_ranks[i] = rank
-            to_data[i] = len(points)
+            # Create input arrays from candidates dictionary.
+            to_ranks = np.zeros(len(local_candidates), dtype=IntType)
+            to_data = np.zeros(len(local_candidates), dtype=IntType)
+            for i, (rank, points) in enumerate(local_candidates.items()):
+                to_ranks[i] = rank
+                to_data[i] = len(points)
 
-        # `build_two_sided()` provides an interface for PetscCommBuildTwoSided, which
-        # facilitates a sparse communication round between the processes to identify which
-        # processes will be sending points and how many points they wish to send.
-        # The output array `from_ranks` holds the ranks of the processes that will be
-        # sending points, and the corresponding element in the `from_data` array specifies
-        # the number of points that will be sent.
-        from_ranks, from_data = build_two_sided(self.mesh.comm, 1, MPI.INT, to_ranks,
-                                                to_data)
+            # `build_two_sided` provides an interface for PetscCommBuildTwoSided, which
+            # facilitates a sparse communication round between the processes to identify
+            # which processes will be sending points and how many points they wish to
+            # send.
+            # The output array `from_ranks` holds the ranks of the processes that will be
+            # sending points, and the corresponding element in the `from_data` array
+            # specifies the number of points that will be sent.
+            from_ranks, from_data = build_two_sided(self.mesh.comm, 1, MPI.INT, to_ranks,
+                                                    to_data)
 
-        # Create dictionary to hold all receive buffers for point requests from
-        # each process.
-        recv_points_buffers = {}
-        for i in range(0, len(from_ranks)):
-            recv_points_buffers[from_ranks[i]] = np.empty(
-                (from_data[i], self.mesh.geometric_dimension()), dtype=ScalarType)
+            # Create dictionary to hold all receive buffers for point requests from
+            # each process.
+            recv_points_buffers = {}
+            for i in range(0, len(from_ranks)):
+                recv_points_buffers[from_ranks[i]] = np.empty(
+                    (from_data[i], self.mesh.geometric_dimension()), dtype=ScalarType)
 
-        # Receive all point requests
+            # Receive all point requests
 
-        local_candidates = {r: np.asarray(p) for r, p in local_candidates.items()}
-        self._perform_sparse_communication_round(recv_points_buffers, local_candidates)
+            local_candidates = {r: np.asarray(p) for r, p in local_candidates.items()}
+            self._perform_sparse_communication_round(recv_points_buffers,
+                                                     local_candidates)
 
         syncPrint("[%d] Point queries requested: %s" % (self.mesh.comm.rank,
                                                         str(recv_points_buffers)),
@@ -216,13 +244,16 @@ class PointCloud(object):
         syncFlush(comm=self.mesh.comm)
 
         # Evaluate all point requests and prepare responses
+        with timed_region("RemoteLocation"):
+            # Create dictionary to store results.
+            point_responses = {}
 
-        # Create dictionary to store results.
-        point_responses = {}
-
-        # Evaluate results.
-        for rank, points_buffers in recv_points_buffers.items():
-            point_responses[rank] = self.mesh.locate_cells(points_buffers)
+            # Evaluate results.
+            for rank, points_buffers in recv_points_buffers.items():
+                point_responses[rank] = self.mesh.locate_cells(points_buffers)
+                self.statistics["num_points_evaluated"] += len(points_buffers)
+                self.statistics["num_points_found"] += \
+                    np.count_nonzero(point_responses[rank] != -1)
 
         syncPrint("[%d] Point responses: %s" % (self.mesh.comm.rank,
                                                 str(point_responses)),
@@ -230,15 +261,15 @@ class PointCloud(object):
         syncFlush(comm=self.mesh.comm)
 
         # Receive all responses
+        with timed_region("ResultExchange"):
+            # Create dictionary to hold all output buffers indexed by rank.
+            recv_results = {}
+            # Initialise these.
+            for rank, points in local_candidates.items():
+                # Create receive buffer(s).
+                recv_results[rank] = np.empty((len(points), 1), dtype=IntType)
 
-        # Create dictionary to hold all output buffers indexed by rank.
-        recv_results = {}
-        # Initialise these.
-        for rank, points in local_candidates.items():
-            # Create receive buffer(s).
-            recv_results[rank] = np.empty((len(points), 1), dtype=IntType)
-
-        self._perform_sparse_communication_round(recv_results, point_responses)
+            self._perform_sparse_communication_round(recv_results, point_responses)
 
         syncPrint("[%d] Point location request results: %s" % (self.mesh.comm.rank,
                                                                str(recv_results)),
@@ -246,19 +277,19 @@ class PointCloud(object):
         syncFlush(comm=self.mesh.comm)
 
         # Process and return results.
-
-        # Iterate through all points. If they have not been located locally,
-        # iterate through each point request reponse to find the element.
-        # Sometimes an element can be reported as found by more than one
-        # process -- in this case, choose the process with the lower rank.
-        for rank, result in recv_results.items():
-            indices = local_candidate_indices[rank]
-            found, _ = np.where(result != -1)
-            for idx in found:
-                i = indices[idx]
-                loc_rank = located_elements[i, 0]
-                if loc_rank == -1 or rank < loc_rank:
-                    located_elements[i, :] = (rank, result[idx])
+        with timed_region("ResultProcessing"):
+            # Iterate through all points. If they have not been located locally,
+            # iterate through each point request reponse to find the element.
+            # Sometimes an element can be reported as found by more than one
+            # process -- in this case, choose the process with the lower rank.
+            for rank, result in recv_results.items():
+                indices = local_candidate_indices[rank]
+                found, _ = np.where(result != -1)
+                for idx in found:
+                    i = indices[idx]
+                    loc_rank = located_elements[i, 0]
+                    if loc_rank == -1 or rank < loc_rank:
+                        located_elements[i, :] = (rank, result[idx])
 
         syncPrint("[%d] Located elements: %s" % (self.mesh.comm.rank,
                                                  located_elements.tolist()),
