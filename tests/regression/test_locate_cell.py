@@ -32,3 +32,17 @@ def test_locate_cells(meshdata, points, values):
 def test_locate_cell_not_found(meshdata):
     m, f = meshdata
     assert m.locate_cells(np.array([[0.2, -0.4]]))[0] == -1
+
+
+@pytest.mark.parametrize(('points', 'values'),
+                         [([(0.2, 0.1), (0.5, 0.2), (0.7, 0.1), (0.2, 0.4), (0.4, 0.4),
+                            (0.8, 0.5), (0.1, 0.7), (0.5, 0.9), (0.9, 0.8)],
+                          [1, 2, 3, 4, 5, 6, 7, 8, 9])])
+def test_pointcloud(meshdata, points, values):
+    m, f = meshdata
+
+    pc = PointCloud(m, np.array(points))
+    loc = pc.locations
+    loc_vals = [f.dat.data[cell] for cell in loc[:, 1]]
+
+    assert np.allclose(values, loc_vals)
