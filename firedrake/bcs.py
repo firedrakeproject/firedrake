@@ -90,31 +90,36 @@ class BCBase(object):
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         # Define facet, edge, vertex using tuples:
-        # Ex:
-        #                                      key.. one = 1 to avoid 0 * sqrt(...)
-        # facet  = ((1, ), )       ->     (one + 1) * sqrt(1)
-        # edge   = ((1, 2), )      ->     (one + 1) * sqrt(1) + (one + 2) * sqrt(2)
-        # vertex = ((1, 2, 4), )   ->     (one + 1) * sqrt(1) + (one + 2) * sqrt(2) + (one + 4) * sqrt(3)
+        # Ex in 3D:
+        #           user input                                                         returned keys
+        # facet  = ((1, ), )                                  ->     ((2, ((1, ), )), (1, ()),         (0, ()))
+        # edge   = ((1, 2), )                                 ->     ((2, ()),        (1, ((1, 2), )), (0, ()))
+        # vertex = ((1, 2, 4), )                              ->     ((2, ()),        (1, ()),         (0, ((1, 2, 4), ))
         #
-        # Multiple facets: (1, 2, 4) := ((1, ), (2, ), (4, )) returns ((1, 2, 4), )
+        # Multiple facets:
+        # (1, 2, 4) := ((1, ), (2, ), (4,))                   ->     ((2, ((1, ), (2, ), (4, ))), (1, ()), (0, ()))
         #
         # One facet and two edges:
-        # ((1,), (1, 3), (1, 4)) returns ((2, 2 + 4 * sqrt(2), 2 + 5 * sqrt(2)), )
+        # ((1,), (1, 3), (1, 4))                              ->     ((2, ((1,),)), (1, ((1,3), (1, 4))), (0, ()))
         #
-        # TODO: better ways?
-        #
+
         sub_d = self.sub_domain
+        # if string, return
         if isinstance(sub_d, str):
             return (sub_d, )
+        # convert: i -> (i, )
         sub_d = as_tuple(sub_d)
-        sub_d = [as_tuple(sub_d[i]) for i in range(len(sub_d))]
-        sd = []
-        for i in range(len(sub_d)):
-            v = 0.0
-            for ii in range(len(sub_d[i])):
-                v += (1 + sub_d[i][ii]) * np.sqrt(ii + 1)
-            sd.append(v)
-        return (as_tuple(sd), )
+        # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
+        sub_d = [as_tuple(i) for i in sub_d]
+
+        ndim = self.function_space().mesh()._plex.getDimension()
+        sd = [[] for _ in range(ndim)]
+        for i in sub_d:
+            sd[ndim - len(i)].append(i)
+        s = []
+        for i in range(ndim):
+            s.append((ndim - 1 - i, as_tuple(sd[i])))
+        return as_tuple(s)
 
     @utils.cached_property
     def nodes(self):
@@ -127,47 +132,27 @@ class BCBase(object):
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
         else:
             sub_d = as_tuple(sub_d)
-            sub_d = [as_tuple(sub_d[i]) for i in range(len(sub_d))]
+            sub_d = [as_tuple(s) for s in sub_d]
             bcnodes = np.empty(0, dtype=int)
-            for iboun in range(len(sub_d)):
-                _bcnodes = self._function_space.boundary_nodes(sub_d[iboun][0], self.method)
+            for s in sub_d:
+                _bcnodes = self._function_space.boundary_nodes(s[0], self.method)
                 if isinstance(self._function_space.finat_element, finat.Hermite) and \
                    self._function_space.mesh().topological_dimension() == 1:
                     _bcnodes = _bcnodes[::2]  # every second dof is the vertex value
-                for i in range(1, len(sub_d[iboun])):
+                for i, ss in enumerate(s):
+                    if i == 0:
+                        continue
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
                     if not isinstance(self._function_space.finat_element, finat.Lagrange):
                         raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
-                    _bcnodes1 = self._function_space.boundary_nodes(sub_d[iboun][i], self.method)
+                    _bcnodes1 = self._function_space.boundary_nodes(ss, self.method)
                     if isinstance(self._function_space.finat_element, finat.Hermite) and \
                        self._function_space.mesh().topological_dimension() == 1:
                         _bcnodes1 = _bcnodes1[::2]  # every second dof is the vertex value
                     _bcnodes = np.intersect1d(_bcnodes, _bcnodes1)
                 bcnodes = np.concatenate((bcnodes, _bcnodes))
-        """
-        if isinstance(self.sub_domain, tuple) and isinstance(self.sub_domain[0], tuple):
-            bcnodes = np.empty(0, dtype=int)
-            for iboun in range(len(self.sub_domain)):
-                _bcnodes = self._function_space.boundary_nodes(self.sub_domain[iboun][0], self.method)
-                if isinstance(self._function_space.finat_element, finat.Hermite) and \
-                    self._function_space.mesh().topological_dimension() == 1:
-                    _bcnodes = _bcnodes[::2]  # every second dof is the vertex value
-                for i in range(1, len(self.sub_domain[iboun])):
-                    # intersection of facets
-                    _bcnodes1 = self._function_space.boundary_nodes(self.sub_domain[iboun][i], self.method)
-                    if isinstance(self._function_space.finat_element, finat.Hermite) and \
-                        self._function_space.mesh().topological_dimension() == 1:
-                        _bcnodes1 = _bcnodes1[::2]  # every second dof is the vertex value
-                    _bcnodes = np.intersect1d(_bcnodes, _bcnodes1)
-                bcnodes = np.concatenate((bcnodes, _bcnodes))
-        else:
-            bcnodes = self._function_space.boundary_nodes(self.sub_domain, self.method)
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-                self._function_space.mesh().topological_dimension() == 1:
-                bcnodes = bcnodes[::2]  # every second dof is the vertex value
-        """
         return bcnodes
 
     @utils.cached_property
