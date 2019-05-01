@@ -185,7 +185,7 @@ facet column.
 """
 
 cimport mpi4py.MPI as MPI
-from mpi4py.libmpi cimport MPI_Op_create, MPI_Op_free, MPI_User_function
+from mpi4py.libmpi cimport MPI_Op_create, MPI_Op_free, MPI_User_function, MPI_OP_NULL
 from mpi4py import MPI
 from firedrake.petsc import PETSc
 import numpy
@@ -251,7 +251,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
         PetscInt *closure = NULL
         PetscInt closureSize
         MPI.Datatype contig, typ
-        MPI.MPI_Op EXTENTS_REDUCER = NULL
+        MPI.MPI_Op EXTENTS_REDUCER = MPI_OP_NULL
 
     pStart, pEnd = dm.getChart()
 
