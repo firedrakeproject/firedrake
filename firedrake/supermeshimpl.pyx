@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 import numpy
 from pyop2.datatypes import IntType, ScalarType
 cimport numpy
