@@ -16,7 +16,7 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
-
+from firedrake.pointwise_operators import AbstractPointwiseOperator
 
 __all__ = ["assemble"]
 
@@ -399,6 +399,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     loops = []
 
     def thunk(bcs):
+
+        # If there are any PointwiseOperators, evaluate them now.
+        for c in coefficients:
+            if isinstance(c, AbstractPointwiseOperator):
+                if collect_loops:
+                    loops.append(c.evaluate())
+                else:
+                    c.evaluate()
+
         if collect_loops:
             loops.append(zero_tensor)
         else:
