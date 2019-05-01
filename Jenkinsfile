@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint --no-package-manager --package-branch tsfc default_spectral --package-branche FInAT default_spectral || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint --no-package-manager --package-branch tsfc default_spectral --package-branch FInAT default_spectral || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
