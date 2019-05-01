@@ -3,6 +3,7 @@ from mpi4py import MPI
 import numpy
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.bcs import DirichletBC, EquationBCSplit
 
 from firedrake.petsc import PETSc
 
@@ -87,7 +88,6 @@ class ImplicitMatrixContext(object):
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.
-        from firedrake.bcs import DirichletBC, EquationBCSplit
 
         # all bcs (DirichletBC, EquationBCSplit)
         self.bcs = row_bcs
@@ -233,8 +233,6 @@ class ImplicitMatrixContext(object):
         # edge, and vertice equations (if exist) and add up their
         # contributions.
 
-        from firedrake.bcs import EquationBCSplit
-
         iter_assemble_actionT = iter(self.list_assemble_actionT)
 
         # accumulate values in self._xbc for convenience
@@ -315,8 +313,6 @@ class ImplicitMatrixContext(object):
             # actually assemble in here.
             target.assemble()
             return target
-
-        from firedrake import DirichletBC, EquationBCSplit
 
         # These are the sets of ISes of which the the row and column
         # space consist.

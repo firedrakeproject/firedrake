@@ -57,6 +57,7 @@ def test_assemble_bcs_wrong_fs(V, measure):
     W = FunctionSpace(V.mesh(), "CG", 2)
     with pytest.raises(RuntimeError):
         A = assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
+        print(A)  # F841
 
 
 def test_assemble_bcs_wrong_fs_interior(V):
@@ -66,6 +67,7 @@ def test_assemble_bcs_wrong_fs_interior(V):
     n = FacetNormal(V.mesh())
     with pytest.raises(RuntimeError):
         A = assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
+        print(A)  # F841
 
 
 def test_apply_bcs_wrong_fs(V, f2):

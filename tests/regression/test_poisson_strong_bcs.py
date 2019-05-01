@@ -15,7 +15,6 @@ This has the analytical solution
   u(x, y) = 42*x[1]
 """
 import pytest
-import numpy as np
 from firedrake import *
 
 

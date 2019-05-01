@@ -1,6 +1,8 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import numpy as np
 
+import functools
+
 import ufl
 from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
 from ufl.algorithms.analysis import has_type
@@ -20,7 +22,7 @@ from firedrake import ufl_expr
 from firedrake import slate
 
 
-__all__ = ['DirichletBC', 'homogenize', 'EquationBC', 'EquationBCSplit']
+__all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
 
 class BCBase(object):
@@ -124,6 +126,40 @@ class BCBase(object):
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
+
+        def hermite_stride(bcnodes):
+            if isinstance(self._function_space.finat_element, finat.Hermite) and \
+               self._function_space.mesh().topological_dimension() == 1:
+                return bcnodes[::2]  # every second dof is the vertex value
+            else:
+                return bcnodes
+
+        sub_d = self.sub_domain
+        if isinstance(sub_d, str):
+            return hermite_stride(self._function_space.boundary_nodes(sub_d, self.method))
+        else:
+            sub_d = as_tuple(sub_d)
+            sub_d = [as_tuple(s) for s in sub_d]
+            bcnodes = []
+            for s in sub_d:
+                # s is of one of the following formats:
+                # facet: (i, )
+                # edge: (i, j)
+                # vertex: (i, j, k)
+
+                # take intersection of facet nodes, and add it to bcnodes
+                bcnodes1 = []
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, finat.Lagrange):
+                    raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
+                for ss in s:
+                    # intersection of facets
+                    # Edge conditions have only been tested with Lagrange elements.
+                    # Need to expand the list.
+                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss, self.method)))
+                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes.append(bcnodes1)
+            return np.concatenate(tuple(bcnodes))
+        """
         sub_d = self.sub_domain
         if isinstance(sub_d, str):
             bcnodes = self._function_space.boundary_nodes(sub_d, self.method)
@@ -154,7 +190,7 @@ class BCBase(object):
                     _bcnodes = np.intersect1d(_bcnodes, _bcnodes1)
                 bcnodes = np.concatenate((bcnodes, _bcnodes))
         return bcnodes
-
+        """
     @utils.cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this
