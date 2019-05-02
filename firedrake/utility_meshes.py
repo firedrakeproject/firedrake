@@ -6,7 +6,7 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate
+    par_loop, dx, WRITE, READ, interpolate, FiniteElement
 from firedrake import mesh
 from firedrake import dmplex
 from firedrake import function
@@ -105,7 +105,7 @@ def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM
 cells are not currently supported")
 
     m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    coord_fs = VectorFunctionSpace(m, FiniteElement('DG', m.ufl_cell(), 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
