@@ -33,8 +33,8 @@ def test_laplace_physical_ev(parallel=False):
     # This shifts the "1.0" Eigenvalues out of the spectrum
     # of interest (which is around 0.0 in this case).
     vals = np.repeat(1E8, len(bc.nodes))
-    A.setValuesLocalRCV(bc.nodes.reshape(-1, 1).astype('int32'),
-                        bc.nodes.reshape(-1, 1).astype('int32'),
+    A.setValuesLocalRCV(bc.nodes.reshape(-1, 1),
+                        bc.nodes.reshape(-1, 1),
                         vals.reshape(-1, 1))
     A.assemble()
 

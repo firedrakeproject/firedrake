@@ -94,9 +94,16 @@ class ImplicitMatrixContext(object):
         self.bcs_col = col_bcs
 
         # DirichletBCs
-        self.row_bcs = []
-        self.col_bcs = []
+        def collect_DirichletBCs(bcs):
+            for bc in bcs:
+                if isinstance(bc, DirichletBC):
+                    yield bc
+                elif isinstance(bc, EquationBCSplit):
+                    yield from collect_DirichletBCs(bc.bcs)
 
+        self.row_bcs = tuple(collect_DirichletBCs(row_bcs))
+        self.col_bcs = tuple(collect_DirichletBCs(col_bcs))
+        """
         def collect_DirichletBCs(lst, bcs):
             for bc in bcs:
                 if isinstance(bc, DirichletBC):
@@ -105,7 +112,7 @@ class ImplicitMatrixContext(object):
                     collect_DirichletBCs(lst, bc.bcs)
         collect_DirichletBCs(self.row_bcs, row_bcs)
         collect_DirichletBCs(self.col_bcs, col_bcs)
-
+        """
         # create functions from test and trial space to help
         # with 1-form assembly
         test_space, trial_space = [
@@ -189,7 +196,6 @@ class ImplicitMatrixContext(object):
                 collect_assembly_callableT(bc)
 
     def mult(self, mat, X, Y):
-
         with self._x.dat.vec_wo as v:
             X.copy(v)
 
@@ -239,7 +245,6 @@ class ImplicitMatrixContext(object):
         self._xbc.dat.zero()
 
         def multTransposePart(bc):
-
             # TODO, can we avoid this copy, too?
             with self._y.dat.vec_wo as v:
                 Y.copy(v)
@@ -307,7 +312,6 @@ class ImplicitMatrixContext(object):
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
     def createSubMatrix(self, mat, row_is, col_is, target=None):
-
         if target is not None:
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.

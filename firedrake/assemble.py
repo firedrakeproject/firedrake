@@ -95,14 +95,14 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
-        loops_ = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
-                           form_compiler_parameters=form_compiler_parameters,
-                           inverse=inverse, mat_type=mat_type,
-                           sub_mat_type=sub_mat_type, appctx=appctx,
-                           assemble_now=not collect_loops,
-                           allocate_only=allocate_only,
-                           options_prefix=options_prefix)
-        loops = [l for l in loops_]
+        loops = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
+                          form_compiler_parameters=form_compiler_parameters,
+                          inverse=inverse, mat_type=mat_type,
+                          sub_mat_type=sub_mat_type, appctx=appctx,
+                          assemble_now=not collect_loops,
+                          allocate_only=allocate_only,
+                          options_prefix=options_prefix)
+        loops = tuple(loops)
         if collect_loops and not allocate_only:
             # Will this be useful?
             return loops
@@ -126,12 +126,12 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    loops_ = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
-                       inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                       appctx=appctx, allocate_only=True,
-                       options_prefix=options_prefix)
+    loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                      appctx=appctx, allocate_only=True,
+                      options_prefix=options_prefix)
     # has only one entry
-    return next(loops_)()
+    return next(loops)()
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
@@ -150,12 +150,12 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops_ = _assemble(f, tensor=tensor, bcs=bcs,
-                       form_compiler_parameters=form_compiler_parameters,
-                       inverse=inverse, mat_type=mat_type,
-                       sub_mat_type=sub_mat_type)
+    loops = _assemble(f, tensor=tensor, bcs=bcs,
+                      form_compiler_parameters=form_compiler_parameters,
+                      inverse=inverse, mat_type=mat_type,
+                      sub_mat_type=sub_mat_type)
 
-    loops = [l for l in loops_]
+    loops = tuple(loops)
 
     def thunk():
         for kernel in loops:

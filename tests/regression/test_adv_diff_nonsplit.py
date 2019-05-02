@@ -43,7 +43,6 @@ def adv_diff(x, quadrilateral=False):
 
     # Must call assemble() after setting u, etc...
     A = assemble(a)
-
     while T < 0.012:
         b = assemble(L)
         solve(A, t, b)

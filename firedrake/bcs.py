@@ -159,38 +159,7 @@ class BCBase(object):
                 bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
             return np.concatenate(tuple(bcnodes))
-        """
-        sub_d = self.sub_domain
-        if isinstance(sub_d, str):
-            bcnodes = self._function_space.boundary_nodes(sub_d, self.method)
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                bcnodes = bcnodes[::2]  # every second dof is the vertex value
-        else:
-            sub_d = as_tuple(sub_d)
-            sub_d = [as_tuple(s) for s in sub_d]
-            bcnodes = np.empty(0, dtype=int)
-            for s in sub_d:
-                _bcnodes = self._function_space.boundary_nodes(s[0], self.method)
-                if isinstance(self._function_space.finat_element, finat.Hermite) and \
-                   self._function_space.mesh().topological_dimension() == 1:
-                    _bcnodes = _bcnodes[::2]  # every second dof is the vertex value
-                for i, ss in enumerate(s):
-                    if i == 0:
-                        continue
-                    # intersection of facets
-                    # Edge conditions have only been tested with Lagrange elements.
-                    # Need to expand the list.
-                    if not isinstance(self._function_space.finat_element, finat.Lagrange):
-                        raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
-                    _bcnodes1 = self._function_space.boundary_nodes(ss, self.method)
-                    if isinstance(self._function_space.finat_element, finat.Hermite) and \
-                       self._function_space.mesh().topological_dimension() == 1:
-                        _bcnodes1 = _bcnodes1[::2]  # every second dof is the vertex value
-                    _bcnodes = np.intersect1d(_bcnodes, _bcnodes1)
-                bcnodes = np.concatenate((bcnodes, _bcnodes))
-        return bcnodes
-        """
+
     @utils.cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this

@@ -74,7 +74,6 @@ class _SNESContext(object):
                  options_prefix=None):
         from firedrake.assemble import create_assembly_callable
         from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -306,7 +305,6 @@ class _SNESContext(object):
                 bc_temp = rcollect_bcs(bc)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
-
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
@@ -389,11 +387,9 @@ class _SNESContext(object):
         :arg P: the preconditioner matrix (a Mat)
         """
         from firedrake.bcs import DirichletBC, EquationBC
-
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-
         assert J.handle == ctx._jac.petscmat.handle
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian

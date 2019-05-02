@@ -138,14 +138,11 @@ def _solve_varproblem(*args, **kwargs):
         options_prefix = _extract_args(*args, **kwargs)
 
     appctx = kwargs.get("appctx", {})
-
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
-
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters)
-
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
@@ -157,13 +154,11 @@ def _solve_varproblem(*args, **kwargs):
 
     # Solve nonlinear variational problem
     else:
-
         if eq.rhs != 0:
             raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters)
-
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
@@ -171,7 +166,6 @@ def _solve_varproblem(*args, **kwargs):
                                                near_nullspace=near_nullspace,
                                                options_prefix=options_prefix,
                                                appctx=appctx)
-
         solver.solve()
 
 
@@ -228,18 +222,14 @@ def _la_solve(A, x, b, **kwargs):
                     rassert_linear(bc.bcs)
                 else:
                     raise RuntimeError("EquationBCs must also be linear when solving linear system.")
-
     rassert_linear(_extract_bcs(bcs))
-
     if bcs is not None:
         A.bcs = bcs
-
     solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
-
     if isinstance(x, firedrake.Vector):
         x = x.function
     # linear MG doesn't need RHS, supply zero.

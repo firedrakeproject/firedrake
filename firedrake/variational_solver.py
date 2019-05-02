@@ -276,7 +276,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  varying fields).  If your Jacobian can change, set
                  this flag to ``False``.
         """
-
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
