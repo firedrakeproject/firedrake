@@ -81,7 +81,7 @@ def test_vertical_average_variable(quadrilateral):
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
-                          (("CG", 3), 1e-7)])
+                          (("CG", 3), 1.5e-7)])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""
     family, degree = testcase
