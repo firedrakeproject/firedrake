@@ -1483,8 +1483,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        fs = functionspace.VectorFunctionSpace(self, "CG", hdegree, dim=gdim,
-                                               vfamily="CG", vdegree=1)
+        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        element = ufl.TensorProductElement(helement, velement)
+        fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs)
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)
