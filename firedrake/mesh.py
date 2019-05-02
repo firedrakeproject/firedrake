@@ -1464,16 +1464,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
+    helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
-        hfamily = "DG"
-    else:
-        hfamily = mesh._coordinates.ufl_element().family()
-    hdegree = mesh._coordinates.ufl_element().degree()
+        helement = helement.reconstruct(family="DG", variant="equispaced")
+    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, hfamily, hdegree, dim=gdim,
-                                                       vfamily="Lagrange", vdegree=1)
+    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
 
