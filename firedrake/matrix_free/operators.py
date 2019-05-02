@@ -96,30 +96,18 @@ class ImplicitMatrixContext(object):
         # DirichletBCs
         def collect_DirichletBCs(bcs):
             for bc in bcs:
-                if isinstance(bc, DirichletBC):
-                    yield bc
-                elif isinstance(bc, EquationBCSplit):
-                    yield from collect_DirichletBCs(bc.bcs)
-
+                for b in bc:
+                    if isinstance(b, DirichletBC):
+                        yield b
         self.row_bcs = tuple(collect_DirichletBCs(row_bcs))
         self.col_bcs = tuple(collect_DirichletBCs(col_bcs))
-        """
-        def collect_DirichletBCs(lst, bcs):
-            for bc in bcs:
-                if isinstance(bc, DirichletBC):
-                    lst.append(bc)
-                elif isinstance(bc, EquationBCSplit):
-                    collect_DirichletBCs(lst, bc.bcs)
-        collect_DirichletBCs(self.row_bcs, row_bcs)
-        collect_DirichletBCs(self.col_bcs, col_bcs)
-        """
+
         # create functions from test and trial space to help
         # with 1-form assembly
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
         from firedrake import function
-
         self._y = function.Function(test_space)
         self._x = function.Function(trial_space)
 
@@ -176,24 +164,17 @@ class ImplicitMatrixContext(object):
         # Each par_loop is to run with appropriate masks on self._y
 
         self.list_assemble_actionT = []
-
-        def collect_assembly_callableT(bc):
-            self.list_assemble_actionT.append(
-                create_assembly_callable(action(adjoint(bc.f), self._y),
-                                         tensor=self._x,
-                                         bcs=None,
-                                         form_compiler_parameters=self.fc_params))
-            for bbc in bc.bcs:
-                if isinstance(bbc, EquationBCSplit):
-                    collect_assembly_callableT(bbc)
-
         self.list_assemble_actionT.append(create_assembly_callable(self.actionT,
                                                                    tensor=self._x,
                                                                    bcs=None,
                                                                    form_compiler_parameters=self.fc_params))
         for bc in self.bcs:
-            if isinstance(bc, EquationBCSplit):
-                collect_assembly_callableT(bc)
+            for b in bc:
+                if isinstance(b, EquationBCSplit):
+                    self.list_assemble_actionT.append(create_assembly_callable(action(adjoint(b.f), self._y),
+                                                      tensor=self._x,
+                                                      bcs=None,
+                                                      form_compiler_parameters=self.fc_params))
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:

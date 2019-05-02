@@ -2,6 +2,7 @@
 import numpy as np
 
 import functools
+import itertools
 
 import ufl
 from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
@@ -81,6 +82,11 @@ class BCBase(object):
         self._indices = tuple(reversed(indices))
         # Used for finding local to global maps with boundary conditions applied
         self._cache_key = (self.domain_args, (self.method, tuple(indexing), tuple(components)))
+        self.bcs = []
+
+    def __iter__(self):
+        yield self
+        yield from itertools.chain(*self.bcs)
 
     def function_space(self):
         '''The :class:`.FunctionSpace` on which this boundary condition should
@@ -236,6 +242,8 @@ class DirichletBC(BCBase):
         self.function_arg = g
         self._original_arg = self.function_arg
         self._currently_zeroed = False
+        self.is_linear = True
+        self.Jp_eq_J = True
 
     @property
     def function_arg(self):
@@ -374,20 +382,6 @@ class DirichletBC(BCBase):
         return []
 
 
-def homogenize(bc):
-    r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
-    ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
-    then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
-
-    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`\(s).
-    """
-    try:
-        return [homogenize(i) for i in bc]
-    except TypeError:
-        # not iterable
-        return DirichletBC(bc.function_space(), 0, bc.sub_domain)
-
-
 class EquationBC(BCBase):
     r'''Implementation of an equation boundary condition.
 
@@ -424,6 +418,8 @@ class EquationBC(BCBase):
 
         self.Jp_eq_J = Jp is None
         self.is_linear = is_linear
+
+        from firedrake.variational_solver import check_pde_args
         # linear
         if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
             self.J = eq.lhs
@@ -441,21 +437,11 @@ class EquationBC(BCBase):
         else:
             if eq.rhs != 0:
                 raise TypeError("RHS of a nonlinear form equation has to be 0")
-            if not isinstance(eq.lhs, (ufl.Form, slate.slate.TensorBase)):
-                raise TypeError("Provided BC residual is a '%s', not a Form or Slate Tensor" % type(eq.lhs).__name__)
-            if len(eq.lhs.arguments()) != 1:
-                raise ValueError("Provided BC residual is not a linear form")
             self.F = eq.lhs
-            if J is not None and not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
-                raise TypeError("Provided BC Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
-            if J is not None and len(J.arguments()) != 2:
-                raise ValueError("Provided BC Jacobian is not a bilinear form")
             self.J = J or ufl_expr.derivative(self.F, self.u)
-            if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
-                raise TypeError("Provided BC preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
-            if Jp is not None and len(Jp.arguments()) != 2:
-                raise ValueError("Provided BC preconditioner is not a bilinear form")
             self.Jp = Jp or self.J
+            # Argument checking
+            check_pde_args(self)
             self.is_linear = self.is_linear or False
 
 
@@ -476,3 +462,23 @@ class EquationBCSplit(BCBase):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit.add expects an instance of DirichletBC or EquationBCSplit.")
         self.bcs.append(bc)
+
+
+def homogenize(bc):
+    r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
+    ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
+    then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
+
+    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`\(s).
+    """
+    if isinstance(bc, (tuple, list)):
+        lst = []
+        for i in bc:
+            if not isinstance(i, DirichletBC):
+                raise TypeError("homogenize only makes sense for DirichletBCs")
+            lst.append(DirichletBC(i.function_space(), 0, i.sub_domain))
+        return lst
+    elif isinstance(bc, DirichletBC):
+        return DirichletBC(bc.function_space(), 0, bc.sub_domain)
+    else:
+        raise TypeError("homogenize only takes a DirichletBC or a list/tuple of DirichletBCs")

@@ -108,14 +108,7 @@ class _SNESContext(object):
         self.J = problem.J
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
-        def is_Jp_eq_J(bcs):
-            v = True
-            for bc in bcs:
-                if isinstance(bc, EquationBC):
-                    v = v and bc.Jp_eq_J and is_Jp_eq_J(bc.bcs)
-            return v
-
-        Jp_eq_J = (problem.Jp is None) and is_Jp_eq_J(problem.bcs)
+        Jp_eq_J = all(b.Jp_eq_J for b in problem)
 
         if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want

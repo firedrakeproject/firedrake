@@ -213,16 +213,9 @@ def _la_solve(A, x, b, **kwargs):
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
 
-    from firedrake.bcs import EquationBC
-
-    def rassert_linear(bcs):
-        for bc in bcs:
-            if isinstance(bc, EquationBC):
-                if bc.is_linear:
-                    rassert_linear(bc.bcs)
-                else:
-                    raise RuntimeError("EquationBCs must also be linear when solving linear system.")
-    rassert_linear(_extract_bcs(bcs))
+    for bc in _extract_bcs(bcs):
+        if not all(b.is_linear for b in bc):
+            raise RuntimeError("EquationBCs must also be linear when solving linear system.")
     if bcs is not None:
         A.bcs = bcs
     solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
