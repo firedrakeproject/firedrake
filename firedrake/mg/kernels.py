@@ -57,6 +57,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     }
 
     evaluate_template_c = """#include <math.h>
+#include <stdio.h>
 
 static inline void to_reference_coords_kernel(double *X, const double *x0, const double *C)
 {
@@ -230,7 +231,7 @@ def prolong_kernel(expression):
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist;
+                double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -249,7 +250,15 @@ def prolong_kernel(expression):
                    Did we find one that was close enough? */
                 if (bestdist < 2) {
                     cell = bestcell;
-                } else abort();
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(dim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
             }
             const double *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
@@ -261,6 +270,7 @@ def prolong_kernel(expression):
                "evaluate": str(evaluate_kernel),
                "args": args,
                "R": R,
+               "dim": element.cell.get_spatial_dimension(),
                "coarse": coarse,
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
@@ -307,7 +317,7 @@ def restrict_kernel(Vf, Vc):
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist;
+                double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -315,6 +325,8 @@ def restrict_kernel(Vf, Vc):
                 }
 
                 %(compute_celldist)s
+                /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
+                fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
                 if (celldist < bestdist) {
                     bestdist = celldist;
                     bestcell = i;
@@ -325,7 +337,15 @@ def restrict_kernel(Vf, Vc):
                    Did we find one that was close enough? */
                 if (bestdist < 2) {
                     cell = bestcell;
-                } else abort();
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(dim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
             }
 
             {
@@ -341,6 +361,7 @@ def restrict_kernel(Vf, Vc):
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "args": args,
+               "dim": element.cell.get_spatial_dimension(),
                "R": R,
                "fine": fine,
                "tdim": mesh.topological_dimension()}
@@ -383,7 +404,7 @@ def inject_kernel(Vf, Vc):
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xfi = Xf + i*%(Xf_cell_inc)d;
-                double celldist;
+                double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xfi);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -401,7 +422,15 @@ def inject_kernel(Vf, Vc):
                    Did we find one that was close enough? */
                 if (bestdist < 2) {
                     cell = bestcell;
-                } else abort();
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(dim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
             }
             const double *fi = f + cell*%(f_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
