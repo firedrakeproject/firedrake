@@ -27,7 +27,7 @@ from tsfc.driver import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
-from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine
+from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
 
 
@@ -226,15 +226,31 @@ def prolong_kernel(expression):
         {
             double Xref[%(tdim)d];
             int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
                     break;
                 }
+
+                %(compute_celldist)s
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+
             }
-            if (cell == -1) abort();
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 2) {
+                    cell = bestcell;
+                } else abort();
+            }
             const double *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 %(R)s[i] = 0;
@@ -249,6 +265,7 @@ def prolong_kernel(expression):
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "tdim": mesh.topological_dimension()}
@@ -286,21 +303,41 @@ def restrict_kernel(Vf, Vc):
         {
             double Xref[%(tdim)d];
             int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
-                    const double *Ri = %(R)s + cell*%(coarse_cell_inc)d;
-                    pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
                     break;
                 }
+
+                %(compute_celldist)s
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+            }
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 2) {
+                    cell = bestcell;
+                } else abort();
+            }
+
+            {
+            const double *Ri = %(R)s + cell*%(coarse_cell_inc)d;
+            pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
             }
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "args": args,
@@ -342,16 +379,29 @@ def inject_kernel(Vf, Vc):
         {
             double Xref[%(tdim)d];
             int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const double *Xfi = Xf + i*%(Xf_cell_inc)d;
+                double celldist;
                 to_reference_coords_kernel(Xref, X, Xfi);
                 if (%(inside_cell)s) {
                     cell = i;
                     break;
                 }
+
+                %(compute_celldist)s
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
             }
             if (cell == -1) {
-                abort();
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 2) {
+                    cell = bestcell;
+                } else abort();
             }
             const double *fi = f + cell*%(f_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
@@ -363,6 +413,7 @@ def inject_kernel(Vf, Vc):
             "to_reference": str(to_reference_kernel),
             "evaluate": str(evaluate_kernel),
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
+            "compute_celldist": compute_celldist(Vc.finat_element.cell, X="Xref", celldist="celldist"),
             "tdim": Vc.ufl_domain().topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
