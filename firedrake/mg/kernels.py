@@ -252,7 +252,7 @@ def prolong_kernel(expression):
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(dim)s; coord++) {
+                    for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
                     fprintf(stderr, "\\n");
@@ -270,7 +270,7 @@ def prolong_kernel(expression):
                "evaluate": str(evaluate_kernel),
                "args": args,
                "R": R,
-               "dim": element.cell.get_spatial_dimension(),
+               "spacedim": element.cell.get_spatial_dimension(),
                "coarse": coarse,
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
@@ -339,7 +339,7 @@ def restrict_kernel(Vf, Vc):
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(dim)s; coord++) {
+                    for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
                     fprintf(stderr, "\\n");
@@ -361,7 +361,7 @@ def restrict_kernel(Vf, Vc):
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "args": args,
-               "dim": element.cell.get_spatial_dimension(),
+               "spacedim": element.cell.get_spatial_dimension(),
                "R": R,
                "fine": fine,
                "tdim": mesh.topological_dimension()}
@@ -424,7 +424,7 @@ def inject_kernel(Vf, Vc):
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(dim)s; coord++) {
+                    for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
                     fprintf(stderr, "\\n");
@@ -442,6 +442,7 @@ def inject_kernel(Vf, Vc):
             "to_reference": str(to_reference_kernel),
             "evaluate": str(evaluate_kernel),
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
+            "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "compute_celldist": compute_celldist(Vc.finat_element.cell, X="Xref", celldist="celldist"),
             "tdim": Vc.ufl_domain().topological_dimension(),
             "ncandidate": ncandidate,
