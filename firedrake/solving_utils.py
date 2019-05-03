@@ -1,5 +1,7 @@
 import numpy
 
+import itertools
+
 from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
@@ -251,7 +253,7 @@ class _SNESContext(object):
                 Jp = None
 
             # Recursively add DirichletBCs/EquationBCs
-            def rcollect_bcs(bc):
+            def collect_bcs(bc):
                 Vbc = bc.function_space()
                 if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
                     index = Vbc.parent.index
@@ -267,14 +269,11 @@ class _SNESContext(object):
                     if cmpt is not None:
                         W = W.sub(cmpt)
                     if isinstance(bc, DirichletBC):
-                        return DirichletBC(W,
-                                           bc.function_arg,
-                                           bc.sub_domain,
-                                           method=bc.method)
+                        return bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
                     elif isinstance(bc, EquationBC):
                         bc_F = replace(splitter.split(bc.F, argument_indices=(field, )), {bc.u: u})
                         bc_J = replace(splitter.split(bc.J, argument_indices=(field, field)), {bc.u: u})
-                        bc_Jp = None if bc.Jp is None else replace(splitter.split(bc.Jp, argument_indices=(field, field)), {bc.u: u})
+                        bc_Jp = replace(splitter.split(bc.Jp, argument_indices=(field, field)), {bc.u: u})
                         ebc = EquationBC(bc_F == 0,
                                          subu,
                                          bc.sub_domain,
@@ -285,7 +284,7 @@ class _SNESContext(object):
                                          V=W,
                                          is_linear=bc.is_linear)
                         for bbc in bc.bcs:
-                            bc_temp = rcollect_bcs(bbc)
+                            bc_temp = collect_bcs(bbc)
                             # Due to the "if index", bc_temp can be None
                             if bc_temp is not None:
                                 ebc.add(bc_temp)
@@ -295,7 +294,7 @@ class _SNESContext(object):
 
             bcs = []
             for bc in problem.bcs:
-                bc_temp = rcollect_bcs(bc)
+                bc_temp = collect_bcs(bc)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
@@ -379,7 +378,7 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake.bcs import DirichletBC, EquationBC
+        from firedrake.bcs import DirichletBC
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
@@ -395,14 +394,9 @@ class _SNESContext(object):
             _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
 
-            def rapply(bcs, u):
-                for bc in bcs:
-                    if isinstance(bc, DirichletBC):
-                        bc.apply(u)
-                    elif isinstance(bc, EquationBC):
-                        rapply(bc.bcs, u)
-
-            rapply(ctx._problem.bcs, ctx._x)
+            for bc in itertools.chain(*ctx._problem.bcs):
+                if isinstance(bc, DirichletBC):
+                    bc.apply(ctx._x)
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()

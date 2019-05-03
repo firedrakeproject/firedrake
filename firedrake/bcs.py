@@ -258,15 +258,20 @@ class DirichletBC(BCBase):
         return self._function_arg
 
     def reconstruct(self, *, V=None, g=None, sub_domain=None, method=None):
+        fs = self.function_space()
         if V is None:
-            V = self.function_space()
+            V = fs
         if g is None:
             g = self._original_arg
         if sub_domain is None:
             sub_domain = self.sub_domain
         if method is None:
             method = self.method
-        if V == self.function_space() and g == self._original_arg and \
+        if V == fs and \
+           V.parent == fs.parent and \
+           V.index == fs.index and \
+           V.component == fs.component and \
+           g == self._original_arg and \
            sub_domain == self.sub_domain and method == self.method:
             return self
         return type(self)(V, g, sub_domain, method=method)

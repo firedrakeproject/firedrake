@@ -299,7 +299,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                                                        is_linear=True)
         # check all equations are linear
         for e in self:
-            assert(e.is_linear)
+            assert e.is_linear, "All equations including ones defined in EquationBC objects have to be linear"
 
         self._constant_jacobian = constant_jacobian
 

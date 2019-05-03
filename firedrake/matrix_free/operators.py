@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from mpi4py import MPI
 import numpy
+import itertools
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -92,15 +93,8 @@ class ImplicitMatrixContext(object):
         # all bcs (DirichletBC, EquationBCSplit)
         self.bcs = row_bcs
         self.bcs_col = col_bcs
-
-        # DirichletBCs
-        def collect_DirichletBCs(bcs):
-            for bc in bcs:
-                for b in bc:
-                    if isinstance(b, DirichletBC):
-                        yield b
-        self.row_bcs = tuple(collect_DirichletBCs(row_bcs))
-        self.col_bcs = tuple(collect_DirichletBCs(col_bcs))
+        self.row_bcs = tuple(bc for bc in itertools.chain(*row_bcs) if isinstance(bc, DirichletBC))
+        self.col_bcs = tuple(bc for bc in itertools.chain(*col_bcs) if isinstance(bc, DirichletBC))
 
         # create functions from test and trial space to help
         # with 1-form assembly
@@ -168,13 +162,12 @@ class ImplicitMatrixContext(object):
                                                                    tensor=self._x,
                                                                    bcs=None,
                                                                    form_compiler_parameters=self.fc_params))
-        for bc in self.bcs:
-            for b in bc:
-                if isinstance(b, EquationBCSplit):
-                    self.list_assemble_actionT.append(create_assembly_callable(action(adjoint(b.f), self._y),
-                                                      tensor=self._x,
-                                                      bcs=None,
-                                                      form_compiler_parameters=self.fc_params))
+        for bc in itertools.chain(*self.bcs):
+            if isinstance(bc, EquationBCSplit):
+                self.list_assemble_actionT.append(create_assembly_callable(action(adjoint(bc.f), self._y),
+                                                  tensor=self._x,
+                                                  bcs=None,
+                                                  form_compiler_parameters=self.fc_params))
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
@@ -229,21 +222,16 @@ class ImplicitMatrixContext(object):
             # TODO, can we avoid this copy, too?
             with self._y.dat.vec_wo as v:
                 Y.copy(v)
-
             # zero columns associated with DirichletBCs/EquationBCs
             for bbc in bc.bcs:
                 bbc.zero(self._y)
-
             next(iter_assemble_actionT)()
-
             self._xbc += self._x
 
-            # recursion
-            for bbc in bc.bcs:
-                if isinstance(bbc, EquationBCSplit):
-                    multTransposePart(bbc)
-
         multTransposePart(self)
+        for bc in itertools.chain(*self.bcs):
+            if isinstance(bc, EquationBCSplit):
+                multTransposePart(bc)
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
@@ -318,7 +306,7 @@ class ImplicitMatrixContext(object):
         row_bcs = []
         col_bcs = []
 
-        def rcollect_bcs(bc, inds, row_inds, col_inds, Ws):
+        def collect_bcs(bc, inds, row_inds, col_inds, Ws):
             fs = bc.function_space()
             cmpt = fs.component
             if cmpt is not None:
@@ -329,22 +317,19 @@ class ImplicitMatrixContext(object):
                     if cmpt is not None:
                         W = W.sub(cmpt)
                     if isinstance(bc, DirichletBC):
-                        return DirichletBC(W,
-                                           bc.function_arg,
-                                           bc.sub_domain,
-                                           method=bc.method)
+                        return bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
                     elif isinstance(bc, EquationBCSplit):
                         ebc = EquationBCSplit(bc,
                                               ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
                                               V=W)
                         for bbc in bc.bcs:
-                            bc_temp = rcollect_bcs(bbc, inds, row_inds, col_inds, Ws)
+                            bc_temp = collect_bcs(bbc, inds, row_inds, col_inds, Ws)
                             if bc_temp is not None:
                                 ebc.add(bc_temp)
                         return ebc
 
         for bc in self.bcs:
-            bc_temp = rcollect_bcs(bc, row_inds, row_inds, col_inds, Wrow)
+            bc_temp = collect_bcs(bc, row_inds, row_inds, col_inds, Wrow)
             if bc_temp is not None:
                 row_bcs.append(bc_temp)
 
@@ -352,7 +337,7 @@ class ImplicitMatrixContext(object):
             col_bcs = row_bcs
         else:
             for bc in self.bcs_col:
-                bc_temp = rcollect_bcs(bc, col_inds, row_inds, col_inds, Wcol)
+                bc_temp = collect_bcs(bc, col_inds, row_inds, col_inds, Wcol)
                 if bc_temp is not None:
                     col_bcs.append(bc_temp)
 
