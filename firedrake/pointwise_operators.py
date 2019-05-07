@@ -108,6 +108,8 @@ class PointsolveOperator(AbstractPointwiseOperator):
         self.solver = solver
 
     def compute_derivatives(self, f):
+        # Wrong way of doing it, need to use nested implicit function theorem formula, it is coming !
+        """
         from ufl.operators import diff
         deriv_index = self.derivatives
         df = f
@@ -119,6 +121,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
             for j in range(di):
                 df = diff(df, op)
         return df
+        """
 
     def evaluate(self):
         try:
