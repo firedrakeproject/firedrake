@@ -413,6 +413,12 @@ def coarsen(dm, comm):
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
+    transfer = get_transfer_operators(dm)
+    push_transfer_operators(cdm, *transfer)
+    if len(V) > 1:
+        for V_, Vc_ in zip(V, Vc):
+            transfer = get_transfer_operators(V_.dm)
+            push_transfer_operators(Vc_.dm, *transfer)
     push_ctx_coarsener(cdm, coarsen)
     ctx = get_appctx(dm)
     if ctx is not None:
