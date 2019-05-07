@@ -276,7 +276,8 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     mesh1.init()
 
-    Vc = VectorFunctionSpace(mesh1, 'DQ', 1)
+    fe_dg = FiniteElement('DQ', mesh1.ufl_cell(), 1, variant="equispaced")
+    Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc)
