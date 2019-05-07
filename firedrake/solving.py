@@ -236,7 +236,7 @@ def _la_solve(A, x, b, **kwargs):
                                      options_prefix=options_prefix)
     dm = solver.ksp.dm
 
-    with dmhooks.appctx(dm, ctx):
+    with dmhooks.add_hooks(dm, solver, appctx=ctx):
         solver.solve(x, b)
 
 
