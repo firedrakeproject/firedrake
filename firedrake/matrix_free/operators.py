@@ -307,26 +307,27 @@ class ImplicitMatrixContext(object):
         col_bcs = []
 
         def collect_bcs(bc, inds, row_inds, col_inds, Ws):
+            field_renumbering = dict([f, i] for i, f in enumerate(inds))
             fs = bc.function_space()
             cmpt = fs.component
             if cmpt is not None:
                 fs = fs.parent
-            for i, r in enumerate(inds):
-                if fs.index == r:
-                    W = Ws.split()[i]
-                    if cmpt is not None:
-                        W = W.sub(cmpt)
-                    if isinstance(bc, DirichletBC):
-                        return bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
-                    elif isinstance(bc, EquationBCSplit):
-                        ebc = EquationBCSplit(bc,
-                                              ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
-                                              V=W)
-                        for bbc in bc.bcs:
-                            bc_temp = collect_bcs(bbc, inds, row_inds, col_inds, Ws)
-                            if bc_temp is not None:
-                                ebc.add(bc_temp)
-                        return ebc
+            ind = fs.index
+            if ind in inds:
+                W = Ws.split()[field_renumbering[ind]]
+                if cmpt is not None:
+                    W = W.sub(cmpt)
+                if isinstance(bc, DirichletBC):
+                    return bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
+                elif isinstance(bc, EquationBCSplit):
+                    ebc = EquationBCSplit(bc,
+                                          ExtractSubBlock().split(bc.f, argument_indices=(row_inds, col_inds)),
+                                          V=W)
+                    for bbc in bc.bcs:
+                        bc_temp = collect_bcs(bbc, inds, row_inds, col_inds, Ws)
+                        if bc_temp is not None:
+                            ebc.add(bc_temp)
+                    return ebc
 
         for bc in self.bcs:
             bc_temp = collect_bcs(bc, row_inds, row_inds, col_inds, Wrow)

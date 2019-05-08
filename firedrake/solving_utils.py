@@ -251,52 +251,28 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u: u})
             else:
                 Jp = None
-
-            # Recursively add DirichletBCs/EquationBCs
-            def collect_bcs(bc):
-                Vbc = bc.function_space()
-                if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
-                    index = Vbc.parent.index
-                else:
-                    index = Vbc.index
-                cmpt = Vbc.component
-                # TODO: need to test this logic
-                if index in field:
-                    if len(field) == 1:
-                        W = V
-                    else:
-                        W = V.sub(field_renumbering[index])
-                    if cmpt is not None:
-                        W = W.sub(cmpt)
-                    if isinstance(bc, DirichletBC):
-                        return bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
-                    elif isinstance(bc, EquationBC):
-                        bc_F = replace(splitter.split(bc.F, argument_indices=(field, )), {bc.u: u})
-                        bc_J = replace(splitter.split(bc.J, argument_indices=(field, field)), {bc.u: u})
-                        bc_Jp = replace(splitter.split(bc.Jp, argument_indices=(field, field)), {bc.u: u})
-                        ebc = EquationBC(bc_F == 0,
-                                         subu,
-                                         bc.sub_domain,
-                                         method=bc.method,
-                                         bcs=None,
-                                         J=bc_J,
-                                         Jp=None if bc.Jp_eq_J else bc_Jp,
-                                         V=W,
-                                         is_linear=bc.is_linear)
-                        for bbc in bc.bcs:
-                            bc_temp = collect_bcs(bbc)
-                            # Due to the "if index", bc_temp can be None
-                            if bc_temp is not None:
-                                ebc.add(bc_temp)
-                        return ebc
-                    else:
-                        raise TypeError("Unknown BC type")
-
             bcs = []
             for bc in problem.bcs:
-                bc_temp = collect_bcs(bc)
-                if bc_temp is not None:
-                    bcs.append(bc_temp)
+                if isinstance(bc, DirichletBC):
+                    Vbc = bc.function_space()
+                    if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
+                        index = Vbc.parent.index
+                    else:
+                        index = Vbc.index
+                    cmpt = Vbc.component
+                    # TODO: need to test this logic
+                    if index in field:
+                        if len(field) == 1:
+                            W = V
+                        else:
+                            W = V.sub(field_renumbering[index])
+                        if cmpt is not None:
+                            W = W.sub(cmpt)
+                        bcs.append(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method))
+                elif isinstance(bc, EquationBC):
+                    bc_temp = bc.reconstruct(V, subu, u, field)
+                    if bc_temp is not None:
+                        bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian

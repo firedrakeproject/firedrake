@@ -5,7 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor
+from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor, VectorElement
 from ufl.algorithms.analysis import has_type
 import finat
 
@@ -21,6 +21,8 @@ import firedrake.projection as projection
 import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
+from firedrake.formmanipulation import ExtractSubBlock
+from firedrake import replace
 
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
@@ -448,6 +450,46 @@ class EquationBC(BCBase):
             # Argument checking
             check_pde_args(self)
             self.is_linear = self.is_linear or False
+
+    def reconstruct(self, V, subu, u, field):
+        splitter = ExtractSubBlock()
+        # Recursively add DirichletBCs/EquationBCs
+        Vbc = self.function_space()
+        if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
+            index = Vbc.parent.index
+        else:
+            index = Vbc.index
+        cmpt = Vbc.component
+        # TODO: need to test this logic
+        field_renumbering = dict([f, i] for i, f in enumerate(field))
+        if index in field:
+            if len(field) == 1:
+                W = V
+            else:
+                W = V.sub(field_renumbering[index])
+            if cmpt is not None:
+                W = W.sub(cmpt)
+            bc_F = replace(splitter.split(self.F, argument_indices=(field, )), {self.u: u})
+            bc_J = replace(splitter.split(self.J, argument_indices=(field, field)), {self.u: u})
+            bc_Jp = replace(splitter.split(self.Jp, argument_indices=(field, field)), {self.u: u})
+            ebc = EquationBC(bc_F == 0,
+                             subu,
+                             self.sub_domain,
+                             method=self.method,
+                             bcs=None,
+                             J=bc_J,
+                             Jp=None if self.Jp_eq_J else bc_Jp,
+                             V=W,
+                             is_linear=self.is_linear)
+            for bc in self.bcs:
+                if isinstance(bc, DirichletBC):
+                    ebc.add(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method))
+                elif isinstance(bc, EquationBC):
+                    bc_temp = bc.reconstruct(V, subu, u, field)
+                    # Due to the "if index", bc_temp can be None
+                    if bc_temp is not None:
+                        ebc.add(bc_temp)
+            return ebc
 
 
 class EquationBCSplit(BCBase):
