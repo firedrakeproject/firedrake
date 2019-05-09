@@ -155,7 +155,6 @@ class TestIndirectLoop:
                      iterset, u(op2.INC, iterset2unitset))
         assert u.data[0] == nelems
 
-    @pytest.mark.xfail(reason="Packs not initialized correctly")
     def test_indirect_max(self, iterset, indset, iterset2indset):
         a = op2.Dat(indset, dtype=np.int32)
         b = op2.Dat(indset, dtype=np.int32)
@@ -166,7 +165,6 @@ class TestIndirectLoop:
                      iterset, a(op2.MAX, iterset2indset), b(op2.READ, iterset2indset))
         assert np.allclose(a.data_ro, -5)
 
-    @pytest.mark.xfail(reason="Packs not initialized correctly")
     def test_indirect_min(self, iterset, indset, iterset2indset):
         a = op2.Dat(indset, dtype=np.int32)
         b = op2.Dat(indset, dtype=np.int32)
