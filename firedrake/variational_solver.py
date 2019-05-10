@@ -8,7 +8,6 @@ from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.bcs import EquationBC
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -16,20 +15,18 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
-def check_pde_args(a):
-    if not isinstance(a, (NonlinearVariationalProblem, EquationBC)):
-        raise TypeError("check_pde_args only takes VariationalProblem/EquationBC objects")
-    if not isinstance(a.F, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(a.F).__name__)
-    if len(a.F.arguments()) != 1:
+def check_pde_args(F, J, Jp):
+    if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
+    if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
-    if not isinstance(a.J, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(a.J).__name__)
-    if len(a.J.arguments()) != 2:
+    if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+    if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
-    if a.Jp is not None and not isinstance(a.Jp, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(a.Jp).__name__)
-    if a.Jp is not None and len(a.Jp.arguments()) != 2:
+    if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
 
 
@@ -68,15 +65,15 @@ class NonlinearVariationalProblem(object):
         self.J = J or ufl_expr.derivative(F, u)
 
         # Argument checking
-        check_pde_args(self)
+        check_pde_args(self.F, self.J, self.Jp)
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
 
-    def __iter__(self):
-        yield self
-        yield from chain(*self.bcs)
+    def dirichlet_bcs(self):
+        for bc in self.bcs:
+            yield from bc.dirichlet_bcs()
 
     @utils.cached_property
     def dm(self):
@@ -236,11 +233,8 @@ class NonlinearVariationalSolver(OptionsManager):
         """
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
-        # Apply the boundary conditions to the initial guess.
-        from firedrake.bcs import DirichletBC
-        for b in self._problem:
-            if isinstance(b, DirichletBC):
-                b.apply(self._problem.u)
+        for dbc in self._problem.dirichlet_bcs():
+            dbc.apply(self._problem.u)
 
         if bounds is not None:
             lower, upper = bounds
@@ -298,8 +292,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                                                        form_compiler_parameters=form_compiler_parameters,
                                                        is_linear=True)
         # check all equations are linear
-        for e in self:
-            assert e.is_linear, "All equations including ones defined in EquationBC objects have to be linear"
+        for bc in self.bcs:
+            assert bc.is_linear, "All equations including ones defined in EquationBC objects have to be linear"
 
         self._constant_jacobian = constant_jacobian
 

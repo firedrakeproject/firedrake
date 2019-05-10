@@ -19,8 +19,6 @@
 
 __all__ = ["solve"]
 
-import itertools
-
 import ufl
 
 import firedrake.linear_solver as ls
@@ -215,7 +213,7 @@ def _la_solve(A, x, b, **kwargs):
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
 
-    for bc in itertools.chain(*_extract_bcs(bcs)):
+    for bc in _extract_bcs(bcs):
         if not bc.is_linear:
             raise RuntimeError("EquationBCs must also be linear when solving linear system.")
     if bcs is not None:
@@ -320,7 +318,7 @@ def _extract_args(*args, **kwargs):
 
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
-    from firedrake.bcs import BCBase
+    from firedrake.bcs import BCBase, EquationBC
     if bcs is None:
         return ()
     try:
@@ -328,6 +326,6 @@ def _extract_bcs(bcs):
     except TypeError:
         bcs = (bcs,)
     for bc in bcs:
-        if not isinstance(bc, BCBase):
+        if not isinstance(bc, (BCBase, EquationBC)):
             raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
     return bcs

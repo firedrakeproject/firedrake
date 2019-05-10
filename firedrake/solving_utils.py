@@ -8,7 +8,6 @@ from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
-from ufl import VectorElement
 
 
 def _make_reasons(reasons):
@@ -75,7 +74,7 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+        from firedrake.bcs import DirichletBC
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -110,7 +109,7 @@ class _SNESContext(object):
         self.J = problem.J
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
-        Jp_eq_J = all(b.Jp_eq_J for b in problem)
+        Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
 
         if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want
@@ -123,36 +122,9 @@ class _SNESContext(object):
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
-        if problem.bcs is None:
-            self.bcs_F = None
-            self.bcs_J = None
-            self.bcs_Jp = None
-        else:
-            # For each of (F, J, Jp), we need to make deep
-            # copy if bc objects themselves have .bcs;
-            # see bcs.py.
-            def create_bc_tree(ebc, form_type):
-                ebcsplit = EquationBCSplit(ebc, getattr(ebc, form_type))
-                for bbc in ebc.bcs:
-                    if isinstance(bbc, DirichletBC):
-                        ebcsplit.add(bbc)
-                    elif isinstance(bbc, EquationBC):
-                        ebcsplit.add(create_bc_tree(bbc, form_type))
-                return ebcsplit
-
-            self.bcs_F = []
-            self.bcs_J = []
-            self.bcs_Jp = []
-            for bc in self._problem.bcs:
-                if isinstance(bc, DirichletBC):
-                    self.bcs_F.append(bc)
-                    self.bcs_J.append(bc)
-                    self.bcs_Jp.append(bc)
-                elif isinstance(bc, EquationBC):
-                    self.bcs_F.append(create_bc_tree(bc, 'F'))
-                    self.bcs_J.append(create_bc_tree(bc, 'J'))
-                    self.bcs_Jp.append(create_bc_tree(bc, 'Jp'))
-
+        self.bcs_F = [bc if isinstance(bc, DirichletBC) else bc._F for bc in problem.bcs]
+        self.bcs_J = [bc if isinstance(bc, DirichletBC) else bc._J for bc in problem.bcs]
+        self.bcs_Jp = [bc if isinstance(bc, DirichletBC) else bc._Jp for bc in problem.bcs]
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
                                                            bcs=self.bcs_F,
@@ -254,25 +226,11 @@ class _SNESContext(object):
             bcs = []
             for bc in problem.bcs:
                 if isinstance(bc, DirichletBC):
-                    Vbc = bc.function_space()
-                    if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
-                        index = Vbc.parent.index
-                    else:
-                        index = Vbc.index
-                    cmpt = Vbc.component
-                    # TODO: need to test this logic
-                    if index in field:
-                        if len(field) == 1:
-                            W = V
-                        else:
-                            W = V.sub(field_renumbering[index])
-                        if cmpt is not None:
-                            W = W.sub(cmpt)
-                        bcs.append(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method))
+                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
                 elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(V, subu, u, field)
-                    if bc_temp is not None:
-                        bcs.append(bc_temp)
+                    bc_temp = bc.reconstruct(field, V, subu, u)
+                if bc_temp is not None:
+                    bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
