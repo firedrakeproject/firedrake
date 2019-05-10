@@ -74,6 +74,25 @@ def test_pointwise_solver(mesh):
     assert abs(assemble_a1 - assemble_a2) < 1.0e-7
 
 
+def test_pointwise_neuralnet(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    P = FunctionSpace(mesh, "DG", 0)
+
+    u = Function(V)
+
+    nP = neuralnet('PyTorch')
+    nT = neuralnet('TensorFlow') 
+    nK = neuralnet('Keras') 
+    
+    #nP2 = nP(u, eval_space=P, model='test')
+    #nT2 = nT(u, eval_space=P, model='test')
+    #nK2 = nK(u, eval_space=P, model='test')
+    
+    #assert nP.framework == 'PyTorch'
+    #assert nT.framework == 'TensorFlow'
+    #assert nK.framework == 'Keras'
+
+
 def test_compute_derivatives(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     P = FunctionSpace(mesh, "DG", 0)
@@ -101,3 +120,18 @@ def test_compute_derivatives(mesh):
     assemble_a2 = assemble(a2)
 
     assert abs(assemble_a1 - assemble_a2) < 1.0e-3  # Not evaluate on the same space whence the lack of precision
+
+    a = Function(V).assign(0)
+    b = Function(V).assign(1)
+
+    x0 = Function(V).assign(1.1)
+    p = point_solve(lambda x, y, m1, m2: x - y**2 + m1*m2, solver={'x0': x0}, params=('m2', 'm1', 'y'))
+    p2 = p(a, a, b, eval_space=P, derivatives=(0, 0, 1))
+    a3 = p2*dx
+
+    a4 = 2*b*dx  # dp2/db
+
+    assemble_a3 = assemble(a3)
+    assemble_a4 = assemble(a4)
+
+    assert abs(assemble_a3 - assemble_a4) < 1.0e-7
