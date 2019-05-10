@@ -1079,7 +1079,7 @@ values from f.)"""
         """Spatial index to quickly find which cell contains a given point."""
 
         from firedrake import function, functionspace
-        from firedrake.parloops import par_loop, READ, RW
+        from firedrake.parloops import par_loop, READ, MIN, MAX
 
         gdim = self.ufl_cell().geometric_dimension()
         if gdim <= 1:
@@ -1106,8 +1106,8 @@ values from f.)"""
         """
         par_loop((domain, instructions), ufl.dx,
                  {'f': (self.coordinates, READ),
-                  'f_min': (coords_min, RW),
-                  'f_max': (coords_max, RW)},
+                  'f_min': (coords_min, MIN),
+                  'f_max': (coords_max, MAX)},
                  is_loopy_kernel=True)
 
         # Reorder bounding boxes according to the cell indices we use
