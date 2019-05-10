@@ -213,7 +213,6 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
        :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    assert sub_element.value_shape() == ()
     shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
     element = ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
