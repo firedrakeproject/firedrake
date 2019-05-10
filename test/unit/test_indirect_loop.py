@@ -155,6 +155,26 @@ class TestIndirectLoop:
                      iterset, u(op2.INC, iterset2unitset))
         assert u.data[0] == nelems
 
+    def test_indirect_max(self, iterset, indset, iterset2indset):
+        a = op2.Dat(indset, dtype=np.int32)
+        b = op2.Dat(indset, dtype=np.int32)
+        a.data[:] = -10
+        b.data[:] = -5
+        kernel = "static void maxify(int *a, int *b) {*a = *a < *b ? *b : *a;}\n"
+        op2.par_loop(op2.Kernel(kernel, "maxify"),
+                     iterset, a(op2.MAX, iterset2indset), b(op2.READ, iterset2indset))
+        assert np.allclose(a.data_ro, -5)
+
+    def test_indirect_min(self, iterset, indset, iterset2indset):
+        a = op2.Dat(indset, dtype=np.int32)
+        b = op2.Dat(indset, dtype=np.int32)
+        a.data[:] = 10
+        b.data[:] = 5
+        kernel = "static void minify(int *a, int *b) {*a = *a > *b ? *b : *a;}\n"
+        op2.par_loop(op2.Kernel(kernel, "minify"),
+                     iterset, a(op2.MIN, iterset2indset), b(op2.READ, iterset2indset))
+        assert np.allclose(a.data_ro, 5)
+
     def test_global_read(self, iterset, x, iterset2indset):
         """Divide a Dat by a Global."""
         g = op2.Global(1, 2, np.uint32, "g")

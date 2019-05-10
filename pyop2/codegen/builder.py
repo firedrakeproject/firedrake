@@ -185,11 +185,11 @@ class DatPack(Pack):
         if self.view_index is None:
             shape = shape + self.outer.shape[1:]
 
-        if self.access in {INC, WRITE, MIN, MAX}:
+        if self.access in {INC, WRITE}:
             val = Zero((), self.outer.dtype)
             multiindex = MultiIndex(*(Index(e) for e in shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        elif self.access in {READ, RW}:
+        elif self.access in {READ, RW, MIN, MAX}:
             multiindex = MultiIndex(*(Index(e) for e in shape))
             expr, mask = self._rvalue(multiindex, loop_indices=loop_indices)
             if mask is not None:
@@ -262,11 +262,11 @@ class MixedDatPack(Pack):
         else:
             _shape = (1,)
 
-        if self.access in {INC, WRITE, MIN, MAX}:
+        if self.access in {INC, WRITE}:
             val = Zero((), self.dtype)
             multiindex = MultiIndex(Index(flat_shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        elif self.access in {READ, RW}:
+        elif self.access in {READ, RW, MIN, MAX}:
             multiindex = MultiIndex(Index(flat_shape))
             val = Zero((), self.dtype)
             expressions = []
