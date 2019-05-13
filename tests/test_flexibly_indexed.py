@@ -5,6 +5,7 @@ import pytest
 
 import gem
 import tsfc
+import tsfc.coffee
 
 
 parameters = tsfc.coffee.Bunch()
