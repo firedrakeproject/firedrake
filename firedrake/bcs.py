@@ -511,16 +511,7 @@ class EquationBC(object):
 
 
 class EquationBCSplit(BCBase):
-    """
-    def __init__(self, ebc, form, bcs=None, V=None):
-        if not isinstance(ebc, (EquationBC, EquationBCSplit)):
-            raise TypeError("EquationBCSplit constructor is expecting an instance of EquationBC/EquationBCSplit")
-        if V is None:
-            V = ebc._function_space
-        super(EquationBCSplit, self).__init__(V, ebc.sub_domain, method=ebc.method)
-        self.f = form
-        self.bcs = bcs or []
-    """
+
     def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
         # This nested structure will enable recursive application of boundary conditions.
         #
