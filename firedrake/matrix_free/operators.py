@@ -138,17 +138,22 @@ class ImplicitMatrixContext(object):
                                                          form_compiler_parameters=self.fc_params)
 
         # For assembling action(adjoint(f), self._y)
+        # Sorted list of equation bcs
+        self.objs_actionT = []
+        for bc in self.bcs:
+            self.objs_actionT += bc.sorted_equation_bcs()
+        self.objs_actionT.append(self)
         # Each par_loop is to run with appropriate masks on self._y
-        self.list_assemble_actionT = []
+        self._assemble_actionT = []
         # Deepest EquationBCs first
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
-                self.list_assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
+                self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
                                                   tensor=self._x,
                                                   bcs=None,
                                                   form_compiler_parameters=self.fc_params))
         # Domain last
-        self.list_assemble_actionT.append(create_assembly_callable(self.actionT,
+        self._assemble_actionT.append(create_assembly_callable(self.actionT,
                                                                    tensor=self._x,
                                                                    bcs=None,
                                                                    form_compiler_parameters=self.fc_params))
@@ -205,7 +210,7 @@ class ImplicitMatrixContext(object):
             c c c c 0 c c    |         |
                                                      To avoid copys, use same _y, and update it
                                                      from left (deepest ebc) to right (least deep ebc or domain)
-        Multiplication algorithm:                       _y          ->          _y          ->         _y
+        Multiplication algorithm:                       _y         update ->     _y        update ->   _y
 
                  a a a b 0 c c   _y0     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y0          0
                  a a a b 0 c c   _y1     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y1          0
@@ -220,26 +225,18 @@ class ImplicitMatrixContext(object):
         * = can be any number
 
         """
-        iter_assemble_actionT = iter(self.list_assemble_actionT)
         # accumulate values in self._xbc for convenience
         self._xbc.dat.zero()
-
-        # No need to copy each time in multTransposePart()
         with self._y.dat.vec_wo as v:
             Y.copy(v)
 
-        def multTransposePart(bc):
+        # Apply actionTs in sorted order
+        for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
             # zero columns associated with DirichletBCs/EquationBCs
-            for bbc in bc.bcs:
-                bbc.zero(self._y)
-            next(iter_assemble_actionT)()
+            for obc in obj.bcs:
+                obc.zero(self._y)
+            aT()
             self._xbc += self._x
-
-        # Sorted to avoid copy
-        for bc in self.bcs:
-            for ebc in bc.sorted_equation_bcs():
-                multTransposePart(ebc)
-        multTransposePart(self)
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
