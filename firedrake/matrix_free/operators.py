@@ -149,14 +149,14 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
                 self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
-                                                  tensor=self._x,
-                                                  bcs=None,
-                                                  form_compiler_parameters=self.fc_params))
+                                              tensor=self._x,
+                                              bcs=None,
+                                              form_compiler_parameters=self.fc_params))
         # Domain last
         self._assemble_actionT.append(create_assembly_callable(self.actionT,
-                                                                   tensor=self._x,
-                                                                   bcs=None,
-                                                                   form_compiler_parameters=self.fc_params))
+                                                               tensor=self._x,
+                                                               bcs=None,
+                                                               form_compiler_parameters=self.fc_params))
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
