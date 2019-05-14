@@ -90,6 +90,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.KernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
 
@@ -295,6 +296,7 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.ExpressionKernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.ExpressionKernelBuilder
 
