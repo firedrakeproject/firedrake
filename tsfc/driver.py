@@ -28,9 +28,6 @@ from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 
-import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
 
@@ -90,8 +87,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         parameters = _
     if interface is None:
         if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.KernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
 
     # Remove these here, they're handled below.
@@ -293,8 +293,11 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     # Initialise kernel builder
     if interface is None:
         if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.ExpressionKernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.ExpressionKernelBuilder
 
     builder = interface(parameters["scalar_type"])
