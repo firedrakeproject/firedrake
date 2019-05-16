@@ -72,13 +72,17 @@ class DirichletBC(object):
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
+        components = []
+        indexing = []
         indices = []
         fs = self._function_space
         while True:
             # Add index to indices if found
             if fs.index is not None:
+                indexing.append(fs.index)
                 indices.append(fs.index)
             if fs.component is not None:
+                components.append(fs.component)
                 indices.append(fs.component)
             # Now try the parent
             if fs.parent is not None:
@@ -86,7 +90,10 @@ class DirichletBC(object):
             else:
                 # All done
                 break
+        # Used for indexing functions passed in.
         self._indices = tuple(reversed(indices))
+        # Used for finding local to global maps with boundary conditions applied
+        self._cache_key = (self.domain_args, (self.method, tuple(indexing), tuple(components)))
 
     @property
     def function_arg(self):

@@ -102,9 +102,10 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.MassInvPC",
+                # Avoid MUMPS hangs?
                 "Mp_ksp_type": "preonly",
-                "Mp_pc_type": "lu",
-                "Mp_pc_factor_mat_solver_type": "mumps"
+                "Mp_pc_type": "redundant",
+                "Mp_redundant_pc_type": "lu",
             }
         }
 

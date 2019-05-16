@@ -7,7 +7,7 @@ import randomgen
 
 
 brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name not in ('RandomGenerator', 'RandomState')]
-meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) if not name.startswith('_') and name not in ('state', 'poisson_lam_max', 'seed', 'random_integers')]
+meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) if not name.startswith('_') and name not in ('state', 'poisson_lam_max', 'seed', 'random_integers', 'brng')]
 
 
 @pytest.mark.parametrize("brng", brng_list)
@@ -65,7 +65,7 @@ def test_randomgen_brng(brng, meth):
         kwargs = {'size': 17}
 
     elif meth == 'geometric':
-        args = (3.14,)
+        args = (0.5,)
         kwargs = {'size': 17}
 
     elif meth == 'gumbel':

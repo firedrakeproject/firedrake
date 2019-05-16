@@ -53,7 +53,7 @@ def test_function_spaces_shared_data(mesh):
     V_data = V._shared_data
     Q_data = Q._shared_data
     assert V_data.global_numbering is Q_data.global_numbering
-    assert V_data.map_caches is Q_data.map_caches
+    assert V_data.map_cache is Q_data.map_cache
 
 
 def test_function_space_different_mesh_differ(mesh, mesh2):
