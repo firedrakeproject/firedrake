@@ -56,7 +56,8 @@ class TSFCKernel(Cached):
     def _read_from_disk(cls, key, comm):
         if comm.rank == 0:
             cache = cls._cachedir
-            filepath = os.path.join(cache, key)
+            shard, disk_key = key[:2], key[2:]
+            filepath = os.path.join(cache, shard, disk_key)
             val = None
             if os.path.exists(filepath):
                 try:
@@ -80,17 +81,19 @@ class TSFCKernel(Cached):
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
-            filepath = os.path.join(cls._cachedir, key)
-            tempfile = os.path.join(cls._cachedir, "%s_p%d.tmp" % (key, os.getpid()))
+            shard, disk_key = key[:2], key[2:]
+            filepath = os.path.join(cls._cachedir, shard, disk_key)
+            tempfile = os.path.join(cls._cachedir, shard, "%s_p%d.tmp" % (disk_key, os.getpid()))
             # No need for a barrier after this, since non root
             # processes will never race on this file.
+            os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
             with gzip.open(tempfile, 'wb') as f:
                 pickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface):
+    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -98,9 +101,10 @@ class TSFCKernel(Cached):
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
-                    + str(type(interface))).encode()).hexdigest(), form.ufl_domains()[0].comm
+                    + str(type(interface))
+                    + str(coffee)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface):
+    def __init__(self, form, name, parameters, number_map, interface, coffee=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
@@ -112,13 +116,15 @@ class TSFCKernel(Cached):
         if self._initialized:
             return
 
-        tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface)
+        assemble_inverse = parameters.get("assemble_inverse", False)
+        coffee = coffee or assemble_inverse
+        tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee)
         kernels = []
         for kernel in tree:
             # Set optimization options
             opts = default_parameters["coffee"]
             ast = kernel.ast
-            ast = ast if not parameters.get("assemble_inverse", False) else _inverse(ast)
+            ast = ast if not assemble_inverse else _inverse(ast)
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
@@ -138,7 +144,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None):
+def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None, coffee=False):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -149,6 +155,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
          :data:`~.parameters` dictionary (which see).
     :arg inverse: If True then assemble the inverse of the local tensor.
     :arg split: If ``False``, then don't split mixed forms.
+    :arg coffee: compile coffee kernel instead of loopy kernel
 
     Returns a tuple of tuples of
     (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
@@ -202,7 +209,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
         kinfos = TSFCKernel(f, name + "".join(map(str, idx)), parameters,
-                            number_map, interface).kernels
+                            number_map, interface, coffee).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

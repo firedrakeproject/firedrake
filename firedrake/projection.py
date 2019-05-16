@@ -85,7 +85,6 @@ def project(v, V, bcs=None,
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned."""
-
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
                     form_compiler_parameters=form_compiler_parameters,
                     use_slate_for_inverse=use_slate_for_inverse).project()

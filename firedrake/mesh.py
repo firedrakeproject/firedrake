@@ -84,7 +84,16 @@ class _Facets(object):
 
         self.facet_cell = facet_cell
 
-        self.local_facet_number = local_facet_number
+        if isinstance(self.set, op2.ExtrudedSet):
+            dset = op2.DataSet(self.set.parent, self._rank)
+        else:
+            dset = op2.DataSet(self.set, self._rank)
+
+        # Dat indicating which local facet of each adjacent cell corresponds
+        # to the current facet.
+        self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
+                                       "%s_%s_local_facet_number" %
+                                       (self.mesh.name, self.kind))
 
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
@@ -101,13 +110,8 @@ class _Facets(object):
         if isinstance(self.mesh, ExtrudedMeshTopology):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
-            if self.mesh.variable_layers:
-                masks = extnum.facet_entity_masks(self.mesh, layers, label)
-            else:
-                masks = None
             base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers,
-                                   masks=masks)
+            return op2.ExtrudedSet(base, layers=layers)
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
@@ -187,14 +191,6 @@ class _Facets(object):
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
             return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
-
-    @utils.cached_property
-    def local_facet_dat(self):
-        """Dat indicating which local facet of each adjacent
-        cell corresponds to the current facet."""
-
-        return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
-                       np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
     @utils.cached_property
     def facet_cell_map(self):
@@ -588,9 +584,14 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        return _Facets(self, classes, kind,
-                       facet_cell, local_facet_number,
-                       markers, unique_markers=unique_markers)
+        point2facetnumber = {}
+        for i, f in enumerate(facets):
+            point2facetnumber[f] = i
+        obj = _Facets(self, classes, kind,
+                      facet_cell, local_facet_number,
+                      markers, unique_markers=unique_markers)
+        obj.point2facetnumber = point2facetnumber
+        return obj
 
     @utils.cached_property
     def exterior_facets(self):
@@ -614,7 +615,10 @@ class MeshTopology(object):
         cell_facets = dmplex.cell_facet_labeling(self._plex,
                                                  self._cell_numbering,
                                                  self.cell_closure)
-        dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+        if isinstance(self.cell_set, op2.ExtrudedSet):
+            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+        else:
+            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
@@ -830,11 +834,9 @@ class ExtrudedMeshTopology(MeshTopology):
             the first two extents are used for allocation and the last
             two for iteration.
             """
-            masks = extnum.cell_entity_masks(self)
         else:
             self.variable_layers = False
-            masks = None
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, masks=masks)
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @property
     def name(self):
@@ -855,7 +857,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return _Facets(self, base.classes,
                        kind,
                        base.facet_cell,
-                       base.local_facet_number,
+                       base.local_facet_dat.data_ro_with_halos,
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
@@ -1077,7 +1079,7 @@ values from f.)"""
         """Spatial index to quickly find which cell contains a given point."""
 
         from firedrake import function, functionspace
-        from firedrake.parloops import par_loop, READ, RW
+        from firedrake.parloops import par_loop, READ, MIN, MAX
 
         gdim = self.ufl_cell().geometric_dimension()
         if gdim <= 1:
@@ -1092,24 +1094,21 @@ values from f.)"""
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
 
-        kernel = """
-    for (int d = 0; d < gdim; d++) {
-        for (int i = 0; i < nodes_per_cell; i++) {
-            f_min[0][d] = fmin(f_min[0][d], f[i][d]);
-            f_max[0][d] = fmax(f_max[0][d], f[i][d]);
-        }
-    }
-"""
-
         cell_node_list = self.coordinates.function_space().cell_node_list
         nodes_per_cell = len(cell_node_list[0])
 
-        kernel = kernel.replace("gdim", str(gdim))
-        kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
-
-        par_loop(kernel, ufl.dx, {'f': (self.coordinates, READ),
-                                  'f_min': (coords_min, RW),
-                                  'f_max': (coords_max, RW)})
+        domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
+        instructions = """
+        for d, i
+            f_min[0, d] = fmin(f_min[0, d], f[i, d])
+            f_max[0, d] = fmax(f_max[0, d], f[i, d])
+        end
+        """
+        par_loop((domain, instructions), ufl.dx,
+                 {'f': (self.coordinates, READ),
+                  'f_min': (coords_min, MIN),
+                  'f_max': (coords_max, MAX)},
+                 is_loopy_kernel=True)
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
@@ -1151,7 +1150,7 @@ values from f.)"""
     int locator(struct Function *f, double *x)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 

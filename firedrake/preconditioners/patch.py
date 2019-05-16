@@ -1,18 +1,23 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
+from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 
+from collections import namedtuple
+import operator
 from functools import partial
 import numpy
-import operator
 from ufl import VectorElement, MixedElement
-from tsfc.kernel_interface.firedrake import make_builder
+from tsfc.kernel_interface.firedrake_loopy import make_builder
 
 from pyop2 import op2
 from pyop2 import base as pyop2
 from pyop2 import sequential as seq
+from pyop2.codegen.builder import Pack, MatPack, DatPack
+from pyop2.codegen.representation import Comparison, Literal
+from pyop2.codegen.rep2loopy import register_petsc_function
 from pyop2.datatypes import IntType
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
@@ -30,105 +35,60 @@ class DenseSparsity(object):
     def __getitem__(self, *args):
         return self
 
-
-class MatArg(seq.Arg):
-    def c_addto(self, i, j, buf_name, tmp_name, tmp_decl,
-                extruded=None, is_facet=False, applied_blas=False):
-        # Override global c_addto to index the map locally rather than globally.
-        # Replaces MatSetValuesLocal with MatSetValues
-        from pyop2.utils import as_tuple
-        rmap, cmap = as_tuple(self.map, op2.Map)
-        rset, cset = self.data.sparsity.dsets
-        nrows = sum(m.arity*s.cdim for m, s in zip(rmap, rset))
-        ncols = sum(m.arity*s.cdim for m, s in zip(cmap, cset))
-        rows_str = "%s + n * %s" % (self.c_map_name(0, i), nrows)
-        cols_str = "%s + n * %s" % (self.c_map_name(1, j), ncols)
-
-        if extruded is not None:
-            raise NotImplementedError("Not for extruded right now")
-
-        if is_facet:
-            raise NotImplementedError("Not for interior facets and extruded")
-
-        ret = []
-        addto_name = buf_name
-        if rmap.vector_index is not None or cmap.vector_index is not None:
-            raise NotImplementedError
-        ret.append("""MatSetValues(%(mat)s, %(nrows)s, %(rows)s,
-                                         %(ncols)s, %(cols)s,
-                                         (const PetscScalar *)%(vals)s,
-                                         %(insert)s);""" %
-                   {'mat': self.c_arg_name(i, j),
-                    'vals': addto_name,
-                    'nrows': nrows,
-                    'ncols': ncols,
-                    'rows': rows_str,
-                    'cols': cols_str,
-                    'insert': "INSERT_VALUES" if self.access == op2.WRITE else "ADD_VALUES"})
-        return "\n".join(ret)
+    def __contains__(self, *args):
+        return True
 
 
-class DenseMat(pyop2.Mat):
+class LocalPack(Pack):
+    def pick_loop_indices(self, loop_index, layer_index, entity_index):
+        return (entity_index, layer_index)
+
+
+class LocalMatPack(LocalPack, MatPack):
+    insertion_names = {False: "MatSetValues",
+                       True: "MatSetValues"}
+
+
+class LocalMat(pyop2.Mat):
+    pack = LocalMatPack
+
     def __init__(self, dset):
         self._sparsity = DenseSparsity(dset, dset)
         self.dtype = numpy.dtype(PETSc.ScalarType)
 
-    def __call__(self, access, path):
-        path_maps = [arg.map for arg in path]
-        path_idxs = [arg.idx for arg in path]
-        return MatArg(self, path_maps, path_idxs, access)
+
+class LocalDatPack(LocalPack, DatPack):
+    def __init__(self, needs_mask, *args, **kwargs):
+        self.needs_mask = needs_mask
+        super().__init__(*args, **kwargs)
+
+    def _mask(self, map_):
+        if self.needs_mask:
+            return Comparison(">=", map_, Literal(numpy.int32(0)))
+        else:
+            return None
 
 
-class DatArg(seq.Arg):
-
-    def c_buffer_gather(self, size, idx, buf_name, extruded=False):
-        dim = self.data.cdim
-        val = ";\n".join(["%(name)s[i_0*%(dim)d%(ofs)s] = *(%(ind)s%(ofs)s);\n" %
-                          {"name": buf_name,
-                           "dim": dim,
-                           "ind": self.c_kernel_arg(idx, extruded=extruded),
-                           "ofs": " + %s" % j if j else ""} for j in range(dim)])
-        val = val.replace("[i *", "[n *")
-        return val
-
-    def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name, extruded=False):
-        dim = self.data.split[i].cdim
-        ind = self.c_kernel_arg(count, i, j, extruded=extruded)
-        ind = ind.replace("[i *", "[n *")
-        map_val = "%(map_name)s[%(var)s * %(arity)s + %(idx)s]" % \
-            {'name': self.c_arg_name(i),
-             'map_name': self.c_map_name(i, 0),
-             'var': "n",
-             'arity': self.map.split[i].arity,
-             'idx': "i_%d" % self.idx.index}
-
-        val = "\n".join(["if (%(map_val)s >= 0) {*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s];}" %
-                         {"ind": ind,
-                          "op": "=" if self.access == op2.WRITE else "+=",
-                          "name": buf_name,
-                          "dim": dim,
-                          "nfofs": " + %d" % o if o else "",
-                          "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else "",
-                          "map_val": map_val}
-                         for o in range(dim)])
-        return val
-
-
-class DenseDat(pyop2.Dat):
-    def __init__(self, dset):
+class LocalDat(pyop2.Dat):
+    def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
-        self._soa = False
+        self._shape = (dset.total_size,) + (() if dset.cdim == 1 else dset.dim)
+        self.needs_mask = needs_mask
 
-    def __call__(self, access, path):
-        return DatArg(self, map=path.map, idx=path.idx, access=access)
+    @cached_property
+    def _wrapper_cache_key_(self):
+        return super()._wrapper_cache_key_ + (self.needs_mask, )
+
+    @property
+    def pack(self):
+        return partial(LocalDatPack, self.needs_mask)
 
 
-class JITModule(seq.JITModule):
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        # No caching
-        return None
+register_petsc_function("MatSetValues")
+
+
+CompiledKernel = namedtuple('CompiledKernel', ["funptr", "kinfo"])
 
 
 def matrix_funptr(form, state):
@@ -142,57 +102,79 @@ def matrix_funptr(form, state):
     else:
         interface = None
 
-    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
-    kinfo = kernel.kinfo
+    cell_kernels = []
+    int_facet_kernels = []
+    for kernel in kernels:
+        kinfo = kernel.kinfo
 
-    if kinfo.subdomain_id != "otherwise":
-        raise NotImplementedError("Only for full domain integrals")
-    if kinfo.integral_type != "cell":
-        raise NotImplementedError("Only for cell integrals")
+        if kinfo.subdomain_id != "otherwise":
+            raise NotImplementedError("Only for full domain integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet"}:
+            raise NotImplementedError("Only for cell or interior facet integrals")
 
-    # OK, now we've validated the kernel, let's build the callback
-    args = []
+        # OK, now we've validated the kernel, let's build the callback
+        args = []
 
-    toset = op2.Set(1, comm=test.comm)
-    dofset = op2.DataSet(toset, 1)
-    arity = sum(m.arity*s.cdim
-                for m, s in zip(test.cell_node_map(),
-                                test.dof_dset))
-    iterset = test.cell_node_map().iterset
-    cell_node_map = op2.Map(iterset,
-                            toset, arity,
-                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    mat = DenseMat(dofset)
+        if kinfo.integral_type == "cell":
+            get_map = operator.methodcaller("cell_node_map")
+            kernels = cell_kernels
+        elif kinfo.integral_type == "interior_facet":
+            get_map = operator.methodcaller("interior_facet_node_map")
+            kernels = int_facet_kernels
+        else:
+            get_map = None
 
-    arg = mat(op2.INC, (cell_node_map[op2.i[0]],
-                        cell_node_map[op2.i[1]]))
-    arg.position = 0
-    args.append(arg)
-    statedat = DenseDat(dofset)
-    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
+        toset = op2.Set(1, comm=test.comm)
+        dofset = op2.DataSet(toset, 1)
+        arity = sum(m.arity*s.cdim
+                    for m, s in zip(get_map(test),
+                                    test.dof_dset))
+        iterset = get_map(test).iterset
+        entity_node_map = op2.Map(iterset,
+                                  toset, arity,
+                                  values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        mat = LocalMat(dofset)
 
-    mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
-    arg.position = 1
-    args.append(arg)
-    for n in kinfo.coefficient_map:
-        c = form.coefficients()[n]
-        if c is state:
-            statearg.position = len(args)
-            args.append(statearg)
-            continue
-        for (i, c_) in enumerate(c.split()):
-            map_ = c_.cell_node_map()
-            if map_ is not None:
-                map_ = map_[op2.i[0]]
-            arg = c_.dat(op2.READ, map_)
+        arg = mat(op2.INC, (entity_node_map, entity_node_map))
+        arg.position = 0
+        args.append(arg)
+        statedat = LocalDat(dofset)
+        state_entity_node_map = op2.Map(iterset,
+                                        toset, arity,
+                                        values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        statearg = statedat(op2.READ, state_entity_node_map)
+
+        mesh = form.ufl_domains()[kinfo.domain_number]
+        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
+        arg.position = 1
+        args.append(arg)
+        if kinfo.oriented:
+            c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
+        for n in kinfo.coefficient_map:
+            c = form.coefficients()[n]
+            if c is state:
+                statearg.position = len(args)
+                args.append(statearg)
+                continue
+            for (i, c_) in enumerate(c.split()):
+                map_ = get_map(c_)
+                arg = c_.dat(op2.READ, map_)
+                arg.position = len(args)
+                args.append(arg)
 
-    iterset = op2.Subset(mesh.cell_set, [0])
-    mod = JITModule(kinfo.kernel, iterset, *args)
-    return mod._fun, kinfo
+        if kinfo.integral_type == "interior_facet":
+            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg.position = len(args)
+            args.append(arg)
+        iterset = op2.Subset(iterset, [0])
+        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        kernels.append(CompiledKernel(mod._fun, kinfo))
+    return cell_kernels, int_facet_kernels
 
 
 def residual_funptr(form, state):
@@ -207,55 +189,79 @@ def residual_funptr(form, state):
     else:
         interface = None
 
-    kernel, = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
-    kinfo = kernel.kinfo
+    cell_kernels = []
+    int_facet_kernels = []
+    for kernel in kernels:
+        kinfo = kernel.kinfo
 
-    if kinfo.subdomain_id != "otherwise":
-        raise NotImplementedError("Only for full domain integrals")
-    if kinfo.integral_type != "cell":
-        raise NotImplementedError("Only for cell integrals")
-    args = []
+        if kinfo.subdomain_id != "otherwise":
+            raise NotImplementedError("Only for full domain integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet"}:
+            raise NotImplementedError("Only for cell integrals or interior_facet integrals")
+        args = []
 
-    toset = op2.Set(1, comm=test.comm)
-    dofset = op2.DataSet(toset, 1)
-    arity = sum(m.arity*s.cdim
-                for m, s in zip(test.cell_node_map(),
-                                test.dof_dset))
-    iterset = test.cell_node_map().iterset
-    cell_node_map = op2.Map(iterset,
-                            toset, arity,
-                            values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
-    dat = DenseDat(dofset)
+        if kinfo.integral_type == "cell":
+            get_map = operator.methodcaller("cell_node_map")
+            kernels = cell_kernels
+        elif kinfo.integral_type == "interior_facet":
+            get_map = operator.methodcaller("interior_facet_node_map")
+            kernels = int_facet_kernels
+        else:
+            get_map = None
 
-    statedat = DenseDat(dofset)
-    statearg = statedat(op2.READ, cell_node_map[op2.i[0]])
+        toset = op2.Set(1, comm=test.comm)
+        dofset = op2.DataSet(toset, 1)
+        arity = sum(m.arity*s.cdim
+                    for m, s in zip(get_map(test),
+                                    test.dof_dset))
+        iterset = get_map(test).iterset
+        entity_node_map = op2.Map(iterset,
+                                  toset, arity,
+                                  values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        dat = LocalDat(dofset, needs_mask=True)
 
-    arg = dat(op2.INC, cell_node_map[op2.i[0]])
-    arg.position = 0
-    args.append(arg)
+        statedat = LocalDat(dofset)
+        state_entity_node_map = op2.Map(iterset,
+                                        toset, arity,
+                                        values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        statearg = statedat(op2.READ, state_entity_node_map)
 
-    mesh = form.ufl_domains()[kinfo.domain_number]
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map()[op2.i[0]])
-    arg.position = 1
-    args.append(arg)
-    for n in kinfo.coefficient_map:
-        c = form.coefficients()[n]
-        if c is state:
-            statearg.position = len(args)
-            args.append(statearg)
-            continue
-        for (i, c_) in enumerate(c.split()):
-            map_ = c_.cell_node_map()
-            if map_ is not None:
-                map_ = map_[op2.i[0]]
-            arg = c_.dat(op2.READ, map_)
+        arg = dat(op2.INC, entity_node_map)
+        arg.position = 0
+        args.append(arg)
+
+        mesh = form.ufl_domains()[kinfo.domain_number]
+        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
+        arg.position = 1
+        args.append(arg)
+
+        if kinfo.oriented:
+            c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
+        for n in kinfo.coefficient_map:
+            c = form.coefficients()[n]
+            if c is state:
+                statearg.position = len(args)
+                args.append(statearg)
+                continue
+            for (i, c_) in enumerate(c.split()):
+                map_ = get_map(c_)
+                arg = c_.dat(op2.READ, map_)
+                arg.position = len(args)
+                args.append(arg)
 
-    iterset = op2.Subset(mesh.cell_set, [0])
-    mod = JITModule(kinfo.kernel, iterset, *args)
-    return mod._fun, kinfo
+        if kinfo.integral_type == "interior_facet":
+            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg.position = len(args)
+            args.append(arg)
+        iterset = op2.Subset(iterset, [0])
+        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        kernels.append(CompiledKernel(mod._fun, kinfo))
+    return cell_kernels, int_facet_kernels
 
 
 def bcdofs(bc, ghost=True):
@@ -439,24 +445,34 @@ class PatchBase(PCSNESBase):
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        Jfunptr, Jkinfo = matrix_funptr(J, Jstate)
+        Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
         Jop_coeffs = [mesh.coordinates]
-        for n in Jkinfo.coefficient_map:
+        Jcell_kernel, = Jcell_kernels
+        if Jcell_kernel.kinfo.oriented:
+            Jop_coeffs.append(J.ufl_domain().cell_orientations())
+        for n in Jcell_kernel.kinfo.coefficient_map:
             Jop_coeffs.append(J.coefficients()[n])
 
-        Jop_args = []
-        Jop_state_slot = None
+        Jop_data_args = []
+        Jop_map_args = []
+        seen = set()
+        Jop_state_data_slot = None
+        Jop_state_map_slot = None
         for c in Jop_coeffs:
             if c is Jstate:
-                Jop_state_slot = len(Jop_args)
-                Jop_args.append(None)
-                Jop_args.append(None)
+                Jop_state_data_slot = len(Jop_data_args)
+                Jop_state_map_slot = len(Jop_map_args)
+                Jop_data_args.append(None)
+                Jop_map_args.append(None)
                 continue
-            for c_ in c.split():
-                Jop_args.append(c_.dat._data.ctypes.data)
-                c_map = c_.cell_node_map()
-                if c_map is not None:
-                    Jop_args.append(c_map._values.ctypes.data)
+            Jop_data_args.extend(c.dat._kernel_args_)
+            map_ = c.cell_node_map()
+            if map_ is not None:
+                for k in map_._kernel_args_:
+                    if k in seen:
+                        continue
+                    Jop_map_args.append(k)
+                    seen.add(k)
 
         def Jop(obj, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithAll):
             cells = cellIS.indices
@@ -466,40 +482,94 @@ class PatchBase(PCSNESBase):
                 dofsWithAll = cell_dofmapWithAll.ctypes.data
             else:
                 dofsWithAll = None
-            mat.zeroEntries()
-            if Jop_state_slot is not None:
+            if Jop_state_data_slot is not None:
                 assert dofsWithAll is not None
-                Jop_args[Jop_state_slot] = vec.array_r.ctypes.data
-                Jop_args[Jop_state_slot + 1] = dofsWithAll
-            Jfunptr(0, ncell, cells.ctypes.data, mat.handle,
-                    dofs, dofs, *Jop_args)
-            mat.assemble()
-        patch.setPatchComputeOperator(Jop)
+                Jop_data_args[Jop_state_data_slot] = vec.array_r.ctypes.data
+                Jop_map_args[Jop_state_map_slot] = dofsWithAll
+            Jcell_kernel.funptr(0, ncell, cells.ctypes.data, mat.handle, *Jop_data_args,
+                                dofs, *Jop_map_args)
 
-        if hasattr(ctx, "F") and isinstance(obj, PETSc.SNES):
+        Jhas_int_facet_kernel = False
+        if len(Jint_facet_kernels) > 0:
+            Jint_facet_kernel, = Jint_facet_kernels
+            Jhas_int_facet_kernel = True
+            facet_Jop_coeffs = [mesh.coordinates]
+            if Jint_facet_kernel.kinfo.oriented:
+                facet_Jop_coeffs.append(J.ufl_domain().cell_orientations())
+            for n in Jint_facet_kernel.kinfo.coefficient_map:
+                facet_Jop_coeffs.append(J.coefficients()[n])
+
+            facet_Jop_data_args = []
+            facet_Jop_map_args = []
+            facet_Jop_state_data_slot = None
+            facet_Jop_state_map_slot = None
+            seen = set()
+            for c in facet_Jop_coeffs:
+                if c is Jstate:
+                    facet_Jop_state_data_slot = len(facet_Jop_data_args)
+                    facet_Jop_state_map_slot = len(facet_Jop_map_args)
+                    facet_Jop_data_args.append(None)
+                    facet_Jop_map_args.append(None)
+                    continue
+                facet_Jop_data_args.extend(c.dat._kernel_args_)
+                map_ = c.interior_facet_node_map()
+                if map_ is not None:
+                    for k in map_._kernel_args_:
+                        if k in seen:
+                            continue
+                        facet_Jop_map_args.append(k)
+                        seen.add(k)
+            facet_Jop_data_args.extend(J.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
+
+            point2facetnumber = J.ufl_domain().interior_facets.point2facetnumber
+
+            def Jfacet_op(pc, point, vec, mat, facetIS, facet_dofmap, facet_dofmapWithAll):
+                facets = numpy.asarray(list(map(point2facetnumber.__getitem__, facetIS.indices)),
+                                       dtype=IntType)
+                nfacet = len(facets)
+                dofs = facet_dofmap.ctypes.data
+                if facet_Jop_state_data_slot is not None:
+                    assert facet_dofmapWithAll is not None
+                    facet_Jop_data_args[facet_Jop_state_data_slot] = vec.array_r.ctypes.data
+                    facet_Jop_map_args[facet_Jop_state_map_slot] = facet_dofmapWithAll.ctypes.data
+                Jint_facet_kernel.funptr(0, nfacet, facets.ctypes.data, mat.handle, *facet_Jop_data_args,
+                                         dofs, *facet_Jop_map_args)
+
+        set_residual = hasattr(ctx, "F") and isinstance(obj, PETSc.SNES)
+        if set_residual:
             F = ctx.F
             Fstate = ctx._problem.u
-            Ffunptr, Fkinfo = residual_funptr(F, Fstate)
+            Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
             Fop_coeffs = [mesh.coordinates]
-            for n in Fkinfo.coefficient_map:
+            Fcell_kernel, = Fcell_kernels
+            if Fcell_kernel.kinfo.oriented:
+                Fop_coeffs.append(F.ufl_domain().cell_orientations())
+            for n in Fcell_kernel.kinfo.coefficient_map:
                 Fop_coeffs.append(F.coefficients()[n])
             assert any(c is Fstate for c in Fop_coeffs), "Couldn't find state vector in F.coefficients()"
 
-            Fop_args = []
-            Fop_state_slot = None
+            Fop_data_args = []
+            Fop_map_args = []
+            seen = set()
+            Fop_state_data_slot = None
+            Fop_state_map_slot = None
             for c in Fop_coeffs:
                 if c is Fstate:
-                    Fop_state_slot = len(Fop_args)
-                    Fop_args.append(None)
-                    Fop_args.append(None)
+                    Fop_state_data_slot = len(Fop_data_args)
+                    Fop_state_map_slot = len(Fop_map_args)
+                    Fop_data_args.append(None)
+                    Fop_map_args.append(None)
                     continue
-                for c_ in c.split():
-                    Fop_args.append(c_.dat._data.ctypes.data)
-                    c_map = c_.cell_node_map()
-                    if c_map is not None:
-                        Fop_args.append(c_map._values.ctypes.data)
+                Fop_data_args.extend(c.dat._kernel_args_)
+                map_ = c.cell_node_map()
+                if map_ is not None:
+                    for k in map_._kernel_args_:
+                        if k in seen:
+                            continue
+                        Fop_map_args.append(k)
+                        seen.add(k)
 
-            assert Fop_state_slot is not None
+            assert Fop_state_data_slot is not None
 
             def Fop(pc, point, vec, out, cellIS, cell_dofmap, cell_dofmapWithAll):
                 cells = cellIS.indices
@@ -508,11 +578,56 @@ class PatchBase(PCSNESBase):
                 dofsWithAll = cell_dofmapWithAll.ctypes.data
                 out.set(0)
                 outdata = out.array
-                Fop_args[Fop_state_slot] = vec.array_r.ctypes.data
-                Fop_args[Fop_state_slot + 1] = dofsWithAll
-                Ffunptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
-                        dofs, *Fop_args)
-            patch.setPatchComputeFunction(Fop)
+                Fop_data_args[Fop_state_data_slot] = vec.array_r.ctypes.data
+                Fop_map_args[Fop_state_map_slot] = dofsWithAll
+                Fcell_kernel.funptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
+                                    *Fop_data_args, dofs, *Fop_map_args)
+
+            Fhas_int_facet_kernel = False
+            if len(Fint_facet_kernels) > 0:
+                Fint_facet_kernel, = Fint_facet_kernels
+                Fhas_int_facet_kernel = True
+                facet_Fop_coeffs = [mesh.coordinates]
+                if Fint_facet_kernel.kinfo.oriented:
+                    facet_Fop_coeffs.append(F.ufl_domain().cell_orientations())
+                for n in Fint_facet_kernel.kinfo.coefficient_map:
+                    facet_Fop_coeffs.append(J.coefficients()[n])
+
+                facet_Fop_data_args = []
+                facet_Fop_map_args = []
+                facet_Fop_state_data_slot = None
+                facet_Fop_state_map_slot = None
+                seen = set()
+                for c in facet_Fop_coeffs:
+                    if c is Fstate:
+                        facet_Fop_state_data_slot = len(Fop_data_args)
+                        facet_Fop_state_map_slot = len(Fop_map_args)
+                        facet_Fop_data_args.append(None)
+                        facet_Fop_map_args.append(None)
+                        continue
+                    facet_Fop_data_args.extend(c.dat._kernel_args_)
+                    map_ = c.interior_facet_node_map()
+                    if map_ is not None:
+                        for k in map_._kernel_args_:
+                            if k in seen:
+                                continue
+                            facet_Fop_map_args.append(k)
+                            seen.add(k)
+                facet_Fop_data_args.extend(F.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
+
+                point2facetnumber = F.ufl_domain().interior_facets.point2facetnumber
+
+                def Ffacet_op(pc, point, vec, mat, facetIS, facet_dofmap, facet_dofmapWithAll):
+                    facets = numpy.asarray(list(map(point2facetnumber.__getitem__, facetIS.indices)),
+                                           dtype=IntType)
+                    nfacet = len(facets)
+                    dofs = facet_dofmap.ctypes.data
+                    if facet_Fop_state_data_slot is not None:
+                        assert facet_dofmapWithAll is not None
+                        facet_Fop_data_args[facet_Fop_state_data_slot] = vec.array_r.ctypes.data
+                        facet_Fop_map_args[facet_Fop_state_map_slot] = facet_dofmapWithAll.ctypes.data
+                    Fint_facet_kernel.funptr(0, nfacet, facets.ctypes.data, mat.handle, *facet_Fop_data_args,
+                                             dofs, *facet_Fop_map_args)
 
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -526,8 +641,15 @@ class PatchBase(PCSNESBase):
                                          offsets,
                                          ghost_bc_nodes,
                                          global_bc_nodes)
-        patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON,
-                                    operator=self.user_construction_op)
+        patch.setPatchComputeOperator(Jop)
+        if Jhas_int_facet_kernel:
+            patch.setPatchComputeOperatorInteriorFacets(Jfacet_op)
+        if set_residual:
+            patch.setPatchComputeFunction(Fop)
+            if Fhas_int_facet_kernel:
+                patch.setPatchComputeFunctionInteriorFacets(Ffacet_op)
+
+        patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=obj)
         patch.setFromOptions()

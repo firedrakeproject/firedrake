@@ -1,3 +1,6 @@
+from collections import OrderedDict
+from mpi4py import MPI
+import numpy
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 
@@ -21,27 +24,32 @@ def find_sub_block(iset, ises):
         ``ises``.
     """
     found = []
-    sfound = set()
     comm = iset.comm
+    target_indices = iset.indices
+    comm = iset.comm.tompi4py()
+    candidates = OrderedDict(enumerate(ises))
     while True:
         match = False
-        for i, iset_ in enumerate(ises):
-            if i in sfound:
-                continue
-            lsize = iset_.getLocalSize()
-            if lsize > iset.getLocalSize():
-                continue
-            indices = iset.indices
-            tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
-            if tmp.equal(iset_):
+        for i, candidate in list(candidates.items()):
+            candidate_indices = candidate.indices
+            candidate_size, = candidate_indices.shape
+            target_size, = target_indices.shape
+            # Does the local part of the candidate IS match a prefix
+            # of the target indices?
+            lmatch = (candidate_size <= target_size
+                      and numpy.array_equal(target_indices[:candidate_size], candidate_indices))
+            if comm.allreduce(lmatch, op=MPI.LAND):
+                # Yes, this candidate matched, so remove it from the
+                # target indices, and list of candidate
+                target_indices = target_indices[candidate_size:]
                 found.append(i)
-                sfound.add(i)
-                iset = PETSc.IS().createGeneral(indices[lsize:], comm=comm)
+                candidates.pop(i)
+                # And keep looking for the remainder in the remaining candidates.
                 match = True
-                continue
         if not match:
             break
-    if iset.getSize() > 0:
+    if comm.allreduce(len(target_indices), op=MPI.SUM) > 0:
+        # We didn't manage to hoover up all the target indices, not a match
         raise LookupError("Unable to find %s in %s" % (iset, ises))
     return found
 
