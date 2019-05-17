@@ -433,35 +433,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # Extract block from tensor and test/trial spaces
         # FIXME Ugly variable renaming required because functions are not
         # lexical closures in Python and we're writing to these variables
-        tsbc = []
-        trbc = []
-        if is_mat and result_matrix.block_shape > (1, 1):
-            # Unwind ComponentFunctionSpace to check for matching BCs
-            def collect_dbc(bcs):
-                if bcs is not None:
-                    for bc in bcs:
-                        fs = bc.function_space()
-                        if fs.component is not None:
-                            fs = fs.parent
-                        if fs.index == i:
-                            tsbc.append(bc)
-                        if fs.index == j:
-                            if isinstance(bc, DirichletBC):
-                                trbc.append(bc)
-                            elif isinstance(bc, EquationBCSplit):
-                                collect_dbc(bc.bcs)
-            collect_dbc(bcs)
-        elif is_mat:
-            # Recursively add Dirichlet BCs
-            def collect_dbc(bcs):
-                if bcs is not None:
-                    for bc in bcs:
-                        tsbc.append(bc)
-                        if isinstance(bc, DirichletBC):
-                            trbc.append(bc)
-                        elif isinstance(bc, EquationBCSplit):
-                            collect_dbc(bc.bcs)
-            collect_dbc(bcs)
+        if is_mat:
+            if bcs is not None:
+                tsbc = list(bc for bc in chain(*bcs))
+                if result_matrix.block_shape > (1, 1):
+                    trbc = [bc for bc in tsbc if bc.function_space_index() == j and isinstance(bc, DirichletBC)]
+                    tsbc = [bc for bc in tsbc if bc.function_space_index() == i]
+                else:
+                    trbc = [bc for bc in tsbc if isinstance(bc, DirichletBC)]
+            else:
+                tsbc = []
+                trbc = []
 
         # Now build arguments for the par_loop
         kwargs = {}

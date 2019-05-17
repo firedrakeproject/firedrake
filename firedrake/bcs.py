@@ -99,6 +99,14 @@ class BCBase(object):
 
         return self._function_space
 
+    def function_space_index(self):
+        fs = self._function_space
+        if fs.component is not None:
+            fs = fs.parent
+        if fs.index is None:
+            raise RuntimeError("This function should only be called when function space is indexed")
+        return fs.index
+
     @utils.cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
@@ -440,12 +448,14 @@ class EquationBC(object):
         optional, if not supplied then the Jacobian itself
         will be used.
     :arg method: see :class:`.DirichletBC` (optional)
-    :arg sub_space_index: the sub_space index for the function space
-        on which the equation boundary condition is applied
+    :arg V: the :class:`.FunctionSpace` on which
+        the equation boundary condition is applied (optional)
+    :arg is_linear: this flag is used only with the `reconstruct` method
+    :arg Jp_eq_J: this flag is used only with the `reconstruct` method
     '''
 
     def __init__(self, *args, bcs=None, J=None, Jp=None, method="topological", V=None, is_linear=False, Jp_eq_J=False):
-
+        from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
             # initial construction from equation
             eq = args[0]
@@ -454,11 +464,9 @@ class EquationBC(object):
             if V is None:
                 V = eq.lhs.arguments()[0].function_space()
             bcs = solving._extract_bcs(bcs)
-            # Jp_eq_J and is_linear are evaluated as the tree is constructed
+            # Jp_eq_J is progressively evaluated as the tree is constructed
             self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in bcs])
-            self.is_linear = all(bc.is_linear for bc in bcs)
 
-            from firedrake.variational_solver import check_pde_args
             # linear
             if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
                 J = eq.lhs
@@ -471,6 +479,7 @@ class EquationBC(object):
                     if len(eq.rhs.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - eq.rhs
+                self.is_linear = True
             # nonlinear
             else:
                 if eq.rhs != 0:
@@ -478,9 +487,11 @@ class EquationBC(object):
                 F = eq.lhs
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
-                # Argument checking
-                check_pde_args(F, J, Jp)
                 self.is_linear = False
+            # Check form style consistency
+            is_form_consistent(self.is_linear, bcs)
+            # Argument checking
+            check_pde_args(F, J, Jp)
             # EquationBCSplit objects for `F`, `J`, and `Jp`
             self._F = EquationBCSplit(F, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in bcs], method=method, V=V)
             self._J = EquationBCSplit(J, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in bcs], method=method, V=V)
@@ -511,6 +522,17 @@ class EquationBC(object):
 
 
 class EquationBCSplit(BCBase):
+    r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
+
+    :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.
+    :param u: the :class:`.Function` to solve for
+    :arg sub_domain: see :class:`.DirichletBC`.
+    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+        to be applied to this boundary condition equation (optional)
+    :arg method: see :class:`.DirichletBC` (optional)
+    :arg V: the :class:`.FunctionSpace` on which
+        the equation boundary condition is applied (optional)
+    '''
 
     def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
         # This nested structure will enable recursive application of boundary conditions.

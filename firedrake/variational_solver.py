@@ -8,6 +8,7 @@ from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.bcs import DirichletBC
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -30,6 +31,13 @@ def check_pde_args(F, J, Jp):
         raise ValueError("Provided preconditioner is not a bilinear form")
 
 
+def is_form_consistent(is_linear, bcs):
+    # Check form style consistency
+    if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))
+            or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))):
+        raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
+
+
 class NonlinearVariationalProblem(object):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
@@ -47,12 +55,16 @@ class NonlinearVariationalProblem(object):
                  will be used.
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+        :is_linear: internally used to check if all domain/bc forms
+            are given either in 'A == b' style or in 'F == 0' style.
         """
         from firedrake import solving
         from firedrake import function
 
         self.bcs = solving._extract_bcs(bcs)
+        # Check form style consistency
         self.is_linear = is_linear
+        is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
 
         self.u = u
@@ -291,10 +303,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
                                                        is_linear=True)
-        # check all equations are linear
-        for bc in self.bcs:
-            assert bc.is_linear, "All equations including ones defined in EquationBC objects have to be linear"
-
         self._constant_jacobian = constant_jacobian
 
 
