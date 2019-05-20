@@ -10,7 +10,7 @@ from firedrake import *
                           (("S", 2, (3, 5)), 2.9),
                           (("S", 3, (2, 4)), 3.9),
                           (("S", 4, (2, 4)), 4.8),
-                          (("S", 5, (2, 5)), 5.7),
+                          (("S", 5, (2, 4)), 5.7),
                           (("S", 6, (2, 4)), 6.8),
                           (("S", 7, (2, 4)), 7.7)])
 def test_scalar_convergence(extmesh, testcase, convrate):
@@ -19,7 +19,7 @@ def test_scalar_convergence(extmesh, testcase, convrate):
     for ii in [i + start for i in range(len(l2err))]:
         mesh = extmesh(2**ii, 2**ii, 2**ii, quadrilateral=True)
 
-        fspace = FunctionSpace(mesh, family, degree, vfamily=family, vdegree=degree)
+        fspace = FunctionSpace(mesh, family, degree)
 
         u = TrialFunction(fspace)
         v = TestFunction(fspace)
@@ -29,8 +29,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         uex = cos(2*np.pi*x)*cos(2*np.pi*y)*cos(2*np.pi*z)
         f = -div(grad(uex)) + uex
 
-        a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=16)
-        L = inner(f, v)*dx(degree=16)
+        a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=3*degree)
+        L = inner(f, v)*dx(degree=3*degree)
 
         params = {"snes_type": "ksponly",
                   "ksp_type": "preonly",
