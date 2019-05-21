@@ -327,14 +327,6 @@ def test_bcs_rhs_assemble(a, V):
     assert np.allclose(b1.dat.data, b2.dat.data)
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_empty_exterior_facet_node_list():
-    mesh = UnitIntervalMesh(15)
-    V = FunctionSpace(mesh, 'CG', 1)
-    bc = DirichletBC(V, 1, 1)
-    assert V.exterior_facet_node_map([bc])
-
-
 def test_invalid_marker_raises_error(a, V):
     with pytest.raises(LookupError):
         # UnitSquareMesh has region IDs from 1 to 4. Thus 100 should raise an

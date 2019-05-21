@@ -109,42 +109,32 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    periodic_kernel = """
-    const double pi = 3.141592653589793;
-    const double eps = 1e-12;
-    double a = atan2(old_coords[0][1], old_coords[0][0]) / (2*pi);
-    double b = atan2(old_coords[1][1], old_coords[1][0]) / (2*pi);
-    int swap = 0;
-    if ( a >= b ) {
-        const double tmp = b;
-        b = a;
-        a = tmp;
-        swap = 1;
-    }
-    if ( fabs(b) < eps && a < -eps ) {
-        b = 1.0;
-    }
-    if ( a < -eps ) {
-        a += 1;
-    }
-    if ( b < -eps ) {
-        b += 1;
-    }
-    if ( swap ) {
-        const double tmp = b;
-        b = a;
-        a = tmp;
-    }
-    new_coords[0][0] = a * L[0];
-    new_coords[1][0] = b * L[0];
+    domain = ""
+    instructions = """
+    <float64> eps = 1e-12
+    <float64> pi = 3.141592653589793
+    <float64> a = atan2(old_coords[0, 1], old_coords[0, 0]) / (2*pi)
+    <float64> b = atan2(old_coords[1, 1], old_coords[1, 0]) / (2*pi)
+    <int32> swap = if(a >= b, 1, 0)
+    <float64> aa = fmin(a, b)
+    <float64> bb = fmax(a, b)
+    <float64> bb_abs = fabs(bb)
+    bb = if(bb_abs < eps, if(aa < -eps, 1.0, bb), bb)
+    aa = if(aa < -eps, aa + 1, aa)
+    bb = if(bb < -eps, bb + 1, bb)
+    a = if(swap == 1, bb, aa)
+    b = if(swap == 1, aa, bb)
+    new_coords[0] = a * L[0]
+    new_coords[1] = b * L[0]
     """
 
     cL = Constant(length)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
-              "L": (cL, READ)})
+              "L": (cL, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -306,13 +296,11 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
             mcoords
 
     local_facet_dat = mash.topology.interior_facets.local_facet_dat
-    local_facet_number = mash.topology.interior_facets.local_facet_number
 
-    lfd_ro = local_facet_dat.data_ro
-    for i in range(lfd_ro.shape[0]):
-        if all(lfd_ro[i, :] == np.array([3, 3])):
-            local_facet_dat.data[i, :] = [2, 3]
-            local_facet_number[i, :] = [2, 3]
+    lfd = local_facet_dat.data
+    for i in range(lfd.shape[0]):
+        if all(lfd[i, :] == np.array([3, 3])):
+            lfd[i, :] = [2, 3]
 
     return mash
 
@@ -518,55 +506,45 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    periodic_kernel = """
-double pi = 3.141592653589793;
-double eps = 1e-12;
-double bigeps = 1e-1;
-double phi, theta, Y, Z;
-Y = 0.0;
-Z = 0.0;
-
-for(int i=0; i<old_coords.dofs; i++) {
-    Y += old_coords[i][1];
-    Z += old_coords[i][2];
-}
-
-for(int i=0; i<new_coords.dofs; i++) {
-    phi = atan2(old_coords[i][1], old_coords[i][0]);
-    if (fabs(sin(phi)) > bigeps)
-        theta = atan2(old_coords[i][2], old_coords[i][1]/sin(phi) - 1.0);
-    else
-        theta = atan2(old_coords[i][2], old_coords[i][0]/cos(phi) - 1.0);
-
-    new_coords[i][0] = phi/(2.0*pi);
-    if(new_coords[i][0] < -eps) {
-        new_coords[i][0] += 1.0;
-    }
-    if(fabs(new_coords[i][0]) < eps && Y < 0.0) {
-        new_coords[i][0] = 1.0;
-    }
-
-    new_coords[i][1] = theta/(2.0*pi);
-    if(new_coords[i][1] < -eps) {
-        new_coords[i][1] += 1.0;
-    }
-    if(fabs(new_coords[i][1]) < eps && Z < 0.0) {
-        new_coords[i][1] = 1.0;
-    }
-
-    new_coords[i][0] *= Lx[0];
-    new_coords[i][1] *= Ly[0];
-}
-"""
+    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    instructions = """
+    <float64> pi = 3.141592653589793
+    <float64> eps = 1e-12
+    <float64> bigeps = 1e-1
+    <float64> Y = 0
+    <float64> Z = 0
+    for i
+        Y = Y + old_coords[i, 1]
+        Z = Z + old_coords[i, 2]
+    end
+    for j
+        <float64> phi = atan2(old_coords[j, 1], old_coords[j, 0])
+        <float64> _phi = fabs(sin(phi))
+        <double> _theta_1 = atan2(old_coords[j, 2], old_coords[j, 1] / sin(phi) - 1)
+        <double> _theta_2 = atan2(old_coords[j, 2], old_coords[j, 0] / cos(phi) - 1)
+        <float64> theta = if(_phi > bigeps, _theta_1, _theta_2)
+        new_coords[j, 0] = phi / (2 * pi)
+        new_coords[j, 0] = if(new_coords[j, 0] < -eps, new_coords[j, 0] + 1, new_coords[j, 0])
+        <float64> _nc_abs = fabs(new_coords[j, 0])
+        new_coords[j, 0] = if(_nc_abs < eps and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 1] = theta / (2 * pi)
+        new_coords[j, 1] = if(new_coords[j, 1] < -eps, new_coords[j, 1] + 1, new_coords[j, 1])
+        _nc_abs = fabs(new_coords[j, 1])
+        new_coords[j, 1] = if(_nc_abs < eps and Z < 0, 1, new_coords[j, 1])
+        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
+        new_coords[j, 1] = new_coords[j, 1] * Ly[0]
+    end
+    """
 
     cLx = Constant(Lx)
     cLy = Constant(Ly)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -1383,29 +1361,32 @@ cells in each direction are not currently supported")
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
-    periodic_kernel = """double Y,pi;
-            Y = 0.0;
-            for(int i=0; i<old_coords.dofs; i++) {
-                Y += old_coords[i][1];
-            }
 
-            pi=3.141592653589793;
-            for(int i=0;i<new_coords.dofs;i++){
-            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
-            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
-            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
-            new_coords[i][0] *= Lx[0];
-            new_coords[i][1] = old_coords[i][2]*Ly[0];
-            }"""
+    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    instructions = """
+    <float64> Y = 0
+    <float64> pi = 3.141592653589793
+    for i
+        Y = Y + old_coords[i, 1]
+    end
+    for j
+        new_coords[j, 0] = atan2(old_coords[j, 1], old_coords[j, 0]) / (pi* 2)
+        new_coords[j, 0] = if(new_coords[j, 0] < 0, new_coords[j, 0] + 1, new_coords[j, 0])
+        new_coords[j, 0] = if(new_coords[j, 0] == 0 and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
+        new_coords[j, 1] = old_coords[j, 2] * Ly[0]
+    end
+    """
 
     cLx = Constant(La)
     cLy = Constant(Lb)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     if direction == "y":
         # flip x and y coordinates
