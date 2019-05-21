@@ -43,7 +43,12 @@ import numpy as np
 __all__ = ['compile_expression']
 
 
-PETSC_DIR = get_petsc_dir()
+# Can't I assume that PETSC_ARCH is set ? or should I patch pyOP2 to exit when ARCH is not set ?
+try:
+    PETSC_DIR, PETSC_ARCH = get_petsc_dir()
+except ValueError:
+    raise ValueError("PETSC_ARCH environment variable needs to be set but is not.")
+
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -224,7 +229,23 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
     include_dirs = builder.include_dirs
-    include_dirs.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
+
+    def extract_eigen_include_dir(PETSC_ARCH):
+        try:
+            file = open("%s/lib/petsc/conf/petscvariables" % (PETSC_ARCH))
+        except:
+            raise FileNotFoundError("Could not find $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables, where $PETSC_DIR/$PETSC_ARCH=%s." % PETSC_ARCH)
+        for line in file:
+            if line.find("EIGEN_INCLUDE") == 0 :
+                include_dir = line[18:].rstrip()
+                file.close()
+                return include_dir
+        file.close()
+        raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
+                         Check PETSc was built with the correct options."""  % PETSC_ARCH)
+
+    include_dir = extract_eigen_include_dir(PETSC_ARCH)
+    include_dirs.append(include_dir)
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
                            cpp=True,
