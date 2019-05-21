@@ -43,12 +43,11 @@ import numpy as np
 __all__ = ['compile_expression']
 
 
-# Can't I assume that PETSC_ARCH is set ? or should I patch pyOP2 to exit when ARCH is not set ?
 try:
     PETSC_DIR, PETSC_ARCH = get_petsc_dir()
 except ValueError:
-    raise ValueError("PETSC_ARCH environment variable needs to be set but is not.")
-
+    PETSC_DIR = get_petsc_dir()
+    PETSC_ARCH = None
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -230,21 +229,21 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Eigen header files
     include_dirs = builder.include_dirs
 
-    def extract_eigen_include_dir(PETSC_ARCH):
+    def extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH):
         try:
-            file = open("%s/lib/petsc/conf/petscvariables" % (PETSC_ARCH))
-        except:
+            with open("%s/lib/petsc/conf/petscvariables" % PETSC_ARCH if PETSC_ARCH else PETSC_DIR) as file:
+                for line in file:
+                    if line.find("EIGEN_INCLUDE") == 0:
+                        include_dir = line[18:].rstrip()
+                        return include_dir
+        except FileNotFoundError:
             raise FileNotFoundError("Could not find $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables, where $PETSC_DIR/$PETSC_ARCH=%s." % PETSC_ARCH)
-        for line in file:
-            if line.find("EIGEN_INCLUDE") == 0 :
-                include_dir = line[18:].rstrip()
-                file.close()
-                return include_dir
+
         file.close()
         raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
-                         Check PETSc was built with the correct options."""  % PETSC_ARCH)
+                             Check PETSc was built with the correct options.""" % PETSC_ARCH)
 
-    include_dir = extract_eigen_include_dir(PETSC_ARCH)
+    include_dir = extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH)
     include_dirs.append(include_dir)
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
