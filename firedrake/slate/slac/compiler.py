@@ -18,6 +18,7 @@ from coffee import base as ast
 
 import time
 from hashlib import md5
+import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
@@ -231,7 +232,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     def extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH):
         try:
-            with open("%s/lib/petsc/conf/petscvariables" % PETSC_ARCH if PETSC_ARCH else PETSC_DIR) as file:
+            with open(os.path.join(PETSC_ARCH, "lib/petsc/conf/petscvariables") if PETSC_ARCH
+                      else os.path.join(PETSC_DIR, "lib/petsc/conf/petscvariables")) as file:
                 for line in file:
                     if line.find("EIGEN_INCLUDE") == 0:
                         include_dir = line[18:].rstrip()
