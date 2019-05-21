@@ -232,8 +232,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     def extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH):
         try:
-            with open(os.path.join(PETSC_ARCH, "lib/petsc/conf/petscvariables") if PETSC_ARCH
-                      else os.path.join(PETSC_DIR, "lib/petsc/conf/petscvariables")) as file:
+            with open(os.path.join(PETSC_ARCH, "lib", "petsc", "conf", "petscvariables") if PETSC_ARCH
+                      else os.path.join(PETSC_DIR, "lib", "petsc", "conf", "petscvariables")) as file:
                 for line in file:
                     if line.find("EIGEN_INCLUDE") == 0:
                         include_dir = line[18:].rstrip()
