@@ -208,8 +208,9 @@ class Compiler(object):
             if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
                 return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("7.3") <= ver < version.StrictVersion("7.4"):
+            if version.StrictVersion("7.3") <= ver < version.StrictVersion("7.5"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
+                # See also https://github.com/firedrakeproject/firedrake/issues/1442
                 return ["-fno-tree-loop-vectorize"]
         return []
 
