@@ -82,7 +82,7 @@ def nonlinear_poisson_bbc(solver_parameters, mesh_num, porder):
     L = f * v * dx
 
     e2 = as_vector([0., 1.])
-    a1 = (-dot(grad(v), e2) * dot(grad(u), e2) + 4 * pi * pi * v * u ) * ds(1)
+    a1 = (-dot(grad(v), e2) * dot(grad(u), e2) + 4 * pi * pi * v * u) * ds(1)
 
     g = Function(V).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
     bbc = DirichletBC(V, g, ((1, 3), (1, 4)))
@@ -111,7 +111,7 @@ def linear_poisson_bbc(solver_parameters, mesh_num, porder):
     L = f * v * dx
 
     e2 = as_vector([0., 1.])
-    a1 = (-dot(grad(v), e2) * dot(grad(u), e2) + 4 * pi * pi * v * u ) * ds(1)
+    a1 = (-dot(grad(v), e2) * dot(grad(u), e2) + 4 * pi * pi * v * u) * ds(1)
     L1 = Constant(0) * v * ds(1)
 
     u = Function(V)
@@ -216,7 +216,7 @@ def test_EquationBC_poisson_matrix(eq_type, mat_type, porder, with_bbc):
     err = []
 
     if with_bbc:
-       # test bcs for bcs
+        # test bcs for bcs
         if eq_type == "linear":
             for mesh_num in [8, 16]:
                 err.append(linear_poisson_bbc(solver_parameters, mesh_num, porder))
@@ -224,7 +224,7 @@ def test_EquationBC_poisson_matrix(eq_type, mat_type, porder, with_bbc):
             for mesh_num in [8, 16]:
                 err.append(nonlinear_poisson_bbc(solver_parameters, mesh_num, porder))
     else:
-       # test bcs for bcs
+        # test bcs for bcs
         if eq_type == "linear":
             for mesh_num in [8, 16]:
                 err.append(linear_poisson(solver_parameters, mesh_num, porder))
