@@ -69,7 +69,7 @@ def test_ensemble_solvers():
     separateSolver.solve()
     manager.allreduce(u_separate, usum)
 
-    assert assemble((u_combined - u_separate)**2*dx) < 1e-4
+    assert assemble((u_combined - usum)**2*dx) < 1e-4
 
 
 def test_comm_manager():
