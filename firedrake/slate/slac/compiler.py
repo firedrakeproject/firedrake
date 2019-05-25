@@ -34,6 +34,7 @@ from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
+from pyop2.mpi import COMM_WORLD
 
 from tsfc.parameters import SCALAR_TYPE
 
@@ -231,17 +232,21 @@ def generate_kernel_ast(builder, statements, declared_temps):
     include_dirs = builder.include_dirs
 
     def extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH):
-        try:
+        include_dir = None
+        if COMM_WORLD.rank == 0:
             with open(os.path.join(PETSC_ARCH, "lib", "petsc", "conf", "petscvariables") if PETSC_ARCH
                       else os.path.join(PETSC_DIR, "lib", "petsc", "conf", "petscvariables")) as file:
                 for line in file:
                     if line.find("EIGEN_INCLUDE") == 0:
                         include_dir = line[18:].rstrip()
-                        return include_dir
-        except FileNotFoundError:
-            raise FileNotFoundError("Could not find %s/lib/petsc/conf/petscvariables." % PETSC_ARCH if PETSC_ARCH else PETSC_DIR)
-        raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
-                             Check PETSc was built with the correct options.""" % PETSC_ARCH)
+                        break
+            if include_dir is None:
+                raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
+                                     Check PETSc was built with the correct options.""" % PETSC_ARCH)
+        include_dir = COMM_WORLD.bcast(include_dir, root=0)
+        if include_dir is None:
+            raise ValueError("Mayday")
+        return include_dir
 
     include_dir = extract_eigen_include_dir(PETSC_DIR, PETSC_ARCH)
     include_dirs.append(include_dir)
