@@ -240,8 +240,6 @@ def generate_kernel_ast(builder, statements, declared_temps):
                         return include_dir
         except FileNotFoundError:
             raise FileNotFoundError("Could not find %s/lib/petsc/conf/petscvariables." % PETSC_ARCH if PETSC_ARCH else PETSC_DIR)
-
-        file.close()
         raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
                              Check PETSc was built with the correct options.""" % PETSC_ARCH)
 
