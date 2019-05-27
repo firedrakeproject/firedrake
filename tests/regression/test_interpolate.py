@@ -174,3 +174,11 @@ def test_lvalue_rvalue():
     u.assign(1.0)
     u.interpolate(u + 1.0)
     assert np.allclose(u.dat.data_ro, 2.0)
+
+# def test_adjoint():
+#     mesh = UnitSquareMesh(10,10)
+#     V = FunctionSpace(mesh, "CG", 2)
+#     U = FunctionSpace(mesh, "CG", 1)
+#     u = TestFunction(U)
+#     v = TrialFunction(V)
+#     assert np.allclose(assemble(u * dx), interpolate(assemble(v * dx), V, transpose=True))
