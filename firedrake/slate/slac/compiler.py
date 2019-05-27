@@ -48,13 +48,12 @@ __all__ = ['compile_expression']
 try:
     PETSC_DIR, PETSC_ARCH = get_petsc_dir()
 except ValueError:
-    PETSC_DIR = get_petsc_dir()
+    PETSC_DIR, = get_petsc_dir()
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
 if COMM_WORLD.rank == 0:
-    with open(os.path.join(PETSC_ARCH, "lib", "petsc", "conf", "petscvariables") if PETSC_ARCH
-              else os.path.join(PETSC_DIR, "lib", "petsc", "conf", "petscvariables")) as file:
+    with open(os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")) as file:
         for line in file:
             if line.find("EIGEN_INCLUDE") == 0:
                 EIGEN_INCLUDE_DIR = line[18:].rstrip()
