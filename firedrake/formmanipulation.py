@@ -4,6 +4,7 @@ import collections
 
 from ufl import as_vector
 from ufl.classes import Zero
+from ufl.algorithms import expand_derivatives
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction
 
@@ -26,6 +27,7 @@ class ExtractSubBlock(MultiFunction):
 
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
+        form = expand_derivatives(form)
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(zip((0, 1), argument_indices))
