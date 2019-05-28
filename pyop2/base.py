@@ -2674,6 +2674,10 @@ class Global(DataCarrier, _EmptyDataMixin):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.itruediv)
 
+    def inner(self, other):
+        assert isinstance(other, Global)
+        return np.dot(self.data_ro, other.data_ro)
+
 
 class Map(object):
 
