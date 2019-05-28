@@ -53,14 +53,14 @@ except ValueError:
 
 EIGEN_INCLUDE_DIR = None
 if COMM_WORLD.rank == 0:
-    with open(os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")) as file:
+    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
+    with open(filepath) as file:
         for line in file:
             if line.find("EIGEN_INCLUDE") == 0:
                 EIGEN_INCLUDE_DIR = line[18:].rstrip()
                 break
     if EIGEN_INCLUDE_DIR is None:
-        raise ValueError(""" Could not find Eigen configuration in %s/lib/petsc/conf/petscvariables.
-                             Check if PETSc was built with the correct options.""" % PETSC_ARCH)
+        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
 EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
@@ -241,7 +241,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
-    include_dirs = builder.include_dirs
+    include_dirs = list(builder.include_dirs)
     include_dirs.append(EIGEN_INCLUDE_DIR)
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
