@@ -28,7 +28,7 @@ class ExtractSubBlock(MultiFunction):
         """
         args = form.arguments()
         self._arg_cache = {}
-        self.blocks = dict(zip((0, 1), argument_indices))
+        self.blocks = dict(enumerate(argument_indices))
         if len(args) == 0:
             # Functional can't be split
             return form
