@@ -3608,7 +3608,9 @@ class Kernel(Cached):
             return v.visit(self.code)
         elif isinstance(self.code, loopy.LoopKernel):
             op_map = loopy.get_op_map(
-                self.code.copy(options=loopy.Options(ignore_boostable_into=True)),
+                self.code.copy(options=loopy.Options(ignore_boostable_into=True),
+                               silenced_warnings=['insn_count_subgroups_upper_bound',
+                                                  'get_x_map_guessing_subgroup_size']),
                 subgroup_size='guess')
             return op_map.filter_by(name=['add', 'sub', 'mul', 'div'], dtype=[ScalarType]).eval_and_sum({})
         else:
