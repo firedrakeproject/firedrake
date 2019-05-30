@@ -55,6 +55,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir",
                            "show_petsc_configure_options",
                            "slepc", "packages", "honour_pythonpath",
+                           "opencascade",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -195,6 +196,8 @@ honoured.""",
 
     parser.add_argument("--slepc", action="store_true",
                         help="Install SLEPc along with PETSc.")
+    parser.add_argument("--opencascade", action="store_true",
+                        help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -299,6 +302,8 @@ else:
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
                         help="Install SLEPc along with PETSc")
+    parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"]["opencascade"],
+                        help="Install OpenCASCADE for CAD integration.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        default=config["options"].get("honour_petsc_dir", False),
@@ -853,6 +858,39 @@ def build_and_install_libsupermesh():
         log.info("No need to rebuild libsupermesh")
 
 
+def build_and_install_pythonocc():
+    log.info("Installing pythonocc-core")
+    url = "git+https://github.com/tpaviot/pythonocc-core.git"
+    if os.path.exists("pythonocc-core"):
+        log.info("Updating the git repository for pythonocc-core")
+        with directory("pythonocc-core"):
+            check_call(["git", "fetch"])
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
+            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            changed = git_sha != git_sha_new
+            if changed:
+                check_call(["git", "reset", "--hard"])
+                check_call(["git", "pull"])
+    else:
+        git_clone(url)
+        changed = True
+    if changed:
+        with directory("pythonocc-core"):
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            check_call(["mkdir", "-p", "build"])
+            with directory("build"):
+                check_call(["cmake", "..",
+                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                            "-DPYTHON_EXECUTABLE=" + python[0],
+                            "-DMPI_C_COMPILER=" + cc,
+                            "-DMPI_CXX_COMPILER=" + cxx,
+                            "-DMPI_Fortran_COMPILER=" + f90])
+                check_call(["make", "-j", "install"])
+    else:
+        log.info("No need to rebuild pythonocc-core")
+
+
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -1076,6 +1114,7 @@ if mode == "install" or not args.update_script:
                             "python3-tk",
                             "python3-venv",
                             "zlib1g-dev",
+                            "liboce-ocaf-dev", # for mesh hierarchies built from CAD data
                             "libboost-dev"]  # For ROL in pyadjoint
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
@@ -1313,6 +1352,10 @@ with environment(**compiler_env):
     with pipargs("--no-deps"):
         if options["slepc"]:
             build_and_install_slepc()
+
+        if options["opencascade"]:
+            build_and_install_pythonocc()
+
     if args.documentation_dependencies:
         install_documentation_dependencies()
 
