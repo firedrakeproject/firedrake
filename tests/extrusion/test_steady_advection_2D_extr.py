@@ -14,9 +14,9 @@ def mesh():
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
-@pytest.fixture(scope='module')
-def DG0(mesh):
-    return FunctionSpace(mesh, "DG", 0)
+@pytest.fixture(scope='module', params=["DG", "DPC"])
+def DG0(request, mesh):
+    return FunctionSpace(mesh, request.param, 0)
 
 
 @pytest.fixture(scope='module')
