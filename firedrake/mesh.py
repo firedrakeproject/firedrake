@@ -419,11 +419,17 @@ class MeshTopology(object):
 
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
-            raise RuntimeError("Mesh must have at least one cell on every process")
-        cell_nfacets = plex.getConeSize(cStart)
+            # This process has zero cells.
+            # This must be allowed now, as submesh can
+            # contain few cells.
+            # For convenience, assume that there are
+            # "zero simplex cells"
+            cell_nfacets = dim + 1
+        else:
+            cell_nfacets = plex.getConeSize(cStart)
+        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -518,15 +524,19 @@ class MeshTopology(object):
         cell = self.ufl_cell()
         if cell.is_simplex():
             # Simplex mesh
+            entity_per_cell = [0] * (dim + 1)
             cStart, cEnd = plex.getHeightStratum(0)
-            a_closure = plex.getTransitiveClosure(cStart)[0]
-
-            entity_per_cell = np.zeros(dim + 1, dtype=IntType)
-            for dim in range(dim + 1):
-                start, end = plex.getDepthStratum(dim)
-                entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
-                                               a_closure))
-
+            if cEnd != cStart:
+                a_closure = plex.getTransitiveClosure(cStart)[0]
+                for d in range(dim + 1):
+                    start, end = plex.getDepthStratum(d)
+                    entity_per_cell[d] = sum(map(lambda idx: start <= idx < end,
+                                                 a_closure))
+            # If cEnd == cStart (zero simplex cells), the process
+            # does not know the sizes, so let it know
+            from mpi4py import MPI
+            entity_per_cell = self.comm.allreduce(entity_per_cell, op=MPI.MAX)
+            entity_per_cell = np.array(entity_per_cell, dtype=IntType)
             return dmplex.closure_ordering(plex, vertex_numbering,
                                            cell_numbering, entity_per_cell)
 
