@@ -30,8 +30,9 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'pc_factor_mat_solver_type': 'mumps'}}
+                                'pc_type': 'redundant',
+                                'redundant_pc_type': 'lu',
+                                'redundant_pc_factor_mat_solver_type': 'mumps'}}
 
     # Provide a callback to construct the trace nullspace
     def nullspace_basis(T):
