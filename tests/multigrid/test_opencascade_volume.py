@@ -4,11 +4,11 @@ import pytest
 import os
 
 
-@pytest.fixture(scope='module', params=[("spanner.step", 20), ("cylinder.step", 20), ("t_twist.step", 3)])
+@pytest.fixture(scope='module', params=[("cylinder.step", 20), ("t_twist.step", 3)])
 def stepdata(request):
     (stepfile, h) = request.param
     curpath = os.path.dirname(os.path.realpath(__file__))
-    return (os.path.join(curpath, os.path.pardir, "meshes", stepfile), h)
+    return (os.path.abspath(os.path.join(curpath, os.path.pardir, "meshes", stepfile)), h)
 
 
 def get_volume(stepfile):
@@ -38,12 +38,18 @@ def compute_err(mh, v_true):
 
 @pytest.mark.parallel(nprocs=2)
 def test_volume(stepdata):
+
+    try:
+        import OCC  # noqa: F401
+    except ImportError:
+        pytest.skip(msg="OpenCascade unavailable, skipping test")
+
     (stepfile, h) = stepdata
-    mh  = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
+    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
     v_true = get_volume(stepfile)
 
     print("True volume for %s: %s" % (os.path.basename(stepfile), v_true))
-    err =  compute_err(mh, v_true)
+    err = compute_err(mh, v_true)
     print("Volume errors: %s" % err)
 
     for pair in zip(err, err[1:]):

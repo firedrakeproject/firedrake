@@ -67,6 +67,7 @@ def inside_check(fiat_cell, eps, X="X"):
 
     return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
 
+
 def compute_celldist(fiat_cell, X="X", celldist="celldist"):
     dim = fiat_cell.get_spatial_dimension()
     s = """
@@ -82,6 +83,7 @@ def compute_celldist(fiat_cell, X="X", celldist="celldist"):
            "X": X}
 
     return s
+
 
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())

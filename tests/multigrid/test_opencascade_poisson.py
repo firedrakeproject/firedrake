@@ -17,8 +17,13 @@ def order(request):
 
 
 def test_opencascade_poisson(stepdata, order):
+    try:
+        import OCC  # noqa: F401
+    except ImportError:
+        pytest.skip(msg="OpenCascade unavailable, skipping test")
+
     (stepfile, h) = stepdata
-    mh  = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=False)
+    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=False)
 
     # Solve Poisson
     mesh = mh[-1]
@@ -37,12 +42,12 @@ def test_opencascade_poisson(stepdata, order):
         "ksp_max_it": 20,
         "ksp_monitor_true_residual": None,
         "pc_type": "mg",
-        "pc_mg_type" : "full",
+        "pc_mg_type": "full",
         "mg_levels_ksp_type": "chebyshev",
         "mg_levels_pc_type": "sor",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
         "mg_coarse_pc_factor_mat_solver_type": "mumps",
-        }
+             }  # noqa: E126
 
     solve(F == 0, u, bcs, solver_parameters=params)

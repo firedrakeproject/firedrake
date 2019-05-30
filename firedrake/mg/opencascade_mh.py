@@ -8,7 +8,7 @@ import os
 import warnings
 
 
-__all__ = ("OpenCascadeMeshHierarchy")
+__all__ = ("OpenCascadeMeshHierarchy",)
 
 
 def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True):
