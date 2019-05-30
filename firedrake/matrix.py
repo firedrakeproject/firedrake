@@ -1,6 +1,8 @@
 import abc
+import itertools
 
 from pyop2 import op2
+from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 
 
@@ -17,11 +19,11 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
     """
     def __init__(self, a, bcs, mat_type):
-        self._a = a
+        self.a = a
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
-        self._bcs = [bc for bc in bcs] if bcs is not None else []
+        self.bcs = bcs
         test, trial = a.arguments()
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
@@ -44,7 +46,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
     def has_bcs(self):
         """Return True if this :class:`MatrixBase` has any boundary
         conditions attached to it."""
-        return self._bcs != []
+        return self._bcs != ()
 
     @property
     def bcs(self):
@@ -61,19 +63,10 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
             conditions.  If bcs is None, erase all boundary conditions
             on the :class:`.MatrixBase`.
         """
-        self._bcs = []
         if bcs is not None:
-            try:
-                for bc in bcs:
-                    self._bcs.append(bc)
-            except TypeError:
-                # BC instance, not iterable
-                self._bcs.append(bcs)
-
-    @property
-    def a(self):
-        """The bilinear form this :class:`.MatrixBase` was assembled from"""
-        return self._a
+            self._bcs = tuple(itertools.chain(*(as_tuple(bc) for bc in bcs)))
+        else:
+            self._bcs = ()
 
     def __repr__(self):
         return "%s(a=%r, bcs=%r)" % (type(self).__name__,
@@ -111,8 +104,8 @@ class Matrix(MatrixBase):
         # sets self._a, self._bcs, and self._mat_type
         super(Matrix, self).__init__(a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
-        self._M = op2.Mat(*args, **kwargs)
-        self.petscmat = self._M.handle
+        self.M = op2.Mat(*args, **kwargs)
+        self.petscmat = self.M.handle
         self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
 
@@ -121,21 +114,9 @@ class Matrix(MatrixBase):
                                   has been removed.  Use 'assemble(a, bcs=bcs)', which\
                                   now returns an assembled matrix.")
 
-    @property
-    def M(self):
-        """The :class:`pyop2.Mat` representing the assembled form
-
-        .. note ::
-
-            If you just need a handle on the :class:`pyop2.Mat` object it's
-            wrapping, use :attr:`_M` instead."""
-        # User wants to see it, so force the evaluation.
-        self._M._force_evaluation()
-        return self._M
-
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
-        self._M._force_evaluation()
+        pass
 
 
 class ImplicitMatrix(MatrixBase):
