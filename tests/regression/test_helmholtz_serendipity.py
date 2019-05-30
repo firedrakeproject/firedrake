@@ -32,7 +32,6 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    #uex = cos(pi*x)*cos(pi*y)  # Alternative problem
     uex = cos(x*pi*2)*cos(y*pi*2)
     f = -div(grad(uex)) + uex
 
@@ -75,8 +74,7 @@ def test_firedrake_helmholtz_parallel():
                           ((2, (3, 6)), 2.9),
                           ((3, (2, 4)), 3.9),
                           ((4, (2, 4)), 4.7),
-                          ((5, (2, 4)), 5.7),
-                          ((6, (2, 4)), 6.7)])
+                          ((5, (2, 4)), 5.7)])
 def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals_s(testcase, convrate):
     degree, (start, end) = testcase
     l2err = np.zeros(end - start)
