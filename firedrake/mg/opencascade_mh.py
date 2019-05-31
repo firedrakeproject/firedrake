@@ -49,7 +49,7 @@ def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM
 def make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, comm=COMM_WORLD, distribution_parameters=None, cache=True, verbose=True):
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
-    stepname = os.path.basename(stepfile).replace(".step", "").replace(".stp", "")
+    stepname = os.path.basename(os.path.splitext(stepfile)[0])
     geopath = os.path.join(curdir, "coarse-%s-%s-%s.geo" % (stepname, mincoarseh, maxcoarseh))
     mshpath = geopath.replace("geo", "msh")
 
@@ -70,8 +70,7 @@ a() = ShapeFromFile("%s");
 
             geostr += ('Physical Volume("Combined volume", %d) = {a()};\n' % (cad.number_of_faces()+1))
 
-            if verbose:
-                print(geostr)
+            logging.debug(geostr)
 
             with open(geopath, "w") as f:
                 f.write(geostr)
@@ -102,7 +101,7 @@ def push_coordinates_to_plex(mesh):
     x = mesh.coordinates
     nodesection = x.function_space().dm.getDefaultSection()
 
-    dofsection = PETSc.Section().create(comm=mesh.mpi_comm())
+    dofsection = PETSc.Section().create(comm=mesh.comm)
     dofsection.setNumFields(1)
     dofsection.setFieldComponents(0, gdim)
     (lo, hi) = nodesection.getChart()

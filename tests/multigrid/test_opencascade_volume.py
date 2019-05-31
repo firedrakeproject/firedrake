@@ -39,14 +39,12 @@ def compute_err(mh, v_true):
 @pytest.mark.parallel(nprocs=2)
 def test_volume(stepdata):
 
+    (stepfile, h) = stepdata
     try:
-        import OCC  # noqa: F401
+        mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
+        v_true = get_volume(stepfile)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
-
-    (stepfile, h) = stepdata
-    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
-    v_true = get_volume(stepfile)
 
     print("True volume for %s: %s" % (os.path.basename(stepfile), v_true))
     err = compute_err(mh, v_true)

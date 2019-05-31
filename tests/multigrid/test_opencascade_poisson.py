@@ -23,7 +23,7 @@ def test_opencascade_poisson(stepdata, order):
         pytest.skip(msg="OpenCascade unavailable, skipping test")
 
     (stepfile, h) = stepdata
-    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=False)
+    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=True)
 
     # Solve Poisson
     mesh = mh[-1]
@@ -48,6 +48,6 @@ def test_opencascade_poisson(stepdata, order):
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
         "mg_coarse_pc_factor_mat_solver_type": "mumps",
-             }  # noqa: E126
+    }
 
     solve(F == 0, u, bcs, solver_parameters=params)
