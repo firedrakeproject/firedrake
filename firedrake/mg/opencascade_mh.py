@@ -20,7 +20,7 @@ def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM
         from OCC.Core.STEPControl import STEPControl_Reader
         from OCC.Extend.TopologyUtils import TopologyExplorer
     except ImportError:
-        raise ImportError("To use OpenCascadeMeshHierarchy, you must install firedrake with the OpenCascade python bindings.")
+        raise ImportError("To use OpenCascadeMeshHierarchy, you must install firedrake with the OpenCascade python bindings (firedrake-update --opencascade).")
 
     if not os.path.isfile(stepfile):
         raise OSError("%s does not exist" % stepfile)
