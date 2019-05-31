@@ -423,11 +423,11 @@ class MeshTopology(object):
             # This process has zero cells.
             # This must be allowed now, as submesh can
             # contain few cells.
-            # For convenience, assume that there are
-            # "zero simplex cells"
-            cell_nfacets = dim + 1
+            cell_nfacets = 0
         else:
             cell_nfacets = plex.getConeSize(cStart)
+        from mpi4py import MPI
+        cell_nfacets = self.comm.allreduce(cell_nfacets, op=MPI.MAX)
         self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
         self._grown_halos = False
@@ -1397,7 +1397,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     height = str2height[entity_type]
     tdim = plex.getDimension()
     if height > tdim:
-        raise ValueError("Invalid entity_type: provided entity_type expects
+        raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
     subgdim = subplex.getCoordinateDim()
