@@ -860,7 +860,7 @@ def build_and_install_libsupermesh():
 
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
-    url = "git+https://github.com/tpaviot/pythonocc-core.git@03f31d55dbcebb6c8aa23cffa978b22837b02467"
+    url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
     if os.path.exists("pythonocc-core"):
         log.info("Updating the git repository for pythonocc-core")
         with directory("pythonocc-core"):
