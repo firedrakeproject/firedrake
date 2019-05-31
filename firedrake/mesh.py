@@ -6,6 +6,7 @@ import ufl
 import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
+from ufl.cell import num_cell_entities
 import enum
 
 from pyop2.datatypes import IntType
@@ -27,7 +28,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
+__all__ = ['Mesh', 'SubMesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType']
 
 
@@ -524,19 +525,7 @@ class MeshTopology(object):
         cell = self.ufl_cell()
         if cell.is_simplex():
             # Simplex mesh
-            entity_per_cell = [0] * (dim + 1)
-            cStart, cEnd = plex.getHeightStratum(0)
-            if cEnd != cStart:
-                a_closure = plex.getTransitiveClosure(cStart)[0]
-                for d in range(dim + 1):
-                    start, end = plex.getDepthStratum(d)
-                    entity_per_cell[d] = sum(map(lambda idx: start <= idx < end,
-                                                 a_closure))
-            # If cEnd == cStart (zero simplex cells), the process
-            # does not know the sizes, so let it know
-            from mpi4py import MPI
-            entity_per_cell = self.comm.allreduce(entity_per_cell, op=MPI.MAX)
-            entity_per_cell = np.array(entity_per_cell, dtype=IntType)
+            entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
             return dmplex.closure_ordering(plex, vertex_numbering,
                                            cell_numbering, entity_per_cell)
 
@@ -1384,6 +1373,35 @@ def Mesh(meshfile, **kwargs):
 
     mesh._callback = callback
     return mesh
+
+
+def SubMesh(mesh, filterName, filterValue, entity_type):
+    """Construct a sub mesh.
+
+    :param mesh: :class:`MeshGeometry` representing the base mesh.
+    :param filterName: name of filter label to use, such as
+           "exterior_facet" and "cell". Interested
+           entities must be numbered by 'filterValue'.
+    :param filterValue: used with 'filterName'.
+    :param entity_type: type of entity to be extracted: "cell",
+           "facet", "edge", or "vertex".
+    """
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("SubMesh only takes `MeshGeometry` objects")
+    mesh.init()
+
+    plex = mesh._plex
+    str2height = {"cell": 0, "facet": 1, "edge": 2, "vertex": 3}
+    if entity_type not in str2height.keys():
+        raise ValueError("Unknown entity_type")
+    height = str2height[entity_type]
+    tdim = plex.getDimension()
+    if height > tdim:
+        raise ValueError("Invalid entity_type: provided entity_type expects
+                         a larger topological dimension that actual")
+    subplex = plex.createSubDMPlex(filterName, filterValue, height)
+    subgdim = subplex.getCoordinateDim()
+    return Mesh(subplex, dim=subgdim)
 
 
 @timed_function("CreateExtMesh")
