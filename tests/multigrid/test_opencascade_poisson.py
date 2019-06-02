@@ -17,13 +17,11 @@ def order(request):
 
 
 def test_opencascade_poisson(stepdata, order):
+    (stepfile, h) = stepdata
     try:
-        import OCC  # noqa: F401
+        mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=True)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
-
-    (stepfile, h) = stepdata
-    mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=True)
 
     # Solve Poisson
     mesh = mh[-1]
