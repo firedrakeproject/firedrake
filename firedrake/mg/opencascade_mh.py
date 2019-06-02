@@ -1,6 +1,5 @@
 from firedrake import *
 from .mesh import MeshHierarchy
-from firedrake.petsc import PETSc
 
 import numpy
 import subprocess
@@ -96,23 +95,7 @@ a() = ShapeFromFile("%s");
 
 def push_coordinates_to_plex(mesh):
     plex = mesh._plex
-    gdim = mesh.geometric_dimension()
-    coorddm = plex.getCoordinateDM()
     x = mesh.coordinates
-    nodesection = x.function_space().dm.getDefaultSection()
-
-    dofsection = PETSc.Section().create(comm=mesh.comm)
-    dofsection.setNumFields(1)
-    dofsection.setFieldComponents(0, gdim)
-    (lo, hi) = nodesection.getChart()
-    dofsection.setChart(lo, hi)
-    for point in range(lo, hi):
-        dof = nodesection.getDof(point)
-        dofsection.setDof(point, dof*gdim)
-        off = nodesection.getOffset(point)
-        dofsection.setOffset(point, off*gdim)
-    coorddm.setDefaultSection(dofsection)
-
     with x.dat.vec_ro as x_:
         plex.setCoordinates(x_)
         plex.setCoordinatesLocal(x_)
