@@ -199,23 +199,21 @@ def test_interpolator3():
     x_P3_direct = interpolate(expr, P3)
     assert np.allclose(x_P3.dat.data, x_P3_direct.dat.data)
 
-def test_adjoint():
+def test_P1_adjoint():
     mesh = UnitSquareMesh(10,10)
     P2 = FunctionSpace(mesh, "CG", 2)
     P1 = FunctionSpace(mesh, "CG", 1)
-    # u = TestFunction(P1)
-    # v = TestFunction(P2)
+    v = TestFunction(P2)
     u_P1 = assemble(TestFunction(P1) * dx)
     interpolator = Interpolator(TestFunction(P1), P2)
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
     assert np.allclose(u_P1.dat.data, v_adj.dat.data)
 
-def test_adjoint():
+def test_dg_adjoint():
     mesh = UnitSquareMesh(10,10)
     cg1 = FunctionSpace(mesh, "CG", 1)
     dg1 = FunctionSpace(mesh, "DG", 1)
-    # u = TestFunction(P1)
-    # v = TestFunction(P2)
+    v = TestFunction(dg1)
     u_cg = assemble(TestFunction(cg1) * dx)
     interpolator = Interpolator(TestFunction(cg1), dg1)
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
