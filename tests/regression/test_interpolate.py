@@ -175,10 +175,37 @@ def test_lvalue_rvalue():
     u.interpolate(u + 1.0)
     assert np.allclose(u.dat.data_ro, 2.0)
 
-# def test_adjoint():
-#     mesh = UnitSquareMesh(10,10)
-#     V = FunctionSpace(mesh, "CG", 2)
-#     U = FunctionSpace(mesh, "CG", 1)
-#     u = TestFunction(U)
-#     v = TrialFunction(V)
-#     assert np.allclose(assemble(u * dx), interpolate(assemble(v * dx), V, transpose=True))
+def test_interpolator2():
+    mesh = UnitSquareMesh(10, 10)
+    x = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    P2 = FunctionSpace(mesh, "CG", 2)
+    expr = x[0] + x[1]
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+def test_interpolator3():
+    mesh = UnitSquareMesh(10, 10)
+    x = SpatialCoordinate(mesh)
+    P2 = FunctionSpace(mesh, "CG", 2)
+    P3 = FunctionSpace(mesh, "CG", 3)
+    expr = x[0]**2 + x[1]**2
+    x_P3 = interpolate(expr, P2)
+    interpolator = Interpolator(TestFunction(P2), P3)
+    x_P3 = interpolator.interpolate(x_P3)
+    x_P3_direct = interpolate(expr, P3)
+    assert np.allclose(x_P3.dat.data, x_P3_direct.dat.data)
+
+def test_adjoint():
+    mesh = UnitSquareMesh(10,10)
+    P2 = FunctionSpace(mesh, "CG", 2)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    u = TestFunction(P1)
+    v = TestFunction(P2)
+    u_P1 = assemble(TestFunction(P1) * dx)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+    assert np.allclose(u_P1.dat.data, v_adj.dat.data)
