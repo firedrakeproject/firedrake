@@ -4,6 +4,7 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.parloops import par_loop, READ, RW, MIN, MAX
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
+from ufl import inner
 __all__ = ("VertexBasedLimiter",)
 
 
@@ -48,9 +49,9 @@ for(int i = 0; i < maxq.dofs; i++) {
 double alpha = 1.0;
 double qavg = qbar[0][0];
 for (int i=0; i < q.dofs; i++) {
-    if (q[i][0] > qavg)
+    if (creal(q[i][0]) > qavg)
         alpha = fmin(alpha, fmin(1, (qmax[i][0] - qavg)/(q[i][0] - qavg)));
-    else if (q[i][0] < qavg)
+    else if (creal(q[i][0]) < qavg)
         alpha = fmin(alpha, fmin(1, (qavg - qmin[i][0])/(qavg - q[i][0])));
 }
 for (int i=0; i<q.dofs; i++) {
@@ -66,7 +67,7 @@ for (int i=0; i<q.dofs; i++) {
         """
         u = TrialFunction(self.P0)
         v = TestFunction(self.P0)
-        a = assemble(u * v * dx)
+        a = assemble(inner(u, v) * dx)
         return LinearSolver(a, solver_parameters={'ksp_type': 'preonly',
                                                   'pc_type': 'bjacobi',
                                                   'sub_pc_type': 'ilu'})
@@ -75,7 +76,7 @@ for (int i=0; i<q.dofs; i++) {
         """
         Update centroid values
         """
-        assemble(TestFunction(self.P0) * field * dx, tensor=self.centroids_rhs)
+        assemble(inner(field, TestFunction(self.P0)) * dx, tensor=self.centroids_rhs)
         self.centroid_solver.solve(self.centroids, self.centroids_rhs)
 
     def compute_bounds(self, field):

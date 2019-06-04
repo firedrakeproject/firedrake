@@ -24,7 +24,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     v.interpolate(conditional(xs[0] < 0.05,
                               10,
                               conditional(xs[0] > 0.95, 42.0, 0.0)))
-    res = sqrt(assemble(dot(u - v, u - v) * dx))
+    res = abs(sqrt(assemble(inner(u - v, u - v) * dx)))
 
     u1 = Function(V, name="computed")
     bcs1 = [DirichletBC(V, 10, 3),
@@ -35,7 +35,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     v1.interpolate(conditional(xs[1] < 0.05,
                                10.0,
                                conditional(xs[1] > 0.95, 42.0, 0.0)))
-    res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
+    res1 = abs(sqrt(assemble(inner(u1 - v1, u1 - v1) * dx)))
 
     if not test_mode:
         print("The error is ", res1)

@@ -23,7 +23,7 @@ def L(V):
     x = SpatialCoordinate(V.mesh())
     v = TestFunction(V)
     if V.shape == ():
-        return sin(x[0]*2*pi)*sin(x[1]*2*pi)*v*dx
+        return inner(sin(x[0]*2*pi)*sin(x[1]*2*pi), v)*dx
     elif V.shape == (2, ):
         return inner(as_vector([sin(x[0]*2*pi)*sin(x[1]*2*pi),
                                 cos(x[0]*2*pi)*cos(x[1]*2*pi) - 1]),
@@ -203,11 +203,11 @@ def test_matrix_free_preassembly_change_bcs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = u*v*dx
+    a = inner(u, v)*dx
     bc1 = DirichletBC(V, Constant(10), 1)
 
     A = assemble(a, bcs=bc1, mat_type="matfree")
-    L = Constant(10)*v*dx
+    L = inner(Constant(10), v)*dx
 
     b = assemble(L)
 
@@ -219,7 +219,7 @@ def test_matrix_free_preassembly_change_bcs(mesh):
     assert np.allclose(u.vector().array(), 10.0)
 
     u.assign(0)
-    b = assemble(Constant(6)*v*dx)
+    b = assemble(inner(Constant(6), v)*dx)
     solve(A, u, b, bcs=bc2)
     assert np.allclose(u.vector().array(), 6.0)
 
@@ -239,7 +239,7 @@ def test_matrix_free_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        volume = assemble(u*v*dx).M.values
+        volume = assemble(inner(u, v)*dx).M.values
 
         assert np.allclose(volume, 0.5)
     else:
@@ -255,7 +255,7 @@ def test_matrix_free_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        solve(dot(u, v)*dx == dot(Constant((1, 0)), v)*dx, f,
+        solve(inner(u, v)*dx == inner(Constant((1, 0)), v)*dx, f,
               solver_parameters={"mat_type": "matfree"})
 
         expect = Function(V).interpolate(Constant((1, 0)))

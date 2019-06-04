@@ -122,8 +122,8 @@ def test_betti1(horiz_complex, vert_complex):
     W = W0*W1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                  + div(u)*div(v))*dx)
+    L = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                  + inner(div(u), div(v)))*dx)
 
     dW0 = W0.dof_count
     dW1 = W1.dof_count
@@ -142,8 +142,8 @@ def test_betti1(horiz_complex, vert_complex):
     bc0 = [DirichletBC(W.sub(0), 0., x) for x in [1, 2, "top", "bottom"]]
     bc1 = [DirichletBC(W.sub(1), as_vector((0.0, 0.0)), x)
            for x in [1, 2, "top", "bottom"]]
-    L0 = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                   + div(u)*div(v))*dx, bcs=(bc0 + bc1))
+    L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                   + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
     A0 = numpy.zeros((dW0+dW1, dW0+dW1))
     A0[:dW0, :dW0] = L0.M[0, 0].values
@@ -191,8 +191,8 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     W = W0*W1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                  + div(u)*div(v))*dx)
+    L = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                  + inner(div(u), div(v)))*dx)
 
     dW0 = W0.dof_count
     dW1 = W1.dof_count
@@ -211,8 +211,8 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     bc0 = [DirichletBC(W.sub(0), 0., x) for x in ["top", "bottom"]]
     bc1 = [DirichletBC(W.sub(1), as_vector((0.0, 0.0)), x)
            for x in ["top", "bottom"]]
-    L0 = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                   + div(u)*div(v))*dx, bcs=(bc0 + bc1))
+    L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                   + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
     A0 = numpy.zeros((dW0+dW1, dW0+dW1))
     A0[:dW0, :dW0] = L0.M[0, 0].values
@@ -260,11 +260,11 @@ def test_betti2(horiz_complex, vert_complex):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    L = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx)
+    L = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v)) * dx)
 
     bc1 = [DirichletBC(W.sub(0), as_vector((0.0, 0.0)), x)
            for x in [1, 2, "top", "bottom"]]
-    L0 = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx, bcs=bc1)
+    L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=bc1)
 
     dW1 = W1.dof_count
     dW2 = W2.dof_count
@@ -327,11 +327,11 @@ def test_betti2_periodic(horiz_complex, vert_complex):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    L = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx)
+    L = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx)
 
     bc1 = [DirichletBC(W.sub(0), as_vector((0.0, 0.0)), x)
            for x in ["top", "bottom"]]
-    L0 = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx, bcs=bc1)
+    L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=bc1)
 
     dW1 = W1.dof_count
     dW2 = W2.dof_count
@@ -357,3 +357,4 @@ def test_betti2_periodic(horiz_complex, vert_complex):
 
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 1)
+

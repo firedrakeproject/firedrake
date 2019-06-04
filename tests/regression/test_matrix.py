@@ -15,7 +15,7 @@ def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    return u*v*dx
+    return inner(u, v)*dx
 
 
 @pytest.fixture(params=["nest", "aij", "matfree"])
@@ -52,7 +52,7 @@ def test_solve_forces_assemble(a, V):
     v = TestFunction(V)
     f = Function(V)
 
-    b = assemble(f*v*dx)
+    b = assemble(inner(f, v)*dx)
     assert not A.assembled
 
     solve(A, f, b)

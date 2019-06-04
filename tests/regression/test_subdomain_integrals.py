@@ -9,7 +9,7 @@ def test_overlap_subdomain_facets():
 
     c = Constant(1, domain=m)
 
-    f = assemble(c*(ds(1) + ds))
+    f = assemble(c * (ds(1) + ds))
 
     assert np.allclose(f, 5.0)
 
@@ -31,10 +31,10 @@ def u(V):
     return Function(V)
 
 
-@pytest.fixture(params=["v*u*dx + v*u*dx(2) - v*dx",
-                        "v*u*dx(1) + v*u*dx(2) + v*u*dx(2) - v*dx",
-                        "v*u*dx + v*u*dx(2) - v*dx(1) - v*dx(2)",
-                        "v*u*dx(1) + v*u*dx(2) + v*u*dx(2) -v*dx(1) - v*dx(2)"])
+@pytest.fixture(params=["inner(u, v) * dx + inner(u, v) * dx(2) - conj(v) * dx",
+                        "inner(u, v) * dx(1) + inner(u, v) * dx(2) + inner(u, v) * dx(2) - conj(v) * dx",
+                        "inner(u, v) * dx + inner(u, v) * dx(2) - conj(v) * dx(1) - conj(v) * dx(2)",
+                        "inner(u, v) * dx(1) + inner(u, v) * dx(2) + inner(u, v) * dx(2) - conj(v) * dx(1) - conj(v) * dx(2)"])
 def form(request, u):
     v = TestFunction(u.function_space())  # noqa
     return eval(request.param)
@@ -58,9 +58,9 @@ def square():
                      "meshes", "square.msh"))
 
 
-@pytest.fixture(params=[("v*u*dx", "v*u*ds(2)"),
-                        ("v*u*dx(1)", "v*u*ds(2)", "v*u*dx(1)"),
-                        ("v*u*dx", "v*u*ds(1)")],
+@pytest.fixture(params=[("inner(u, v) * dx", "inner(u, v) * ds(2)"),
+                        ("inner(u, v) * dx(1)", "inner(u, v) * ds(2)", "inner(u, v) * dx(1)"),
+                        ("inner(u, v) * dx", "inner(u, v) * ds(1)")],
                 ids=lambda x: " + ".join(x))
 def forms(request):
     return request.param

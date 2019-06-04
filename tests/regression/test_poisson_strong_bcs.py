@@ -28,7 +28,7 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     # Define variational problem
     u = Function(V)
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
+    a = inner(grad(u), grad(v)) * dx
 
     bcs = [DirichletBC(V, Constant(0), 3),
            DirichletBC(V, Constant(42), 4)]
@@ -39,7 +39,7 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     f = Function(V)
     f.interpolate(42*x[1])
 
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 def run_test_linear(r, degree, parameters={}, quadrilateral=False):
@@ -51,8 +51,8 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
-    L = v*Constant(0)*dx
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(0), v) * dx
 
     bcs = [DirichletBC(V, Constant(0), 3),
            DirichletBC(V, Constant(42), 4)]
@@ -64,7 +64,7 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     f = Function(V)
     f.interpolate(42*x[1])
 
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
@@ -74,10 +74,10 @@ def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
+    a = inner(grad(u), grad(v)) * dx
     f = Function(V)
     f.assign(0)
-    L = v*f*dx
+    L = inner(f, v) * dx
     bcs = [DirichletBC(V, Constant(0), 3),
            DirichletBC(V, Constant(42), 4)]
 
@@ -93,22 +93,22 @@ def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
     expected = Function(V)
     expected.interpolate(42*x[1])
 
-    method_A = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_A = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     A = assemble(a)
     b = assemble(L)
     solve(A, u, b, bcs=bcs, solver_parameters=parameters)
-    method_B = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_B = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     A = assemble(a, bcs=bcs)
     b = assemble(L, bcs=bcs)
     solve(A, u, b, solver_parameters=parameters)
-    method_C = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_C = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     A = assemble(a, bcs=bcs)
     b = assemble(L)
     solve(A, u, b, solver_parameters=parameters)
-    method_D = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_D = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     A = assemble(a)
     b = assemble(L)
@@ -117,7 +117,7 @@ def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
     for bc in bcs:
         bc.apply(A)
     solve(A, u, b, solver_parameters=parameters)
-    method_E = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_E = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     A = assemble(a, bcs=[bcs[0]])
     b = assemble(L)
@@ -127,7 +127,7 @@ def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
     b = assemble(L)
     # This will, because we reassemble using the new set of bcs
     solve(A, u, b, solver_parameters=parameters)
-    method_F = sqrt(assemble(dot(u - expected, u - expected) * dx))
+    method_F = sqrt(assemble(inner(u - expected, u - expected) * dx))
 
     return np.asarray([method_A, method_B, method_C, method_D, method_E, method_F])
 

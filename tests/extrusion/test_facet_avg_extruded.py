@@ -21,8 +21,8 @@ def test_facet_avg_extruded(mesh, degree):
 
     test = TestFunction(Vt)
     trial = TrialFunction(Vt)
-    a = test*trial*(ds_v + ds_t + ds_b) + avg(test)*avg(trial)*(dS_v + dS_h)
-    l = facet_avg(source)*test*(ds_v + ds_t + ds_b) + avg(facet_avg(source))*avg(test)*(dS_v + dS_h)
+    a = inner(trial, test)*(ds_v + ds_t + ds_b) + inner(avg(trial), avg(test))*(dS_v + dS_h)
+    l = inner(facet_avg(source), test)*(ds_v + ds_t + ds_b) + inner(avg(facet_avg(source)), avg(test))*(dS_v + dS_h)
 
     solve(a == l, ft, solver_parameters={"pc_type": "lu", "ksp_type": "preonly"})
 
@@ -34,11 +34,11 @@ def test_facet_avg_extruded(mesh, degree):
 
     v = TestFunction(Vt0)
     u = TrialFunction(Vt0)
-    a0 = u*v*(ds_v + ds_t + ds_b) + avg(u)*avg(v)*(dS_v + dS_h)
-    L0 = source*v*(ds_v + ds_t + ds_b) + avg(source)*avg(v)*(dS_v + dS_h)
+    a0 = inner(u, v)*(ds_v + ds_t + ds_b) + inner(avg(u), avg(v))*(dS_v + dS_h)
+    L0 = inner(source, v)*(ds_v + ds_t + ds_b) + inner(avg(source), avg(v))*(dS_v + dS_h)
     solve(a0 == L0, ft_ref_p0, solver_parameters={"pc_type": "lu", "ksp_type": "preonly"})
 
-    l_ref = ft_ref_p0*test*(ds_v + ds_t + ds_b) + avg(ft_ref_p0)*avg(test)*(dS_v + dS_h)
+    l_ref = inner(ft_ref_p0, test)*(ds_v + ds_t + ds_b) + inner(avg(ft_ref_p0), avg(test))*(dS_v + dS_h)
     solve(a == l_ref, ft_ref, solver_parameters={"pc_type": "lu", "ksp_type": "preonly"})
 
     assert numpy.allclose(ft_ref.dat.data_ro, ft.dat.data_ro)

@@ -136,7 +136,7 @@ cells are not currently supported")
     }}
     new_coords[0][0] = a * L[0];
     new_coords[1][0] = b * L[0];
-    """.format(utils.ScalarType, absfunc)
+    """.format(utils.ScalarType_c, absfunc)
 
     print(periodic_kernel)
 

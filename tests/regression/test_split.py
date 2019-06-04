@@ -14,7 +14,7 @@ def test_assemble_split_derivative():
     u, p = split(x)
     v, q = TestFunctions(W)
 
-    F = (inner(u, v) + v[1]*p)*dx
+    F = (inner(u, v) + inner(p, v[1])) * dx
 
     assert assemble(derivative(F, x))
 
@@ -55,6 +55,6 @@ def test_split_function_derivative():
     assert np.allclose(actual.dat.data_ro, expect.dat.data_ro)
 
     actual = assemble(derivative(derivative(phi, u), u))
-    expect = assemble(2*TestFunction(V)*TrialFunction(V)*dx)
+    expect = assemble(2 * inner(TrialFunction(V), TestFunction(V)) * dx)
 
     assert np.allclose(actual.M.values, expect.M.values)

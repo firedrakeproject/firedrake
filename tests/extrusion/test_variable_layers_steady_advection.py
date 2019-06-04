@@ -82,13 +82,13 @@ def test_steady_advection_variable_layers():
     D = TrialFunction(DG0)
     phi = TestFunction(DG0)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
-    a3 = phi*un*D*ds_v(2)  # outflow at right-hand wall
-    a4 = phi*un*D*ds_t     # outflow on top boundary
+    a1 = -inner(D, dot(u0, grad(phi)))*dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi))*dS_v
+    a3 = inner(D*un, phi)*ds_v(2)  # outflow at right-hand wall
+    a4 = inner(un*D, phi)*ds_t     # outflow on top boundary
     a = a1 + a2 + a3 + a4
 
-    L = -inflow*phi*dot(u0, n)*ds_v(1)  # inflow at left-hand wall
+    L = -inner(inflow*dot(u0, n), phi)*ds_v(1)  # inflow at left-hand wall
 
     out = Function(DG0)
     solve(a == L, out)

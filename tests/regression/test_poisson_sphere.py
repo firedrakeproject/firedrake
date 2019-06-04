@@ -21,8 +21,8 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     g = Function(Q).interpolate(x[0]*x[1]*x[2])
     u_exact = Function(Ve, name="exact").interpolate(-x[0]*x[1]*x[2]/12.0)
 
-    a = (inner(sigma, tau) + div(sigma)*v + div(tau)*u)*dx
-    L = g*v*dx
+    a = (inner(sigma, tau) + inner(div(sigma), v) + inner(u, div(tau)))*dx
+    L = inner(g, v)*dx
 
     w = Function(W)
 

@@ -14,9 +14,9 @@ def test_coarsen_callback():
 
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*dx + u*v*dx
+    a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
 
-    L = Constant(1)*v*dx
+    L = inner(Constant(1), v)*dx
 
     @singledispatch
     def coarsen(expr, self, coefficient_mapping=None):
