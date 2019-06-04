@@ -33,6 +33,7 @@ def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM
     coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
 
     if order > 1:
+        assert coarse.comm.size == 1, "Sorry, high-order mesh construction from CAD only works in serial for now"
         V = VectorFunctionSpace(coarse, "CG", order)
         newcoords = Function(V)
         newcoords.interpolate(coarse.coordinates)
