@@ -38,6 +38,8 @@ _cells = {
     3: {4: "tetrahedron"}
 }
 
+_name2height = {"cell": 0, "facet": 1, "edge": 2, "vertex": 3}
+
 
 unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
@@ -1205,6 +1207,9 @@ values from f.)"""
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self.topology._cell_orientations = cell_orientations
 
+    def markSubdomain(self, labelName, labelValue, *args):
+        pass
+
     def __getattr__(self, name):
         return getattr(self._topology, name)
 
@@ -1388,13 +1393,13 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("SubMesh only takes `MeshGeometry` objects")
+    if isinstance(mesh.ufl_cell(), ufl.TensorProductCell):
+        raise TypeError("Can not create `SubMesh` from `ExtrudedMesh`. Use `SubMesh` for the base mesh and then extrude")
     mesh.init()
-
     plex = mesh._plex
-    str2height = {"cell": 0, "facet": 1, "edge": 2, "vertex": 3}
-    if entity_type not in str2height.keys():
-        raise ValueError("Unknown entity_type")
-    height = str2height[entity_type]
+    if entity_type not in _name2height.keys():
+        raise ValueError("Unknown entity_type %s" % entity_type)
+    height = _name2height[entity_type]
     tdim = plex.getDimension()
     if height > tdim:
         raise ValueError("Invalid entity_type: provided entity_type expects \
