@@ -30,8 +30,10 @@ lunchtime on 26 September. We will finish by 4.30pm on 27 September.
 Key Dates
 ---------
 
-* Early registration deadline: 16 August 2019
-* Registration deadline: 6 September 2019
+* Early registration deadline: 17 August 2019
+* Registration deadline: 6 September 2019 (`via Durham event
+  registration
+  <https://www.dur.ac.uk/conference.booking/details/?id=1266>`_).
 * Abstract submission deadline: 16 August 2019 (`via Easychair
   <https://easychair.org/conferences/?conf=firedrake19>`_).
 * Workshop: 26-27 September 2019
@@ -63,9 +65,10 @@ in the `Department of Computer Science
 Registration
 ------------
 
-Registration will open soon. Early bird registration, before 16 August,
-will cost £50 (£40 for students), rising to £75 thereafter. Registration
-for the tutorial only is free.
+Registration is `now open
+<https://www.dur.ac.uk/conference.booking/details/?id=1266>`_. Early
+bird registration, before 17 August, will cost £50 (£30 for students),
+rising to £80 thereafter. Registration for the tutorial only is free.
 
 
 Further details
