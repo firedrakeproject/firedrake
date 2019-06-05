@@ -1,5 +1,6 @@
 from firedrake import *
 import numpy as np
+import pytest
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="Not complex differentiable")
