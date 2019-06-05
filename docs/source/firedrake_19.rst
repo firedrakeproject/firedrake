@@ -34,7 +34,7 @@ Key Dates
 * Registration deadline: 6 September 2019 (`via Durham event
   registration
   <https://www.dur.ac.uk/conference.booking/details/?id=1266>`_).
-* Abstract submission deadline: 16 August 2019 (`via Easychair
+* Abstract submission deadline: 17 August 2019 (`via Easychair
   <https://easychair.org/conferences/?conf=firedrake19>`_).
 * Workshop: 26-27 September 2019
 
