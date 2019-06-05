@@ -16,8 +16,8 @@ def run_base_box_3d():
     assert np.allclose(3.5, assemble(f*dx))
 
     x = m.coordinates
-    sd = SubDomainData(And(And(0.2 <= x[0], x[0] <= 0.5),
-                           And(0.3 <= x[1], x[1] <= 0.7)))
+    sd = SubDomainData(And(And(0.2 <= real(x[0]), real(x[0]) <= 0.5),
+                           And(0.3 <= real(x[1]), real(x[1]) <= 0.7)))
 
     # TEMPORARY HACK:
     # Retarget base subdomain into columns of the extruded mesh.

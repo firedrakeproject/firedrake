@@ -35,7 +35,7 @@ def test_lvp_equiv_hdg(degree):
          + inner(uhat, dot(v, n))*ds
          - inner(q, grad(w))*dx
          + inner(jump(qhat, n=n), w('+'))*dS
-         + dot(qhat, n)*w*ds
+         + inner(dot(qhat, n), w)*ds
          + inner(jump(qhat, n=n), mu('+'))*dS
          + inner(uhat, mu)*ds)
 

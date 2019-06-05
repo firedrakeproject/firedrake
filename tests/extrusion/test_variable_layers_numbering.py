@@ -413,9 +413,9 @@ def test_bcs_nodes(domain, expected):
 
     selector = interpolate(
         conditional(
-            x < 0.2,
+            real(x) < 0.2,
             as_vector([0, 3]),
-            conditional(x > 0.8,
+            conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
         V)

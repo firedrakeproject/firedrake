@@ -50,7 +50,7 @@ def test_split_function_derivative():
     phi = u**2*dx + p*dx
 
     actual = assemble(derivative(phi, u))
-    expect = assemble(2*TestFunction(V)*dx)
+    expect = assemble(2*conj(TestFunction(V))*dx)
 
     assert np.allclose(actual.dat.data_ro, expect.dat.data_ro)
 

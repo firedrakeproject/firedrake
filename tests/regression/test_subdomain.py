@@ -27,13 +27,13 @@ def run_box_1d_1form():
     x = mesh.coordinates
     v = TestFunction(FunctionSpace(mesh, 'CG', 1))
 
-    whole = assemble(v*dx).dat.data
+    whole = assemble(conj(v)*dx).dat.data
 
     sd = SubDomainData(real(x[0]) < 0.5)
-    half_1 = assemble(v*dx(subdomain_data=sd)).dat.data_ro
+    half_1 = assemble(conj(v)*dx(subdomain_data=sd)).dat.data_ro
 
     sd = SubDomainData(real(x[0]) > 0.5)
-    half_2 = assemble(v*dx(subdomain_data=sd)).dat.data_ro
+    half_2 = assemble(conj(v)*dx(subdomain_data=sd)).dat.data_ro
 
     assert np.allclose(whole, half_1 + half_2)
 
@@ -45,17 +45,17 @@ def run_box_1d_2form():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    whole = assemble(u*v*dx)
+    whole = assemble(inner(u, v)*dx)
     whole.force_evaluation()
     whole = whole.petscmat
 
     sd = SubDomainData(real(x[0]) < 0.5)
-    half_1 = assemble(u*v*dx(subdomain_data=sd))
+    half_1 = assemble(inner(u, v)*dx(subdomain_data=sd))
     half_1.force_evaluation()
     half_1 = half_1.petscmat
 
     sd = SubDomainData(real(x[0]) > 0.5)
-    half_2 = assemble(u*v*dx(subdomain_data=sd))
+    half_2 = assemble(inner(u, v)*dx(subdomain_data=sd))
     half_2.force_evaluation()
     half_2 = half_2.petscmat
 
