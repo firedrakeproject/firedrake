@@ -14,10 +14,8 @@ import gem.impero_utils as impero_utils
 
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
-import tsfc.parameters as tsfc_parameters
 import tsfc.ufl_utils as ufl_utils
 
-from firedrake_configuration import get_config
 from firedrake.utils import ScalarType, ScalarType_c
 
 from coffee.base import ArrayInit
@@ -91,7 +89,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
 
     # Translation to GEM
     C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-    expr = ufl_utils.preprocess_expression(expr, complex_mode=ScalarType.kind=='c')
+    expr = ufl_utils.preprocess_expression(expr, complex_mode=(ScalarType.kind == 'c'))
     expr = ufl_utils.simplify_abs(expr)
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)

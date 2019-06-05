@@ -57,7 +57,7 @@ def two_step(quadrilateral):
 
     u = TrialFunction(X)
     v = TestFunction(X)
-    a = inner(u, v)* dx
+    a = inner(u, v) * dx
     L = inner(div(f1), v) * dx
 
     # Compute solution

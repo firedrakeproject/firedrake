@@ -212,7 +212,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Cell size information
     if builder.needs_cell_sizes:
-        args.append(ast.Decl(SCALAR_TYPE, builder.cell_size_sym,
+        args.append(ast.Decl(ScalarType, builder.cell_size_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"]))
 
