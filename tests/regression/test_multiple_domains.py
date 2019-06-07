@@ -45,7 +45,7 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh3))
 
     with pytest.raises(NotImplementedError):
-        assemble(inner(d1, TestFunction)(V2)*dx(domain=mesh1))
+        assemble(inner(d1, TestFunction(V2))*dx(domain=mesh1))
 
 
 def test_mismatching_meshes_constant(mesh1, mesh3):

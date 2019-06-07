@@ -5,7 +5,7 @@ def test_extruded_interval_area():
     m = UnitIntervalMesh(10)
 
     DG = VectorFunctionSpace(m, 'DG', 1)
-    new_coords = project(m.coordinates, DG)
+    new_coords = project(m.coordinates, DG, use_slate_for_inverse=False)
     m = Mesh(new_coords)
 
     V = FunctionSpace(m, 'CG', 1)

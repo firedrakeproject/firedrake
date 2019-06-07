@@ -87,7 +87,8 @@ def run_test(family, degree, n):
                          'mat_type': 'nest'}
     solve(F == 0, u, solver_parameters=solver_parameters)
 
-    return norm(project(u-u0, V))
+    use_slate_for_inverse = (family != "DG")
+    return norm(project(u-u0, V, use_slate_for_inverse=use_slate_for_inverse))
 
 
 @pytest.mark.parametrize(('space'),

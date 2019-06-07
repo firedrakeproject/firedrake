@@ -1,4 +1,5 @@
 from firedrake import *
+import firedrake.utils as utils
 import numpy as np
 import pytest
 
@@ -34,6 +35,8 @@ def test_constant_cast_to_float():
     assert float(c) == val  # raises a warning about casting float to complex
 
 
+@pytest.mark.skipif(not utils.complex_mode,
+                    reason="Must be built in complex mode for this to work")
 def test_constant_cast_to_complex():
     val = 10.0 + 10.0j
     c = Constant(val)

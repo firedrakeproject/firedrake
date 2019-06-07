@@ -118,7 +118,7 @@ def test_cell_orientation():
     g = interpolate(f, V)
 
     # g shall be close to:
-    h = project(f, V)
+    h = project(f, V, use_slate_for_inverse=False)
 
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
