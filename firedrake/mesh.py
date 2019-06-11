@@ -401,16 +401,6 @@ class MeshTopology(object):
         label_boundary = (self.comm.size == 1) or distribute
         dmplex.label_facets(plex, label_boundary=label_boundary)
 
-        """
-        print("before", self.comm.rank, plex.getHeightStratum(1))
-        plex.getStratumIS(dmplex.FACE_SETS_LABEL ,1)
-        if plex.hasLabel(dmplex.FACE_SETS_LABEL):
-            if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 1)>0:
-                print("original", self.comm.rank, plex.getStratumIS(dmplex.FACE_SETS_LABEL ,1).getIndices())
-        if plex.hasLabel("left_facet"):
-            if plex.getStratumSize("left_facet", 123)>0:
-                print("left_face", self.comm.rank, plex.getStratumIS("left_facet" ,123).getIndices())
-        """
         # Distribute the dm to all ranks
         if self.comm.size > 1 and distribute:
             # We distribute with overlap zero, in case we're going to
@@ -428,15 +418,7 @@ class MeshTopology(object):
                 pass
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
-        """
-        print("after", self.comm.rank, plex.getHeightStratum(1))
-        if plex.hasLabel(dmplex.FACE_SETS_LABEL):
-            if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 1)>0:
-                print("Ids", self.comm.rank, plex.getStratumIS(dmplex.FACE_SETS_LABEL ,1).getIndices())
-        if plex.hasLabel("left_facet"):
-            if plex.getStratumSize("left_facet", 123)>0:
-                print("left_face", self.comm.rank, plex.getStratumIS("left_facet" ,123).getIndices())
-        """
+
         dim = plex.getDimension()
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
@@ -458,6 +440,9 @@ class MeshTopology(object):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
+
+        # map (labelName, labelValue) -> subdomain_type: "cell", "facet", ...
+        self._subdomain_types = {}
 
         def callback(self):
             """Finish initialisation."""
@@ -1234,33 +1219,33 @@ values from f.)"""
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self.topology._cell_orientations = cell_orientations
 
-    def markSubdomain(self, labelName, labelValue, geometric_expr, entity_type, filterName=None, filterValue=None):
+    def markSubdomain(self, labelName, labelValue, entity_type, geometric_expr, filterName=None, filterValue=None):
         """Mark subdomain.
 
         :arg labelName: a custum name for the label
         :arg labelValue: a value to be assigned to the entity set
-        :arg geometric_expr: a function representing the subdomain
         :arg entity_type: type of entity to be marked: "cell",
              "facet", "edge", or "vertex"
+        :arg geometric_expr: a function representing the subdomain
         :arg filterName: specifies the subdomain that new subdomain
              is to be extracted from
         :arg filterValue: value for the filter
 
         """
         self.init()
-        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL):
+        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL, "exterior_facets", "interior_facets"):
             raise NameError("%s is reserved for default label" % labelName)
         plex = self._plex
         if not plex.hasLabel(labelName):
             plex.createLabel(labelName)
         if entity_type not in _name2height.keys():
             raise TypeError("Unknown entity type")
+        self.topology._subdomain_types[(labelName, labelValue)] = entity_type
         height = _name2height[entity_type]
         if filterName is None:
             pStart, pEnd = plex.getHeightStratum(height)
             entitySize = pEnd - pStart
             entities = range(pStart, pEnd)
-            print(self.comm.rank, pStart, pEnd)
         else:
             if not plex.hasLabel(filterName):
                 raise NameError("Unknown filterName: '%s'", filterName)
@@ -1269,7 +1254,6 @@ values from f.)"""
                 entities = plex.getStratumIS(filterName, filterValue).getIndices()
             else:
                 entities = []
-            print(self.comm.rank, entities, type(entities))
         coords = plex.getCoordinatesLocal()
         coord_sec = plex.getCoordinateSection()
         gdim = plex.getCoordinateDim()
@@ -1279,10 +1263,9 @@ values from f.)"""
             if all([geometric_expr([entity_coords[gdim * e + i] for i in range(gdim)]) for e in range(n)]):
                 for e in range(n):
                     a = [entity_coords[gdim * e + i] for i in range(gdim)]
-                    print(self.comm.rank, entity, a)
                 plex.setLabelValue(labelName, entity, labelValue)
 
-    def markSubdomainIntersection(self, labelName, labelValue, labelEntityType, filterName, filterValues, filterEntityType):
+    def markSubdomainIntersection(self, labelName, labelValue, labelEntityType, filterName, filterValues):
         """Mark subdomain as intersection of existing subdomains.
 
         :arg labelName: a custum name for the label
@@ -1292,10 +1275,8 @@ values from f.)"""
         :arg filterName: an existing subdoain label
         :arg filterValues: values assigned to the filter to extract
              intersection with
-        :arg filterEntityType: entity type of the filter. 
-
         """
-        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL):
+        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL, "exterior_facets", "interior_facets"):
             raise NameError("'%s' is reserved for default label" % labelName)
         plex = self._plex
         if not plex.hasLabel(filterName):
@@ -1304,8 +1285,13 @@ values from f.)"""
             plex.createLabel(labelName)
         if labelEntityType not in _name2height.keys():
             raise TypeError("Unknown entity type '%s'" % labelEntityType)
-        if filterEntityType not in _name2height.keys():
-            raise TypeError("Unknown entity type '%s'" % filterEntityType)
+        filterValues = as_tuple(filterValues)
+        if len(filterValues) == 1:
+            raise NotImplementedError("markSubdomainIntersection not defined for a single subdomain")
+        filterEntityTypes = [self.topology._subdomain_types[(filterName, v)] for v in filterValues]
+        if not (filterEntityTypes[1:] == filterEntityTypes[:-1]):
+            raise TypeError("Can not take intersection of entities of different topological dimension")
+        filterEntityType = filterEntityTypes[0]
         labelHeight = _name2height[labelEntityType]
         filterHeight = _name2height[filterEntityType]
         if not (labelHeight == filterHeight + 1):
