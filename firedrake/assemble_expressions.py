@@ -2,12 +2,15 @@ import weakref
 
 import ufl
 from ufl.algorithms import ReuseTransformer
+from ufl.corealg.map_dag import MultiFunction, map_expr_dag
 from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.core.multiindex import MultiIndex
 from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
 from ufl import classes
+from collections import defaultdict
+import itertools
 
 import loopy
 import pymbolic.primitives as p
@@ -38,6 +41,22 @@ def ufl_type(*args, **kwargs):
             classes.nonterminal_classes.add(cls)
         return cls
     return decorator
+
+
+class IndexRelabeller(MultiFunction):
+
+    def __init__(self):
+        super().__init__()
+        self._reset()
+        self.index_cache = defaultdict(lambda: classes.Index(next(self.count)))
+
+    def _reset(self):
+        self.count = itertools.count()
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def multi_index(self, o):
+        return type(o)(tuple(self.index_cache[i] if isinstance(i, classes.Index) else i for i in o._indices))
 
 
 class DummyFunction(ufl.Coefficient):
@@ -440,6 +459,14 @@ def evaluate_preprocessed_expression(kernel, args, subset=None):
         op2.par_loop(kernel, itset, *parloop_args)
 
 
+relabeller = IndexRelabeller()
+
+
+def relabel_indices(expr):
+    relabeller._reset()
+    return map_expr_dag(relabeller, expr, compress=True)
+
+
 @utils.known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     r"""Evaluates UFL expressions on :class:`.Function`\s."""
@@ -456,8 +483,18 @@ def evaluate_expression(expr, subset=None):
     # path in that case.
     result = expr.ufl_operands[0]
     if result._expression_cache is not None:
-        key = hash(expr)
-        vals = result._expression_cache.get(key)
+        try:
+            # Fast path, look for the expression itself
+            key = hash(expr)
+            vals = result._expression_cache[key]
+        except KeyError:
+            # Now relabel indices and check
+            key2 = hash(relabel_indices(expr))
+            try:
+                vals = result._expression_cache[key2]
+                result._expression_cache[key] = vals
+            except KeyError:
+                vals = None
         if vals:
             try:
                 for k, args in vals:
@@ -476,6 +513,7 @@ def evaluate_expression(expr, subset=None):
         vals.append((k, args))
     if result._expression_cache is not None:
         result._expression_cache[key] = vals
+        result._expression_cache[key2] = vals
 
 
 @timed_function("AssembleExpression")
