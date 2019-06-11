@@ -56,22 +56,28 @@ class GTMGPC(PCBase):
         self._assemble_coarse_op()
         self.coarse_op.force_evaluation()
         coarse_opmat = self.coarse_op.petscmat
-        # ipdb.set_trace()
 
         interpolator = Interpolator(TestFunction(coarse_space), fine_space)
-        interpolation_matrix = interpolator.callable().handle
+        interpolation_matrix = interpolator.callable()
+        interpolation_matrix._force_evaluation()
+        interp_petscmat = interpolation_matrix.handle
         # ipdb.set_trace()
 
         mgpc = PETSc.PC().create(comm=pc.comm)
         mgpc.setType(mgpc.Type.MG)
-        mgpc.setOptionsPrefix(prefix)
+        mgpc.setOptionsPrefix(options_prefix)
         mgpc.setMGLevels(2)
-        mgpc.setMGInterpolation(1, interpolation_matrix)
-        # A = assemble(context.a,
-        #              bcs=context.row_bcs,
-        #              mat_type=fine_mat_type).M.handle
+        mgpc.setMGInterpolation(1, interp_petscmat)
 
-        mgpc.setOperators(A, P)
+        gt_mat_type = opts.getString(options_prefix + "mat_type",
+                                     parameters["default_matrix_type"])
+
+        from firedrake import assemble
+        A = assemble(context.a,
+                     bcs=context.row_bcs,
+                     mat_type=gt_mat_type).M.handle
+
+        mgpc.setOperators(A, A)
         coarse = mgpc.getMGCoarseSolve()
         coarse.setOperators(coarse_opmat)
         mgpc.setFromOptions()
