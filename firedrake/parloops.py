@@ -111,7 +111,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
 def _form_string_kernel(body, measure, args, **kwargs):
     kargs = []
-    if body.find("]["):
+    if body.find("][") >= 0:
         warning("""Your kernel body contains a double indirection.\n"""
                 """You should update it to single indirections.\n"""
                 """\n"""

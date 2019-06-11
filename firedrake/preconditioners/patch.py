@@ -150,6 +150,11 @@ def matrix_funptr(form, state):
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         arg.position = 1
         args.append(arg)
+        if kinfo.oriented:
+            c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
         for n in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
@@ -231,6 +236,12 @@ def residual_funptr(form, state):
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         arg.position = 1
         args.append(arg)
+
+        if kinfo.oriented:
+            c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
         for n in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
@@ -437,6 +448,8 @@ class PatchBase(PCSNESBase):
         Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
         Jop_coeffs = [mesh.coordinates]
         Jcell_kernel, = Jcell_kernels
+        if Jcell_kernel.kinfo.oriented:
+            Jop_coeffs.append(J.ufl_domain().cell_orientations())
         for n in Jcell_kernel.kinfo.coefficient_map:
             Jop_coeffs.append(J.coefficients()[n])
 
@@ -481,6 +494,8 @@ class PatchBase(PCSNESBase):
             Jint_facet_kernel, = Jint_facet_kernels
             Jhas_int_facet_kernel = True
             facet_Jop_coeffs = [mesh.coordinates]
+            if Jint_facet_kernel.kinfo.oriented:
+                facet_Jop_coeffs.append(J.ufl_domain().cell_orientations())
             for n in Jint_facet_kernel.kinfo.coefficient_map:
                 facet_Jop_coeffs.append(J.coefficients()[n])
 
@@ -527,6 +542,8 @@ class PatchBase(PCSNESBase):
             Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
             Fop_coeffs = [mesh.coordinates]
             Fcell_kernel, = Fcell_kernels
+            if Fcell_kernel.kinfo.oriented:
+                Fop_coeffs.append(F.ufl_domain().cell_orientations())
             for n in Fcell_kernel.kinfo.coefficient_map:
                 Fop_coeffs.append(F.coefficients()[n])
             assert any(c is Fstate for c in Fop_coeffs), "Couldn't find state vector in F.coefficients()"
@@ -571,6 +588,8 @@ class PatchBase(PCSNESBase):
                 Fint_facet_kernel, = Fint_facet_kernels
                 Fhas_int_facet_kernel = True
                 facet_Fop_coeffs = [mesh.coordinates]
+                if Fint_facet_kernel.kinfo.oriented:
+                    facet_Fop_coeffs.append(F.ufl_domain().cell_orientations())
                 for n in Fint_facet_kernel.kinfo.coefficient_map:
                     facet_Fop_coeffs.append(J.coefficients()[n])
 
