@@ -205,12 +205,13 @@ class HybridizationPC(SCBase):
             form_compiler_parameters=self.ctx.fc_params)
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-
+        # from IPython import embed; embed()
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
-                                 options_prefix=prefix)
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
