@@ -6,12 +6,10 @@ from firedrake import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("S", 1, (4, 6)), 0.9),
-                          (("S", 2, (3, 5)), 1.8),
-                          (("S", 3, (2, 4)), 2.8),
-                          (("S", 4, (2, 4)), 3.7),
-                          (("S", 5, (3, 5)), 4.6),
-                          (("S", 6, (2, 4)), 5.6)])
+                         [(("S", 1, (4, 6)), 1.9),
+                          (("S", 2, (3, 5)), 2.8),
+                          (("S", 3, (2, 4)), 3.8),
+                          (("S", 4, (2, 4)), 4.7)])
 def test_scalar_convergence(extmesh, testcase, convrate):
     family, degree, (start, end) = testcase
     l2err = np.zeros(end - start)
@@ -25,11 +23,11 @@ def test_scalar_convergence(extmesh, testcase, convrate):
 
         x, y, z = SpatialCoordinate(mesh)
 
-        uex = cos(8*np.pi*x)*cos(8*np.pi*y)*cos(8*np.pi*z)
+        uex = cos(2*np.pi*x)*cos(2*np.pi*y)*cos(2*np.pi*z)
         f = -div(grad(uex)) + uex
 
-        a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=degree+10)
-        L = inner(f, v)*dx(degree=degree+10)
+        a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=degree+7)
+        L = inner(f, v)*dx(degree=degree+7)
 
         params = {"snes_type": "ksponly",
                   "ksp_type": "preonly",
@@ -38,7 +36,5 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         sol = Function(fspace)
         solve(a == L, sol, solver_parameters=params)
 
-        #l2err[ii - start] = sqrt(assemble((sol-uex)*(sol-uex)*dx))
-        l2err[ii - start] = errornorm(uex, sol, norm_type="H1")
-        print(l2err)
+        l2err[ii - start] = sqrt(assemble((sol-uex)*(sol-uex)*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
