@@ -44,7 +44,7 @@ def vector_laplace(n, degree):
                              'pc_fieldsplit_type': 'additive',
                              'fieldsplit_0_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'lu',
-                             'ksp_monitor': True})
+                             'ksp_monitor': None})
 
     out_s, out_u = out.split()
 

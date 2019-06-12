@@ -3,6 +3,7 @@ from firedrake import *
 import os
 import subprocess
 import sys
+import loopy
 
 
 @pytest.fixture(scope='module')
@@ -49,7 +50,7 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    return tsfc_interface.TSFCKernel(mass, 'mass', parameters["form_compiler"], {}).cache_key
+    return tsfc_interface.TSFCKernel(mass, 'mass', parameters["form_compiler"], {}, None).cache_key
 
 
 class TestTSFCCache:
@@ -63,7 +64,7 @@ mesh = UnitSquareMesh(1, 1)
 V = FunctionSpace(mesh, "CG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
-key = tsfc_interface.TSFCKernel(u*v*dx, "mass", parameters["form_compiler"], {{}}).cache_key
+key = tsfc_interface.TSFCKernel(u*v*dx, "mass", parameters["form_compiler"], {{}}, None).cache_key
 with open("{file}", "w") as f:
     f.write(key)
         """
@@ -79,8 +80,9 @@ with open("{file}", "w") as f:
 
     def test_tsfc_cache_persist_on_disk(self, cache_key):
         """TSFCKernel should be persisted on disk."""
+        shard, key = cache_key[:2], cache_key[2:]
         assert os.path.exists(
-            os.path.join(tsfc_interface.TSFCKernel._cachedir, cache_key))
+            os.path.join(tsfc_interface.TSFCKernel._cachedir, shard, key))
 
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
@@ -119,11 +121,11 @@ with open("{file}", "w") as f:
 
     def test_tsfc_cell_kernel(self, mass):
         k = tsfc_interface.compile_form(mass, 'mass')
-        assert len(k) == 1 and 'cell_integral' in k[0][1][0].code()
+        assert len(k) == 1 and 'cell_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
     def test_tsfc_exterior_facet_kernel(self, rhs):
         k = tsfc_interface.compile_form(rhs, 'rhs')
-        assert len(k) == 1 and 'exterior_facet_integral' in k[0][1][0].code()
+        assert len(k) == 1 and 'exterior_facet_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
     def test_tsfc_cell_exterior_facet_kernel(self, rhs2):
         k = tsfc_interface.compile_form(rhs2, 'rhs2')

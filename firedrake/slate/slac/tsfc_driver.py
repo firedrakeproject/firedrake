@@ -63,7 +63,8 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
         form = Form(integrals)
         kernels = tsfc_compile(form,
                                subkernel_prefix,
-                               parameters=tsfc_parameters)
+                               parameters=tsfc_parameters,
+                               coffee=True)
         cxt_k = ContextKernel(tensor=tensor,
                               coefficients=form.coefficients(),
                               original_integral_type=orig_it_type,

@@ -55,9 +55,8 @@ def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
     u, v = TestFunction(V), TrialFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
-    A = assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
     with pytest.raises(RuntimeError):
-        A.M.values
+        assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
 
 
 def test_assemble_bcs_wrong_fs_interior(V):
@@ -65,9 +64,8 @@ def test_assemble_bcs_wrong_fs_interior(V):
     u, v = TestFunction(V), TrialFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
     n = FacetNormal(V.mesh())
-    A = assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
     with pytest.raises(RuntimeError):
-        A.M.values
+        assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
 
 
 def test_apply_bcs_wrong_fs(V, f2):
@@ -325,14 +323,6 @@ def test_bcs_rhs_assemble(a, V):
         bc.apply(b1)
     b2 = assemble(a, bcs=bcs)
     assert np.allclose(b1.dat.data, b2.dat.data)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_empty_exterior_facet_node_list():
-    mesh = UnitIntervalMesh(15)
-    V = FunctionSpace(mesh, 'CG', 1)
-    bc = DirichletBC(V, 1, 1)
-    assert V.exterior_facet_node_map([bc])
 
 
 def test_invalid_marker_raises_error(a, V):

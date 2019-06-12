@@ -1,0 +1,36 @@
+# DockerFile for an environment into which firedrake can be installed.
+
+FROM ubuntu:18.04
+
+# This DockerFile is looked after by
+MAINTAINER David Ham <david.ham@imperial.ac.uk>
+
+# Update and install required packages for Firedrake
+USER root
+RUN apt-get update \
+    && apt-get -y dist-upgrade \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata \
+    && apt-get -y install curl vim docker.io \
+                 openssh-client build-essential autoconf automake \
+                 cmake gfortran git libblas-dev liblapack-dev \
+                 libmpich-dev libtool mercurial mpich\
+                 python3-dev python3-pip python3-tk python3-venv \
+                 python3-requests zlib1g-dev libboost-dev sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use a more sane locale
+ENV LC_ALL C.UTF-8
+
+# Set up user so that we do not run as root
+RUN useradd -m -s /bin/bash -G sudo firedrake && \
+    echo "firedrake:docker" | chpasswd && \
+    echo "firedrake ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    ldconfig
+
+RUN useradd -m -s /bin/bash -G sudo jenkins && \
+    echo "jenkins:docker" | chpasswd && \
+    echo "jenkins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    ldconfig
+
+USER firedrake
+WORKDIR /home/firedrake

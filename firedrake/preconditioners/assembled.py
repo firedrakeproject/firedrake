@@ -85,6 +85,7 @@ class AssembledPC(PCBase):
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         push_appctx(dm, nctx)
+        self._ctx_ref = nctx
         pc.setDM(dm)
 
         pc.setOptionsPrefix(options_prefix)
@@ -109,10 +110,16 @@ class AssembledPC(PCBase):
             return (context.Jp or context.J, context._problem.bcs)
 
     def apply(self, pc, x, y):
+        dm = pc.getDM()
+        push_appctx(dm, self._ctx_ref)
         self.pc.apply(x, y)
+        pop_appctx(dm)
 
     def applyTranspose(self, pc, x, y):
+        dm = pc.getDM()
+        push_appctx(dm, self._ctx_ref)
         self.pc.applyTranspose(x, y)
+        pop_appctx(dm)
 
     def view(self, pc, viewer=None):
         super(AssembledPC, self).view(pc, viewer)

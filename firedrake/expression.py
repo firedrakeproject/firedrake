@@ -1,6 +1,5 @@
 import numpy as np
 from operator import itemgetter
-import collections
 import ufl
 
 from pyop2 import op2
@@ -77,7 +76,6 @@ class Expression(ufl.Coefficient):
         if code is not None:
             raise ValueError("C string Expressions have been removed! See: https://www.firedrakeproject.org/interpolation.html#c-string-expressions")
         utils._init()
-        self.code = None
         self._shape = ()
         self.cell = cell
         self.degree = degree
@@ -161,4 +159,3 @@ class Expression(ufl.Coefficient):
     @property
     def ufl_shape(self):
         return self.value_shape()
-

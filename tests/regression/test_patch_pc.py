@@ -60,7 +60,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     jacobi = LinearVariationalSolver(problem,
                                      solver_parameters={"ksp_type": "cg",
                                                         "pc_type": "sor" if multiplicative else "jacobi",
-                                                        "ksp_monitor": True,
+                                                        "ksp_monitor": None,
                                                         "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
@@ -82,7 +82,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                        "patch_pc_patch_symmetrise_sweep": multiplicative,
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
-                                                       "ksp_monitor": True})
+                                                       "ksp_monitor": None})
 
     patch.snes.ksp.setConvergenceHistory()
 
