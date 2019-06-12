@@ -100,7 +100,9 @@ class SCPC(SCBase):
         self.S = allocate_matrix(S_expr,
                                  bcs=bcs,
                                  form_compiler_parameters=self.cxt.fc_params,
-                                 mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
         self._assemble_S = create_assembly_callable(
             S_expr,
             tensor=self.S,
