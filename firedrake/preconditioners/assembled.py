@@ -20,7 +20,6 @@ class AssembledPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
-
         _, P = pc.getOperators()
 
         if pc.getType() != "python":
