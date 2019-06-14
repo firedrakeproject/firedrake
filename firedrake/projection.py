@@ -66,7 +66,7 @@ def check_meshes(source, target):
 def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
-            use_slate_for_inverse=True,
+            use_slate_for_inverse=False,
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
