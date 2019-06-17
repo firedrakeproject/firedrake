@@ -861,20 +861,8 @@ def build_and_install_libsupermesh():
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
-    if os.path.exists("pythonocc-core"):
-        log.info("Updating the git repository for pythonocc-core")
-        with directory("pythonocc-core"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            changed = git_sha != git_sha_new
-            if changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
+    if not os.path.exists("pythonocc-core"):
         git_clone(url)
-        changed = True
-    if changed:
         with directory("pythonocc-core"):
             check_call(["git", "reset", "--hard"])
             check_call(["git", "clean", "-f", "-x", "-d"])
