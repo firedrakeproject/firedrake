@@ -101,9 +101,12 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _split(self):
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
-                     for i, (fs, dat) in
-                     enumerate(zip(self.function_space(), self.dat)))
+        if len(self.function_space()) == 1:
+            return (self, )
+        else:
+            return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+                         for i, (fs, dat) in
+                         enumerate(zip(self.function_space(), self.dat)))
 
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -288,8 +291,11 @@ class Function(ufl.Coefficient):
 
     @utils.cached_property
     def _split(self):
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.split()))
+        if len(self.function_space()) == 1:
+            return (self, )
+        else:
+            return tuple(type(self)(V, val)
+                         for (V, val) in zip(self.function_space(), self.topological.split()))
 
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
