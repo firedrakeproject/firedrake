@@ -5,6 +5,9 @@ from firedrake import *
 from ufl.algorithms.comparison_checker import ComplexComparisonError
 
 
+@pytest.mark.skipif(not utils.complex_mode,
+                     reason="No *ComplexComparisonError* will be thrown"
+                     " if not in complex mode")
 @pytest.mark.parametrize("ncell",
                          [1, 4, 10])
 def test_conditional(ncell):

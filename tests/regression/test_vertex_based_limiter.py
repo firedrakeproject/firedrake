@@ -120,7 +120,7 @@ def test_parallel_limiting(tmpdir):
     V = FunctionSpace(mesh, 'DG', 1)
     f = Function(V)
     x, *_ = SpatialCoordinate(mesh)
-    f.project(sin(2*pi*x/3000.))
+    f.project(sin(2*pi*x/3000.), use_slate_for_inverse=False)
     limiter = VertexBasedLimiter(V)
     limiter.apply(f)
 
@@ -137,7 +137,7 @@ mesh = RectangleMesh(10, 4, 5000., 1000.)
 V = FunctionSpace(mesh, 'DG', 1)
 f = Function(V)
 x, *_ = SpatialCoordinate(mesh)
-f.project(sin(2*pi*x/3000.))
+f.project(sin(2*pi*x/3000.), use_slate_for_inverse=False)
 limiter = VertexBasedLimiter(V)
 limiter.apply(f)
 
