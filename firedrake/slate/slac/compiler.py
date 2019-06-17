@@ -31,6 +31,8 @@ from ufl.log import GREEN
 from gem.utils import groupby
 
 from itertools import chain
+import itertools
+import collections
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
@@ -39,10 +41,23 @@ from pyop2.mpi import COMM_WORLD
 from tsfc.parameters import SCALAR_TYPE
 
 import firedrake.slate.slate as slate
+from firedrake.slate.slac.utils import traverse_dags
+from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 import numpy as np
+import loopy
+import islpy as isl
+from loopy.symbolic import SubArrayRef
+import pymbolic.primitives as pym
+from functools import singledispatch, partial
+from tsfc.finatinterface import create_element
+import ufl
 
 
 __all__ = ['compile_expression']
+
+
+class Bag(object):
+    pass
 
 
 try:
@@ -103,6 +118,297 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     except KeyError:
         kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
         return cache.setdefault(key, kernel)
+
+
+@singledispatch
+def emit_instructions(tensor, context):
+    raise AttributeError("Don't know how to emit instruction for {}".format(type(tensor)))
+
+
+@emit_instructions.register(slate.Tensor)
+def emit_instructions_tensor(tensor, context):
+    temp = context.temporaries[tensor]
+    shape = tensor.shape
+
+    kernels = compile_terminal_form(tensor)
+
+    output_tensor = pym.Variable(temp.name)
+    if not tensor.is_mixed:
+        indices = tuple(map(context.create_index, shape))
+        output = SubArrayRef(indices, pym.Subscript(output_tensor, indices))
+    coordinates = None
+
+    mesh = tensor.ufl_domain()
+    if mesh.cell_set._extruded:
+        num_facets = mesh._base_mesh.ufl_cell().num_facets()
+    else:
+        num_facets = mesh.ufl_cell().num_facets()
+    fidx = context.create_index(num_facets)
+    for outer in kernels:
+        coefficients = outer.coefficients
+        if coordinates is None:
+            coordinates = outer.tensor.ufl_domain().coordinates
+        else:
+            assert coordinates == outer.tensor.ufl_domain().coordinates, "Mismatching coordinates"
+        for inner in outer.tsfc_kernels:
+            kinfo = inner.kinfo
+            context.callable_kernels.append(kinfo.kernel.code)
+            reads = []
+            if tensor.is_mixed:
+                block_index = inner.indices
+                slices = []
+                swept_indices = []
+                for i, j in enumerate(block_index):
+                    extent = tensor.shapes[i][j]
+                    offset = sum(tensor.shapes[i][:j])
+                    index = context.create_index(extent)
+                    swept_indices.append(index)
+                    slices.append(pym.Sum((offset, index)))
+                output = SubArrayRef(tuple(swept_indices), pym.Subscript(output_tensor, tuple(slices)))
+            all_coefficients = [coordinates] + [coefficients[i] for i in kinfo.coefficient_map]
+            for c in itertools.chain(*(c.split() for c in all_coefficients)):
+                name = context.coefficients[c]
+                extent = create_element(c.ufl_element()).space_dimension()
+                idx = context.create_index(extent)
+                argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
+                reads.append(argument)
+
+            integral_type = outer.original_integral_type
+            if integral_type == "cell":
+                predicates = None
+                if kinfo.subdomain_id != "otherwise":
+                    raise NotImplementedError("No subdomain markers for cells yet")
+            elif integral_type in {"interior_facet", "interior_facet_vert", "exterior_facet", "exterior_facet_vert"}:
+                if integral_type.startswith("interior_facet"):
+                    select = 1
+                else:
+                    select = 0
+
+                subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
+
+                cell_facets = pym.Variable("cell_facets")
+
+                predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
+                                        for i, j in enumerate([select, subdomain])])
+                i = context.create_index(1)
+                reads.append(SubArrayRef((i, ), pym.Subscript(pym.Variable("facet_array"), (pym.Sum((i, fidx))))))
+            elif integral_type in {"interior_facet_horiz_top", "interior_facet_horiz_bottom",
+                                   "exterior_facet_top", "exterior_facet_bottom"}:
+                layer = pym.Variable("layer")
+                # TODO: Variable layers
+                nlayer = tensor.ufl_domain().layers
+                which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+                         "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                         "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                         "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+                predicates = frozenset([which])
+            else:
+                raise ValueError("Unhandled integral type {}".format(integral_type))
+            yield loopy.CallInstruction((output, ),
+                                        pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
+                                        predicates=predicates,
+                                        within_inames_is_final=True)
+
+
+@emit_instructions.register(slate.AssembledVector)
+def emit_instructions_assembled_vector(tensor, context):
+    if tensor.is_mixed:
+        temp = context.temporaries[tensor]
+        coefficient = tensor._function
+        offset = 0
+        for c in coefficient.split():
+            lvalue = pym.Variable(temp.name)
+            rvalue = pym.Variable(context.coefficients[c])
+            extent = create_element(c.ufl_element()).space_dimension()
+            index = context.create_index(extent)
+            yield loopy.Assignment(pym.Subscript(lvalue, (pym.Sum((offset, index)), )),
+                                   pym.Subscript(rvalue, (index, )))
+            offset += extent
+
+
+@emit_instructions.register(slate.Block)
+def emit_instructions_block(tensor, context):
+    A, = tensor.operands
+    At = context.temporaries[A]
+    out = context.temporaries[tensor]
+    for block in itertools.product(*tensor._indices):
+        Aslice = []
+        outslice = []
+        outoffset = 0
+        for i, idx in enumerate(block):
+            Aoffset = sum(A.shapes[i][:idx])
+            extent = A.shapes[i][idx]
+            index = context.create_index(extent)
+            Aslice.append(pym.Sum((Aoffset, index)))
+            outslice.append(pym.Sum((outoffset, index)))
+            outoffset += extent
+        lvalue = pym.Subscript(pym.Variable(out.name), tuple(outslice))
+        rvalue = pym.Subscript(pym.Variable(At.name), tuple(Aslice))
+        yield loopy.Assignment(lvalue, rvalue)
+
+
+@emit_instructions.register(slate.Inverse)
+@emit_instructions.register(slate.Solve)
+def emit_instructions_solve(tensor, context):
+    raise NotImplementedError()
+
+
+@emit_instructions.register(slate.Add)
+def emit_instructions_add(tensor, context):
+    A, B = tensor.operands
+    indices = tuple(map(context.create_index, A.shape))
+    At = context.temporaries[A]
+    Bt = context.temporaries[B]
+
+    out = context.temporaries[tensor]
+    lvalue = pym.Subscript(pym.Variable(out.name), indices)
+    rvalue = pym.Sum((pym.Subscript(pym.Variable(At.name), indices),
+                      pym.Subscript(pym.Variable(Bt.name), indices)))
+    yield loopy.Assignment(lvalue, rvalue)
+
+
+@emit_instructions.register(slate.Transpose)
+def emit_instructions_transpose(tensor, context):
+    A, = tensor.operands
+    indices = tuple(map(context.create_index, A.shape))
+    At = context.temporaries[A]
+
+    out = context.temporaries[tensor]
+    lvalue = pym.Subscript(pym.Variable(out.name), tuple(reversed(indices)))
+    rvalue = pym.Subscript(pym.Variable(At.name), indices)
+    yield loopy.Assignment(lvalue, rvalue)
+
+
+@emit_instructions.register(slate.Mul)
+def emit_instructions_mul(tensor, context):
+    A, B = tensor.operands
+    Aindices = tuple(map(context.create_index, A.shape))
+    Bindices = tuple(map(context.create_index, B.shape[1:]))
+    At = context.temporaries[A]
+    Bt = context.temporaries[B]
+    out = context.temporaries[tensor]
+
+    indices = Aindices[:-1] + Bindices
+    lvalue = pym.Subscript(pym.Variable(out.name), indices)
+
+    Bindices = (Aindices[-1], ) + Bindices
+    rvalue = pym.Product((pym.Subscript(pym.Variable(At.name), Aindices),
+                          pym.Subscript(pym.Variable(Bt.name), Bindices)))
+    yield loopy.Assignment(lvalue, rvalue)
+
+
+@emit_instructions.register(slate.Negative)
+def emit_instructions_negative(tensor, context):
+    A, = tensor.operands
+    indices = tuple(map(context.create_index, A.shape))
+    At = context.temporaries[A]
+
+    out = context.temporaries[tensor]
+    lvalue = pym.Subscript(pym.Variable(out.name), indices)
+    rvalue = pym.Product((-1, pym.Variable(At.name), indices))
+    yield loopy.Assignment(lvalue, rvalue)
+
+
+def create_domains(indices):
+    for (name, extent) in indices:
+        vars = isl.make_zero_and_vars([name], [])
+        yield (vars[name].ge_set(vars[0]) & vars[name].lt_set(vars[0] + extent))
+
+
+def generate_kernel(slate_expr, tsfc_parameters=None):
+    # TODO: Get PyOP2 to write into mixed dats
+    # if slate_expr.is_mixed:
+    #     raise NotImplementedError("Compiling mixed slate expressions")
+
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
+
+    Citations().register("Gibson2018")
+
+    # Collect nodes that will need temporaries
+    temporaries = collections.OrderedDict()
+    coefficients = collections.OrderedDict()
+    for i, c in enumerate(slate_expr.coefficients()):
+        if type(c.ufl_element()) == ufl.MixedElement:
+            for j, c_ in enumerate(c.split()):
+                coefficients[c_] = "w_{}_{}".format(i, j)
+        else:
+            coefficients[c] = "w_{}".format(i)
+    coefficients[slate_expr.ufl_domain().coordinates] = "coords"
+    output_arg = None
+    mesh = slate_expr.ufl_domain()
+    for tensor in traverse_dags([slate_expr]):
+        # TODO: right now, we always make temporaries for everything
+        # There is opportunity for optimisation here, based on how the temporary is subsequently used.
+        name = "t{}".format(len(temporaries))
+
+        if tensor is slate_expr:
+            temp = loopy.GlobalArg("A", shape=tensor.shape, dtype=SCALAR_TYPE)
+            output_arg = temp
+        elif isinstance(tensor, slate.AssembledVector) and not tensor.is_mixed:
+            temp = loopy.GlobalArg(coefficients[tensor._function], shape=tensor.shape, dtype=SCALAR_TYPE)
+        else:
+            temp = loopy.TemporaryVariable(name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE,
+                                           address_space=loopy.auto)
+        temporaries[tensor] = temp
+
+    if output_arg is None:
+        output_arg = loopy.GlobalArg("A", shape=tensor.shape, dtype=SCALAR_TYPE)
+    instructions = []
+    context = Bag()
+    context.temporaries = temporaries
+
+    def create_index(extent, namer, context):
+        name = next(namer)
+        context.indices.append((name, int(extent)))
+        return pym.Variable(name)
+
+    context.create_index = partial(create_index, namer=map("i{}".format, itertools.count()), context=context)
+    context.indices = []
+    context.callable_kernels = []
+    context.coefficients = coefficients
+    context.kernel_arguments = collections.OrderedDict()
+
+    emitted = set()
+    # TODO: may need more information attached to context (indices)
+    for tensor in topological_sort(list(traverse_dags([slate_expr]))):
+        if tensor in context.temporaries or tensor is slate_expr:
+            instructions.extend(emit_instructions(tensor, context))
+            emitted.add(tensor)
+
+    domains = list(create_domains(context.indices))
+    if not domains:
+        domains = [isl.BasicSet("[] -> {[]}")]
+
+    arguments = [output_arg]
+    for c, name in context.coefficients.items():
+        extent = create_element(c.ufl_element()).space_dimension()
+        arguments.append(loopy.GlobalArg(name,
+                                         shape=(extent, ),
+                                         dtype=SCALAR_TYPE))
+
+    arguments.append(loopy.GlobalArg("cell_facets", shape=(3, 2), dtype=np.int8))
+    if True:                        # Only if we need face terms
+        if mesh.cell_set._extruded:
+            num_facets = mesh._base_mesh.ufl_cell().num_facets()
+            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32))
+        else:
+            num_facets = mesh.ufl_cell().num_facets()
+    temporaries["facet_array"] = loopy.TemporaryVariable("facet_array", shape=(num_facets, ), dtype=np.uint32,
+                                                         address_space=loopy.AddressSpace.LOCAL,
+                                                         read_only=True,
+                                                         initializer=np.arange(num_facets, dtype=np.uint32))
+    tvs = collections.OrderedDict(((t.name, t) for t in temporaries.values() if not (t.name == "A" or t.name.startswith("w"))))
+    knl = loopy.make_kernel(domains, instructions, kernel_data=arguments,
+                            temporary_variables=tvs,
+                            target=loopy.CTarget(),
+                            name="slate_kernel", lang_version=(2018, 2),
+                            seq_dependencies=True)
+    for k in context.callable_kernels:
+        knl = loopy.register_callable_kernel(knl, k)
+    return knl, context
 
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
