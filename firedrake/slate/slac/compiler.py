@@ -56,10 +56,6 @@ import ufl
 __all__ = ['compile_expression']
 
 
-class Bag(object):
-    pass
-
-
 try:
     PETSC_DIR, PETSC_ARCH = get_petsc_dir()
 except ValueError:
@@ -81,6 +77,14 @@ if COMM_WORLD.rank == 0:
 EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
+
+
+class Bag(object):
+    _coordinates_arg = "coords"
+    _cell_facets_arg = "cell_facets"
+    _local_facet_array_arg = "facet_array"
+    _layer_arg = "layer"
+    _result_arg = "result"
 
 
 class SlateKernel(TSFCKernel):
@@ -135,28 +139,34 @@ def emit_instructions_tensor(tensor, context):
     kernels = compile_terminal_form(tensor)
 
     output_tensor = pym.Variable(temp.name)
+
     if not tensor.is_mixed:
         indices = tuple(map(context.create_index, shape))
         output = SubArrayRef(indices, pym.Subscript(output_tensor, indices))
-    coordinates = None
 
+    coordinates = None
     mesh = tensor.ufl_domain()
+
     if mesh.cell_set._extruded:
         num_facets = mesh._base_mesh.ufl_cell().num_facets()
     else:
         num_facets = mesh.ufl_cell().num_facets()
 
     fidx = context.create_index(num_facets)
+
     for outer in kernels:
         coefficients = outer.coefficients
         if coordinates is None:
             coordinates = outer.tensor.ufl_domain().coordinates
         else:
             assert coordinates == outer.tensor.ufl_domain().coordinates, "Mismatching coordinates"
+
         for inner in outer.tsfc_kernels:
             kinfo = inner.kinfo
             context.callable_kernels.append(kinfo.kernel.code)
             reads = []
+
+            # For the mixed case, the output is a slice of the matrix/vector
             if tensor.is_mixed:
                 block_index = inner.indices
                 slices = []
@@ -167,7 +177,9 @@ def emit_instructions_tensor(tensor, context):
                     index = context.create_index(extent)
                     swept_indices.append(index)
                     slices.append(pym.Sum((offset, index)))
+
                 output = SubArrayRef(tuple(swept_indices), pym.Subscript(output_tensor, tuple(slices)))
+
             all_coefficients = [coordinates] + [coefficients[i] for i in kinfo.coefficient_map]
             for c in itertools.chain(*(c.split() for c in all_coefficients)):
                 name = context.coefficients[c]
@@ -177,11 +189,17 @@ def emit_instructions_tensor(tensor, context):
                 reads.append(argument)
 
             integral_type = outer.original_integral_type
+
             if integral_type == "cell":
                 predicates = None
                 if kinfo.subdomain_id != "otherwise":
                     raise NotImplementedError("No subdomain markers for cells yet")
-            elif integral_type in {"interior_facet", "interior_facet_vert", "exterior_facet", "exterior_facet_vert"}:
+
+            elif integral_type in {"interior_facet",
+                                   "interior_facet_vert",
+                                   "exterior_facet",
+                                   "exterior_facet_vert"}:
+
                 if integral_type.startswith("interior_facet"):
                     select = 1
                 else:
@@ -189,16 +207,21 @@ def emit_instructions_tensor(tensor, context):
 
                 subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
 
-                # TODO: Centralize lookup of global args
-                cell_facets = pym.Variable("cell_facets")
+                cell_facets = pym.Variable(context._cell_facets_arg)
 
                 predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
                                         for i, j in enumerate([select, subdomain])])
+
                 i = context.create_index(1)
-                reads.append(SubArrayRef((i, ), pym.Subscript(pym.Variable("facet_array"), (pym.Sum((i, fidx))))))
-            elif integral_type in {"interior_facet_horiz_top", "interior_facet_horiz_bottom",
-                                   "exterior_facet_top", "exterior_facet_bottom"}:
-                layer = pym.Variable("layer")
+                reads.append(SubArrayRef((i, ), pym.Subscript(pym.Variable(context._local_facet_array_arg),
+                                                              (pym.Sum((i, fidx))))))
+            elif integral_type in {"interior_facet_horiz_top",
+                                   "interior_facet_horiz_bottom",
+                                   "exterior_facet_top",
+                                   "exterior_facet_bottom"}:
+
+                layer = pym.Variable(context._layer_arg)
+
                 # TODO: Variable layers
                 nlayer = tensor.ufl_domain().layers
                 which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
@@ -208,6 +231,7 @@ def emit_instructions_tensor(tensor, context):
                 predicates = frozenset([which])
             else:
                 raise ValueError("Unhandled integral type {}".format(integral_type))
+
             yield loopy.CallInstruction((output, ),
                                         pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                         predicates=predicates,
@@ -216,6 +240,11 @@ def emit_instructions_tensor(tensor, context):
 
 @emit_instructions.register(slate.AssembledVector)
 def emit_instructions_assembled_vector(tensor, context):
+
+    # When the non-mixed case, we do not need a temporary; we just
+    # use it!
+    # Mixed however requires a temporary which reads in split functions
+    # and writes to a single, mixed vector.
     if tensor.is_mixed:
         temp = context.temporaries[tensor]
         coefficient = tensor._function
@@ -233,7 +262,7 @@ def emit_instructions_assembled_vector(tensor, context):
 @emit_instructions.register(slate.Block)
 def emit_instructions_block(tensor, context):
     A, = tensor.operands
-    At = context.temporaries[A]
+    Atemp = context.temporaries[A]
     out = context.temporaries[tensor]
     for block in itertools.product(*tensor._indices):
         Aslice = []
@@ -247,7 +276,7 @@ def emit_instructions_block(tensor, context):
             outslice.append(pym.Sum((outoffset, index)))
             outoffset += extent
         lvalue = pym.Subscript(pym.Variable(out.name), tuple(outslice))
-        rvalue = pym.Subscript(pym.Variable(At.name), tuple(Aslice))
+        rvalue = pym.Subscript(pym.Variable(Atemp.name), tuple(Aslice))
         yield loopy.Assignment(lvalue, rvalue)
 
 
@@ -261,13 +290,13 @@ def emit_instructions_solve(tensor, context):
 def emit_instructions_add(tensor, context):
     A, B = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
-    At = context.temporaries[A]
-    Bt = context.temporaries[B]
+    Atemp = context.temporaries[A]
+    Btemp = context.temporaries[B]
 
     out = context.temporaries[tensor]
     lvalue = pym.Subscript(pym.Variable(out.name), indices)
-    rvalue = pym.Sum((pym.Subscript(pym.Variable(At.name), indices),
-                      pym.Subscript(pym.Variable(Bt.name), indices)))
+    rvalue = pym.Sum((pym.Subscript(pym.Variable(Atemp.name), indices),
+                      pym.Subscript(pym.Variable(Btemp.name), indices)))
     yield loopy.Assignment(lvalue, rvalue)
 
 
@@ -275,29 +304,32 @@ def emit_instructions_add(tensor, context):
 def emit_instructions_transpose(tensor, context):
     A, = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
-    At = context.temporaries[A]
+    Atemp = context.temporaries[A]
 
     out = context.temporaries[tensor]
     lvalue = pym.Subscript(pym.Variable(out.name), tuple(reversed(indices)))
-    rvalue = pym.Subscript(pym.Variable(At.name), indices)
+    rvalue = pym.Subscript(pym.Variable(Atemp.name), indices)
     yield loopy.Assignment(lvalue, rvalue)
 
 
 @emit_instructions.register(slate.Mul)
 def emit_instructions_mul(tensor, context):
+
+    # NOTE: This is an inner contraction on the tensors A, B.
+    # I.e. MatMat and MatVec products
     A, B = tensor.operands
     Aindices = tuple(map(context.create_index, A.shape))
     Bindices = tuple(map(context.create_index, B.shape[1:]))
-    At = context.temporaries[A]
-    Bt = context.temporaries[B]
+    Atemp = context.temporaries[A]
+    Btemp = context.temporaries[B]
     out = context.temporaries[tensor]
 
     indices = Aindices[:-1] + Bindices
     lvalue = pym.Subscript(pym.Variable(out.name), indices)
 
     Bindices = (Aindices[-1], ) + Bindices
-    rvalue = pym.Product((pym.Subscript(pym.Variable(At.name), Aindices),
-                          pym.Subscript(pym.Variable(Bt.name), Bindices)))
+    rvalue = pym.Product((pym.Subscript(pym.Variable(Atemp.name), Aindices),
+                          pym.Subscript(pym.Variable(Btemp.name), Bindices)))
     yield loopy.Assignment(lvalue, rvalue)
 
 
@@ -305,11 +337,11 @@ def emit_instructions_mul(tensor, context):
 def emit_instructions_negative(tensor, context):
     A, = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
-    At = context.temporaries[A]
+    Atemp = context.temporaries[A]
 
     out = context.temporaries[tensor]
     lvalue = pym.Subscript(pym.Variable(out.name), indices)
-    rvalue = pym.Product((-1, pym.Variable(At.name), indices))
+    rvalue = pym.Product((-1, pym.Variable(Atemp.name), indices))
     yield loopy.Assignment(lvalue, rvalue)
 
 
@@ -338,6 +370,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                 coefficients[c_] = "w_{}_{}".format(i, j)
         else:
             coefficients[c] = "w_{}".format(i)
+
     # TODO: Centralize lookup of global args
     coefficients[slate_expr.ufl_domain().coordinates] = "coords"
     output_arg = None
@@ -395,25 +428,48 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                          shape=(extent, ),
                                          dtype=SCALAR_TYPE))
 
-    # TODO: Centralize lookup of global args
-    arguments.append(loopy.GlobalArg("cell_facets", shape=(3, 2), dtype=np.int8))
+    # FIXME: Have to yank out the mesh and find number of layers again.
+    # Ideally we should not need to do this...
+    mesh = slate_expr.ufl_domain()
+    if mesh.cell_set._extruded:
+        num_facets = mesh._base_mesh.ufl_cell().num_facets()
+    else:
+        num_facets = mesh.ufl_cell().num_facets()
+    # TODO: Think about how we set up global args and temporary variables
+    arguments.append(loopy.GlobalArg(context._cell_facets_arg,
+                                     shape=(num_facets, 2),
+                                     dtype=np.int8))
+
+    # Should be able to determine if we need face integrals
+    # rather than always do this.
     if True:                        # Only if we need face terms
         if mesh.cell_set._extruded:
             num_facets = mesh._base_mesh.ufl_cell().num_facets()
             arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32))
         else:
             num_facets = mesh.ufl_cell().num_facets()
-    temporary_variables["facet_array"] = loopy.TemporaryVariable("facet_array", shape=(num_facets, ), dtype=np.uint32,
-                                                                 address_space=loopy.AddressSpace.LOCAL,
-                                                                 read_only=True,
-                                                                 initializer=np.arange(num_facets, dtype=np.uint32))
-    knl = loopy.make_kernel(domains, instructions, kernel_data=arguments,
+
+        temporary_variables["facet_array"] = loopy.TemporaryVariable(context._local_facet_array_arg,
+                                                                     shape=(num_facets, ),
+                                                                     dtype=np.uint32,
+                                                                     address_space=loopy.AddressSpace.LOCAL,
+                                                                     read_only=True,
+                                                                     initializer=np.arange(num_facets, dtype=np.uint32))
+
+    knl = loopy.make_kernel(domains,
+                            instructions,
+                            kernel_data=arguments,
                             temporary_variables=temporary_variables,
                             target=loopy.CTarget(),
-                            name="slate_kernel", lang_version=(2018, 2),
+                            name="slate_kernel",
+                            lang_version=(2018, 2),
+                            # This is safe to do, since we issue instructions using
+                            # topologically sorted Slate nodes
                             seq_dependencies=True)
+
     for k in context.callable_kernels:
         knl = loopy.register_callable_kernel(knl, k)
+
     return knl, context
 
 
