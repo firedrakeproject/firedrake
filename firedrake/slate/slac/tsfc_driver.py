@@ -29,7 +29,7 @@ particular integral type.
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
+def compile_terminal_form(tensor, prefix="subkernel_", tsfc_parameters=None):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
@@ -51,7 +51,6 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     # NOTE: the builder will choose a prefix independent of
     # the tensor name for code idempotency reasons, but is not
     # strictly required.
-    prefix = prefix or "subkernel%s_" % tensor.__str__()
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),
                     tensor.form.integrals())
