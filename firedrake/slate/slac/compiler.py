@@ -337,6 +337,7 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     coefficients[slate_expr.ufl_domain().coordinates] = "coords"
     output_arg = None
     mesh = slate_expr.ufl_domain()
+    temporary_variables = collections.OrderedDict()
     for tensor in traverse_dags([slate_expr]):
         # TODO: right now, we always make temporaries for everything
         # There is opportunity for optimisation here, based on how the temporary is subsequently used.
@@ -352,10 +353,11 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,
                                            address_space=loopy.auto)
+            temporary_variables[name] = temp
         temporaries[tensor] = temp
 
-    if output_arg is None:
-        output_arg = loopy.GlobalArg("A", shape=tensor.shape, dtype=SCALAR_TYPE)
+    assert output_arg is not None
+
     instructions = []
     context = Bag()
     context.temporaries = temporaries
@@ -393,16 +395,15 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     if True:                        # Only if we need face terms
         if mesh.cell_set._extruded:
             num_facets = mesh._base_mesh.ufl_cell().num_facets()
-            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32))
+            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32) )
         else:
             num_facets = mesh.ufl_cell().num_facets()
-    temporaries["facet_array"] = loopy.TemporaryVariable("facet_array", shape=(num_facets, ), dtype=np.uint32,
-                                                         address_space=loopy.AddressSpace.LOCAL,
-                                                         read_only=True,
-                                                         initializer=np.arange(num_facets, dtype=np.uint32))
-    tvs = collections.OrderedDict(((t.name, t) for t in temporaries.values() if not (t.name == "A" or t.name.startswith("w"))))
+    temporary_variables["facet_array"] = loopy.TemporaryVariable("facet_array", shape=(num_facets, ), dtype=np.uint32,
+                                                                 address_space=loopy.AddressSpace.LOCAL,
+                                                                 read_only=True,
+                                                                 initializer=np.arange(num_facets, dtype=np.uint32))
     knl = loopy.make_kernel(domains, instructions, kernel_data=arguments,
-                            temporary_variables=tvs,
+                            temporary_variables=temporary_variables,
                             target=loopy.CTarget(),
                             name="slate_kernel", lang_version=(2018, 2),
                             seq_dependencies=True)
