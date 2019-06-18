@@ -79,12 +79,15 @@ EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
+# TODO: Probably needs a better name.
 class Bag(object):
     _coordinates_arg = "coords"
     _cell_facets_arg = "cell_facets"
     _local_facet_array_arg = "facet_array"
     _layer_arg = "layer"
     _result_arg = "result"
+    _needs_cell_facets = False
+    _needs_mesh_layers = False
 
 
 class SlateKernel(TSFCKernel):
@@ -200,6 +203,9 @@ def emit_instructions_tensor(tensor, context):
                                    "exterior_facet",
                                    "exterior_facet_vert"}:
 
+                if not context._needs_cell_facets:
+                    context._needs_cell_facets = True
+
                 if integral_type.startswith("interior_facet"):
                     select = 1
                 else:
@@ -220,6 +226,9 @@ def emit_instructions_tensor(tensor, context):
                                    "exterior_facet_top",
                                    "exterior_facet_bottom"}:
 
+                if not context._needs_mesh_layers:
+                    context._needs_mesh_layers = True
+
                 layer = pym.Variable(context._layer_arg)
 
                 # TODO: Variable layers
@@ -229,6 +238,7 @@ def emit_instructions_tensor(tensor, context):
                          "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
                          "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
                 predicates = frozenset([which])
+
             else:
                 raise ValueError("Unhandled integral type {}".format(integral_type))
 
@@ -371,8 +381,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         else:
             coefficients[c] = "w_{}".format(i)
 
-    # TODO: Centralize lookup of global args
-    coefficients[slate_expr.ufl_domain().coordinates] = "coords"
+    context = Bag()
+    coefficients[slate_expr.ufl_domain().coordinates] = context._coordinates_arg
     output_arg = None
     mesh = slate_expr.ufl_domain()
     temporary_variables = collections.OrderedDict()
@@ -382,22 +392,30 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         name = "t{}".format(len(temporaries))
 
         if tensor is slate_expr:
-            temp = loopy.GlobalArg("A", shape=tensor.shape, dtype=SCALAR_TYPE)
+            temp = loopy.GlobalArg(context._result_arg,
+                                   shape=tensor.shape,
+                                   dtype=SCALAR_TYPE)
             output_arg = temp
+
         elif isinstance(tensor, slate.AssembledVector) and not tensor.is_mixed:
-            temp = loopy.GlobalArg(coefficients[tensor._function], shape=tensor.shape, dtype=SCALAR_TYPE)
+            temp = loopy.GlobalArg(coefficients[tensor._function],
+                                   shape=tensor.shape,
+                                   dtype=SCALAR_TYPE)
+
         else:
+            # TODO: Think about how we construct temporary variables vs GlobalArgs
+            # should they be done here or split up?
             temp = loopy.TemporaryVariable(name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,
                                            address_space=loopy.auto)
             temporary_variables[name] = temp
+
         temporaries[tensor] = temp
 
     assert output_arg is not None
 
     instructions = []
-    context = Bag()
     context.temporaries = temporaries
 
     def create_index(extent, namer, context):
@@ -428,26 +446,28 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                          shape=(extent, ),
                                          dtype=SCALAR_TYPE))
 
-    # FIXME: Have to yank out the mesh and find number of layers again.
-    # Ideally we should not need to do this...
-    mesh = slate_expr.ufl_domain()
+    # FIXME: Ideally we should not need to do this...
     if mesh.cell_set._extruded:
         num_facets = mesh._base_mesh.ufl_cell().num_facets()
     else:
         num_facets = mesh.ufl_cell().num_facets()
-    # TODO: Think about how we set up global args and temporary variables
+
     arguments.append(loopy.GlobalArg(context._cell_facets_arg,
                                      shape=(num_facets, 2),
                                      dtype=np.int8))
 
-    # Should be able to determine if we need face integrals
-    # rather than always do this.
-    if True:                        # Only if we need face terms
+    if context._needs_cell_facets:
+        # Compute the number of local facets for preallocation of the
+        # local facet array
         if mesh.cell_set._extruded:
             num_facets = mesh._base_mesh.ufl_cell().num_facets()
-            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32))
         else:
             num_facets = mesh.ufl_cell().num_facets()
+
+        # Cell-facet map needs to be provided as a global kernel argument
+        arguments.append(loopy.GlobalArg(context._cell_facets_arg,
+                                         shape=(num_facets, 2),
+                                         dtype=np.int8))
 
         temporary_variables["facet_array"] = loopy.TemporaryVariable(context._local_facet_array_arg,
                                                                      shape=(num_facets, ),
@@ -455,6 +475,12 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                                                      address_space=loopy.AddressSpace.LOCAL,
                                                                      read_only=True,
                                                                      initializer=np.arange(num_facets, dtype=np.uint32))
+
+    # Needed for evaluating facet integrals on extruded meshes
+    if context._needs_mesh_layers:
+        arguments.append(loopy.GlobalArg(context._layer_arg,
+                                         shape=(),
+                                         dtype=np.int32))
 
     knl = loopy.make_kernel(domains,
                             instructions,
