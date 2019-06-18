@@ -8,6 +8,7 @@ from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 from ufl.cell import num_cell_entities
 import enum
+import petsc4py
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
@@ -1480,7 +1481,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
            "facet", "edge", or "vertex".
     """
     if not isinstance(mesh, MeshGeometry):
-        raise TypeError("SubMesh only takes `MeshGeometry` objects")
+        raise TypeError("`SubMesh` only takes `MeshGeometry` objects")
     if isinstance(mesh.ufl_cell(), ufl.TensorProductCell):
         raise TypeError("Can not create `SubMesh` from `ExtrudedMesh`. Use `SubMesh` for the base mesh and then extrude")
     mesh.init()
@@ -1493,8 +1494,27 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
         raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
+
+    # Create "exterior_facets" label
+    subplex.createLabel("exterior_facets")
+    self._subpoint_map = subplex.createSubpointIS().getIndices()
+    fStart, fEnd = subplex.getHeightStratum(1)
+    for f in range(fStart, fEnd):
+        p = self._subpoint_map[f]
+        supports = plex.getSupport(p)
+        if supports.shape[0] == 1:
+            if plex.getLabelValue("exterior_facets", supports[0]) == 1:
+                # Exterior boundary
+                subplex.setLabelValue("exterior_facets", 1, f)
+        elif supports.shape[0] == 2:
+            if sorted([plex.getLabelValue(filterName, supports[i]) == filterValue for i in [0, 1]]) == [False, True]:
+                # Subdomain boundary: one support is in the domain and the other is not.
+                subplex.setLabelValue("exterior_facets", 1, f)
+        else:
+            raise RuntimeError("Support size of a facet must be 2 or less")
+
     subgdim = subplex.getCoordinateDim()
-    distribution_parameters = mesh._topology._distribution_parameters
+    distribution_parameters = mesh._topology._distribution_parameters.copy()
     distribution_parameters["partition"] = False
 
     return Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)

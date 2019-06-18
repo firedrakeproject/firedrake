@@ -52,34 +52,21 @@ def test_submesh_edge_extraction():
     msh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
     msh.init()
 
-    # mark facet only using coordinates
-    msh.markSubdomain("custom_facet", 111, "facet", lambda x: x[0] < 0.0001)
-    # mark facet using coordinate and existing labels
-    msh.markSubdomain("custom_facet", 222, "facet", lambda x: x[1] > 0.9999, filterName="exterior_facets", filterValue=1)
-    # mark edge as an intersection of two labeled facets
-    msh.markSubdomainIntersection("custom_edge", 333, "edge", "custom_facet", (111, 222))
-
     # mark edge only using coordinates
-    msh.markSubdomain("custom_edge2", 444, "edge", lambda x: x[0] < 0.0001 and x[1] > 0.9999)
+    msh.markSubdomain("custom_edge", 123, "edge", lambda x: x[0] < 0.0001 and x[1] > 0.9999)
 
     plex = msh._plex
     coords = plex.getCoordinatesLocal()
     coord_sec = plex.getCoordinateSection()
 
-    if plex.getStratumSize("custom_edge", 333) > 0:
-        edges = plex.getStratumIS("custom_edge", 333).getIndices()
-        for edge in edges:
-            v = plex.vecGetClosure(coord_sec, coords, edge)
-            assert(np.allclose(v, np.array([0., 1.])))
-
-    if plex.getStratumSize("custom_edge2", 444) > 0:
-        edges = plex.getStratumIS("custom_edge2", 444).getIndices()
+    if plex.getStratumSize("custom_edge", 123) > 0:
+        edges = plex.getStratumIS("custom_edge", 123).getIndices()
         for edge in edges:
             v = plex.vecGetClosure(coord_sec, coords, edge)
             assert(np.allclose(v, np.array([0., 1.])))
 
     # make submesh
-    _ = SubMesh(msh, "custom_edge", 333, "edge")
+    _ = SubMesh(msh, "custom_edge", 123, "edge")
 
 
 def test_submesh_poisson_cell():
