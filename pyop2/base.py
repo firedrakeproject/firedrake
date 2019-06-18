@@ -773,11 +773,6 @@ class Subset(ExtrudedSet):
         else:
             return self._superset.layers_array[self.indices, ...]
 
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Subset`"""
-        return ctypes.c_voidp
-
 
 class SetPartition(object):
     def __init__(self, set, offset, size):
@@ -1410,11 +1405,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
         return self.dataset.cdim
-
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Dat`"""
-        return ctypes.c_voidp
 
     @property
     @collective
@@ -2329,11 +2319,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         return _make_object('GlobalDataSet', self)
 
     @property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Global`"""
-        return ctypes.c_voidp
-
-    @property
     def shape(self):
         return self._dim
 
@@ -2551,11 +2536,6 @@ class Map(object):
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
-
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Map`"""
-        return ctypes.c_voidp
 
     @cached_property
     def split(self):
@@ -3160,12 +3140,7 @@ class Mat(DataCarrier):
     @cached_property
     def _argtypes_(self):
         """Ctypes argtype for this :class:`Mat`"""
-        return (ctypes.c_voidp, )
-
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Mat`"""
-        return ctypes.c_voidp
+        return tuple(ctypes.c_voidp for _ in self)
 
     @cached_property
     def dims(self):
