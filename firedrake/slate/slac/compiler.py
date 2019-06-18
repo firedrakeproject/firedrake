@@ -66,6 +66,8 @@ except ValueError:
     PETSC_DIR, = get_petsc_dir()
     PETSC_ARCH = None
 
+
+# All this crap will be blown away soon
 EIGEN_INCLUDE_DIR = None
 if COMM_WORLD.rank == 0:
     filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
@@ -143,6 +145,7 @@ def emit_instructions_tensor(tensor, context):
         num_facets = mesh._base_mesh.ufl_cell().num_facets()
     else:
         num_facets = mesh.ufl_cell().num_facets()
+
     fidx = context.create_index(num_facets)
     for outer in kernels:
         coefficients = outer.coefficients
@@ -186,6 +189,7 @@ def emit_instructions_tensor(tensor, context):
 
                 subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
 
+                # TODO: Centralize lookup of global args
                 cell_facets = pym.Variable("cell_facets")
 
                 predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
@@ -315,7 +319,7 @@ def create_domains(indices):
         yield (vars[name].ge_set(vars[0]) & vars[name].lt_set(vars[0] + extent))
 
 
-def generate_kernel(slate_expr, tsfc_parameters=None):
+def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # TODO: Get PyOP2 to write into mixed dats
     # if slate_expr.is_mixed:
     #     raise NotImplementedError("Compiling mixed slate expressions")
@@ -334,6 +338,7 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
                 coefficients[c_] = "w_{}_{}".format(i, j)
         else:
             coefficients[c] = "w_{}".format(i)
+    # TODO: Centralize lookup of global args
     coefficients[slate_expr.ufl_domain().coordinates] = "coords"
     output_arg = None
     mesh = slate_expr.ufl_domain()
@@ -374,7 +379,6 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     context.kernel_arguments = collections.OrderedDict()
 
     emitted = set()
-    # TODO: may need more information attached to context (indices)
     for tensor in topological_sort(list(traverse_dags([slate_expr]))):
         if tensor in context.temporaries or tensor is slate_expr:
             instructions.extend(emit_instructions(tensor, context))
@@ -391,11 +395,12 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
                                          shape=(extent, ),
                                          dtype=SCALAR_TYPE))
 
+    # TODO: Centralize lookup of global args
     arguments.append(loopy.GlobalArg("cell_facets", shape=(3, 2), dtype=np.int8))
     if True:                        # Only if we need face terms
         if mesh.cell_set._extruded:
             num_facets = mesh._base_mesh.ufl_cell().num_facets()
-            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32) )
+            arguments.append(loopy.GlobalArg("layer", shape=(), dtype=np.int32))
         else:
             num_facets = mesh.ufl_cell().num_facets()
     temporary_variables["facet_array"] = loopy.TemporaryVariable("facet_array", shape=(num_facets, ), dtype=np.uint32,
