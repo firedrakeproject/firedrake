@@ -85,9 +85,18 @@ class Bag(object):
     _cell_facets_arg = "cell_facets"
     _local_facet_array_arg = "facet_array"
     _layer_arg = "layer"
+    _cell_size_arg = "cell_sizes"
     _result_arg = "result"
+    _oriented_arg = "orientations"
+
     _needs_cell_facets = False
     _needs_mesh_layers = False
+    _needs_orientations = False
+    _needs_cell_sizes = False
+
+    _coords = None
+    _cell_orientations = None
+    _cell_sizes = None
 
 
 class SlateKernel(TSFCKernel):
@@ -136,11 +145,10 @@ def emit_instructions(tensor, context):
 
 @emit_instructions.register(slate.Tensor)
 def emit_instructions_tensor(tensor, context):
+
     temp = context.temporaries[tensor]
     shape = tensor.shape
-
     kernels = compile_terminal_form(tensor)
-
     output_tensor = pym.Variable(temp.name)
 
     if not tensor.is_mixed:
@@ -150,6 +158,7 @@ def emit_instructions_tensor(tensor, context):
     coordinates = None
     mesh = tensor.ufl_domain()
 
+    # NOTE: This happens in two places.
     if mesh.cell_set._extruded:
         num_facets = mesh._base_mesh.ufl_cell().num_facets()
     else:
@@ -163,6 +172,7 @@ def emit_instructions_tensor(tensor, context):
             coordinates = outer.tensor.ufl_domain().coordinates
         else:
             assert coordinates == outer.tensor.ufl_domain().coordinates, "Mismatching coordinates"
+            assert coordinates == context._coords, "Mismatching coordinates"
 
         for inner in outer.tsfc_kernels:
             kinfo = inner.kinfo
@@ -183,7 +193,42 @@ def emit_instructions_tensor(tensor, context):
 
                 output = SubArrayRef(tuple(swept_indices), pym.Subscript(output_tensor, tuple(slices)))
 
-            all_coefficients = [coordinates] + [coefficients[i] for i in kinfo.coefficient_map]
+            # Coordinate must come first
+            coord_name = context._coordinates_arg
+            coord_extent = create_element(context._coords).space_dimension()
+            coord_idx = context.create_index(coord_extent)
+            coord_arg = SubArrayRef((coord_idx, ),
+                                    pym.Subscript(pym.variable(coord_name),
+                                                  (coord_idx, )))
+            reads.append(coord_arg)
+
+            if kinfo.oriented:
+                if not context._needs_orientations:
+                    context._needs_orientations = True
+
+                oriented_name = context._oriented_arg
+                o_extent = create_element(context._cell_orientations).space_dimension()
+                oidx = context.create_index(o_extent)
+                oriented = SubArrayRef((oidx, ),
+                                       pym.Subscript(pym.Variable(oriented_name), (oidx, )))
+                # Then orientations
+                reads.append(oriented)
+
+            if kinfo.needs_cell_sizes:
+                if not context._needs_cell_sizes:
+                    context._needs_cell_sizes = True
+
+                cell_sizes = context._cell_sizes
+                cs_extent = create_element(cell_sizes.ufl_element()).space_dimension()
+                cs_name = context._cell_size_arg
+                cs_idx = context.create_index(cs_extent)
+                c_sizes = SubArrayRef((cs_idx, ),
+                                      pym.Subscript(pym.Variable(cs_name), (cs_idx, )))
+                # Then cell sizes
+                reads.append(c_sizes)
+
+            all_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
+
             for c in itertools.chain(*(c.split() for c in all_coefficients)):
                 name = context.coefficients[c]
                 extent = create_element(c.ufl_element()).space_dimension()
@@ -214,13 +259,12 @@ def emit_instructions_tensor(tensor, context):
                 subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
 
                 cell_facets = pym.Variable(context._cell_facets_arg)
-
                 predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
                                         for i, j in enumerate([select, subdomain])])
-
                 i = context.create_index(1)
                 reads.append(SubArrayRef((i, ), pym.Subscript(pym.Variable(context._local_facet_array_arg),
                                                               (pym.Sum((i, fidx))))))
+
             elif integral_type in {"interior_facet_horiz_top",
                                    "interior_facet_horiz_bottom",
                                    "exterior_facet_top",
@@ -271,6 +315,7 @@ def emit_instructions_assembled_vector(tensor, context):
 
 @emit_instructions.register(slate.Block)
 def emit_instructions_block(tensor, context):
+
     A, = tensor.operands
     Atemp = context.temporaries[A]
     out = context.temporaries[tensor]
@@ -298,6 +343,7 @@ def emit_instructions_solve(tensor, context):
 
 @emit_instructions.register(slate.Add)
 def emit_instructions_add(tensor, context):
+
     A, B = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
     Atemp = context.temporaries[A]
@@ -312,6 +358,7 @@ def emit_instructions_add(tensor, context):
 
 @emit_instructions.register(slate.Transpose)
 def emit_instructions_transpose(tensor, context):
+
     A, = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
     Atemp = context.temporaries[A]
@@ -345,6 +392,7 @@ def emit_instructions_mul(tensor, context):
 
 @emit_instructions.register(slate.Negative)
 def emit_instructions_negative(tensor, context):
+
     A, = tensor.operands
     indices = tuple(map(context.create_index, A.shape))
     Atemp = context.temporaries[A]
@@ -381,10 +429,13 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         else:
             coefficients[c] = "w_{}".format(i)
 
-    context = Bag()
-    coefficients[slate_expr.ufl_domain().coordinates] = context._coordinates_arg
-    output_arg = None
     mesh = slate_expr.ufl_domain()
+    context = Bag()
+    context._coords = mesh.coordinates
+    context._cell_orientations = mesh.cell_orientations()
+    context._cell_sizes = mesh.cell_sizes()
+
+    output_arg = None
     temporary_variables = collections.OrderedDict()
     for tensor in traverse_dags([slate_expr]):
         # TODO: right now, we always make temporaries for everything
@@ -423,13 +474,17 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         context.indices.append((name, int(extent)))
         return pym.Variable(name)
 
-    context.create_index = partial(create_index, namer=map("i{}".format, itertools.count()), context=context)
+    context.create_index = partial(create_index,
+                                   namer=map("i{}".format, itertools.count()),
+                                   context=context)
     context.indices = []
     context.callable_kernels = []
     context.coefficients = coefficients
     context.kernel_arguments = collections.OrderedDict()
 
+    # Currently unused
     emitted = set()
+
     for tensor in topological_sort(list(traverse_dags([slate_expr]))):
         if tensor in context.temporaries or tensor is slate_expr:
             instructions.extend(emit_instructions(tensor, context))
@@ -440,22 +495,30 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         domains = [isl.BasicSet("[] -> {[]}")]
 
     arguments = [output_arg]
+
+    # Coordinates
+    coord_extent = create_element(context._coords.ufl_element()).space_dimension()
+    arguments.append(loopy.GlobalArg(context._coordinates_arg,
+                                     shape=(coord_extent, ),
+                                     dtype=SCALAR_TYPE))
+
+    # Cell orientations
+    if context._needs_orientations:
+        orientations = context._cell_orientations
+        oname = context._oriented_arg
+        oextent = create_element(orientations.ufl_element()).space_dimension()
+        arguments.append(loopy.GlobalArg(oname,
+                                         shape=(oextent, ),
+                                         dtype=SCALAR_TYPE))
+
+    # Coefficients in the Slate expression
     for c, name in context.coefficients.items():
         extent = create_element(c.ufl_element()).space_dimension()
         arguments.append(loopy.GlobalArg(name,
                                          shape=(extent, ),
                                          dtype=SCALAR_TYPE))
 
-    # FIXME: Ideally we should not need to do this...
-    if mesh.cell_set._extruded:
-        num_facets = mesh._base_mesh.ufl_cell().num_facets()
-    else:
-        num_facets = mesh.ufl_cell().num_facets()
-
-    arguments.append(loopy.GlobalArg(context._cell_facets_arg,
-                                     shape=(num_facets, 2),
-                                     dtype=np.int8))
-
+    # Facet information
     if context._needs_cell_facets:
         # Compute the number of local facets for preallocation of the
         # local facet array
@@ -481,6 +544,15 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         arguments.append(loopy.GlobalArg(context._layer_arg,
                                          shape=(),
                                          dtype=np.int32))
+
+    # Cell size information
+    if context._needs_cell_sizes:
+        cell_sizes = context._cell_sizes
+        csname = context._cell_size_arg
+        csextent = create_element(cell_sizes.ufl_element()).space_dimension()
+        arguments.append(loopy.GlobalArg(csname,
+                                         shape=(csextent, ),
+                                         dtype=SCALAR_TYPE))
 
     knl = loopy.make_kernel(domains,
                             instructions,
