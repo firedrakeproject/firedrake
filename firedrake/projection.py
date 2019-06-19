@@ -229,6 +229,8 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
     source_mesh, target_mesh = check_meshes(source, target)
+    # This is not safe to do right now while Slate is moving to a Loopy backend
+    use_slate_for_inverse = False
     if source.ufl_shape != target.ufl_shape:
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
