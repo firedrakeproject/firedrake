@@ -309,17 +309,17 @@ def emit_instructions_block(tensor, context):
     A, = tensor.operands
     Atemp = context.temporaries[A]
     out = context.temporaries[tensor]
+    outoffsets = collections.defaultdict(int)
     for block in itertools.product(*tensor._indices):
         Aslice = []
         outslice = []
-        outoffset = 0
         for i, idx in enumerate(block):
             Aoffset = sum(A.shapes[i][:idx])
             extent = A.shapes[i][idx]
             index = context.create_index(extent)
             Aslice.append(pym.Sum((Aoffset, index)))
-            outslice.append(pym.Sum((outoffset, index)))
-            outoffset += extent
+            outslice.append(pym.Sum((outoffsets[i], index)))
+            outoffsets[i] += extent
         lvalue = pym.Subscript(pym.Variable(out.name), tuple(outslice))
         rvalue = pym.Subscript(pym.Variable(Atemp.name), tuple(Aslice))
         yield loopy.Assignment(lvalue, rvalue)
