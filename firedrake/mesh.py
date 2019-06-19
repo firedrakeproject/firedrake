@@ -343,7 +343,7 @@ class MeshTopology(object):
     """A representation of mesh topology."""
 
     @timed_function("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters):
+    def __init__(self, plex, name, reorder, distribution_parameters, parent_plex=None):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -351,6 +351,7 @@ class MeshTopology(object):
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`Mesh` for details.
+        :param parent_plex: parent DMPlex object if exits.
         """
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
@@ -400,7 +401,7 @@ class MeshTopology(object):
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
         label_boundary = (self.comm.size == 1) or distribute
-        dmplex.label_facets(plex, label_boundary=label_boundary)
+        dmplex.label_facets(plex, parent_plex=parent_plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
         if self.comm.size > 1 and distribute:
@@ -1266,39 +1267,6 @@ values from f.)"""
                     a = [entity_coords[gdim * e + i] for i in range(gdim)]
                 plex.setLabelValue(labelName, entity, labelValue)
 
-    def markSubdomainIntersection(self, labelName, labelValue, labelEntityType, filterName, filterValues):
-        """Mark subdomain as intersection of existing subdomains.
-
-        :arg labelName: a custum name for the label
-        :arg labelValue: a value to be assigned to the entity set
-        :arg labelEntityType: type of entity to be marked: "cell",
-             "facet", "edge", or "vertex"
-        :arg filterName: an existing subdoain label
-        :arg filterValues: values assigned to the filter to extract
-             intersection with
-        """
-        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL, "exterior_facets", "interior_facets"):
-            raise NameError("'%s' is reserved for default label" % labelName)
-        plex = self._plex
-        if not plex.hasLabel(filterName):
-            raise NameError("Unknown filterName: '%s'" % filterName)
-        if not plex.hasLabel(labelName):
-            plex.createLabel(labelName)
-        if labelEntityType not in _name2height.keys():
-            raise TypeError("Unknown entity type '%s'" % labelEntityType)
-        filterValues = as_tuple(filterValues)
-        if len(filterValues) == 1:
-            raise NotImplementedError("markSubdomainIntersection not defined for a single subdomain")
-        filterEntityTypes = [self.topology._subdomain_types[(filterName, v)] for v in filterValues]
-        if not (filterEntityTypes[1:] == filterEntityTypes[:-1]):
-            raise TypeError("Can not take intersection of entities of different topological dimension")
-        filterEntityType = filterEntityTypes[0]
-        labelHeight = _name2height[labelEntityType]
-        filterHeight = _name2height[filterEntityType]
-        if not (labelHeight == filterHeight + 1):
-            raise ValueError("labelHeight must equals filterHeight + 1")
-        plex.markSubmeshIntersection(labelName, labelValue, filterName, filterValues, filterHeight)
-
     def __getattr__(self, name):
         return getattr(self._topology, name)
 
@@ -1342,6 +1310,7 @@ def Mesh(meshfile, **kwargs):
     :param meshfile: Mesh file name (or DMPlex object) defining
            mesh topology.  See below for details on supported mesh
            formats.
+    :param parent_plex: parent DMPlex object if exists.
     :param dim: optional specification of the geometric dimension
            of the mesh (ignored if not reading from mesh file).
            If not supplied the geometric dimension is deduced from
@@ -1398,6 +1367,7 @@ def Mesh(meshfile, **kwargs):
 
     utils._init()
 
+    parent_plex = kwargs.get("parent_plex", None)
     geometric_dim = kwargs.get("dim", None)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
@@ -1434,7 +1404,7 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
 
     # Create mesh topology
-    topology = MeshTopology(plex, name=name, reorder=reorder,
+    topology = MeshTopology(plex, parent_plex=parent_plex, name=name, reorder=reorder,
                             distribution_parameters=distribution_parameters)
 
     tcell = topology.ufl_cell()
@@ -1496,14 +1466,15 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
 
     # Create "exterior_facets" label
+    """
     subplex.createLabel("exterior_facets")
-    self._subpoint_map = subplex.createSubpointIS().getIndices()
+    _subpoint_map = subplex.createSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
     for f in range(fStart, fEnd):
-        p = self._subpoint_map[f]
+        p = _subpoint_map[f]
         supports = plex.getSupport(p)
         if supports.shape[0] == 1:
-            if plex.getLabelValue("exterior_facets", supports[0]) == 1:
+            if plex.getLabelValue("exterior_facets", p) == 1:
                 # Exterior boundary
                 subplex.setLabelValue("exterior_facets", 1, f)
         elif supports.shape[0] == 2:
@@ -1512,12 +1483,13 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
                 subplex.setLabelValue("exterior_facets", 1, f)
         else:
             raise RuntimeError("Support size of a facet must be 2 or less")
-
+    """
     subgdim = subplex.getCoordinateDim()
     distribution_parameters = mesh._topology._distribution_parameters.copy()
     distribution_parameters["partition"] = False
 
-    return Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)
+    submsh = Mesh(subplex, parent_plex=plex, dim=subgdim, distribution_parameters=distribution_parameters)
+    return submsh
 
 
 @timed_function("CreateExtMesh")

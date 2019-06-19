@@ -37,7 +37,7 @@ def test_submesh_facet_extraction():
         assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
 
     # make submesh
-    _ = SubMesh(msh, "custom_facet", 111, "facet")
+    #submsh = SubMesh(msh, "custom_facet", 111, "facet")
 
 
 @pytest.mark.parallel
@@ -66,7 +66,7 @@ def test_submesh_edge_extraction():
             assert(np.allclose(v, np.array([0., 1.])))
 
     # make submesh
-    _ = SubMesh(msh, "custom_edge", 123, "edge")
+    #_ = SubMesh(msh, "custom_edge", 123, "edge")
 
 
 def test_submesh_poisson_cell():
