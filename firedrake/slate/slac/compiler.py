@@ -177,7 +177,7 @@ def emit_instructions_tensor(tensor, context):
             coordinates = outer.tensor.ufl_domain().coordinates
         else:
             assert coordinates == outer.tensor.ufl_domain().coordinates, "Mismatching coordinates"
-            assert coordinates == context._coords, "Mismatching coordinates"
+            assert coordinates == context.mesh.coordinates, "Mismatching coordinates"
 
         for inner in outer.tsfc_kernels:
             kinfo = inner.kinfo
@@ -242,7 +242,7 @@ def emit_instructions_tensor(tensor, context):
 
                 subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
 
-                cell_facets = pym.Variable(context._cell_facets_arg)
+                cell_facets = pym.Variable(context.cell_facets_arg)
                 predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
                                         for i, j in enumerate([select, subdomain])])
                 i = context.create_index(1)
@@ -512,7 +512,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
             num_facets = mesh.ufl_cell().num_facets()
 
         # Cell-facet map needs to be provided as a global kernel argument
-        arguments.append(loopy.GlobalArg(context._cell_facets_arg,
+        arguments.append(loopy.GlobalArg(context.cell_facets_arg,
                                          shape=(num_facets, 2),
                                          dtype=np.int8))
 
