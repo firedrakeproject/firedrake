@@ -160,7 +160,7 @@ def emit_instructions(tensor, context):
 def emit_instructions_tensor(tensor, context):
 
     temp = context.temporaries[tensor]
-    shape = tensor.shape
+    shape = temp.shape
     kernels = compile_terminal_form(tensor, context.prefix_generator)
     output_tensor = pym.Variable(temp.name)
 
@@ -433,21 +433,23 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         # There is opportunity for optimisation here, based on how the temporary is subsequently used.
         name = "t{}".format(len(temporaries))
 
+        shape = tensor.shape
+        if shape == ():
+            shape = (1, )
         if tensor is slate_expr:
             temp = loopy.GlobalArg(context.result_arg,
-                                   shape=tensor.shape,
+                                   shape=shape,
                                    dtype=SCALAR_TYPE)
-            to_init.append(temp)
             output_arg = temp
         elif isinstance(tensor, slate.AssembledVector) and not tensor.is_mixed:
-            temp = loopy.GlobalArg(coefficients[tensor._function],
-                                   shape=tensor.shape,
+            temp = loopy.GlobalArg(coefficient_dict[tensor._function],
+                                   shape=shape,
                                    dtype=SCALAR_TYPE)
         else:
             # TODO: Think about how we construct temporary variables vs GlobalArgs
             # should they be done here or split up?
             temp = loopy.TemporaryVariable(name,
-                                           shape=tensor.shape,
+                                           shape=shape,
                                            dtype=SCALAR_TYPE,
                                            address_space=loopy.auto)
 
