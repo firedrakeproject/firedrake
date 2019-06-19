@@ -411,13 +411,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Collect nodes that will need temporaries
     temporaries = collections.OrderedDict()
-    coefficients = collections.OrderedDict()
+    coefficient_dict = collections.OrderedDict()
+    coefficients = []
     for i, c in enumerate(slate_expr.coefficients()):
         if type(c.ufl_element()) == ufl.MixedElement:
             for j, c_ in enumerate(c.split()):
-                coefficients[c_] = "w_{}_{}".format(i, j)
+                name = "w_{}_{}".format(i, j)
+                coefficient_dict[c_] = name
+                coefficients.append((c_, name))
         else:
-            coefficients[c] = "w_{}".format(i)
+            name = "w_{}".format(i)
+            coefficient_dict[c] = name
+            coefficients.append((c, name))
 
     mesh = slate_expr.ufl_domain()
     context = Bag()
@@ -476,7 +481,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     context.prefix_generator = map("subkernel{}".format, itertools.count())
     context.indices = []
     context.callable_kernels = []
-    context.coefficients = coefficients
+    context.coefficients = coefficient_dict
     context.kernel_arguments = collections.OrderedDict()
 
     # Initialize relevant temporaries to zero
@@ -503,7 +508,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         kernel_data.append((context.mesh.cell_orientations(),
                             context.cell_orientations_arg))
 
-    kernel_data.extend([(c, name) for c, name in context.coefficients.items()])
+    kernel_data.extend(coefficients)
 
     for c, name in kernel_data:
         extent = index_extent(c)
