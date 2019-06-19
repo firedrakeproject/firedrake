@@ -92,4 +92,4 @@ def test_sphere_mg():
     Solver = LinearVariationalSolver(Prob,
                                      solver_parameters=mg_params)
     Solver.solve()
-    assert(solver.snes.ksp.getIterationNumber() < 5)
+    assert(Solver.snes.ksp.getIterationNumber() < 5)
