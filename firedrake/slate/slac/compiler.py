@@ -99,14 +99,18 @@ class Bag(object):
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, tsfc_parameters):
+    def _cache_key(cls, builder, tsfc_parameters):
+        expr = builder.expression
         return md5((expr.expression_hash
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, tsfc_parameters):
+    def __init__(self, builder, tsfc_parameters):
         if self._initialized:
             return
-        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        if builder._use_loopy:
+            self.split_kernel = generate_loopy_kernel(builder.expression, tsfc_parameters)
+        else:
+            self.split_kernel = generate_kernel(builder.expression, tsfc_parameters)
         self._initialized = True
 
 
@@ -123,6 +127,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
+    builder = LocalKernelBuilder(expression=slate_expr,
+                                 tsfc_parameters=tsfc_parameters)
+
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
@@ -132,7 +139,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        kernel = SlateKernel(builder, tsfc_parameters).split_kernel
         return cache.setdefault(key, kernel)
 
 
@@ -362,7 +369,7 @@ def emit_instructions_mul(tensor, context):
     Bindices = (Aindices[-1], ) + Bindices
     rvalue = pym.Product((pym.Subscript(pym.Variable(Atemp.name), Aindices),
                           pym.Subscript(pym.Variable(Btemp.name), Bindices)))
-    yield loopy.Assignment(lvalue, rvalue)
+    yield loopy.Assignment(lvalue, pym.Sum((lvalue, rvalue)))
 
 
 @emit_instructions.register(slate.Negative)
@@ -386,8 +393,8 @@ def create_domains(indices):
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # TODO: Get PyOP2 to write into mixed dats
-    # if slate_expr.is_mixed:
-    #     raise NotImplementedError("Compiling mixed slate expressions")
+    if slate_expr.is_mixed:
+        raise NotImplementedError("Compiling mixed slate expressions")
 
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
@@ -412,6 +419,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     output_arg = None
     temporary_variables = collections.OrderedDict()
 
+    to_init = []
     for tensor in traverse_dags([slate_expr]):
         # TODO: right now, we always make temporaries for everything
         # There is opportunity for optimisation here, based on how the temporary is subsequently used.
@@ -421,6 +429,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
             temp = loopy.GlobalArg(context.result_arg,
                                    shape=tensor.shape,
                                    dtype=SCALAR_TYPE)
+            to_init.append(temp)
             output_arg = temp
         elif isinstance(tensor, slate.AssembledVector) and not tensor.is_mixed:
             temp = loopy.GlobalArg(coefficients[tensor._function],
@@ -433,6 +442,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,
                                            address_space=loopy.auto)
+
+            # Some temporaries will need to be initalized with zeros
+            if isinstance(tensor, (slate.Mul, slate.Tensor)):
+                to_init.append(temp)
+
             temporary_variables[name] = temp
         temporaries[tensor] = temp
 
@@ -454,13 +468,16 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     context.coefficients = coefficients
     context.kernel_arguments = collections.OrderedDict()
 
-    # Currently unused
-    emitted = set()
+    # Initialize relevant temporaries to zero
+    for t in to_init:
+        name = t.name
+        shape = t.shape
+        indices = tuple(map(context.create_index, shape))
+        instructions.append(loopy.Assignment(pym.Subscript(pym.Variable(name), indices), 0.0))
 
     for tensor in topological_sort(list(traverse_dags([slate_expr]))):
         if tensor in context.temporaries or tensor is slate_expr:
             instructions.extend(emit_instructions(tensor, context))
-            emitted.add(tensor)
 
     domains = list(create_domains(context.indices))
     if not domains:
@@ -534,12 +551,32 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     for k in context.callable_kernels:
         knl = loopy.register_callable_kernel(knl, k)
 
-    return knl, context
+    # WORKAROUND: Generate code directly from the loopy kernel here,
+    # then attach code as a c-string to the op2kernel
+    code = loopy.generate_code_v2(knl).device_code()
+    # import ipdb; ipdb.set_trace()
+    code.replace('void slate_kernel', 'static void slate_kernel')
+    loopykernel = op2.Kernel(code, knl.name)
+
+    kinfo = KernelInfo(kernel=loopykernel,
+                       integral_type="cell",
+                       oriented=context.needs_cell_orientations,
+                       subdomain_id="otherwise",
+                       domain_number=0,
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       needs_cell_facets=context.needs_cell_facets,
+                       pass_layer_arg=context.needs_mesh_layers,
+                       needs_cell_sizes=context.needs_cell_sizes)
+
+    idx = tuple([0]*slate_expr.rank)
+    return (SplitKernel(idx, kinfo),)
+    # return knl, context
 
 
-def generate_kernel(slate_expr, tsfc_parameters=None):
+def generate_kernel(builder, tsfc_parameters=None):
     cpu_time = time.time()
     # TODO: Get PyOP2 to write into mixed dats
+    slate_expr = builder.expression
     if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
 
@@ -547,9 +584,6 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
-    # Create a builder for the Slate expression
-    builder = LocalKernelBuilder(expression=slate_expr,
-                                 tsfc_parameters=tsfc_parameters)
 
     # Keep track of declared temporaries
     declared_temps = {}

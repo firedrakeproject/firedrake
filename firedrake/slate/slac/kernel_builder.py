@@ -93,6 +93,8 @@ class LocalKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
+        self._use_loopy = True
+
         for tensor in expression_dag:
             counter.update(tensor.operands)
 
@@ -128,6 +130,10 @@ class LocalKernelBuilder(object):
                         offset += shape
 
                     seen_coeff.add(function)
+
+            # For now, try using Loopy except when inv/solve are present
+            if isinstance(tensor, (slate.Inverse, slate.Solve)):
+                self._use_loopy = False
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -236,77 +242,80 @@ class LocalKernelBuilder(object):
                          "exterior_facet_vert": "subdomains_exterior_facet",
                          "interior_facet": "subdomains_interior_facet",
                          "interior_facet_vert": "subdomains_interior_facet"}
-        for cxt_kernel in self.context_kernels:
-            local_coefficients = cxt_kernel.coefficients
-            it_type = cxt_kernel.original_integral_type
-            exp = cxt_kernel.tensor
 
-            if it_type not in self.supported_integral_types:
-                raise ValueError("Integral type '%s' not recognized" % it_type)
+        if not self._use_loopy:
 
-            # Explicit checking of coordinates
-            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
-            if coords is not None:
-                assert coordinates == coords, "Mismatching coordinates!"
-            else:
-                coords = coordinates
+            for cxt_kernel in self.context_kernels:
+                local_coefficients = cxt_kernel.coefficients
+                it_type = cxt_kernel.original_integral_type
+                exp = cxt_kernel.tensor
 
-            for split_kernel in cxt_kernel.tsfc_kernels:
-                indices = split_kernel.indices
-                kinfo = split_kernel.kinfo
-                kint_type = kinfo.integral_type
-                needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
+                if it_type not in self.supported_integral_types:
+                    raise ValueError("Integral type '%s' not recognized" % it_type)
 
-                args = [c for i in kinfo.coefficient_map
-                        for c in self.coefficient(local_coefficients[i])]
-
-                if kinfo.oriented:
-                    args.insert(0, self.cell_orientations_sym)
-
-                if kint_type in ["interior_facet",
-                                 "exterior_facet",
-                                 "interior_facet_vert",
-                                 "exterior_facet_vert"]:
-                    args.append(ast.FlatBlock("&%s" % self.it_sym))
-
-                if kinfo.needs_cell_sizes:
-                    args.append(self.cell_size_sym)
-
-                # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
-                call = ast.FunCall(kinfo.kernel.name,
-                                   tensor,
-                                   self.coord_sym,
-                                   *args)
-
-                # Subdomains only implemented for exterior facet integrals
-                if kinfo.subdomain_id != "otherwise":
-                    if kint_type not in subdomain_map:
-                        msg = "Subdomains for integral type '%s' not implemented" % kint_type
-                        raise NotImplementedError(msg)
-
-                    sd_id = kinfo.subdomain_id
-                    sd_key = subdomain_map[kint_type]
-                    subdomain_calls[sd_key].append((sd_id, call))
+                # Explicit checking of coordinates
+                coordinates = cxt_kernel.tensor.ufl_domain().coordinates
+                if coords is not None:
+                    assert coordinates == coords, "Mismatching coordinates!"
                 else:
-                    assembly_calls[it_type].append(call)
+                    coords = coordinates
 
-                # Subkernels for local assembly (Eigen templated functions)
-                from coffee.base import Node
-                assert isinstance(kinfo.kernel._code, Node)
-                kast = transformer.visit(kinfo.kernel._code)
-                templated_subkernels.append(kast)
-                include_dirs.extend(kinfo.kernel._include_dirs)
-                oriented = oriented or kinfo.oriented
+                for split_kernel in cxt_kernel.tsfc_kernels:
+                    indices = split_kernel.indices
+                    kinfo = split_kernel.kinfo
+                    kint_type = kinfo.integral_type
+                    needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
-        # Add subdomain call to assembly dict
-        assembly_calls.update(subdomain_calls)
+                    args = [c for i in kinfo.coefficient_map
+                            for c in self.coefficient(local_coefficients[i])]
 
-        self.assembly_calls = assembly_calls
-        self.templated_subkernels = templated_subkernels
-        self.include_dirs = list(set(include_dirs))
-        self.oriented = oriented
-        self.needs_cell_sizes = needs_cell_sizes
+                    if kinfo.oriented:
+                        args.insert(0, self.cell_orientations_sym)
+
+                    if kint_type in ["interior_facet",
+                                     "exterior_facet",
+                                     "interior_facet_vert",
+                                     "exterior_facet_vert"]:
+                        args.append(ast.FlatBlock("&%s" % self.it_sym))
+
+                    if kinfo.needs_cell_sizes:
+                        args.append(self.cell_size_sym)
+
+                    # Assembly calls within the macro kernel
+                    tensor = eigen_tensor(exp, self.temps[exp], indices)
+                    call = ast.FunCall(kinfo.kernel.name,
+                                       tensor,
+                                       self.coord_sym,
+                                       *args)
+
+                    # Subdomains only implemented for exterior facet integrals
+                    if kinfo.subdomain_id != "otherwise":
+                        if kint_type not in subdomain_map:
+                            msg = "Subdomains for integral type '%s' not implemented" % kint_type
+                            raise NotImplementedError(msg)
+
+                        sd_id = kinfo.subdomain_id
+                        sd_key = subdomain_map[kint_type]
+                        subdomain_calls[sd_key].append((sd_id, call))
+                    else:
+                        assembly_calls[it_type].append(call)
+
+                    # Subkernels for local assembly (Eigen templated functions)
+                    from coffee.base import Node
+                    assert isinstance(kinfo.kernel._code, Node)
+                    kast = transformer.visit(kinfo.kernel._code)
+                    templated_subkernels.append(kast)
+                    include_dirs.extend(kinfo.kernel._include_dirs)
+                    oriented = oriented or kinfo.oriented
+
+                # Add subdomain call to assembly dict
+                assembly_calls.update(subdomain_calls)
+
+                self.assembly_calls = assembly_calls
+                self.templated_subkernels = templated_subkernels
+                self.include_dirs = list(set(include_dirs))
+                self.oriented = oriented
+                self.needs_cell_sizes = needs_cell_sizes
 
     @cached_property
     def coefficient_map(self):
@@ -341,8 +350,13 @@ class LocalKernelBuilder(object):
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
+        if self._use_loopy:
+            use_coffee = False
+        else:
+            use_coffee = True
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
-                                          tsfc_parameters=self.tsfc_parameters)
+                                          tsfc_parameters=self.tsfc_parameters,
+                                          use_coffee=use_coffee)
                     for i, expr in enumerate(self.temps)]
 
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
