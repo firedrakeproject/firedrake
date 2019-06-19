@@ -485,6 +485,7 @@ class Block(TensorBase):
         """Constructor for the Block class."""
         super(Block, self).__init__()
         self.operands = (tensor,)
+        indices = tuple(as_tuple(i) for i in indices)
         self._blocks = dict(enumerate(indices))
         self._indices = indices
 
