@@ -783,6 +783,47 @@ def label_facets(PETSc.DM plex, label_boundary=True):
             CHKERR(DMLabelSetValue(lbl_int, facet, 1))
     CHKERR(DMLabelDestroyIndex(lbl_ext))
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, filterValue):
+    """Add labels to facets in the the plex
+
+    Facets on the boundary are marked with "exterior_facets" while all
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
+    cdef:
+        PetscInt fStart, fEnd, facet, pStart, pEnd
+        char *ext_label = <char *>"exterior_facets"
+        DMLabel lbl_ext, plbl_ext
+        PetscBool has_point
+
+    #plex.createLabel(ext_label)
+    #CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
+
+    # Mark boundaries as exterior_facets
+    #if label_boundary:
+    #    plex.markBoundaryFaces(ext_label)
+
+    subplex.createLabel("exterior_facets")
+    _subpoint_map = subplex.createSubpointIS().getIndices()
+    fStart, fEnd = subplex.getHeightStratum(1)
+    for f in range(fStart, fEnd):
+        supports = subplex.getSupport(f)
+        if supports.shape[0] == 1:
+            if plex.getLabelValue("exterior_facets", _subpoint_map[supports[0]]) == 1:
+                # Exterior boundary
+                subplex.setLabelValue("exterior_facets", 1, f)
+        elif supports.shape[0] == 2:
+            if sorted([plex.getLabelValue(filterName, _subpoint_map[supports[i]]) == filterValue for i in [0, 1]]) == [False, True]:
+                # Subdomain boundary: one support is in the domain and the other is not.
+                subplex.setLabelValue("exterior_facets", 1, f)
+        else:
+            raise RuntimeError("Support size of a facet must be 2 or less")
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def cell_facet_labeling(PETSc.DM plex,

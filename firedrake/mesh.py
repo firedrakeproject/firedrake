@@ -343,7 +343,7 @@ class MeshTopology(object):
     """A representation of mesh topology."""
 
     @timed_function("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, parent_plex=None):
+    def __init__(self, plex, name, reorder, distribution_parameters):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -351,7 +351,6 @@ class MeshTopology(object):
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`Mesh` for details.
-        :param parent_plex: parent DMPlex object if exits.
         """
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
@@ -401,7 +400,7 @@ class MeshTopology(object):
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
         label_boundary = (self.comm.size == 1) or distribute
-        dmplex.label_facets(plex, parent_plex=parent_plex, label_boundary=label_boundary)
+        dmplex.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
         if self.comm.size > 1 and distribute:
@@ -1310,7 +1309,6 @@ def Mesh(meshfile, **kwargs):
     :param meshfile: Mesh file name (or DMPlex object) defining
            mesh topology.  See below for details on supported mesh
            formats.
-    :param parent_plex: parent DMPlex object if exists.
     :param dim: optional specification of the geometric dimension
            of the mesh (ignored if not reading from mesh file).
            If not supplied the geometric dimension is deduced from
@@ -1367,7 +1365,6 @@ def Mesh(meshfile, **kwargs):
 
     utils._init()
 
-    parent_plex = kwargs.get("parent_plex", None)
     geometric_dim = kwargs.get("dim", None)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
@@ -1404,7 +1401,7 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
 
     # Create mesh topology
-    topology = MeshTopology(plex, parent_plex=parent_plex, name=name, reorder=reorder,
+    topology = MeshTopology(plex, name=name, reorder=reorder,
                             distribution_parameters=distribution_parameters)
 
     tcell = topology.ufl_cell()
@@ -1466,6 +1463,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
 
     # Create "exterior_facets" label
+    submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
     """
     subplex.createLabel("exterior_facets")
     _subpoint_map = subplex.createSubpointIS().getIndices()
@@ -1488,7 +1486,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     distribution_parameters = mesh._topology._distribution_parameters.copy()
     distribution_parameters["partition"] = False
 
-    submsh = Mesh(subplex, parent_plex=plex, dim=subgdim, distribution_parameters=distribution_parameters)
+    submsh = Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)
     return submsh
 
 
