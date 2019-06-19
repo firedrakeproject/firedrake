@@ -118,7 +118,7 @@ class SlateKernel(TSFCKernel):
         if builder._use_loopy:
             self.split_kernel = generate_loopy_kernel(builder.expression, tsfc_parameters)
         else:
-            self.split_kernel = generate_kernel(builder.expression, tsfc_parameters)
+            self.split_kernel = generate_kernel(builder, tsfc_parameters)
         self._initialized = True
 
 
