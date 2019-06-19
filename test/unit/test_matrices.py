@@ -882,21 +882,17 @@ class TestMixedMatrices:
     def mat(self, msparsity, mmap, mdat):
         mat = op2.Mat(msparsity)
 
-        code = c_for("i", 3,
-                     c_for("j", 3,
-                           Incr(Symbol("v", ("i", "j")), FlatBlock("d[i][0] * d[j][0]"))))
-        addone = FunDecl("void", "addone_mat",
-                         [Decl("double", Symbol("v", (3, 3))),
-                          Decl("double", c_sym("**d"))],
-                         Block([code], open_scope=False),
-                         pred=["static"])
+        addone = """static void addone_mat(double v[9], double d[3]) {
+            for (int i = 0; i < 3; i++)
+               for (int j = 0; j < 3; j++)
+                  v[i*3 + j] += d[i]*d[j];
+        }"""
 
         addone = op2.Kernel(addone, "addone_mat")
         op2.par_loop(addone, mmap.iterset,
                      mat(op2.INC, (mmap, mmap)),
                      mdat(op2.READ, mmap))
         mat.assemble()
-        mat._force_evaluation()
         return mat
 
     @pytest.fixture
@@ -913,7 +909,6 @@ class TestMixedMatrices:
                      mdat(op2.READ, mmap))
         return dat
 
-    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_assemble_mixed_mat(self, mat):
         """Assemble into a matrix declared on a mixed sparsity."""
         eps = 1.e-12
@@ -947,15 +942,6 @@ class TestMixedMatrices:
         exp = np.kron(list(zip([1.0, 4.0, 6.0, 4.0])), np.ones(2))
         assert_allclose(dat[0].data_ro, np.kron(list(zip(rdata(3))), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
-
-    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
-    def test_solve_mixed(self, mat, dat):
-        x = op2.MixedDat(dat.dataset)
-        op2.solve(mat, x, dat)
-        b = mat * x
-        eps = 1.e-12
-        assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
-        assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
 
 if __name__ == '__main__':
