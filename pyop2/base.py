@@ -215,11 +215,11 @@ class Arg(object):
             return tuple(_make_object('Arg', d, m, self._access)
                          for d, m in zip(self.data, self._map))
         elif self._is_mixed_mat:
-            s = self.data.sparsity.shape
+            rows, cols = self.data.sparsity.shape
             mr, mc = self.map
             return tuple(_make_object('Arg', self.data[i, j], (mr.split[i], mc.split[j]),
                                       self._access)
-                         for j in range(s[1]) for i in range(s[0]))
+                         for i in range(rows) for j in range(cols))
         else:
             return (self,)
 
