@@ -79,6 +79,14 @@ EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
+def index_extent(coefficient):
+    element = coefficient.ufl_element()
+    if element.family() == "Real":
+        return coefficient.dat.cdim
+    else:
+        return create_element(element).space_dimension()
+
+
 # TODO: Probably needs a better name.
 class Bag(object):
     coordinates_arg = "coords"
@@ -217,7 +225,7 @@ def emit_instructions_tensor(tensor, context):
                                                            for c in local_coefficients))])
 
             for c, name in kernel_data:
-                extent = create_element(c.ufl_element()).space_dimension()
+                extent = index_extent(c)
                 idx = context.create_index(extent)
                 argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
                 reads.append(argument)
@@ -288,7 +296,7 @@ def emit_instructions_assembled_vector(tensor, context):
         for c in coefficient.split():
             lvalue = pym.Variable(temp.name)
             rvalue = pym.Variable(context.coefficients[c])
-            extent = create_element(c.ufl_element()).space_dimension()
+            extent = index_extent(c)
             index = context.create_index(extent)
             yield loopy.Assignment(pym.Subscript(lvalue, (pym.Sum((offset, index)), )),
                                    pym.Subscript(rvalue, (index, )))
@@ -496,7 +504,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     kernel_data.extend([(c, name) for c, name in context.coefficients.items()])
 
     for c, name in kernel_data:
-        extent = create_element(c.ufl_element()).space_dimension()
+        extent = index_extent(c)
         dtype = c.dat.dtype
         arguments.append(loopy.GlobalArg(name,
                                          shape=(extent, ),
@@ -533,7 +541,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     if context.needs_cell_sizes:
         cell_sizes = context.mesh.cell_sizes
         name = context.cell_size_arg
-        extent = create_element(cell_sizes.ufl_element()).space_dimension()
+        extent = index_extent(cell_sizes)
         arguments.append(loopy.GlobalArg(name,
                                          shape=(extent, ),
                                          dtype=cell_sizes.dat.dtype))
