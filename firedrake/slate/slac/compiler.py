@@ -248,11 +248,14 @@ def emit_instructions_tensor(tensor, context):
                 else:
                     select = 0
 
-                subdomain = {"otherwise": -1}.get(kinfo.subdomain_id, kinfo.subdomain_id)
-
                 cell_facets = pym.Variable(context.cell_facets_arg)
-                predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx, i)), "==", j)
-                                        for i, j in enumerate([select, subdomain])])
+                predicates = [pym.Comparison(pym.Subscript(cell_facets, (fidx, 0)), "==", select)]
+                # TODO, this does the wrong thing for integrals like f*ds + g*ds(1)
+                # "otherwise" is treated incorrectly as "everywhere"
+                # However, this replicates an existing slate bug.
+                if kinfo.subdomain_id != "otherwise":
+                    predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx, 1)), "==", kinfo.subdomain_id))
+
                 i = context.create_index(1)
                 subscript = pym.Subscript(pym.Variable(context.local_facet_array_arg),
                                           (pym.Sum((i, fidx))))
