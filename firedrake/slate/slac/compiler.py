@@ -153,7 +153,7 @@ def emit_instructions_tensor(tensor, context):
 
     temp = context.temporaries[tensor]
     shape = tensor.shape
-    kernels = compile_terminal_form(tensor)
+    kernels = compile_terminal_form(tensor, context.prefix_generator)
     output_tensor = pym.Variable(temp.name)
 
     if not tensor.is_mixed:
@@ -463,6 +463,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     context.create_index = partial(create_index,
                                    namer=map("i{}".format, itertools.count()),
                                    context=context)
+    context.prefix_generator = map("subkernel{}".format, itertools.count())
     context.indices = []
     context.callable_kernels = []
     context.coefficients = coefficients

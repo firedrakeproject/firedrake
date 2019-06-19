@@ -1,5 +1,6 @@
 import collections
 
+from itertools import count
 from functools import partial
 
 from firedrake.slate.slate import Tensor
@@ -29,7 +30,7 @@ particular integral type.
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix="subkernel_", tsfc_parameters=None,
+def compile_terminal_form(tensor, prefix_generator=None, tsfc_parameters=None,
                           use_coffee=False):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :class:`ContextKernel`
@@ -37,8 +38,7 @@ def compile_terminal_form(tensor, prefix="subkernel_", tsfc_parameters=None,
     and the corresponding TSFC kernels.
 
     :arg tensor: A Slate `Tensor`.
-    :arg prefix: An optional `string` indicating the prefix for the
-                 subkernel.
+    :arg prefix_generator: An iterable that generates unique prefixes.
     :arg tsfc_parameters: An optional `dict` of parameters to provide
                           TSFC.
 
@@ -58,8 +58,10 @@ def compile_terminal_form(tensor, prefix="subkernel_", tsfc_parameters=None,
 
     transformed_integrals = transform_integrals(integrals)
     cxt_kernels = []
-    for orig_it_type, integrals in transformed_integrals.items():
-        subkernel_prefix = prefix + "%s_to_" % orig_it_type
+    if prefix_generator is None:
+        prefix_generator = map("subkernel{}".format, count())
+    for (orig_it_type, integrals), prefix in zip(transformed_integrals.items(), prefix_generator):
+        subkernel_prefix = "{}_{}_to_".format(prefix, orig_it_type)
         form = Form(integrals)
         kernels = tsfc_compile(form,
                                subkernel_prefix,

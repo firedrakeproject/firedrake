@@ -3,6 +3,7 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 from functools import singledispatch
+from itertools import count
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
@@ -349,12 +350,12 @@ class LocalKernelBuilder(object):
         and integral type information.
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
-
+        prefix_generator = map("subkernel{}".format, count())
         if self._use_loopy:
             use_coffee = False
         else:
             use_coffee = True
-        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+        cxt_list = [compile_terminal_form(expr, prefix_generator=prefix_generator,
                                           tsfc_parameters=self.tsfc_parameters,
                                           use_coffee=use_coffee)
                     for i, expr in enumerate(self.temps)]
