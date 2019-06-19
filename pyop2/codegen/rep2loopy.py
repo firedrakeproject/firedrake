@@ -29,7 +29,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           Materialise, Accumulate, FunctionCall, When,
                                           Argument, Variable, Literal, NamedLiteral,
                                           Symbol, Zero, Sum, Min, Max, Product)
-from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
+from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 
 
@@ -307,13 +307,12 @@ def instruction_dependencies(instructions, initialisers):
         )))
         deps[op] -= frozenset(names[op])
 
-    # kernel instructions depends on packing instructions
-    for op in instructions_by_type[KernelInst]:
-        deps[op] |= frozenset(names[o] for o in instructions_by_type[PackInst])
-
-    # unpacking instructions depends on kernel instructions
-    for op in instructions_by_type[UnpackInst]:
-        deps[op] |= frozenset(names[o] for o in instructions_by_type[KernelInst])
+    for typ, depends_on in [(KernelInst, [PackInst]),
+                            (PreUnpackInst, [KernelInst]),
+                            (UnpackInst, [KernelInst, PreUnpackInst])]:
+        for op in instructions_by_type[typ]:
+            ops = itertools.chain(*(instructions_by_type[t] for t in depends_on))
+            deps[op] |= frozenset(names[o] for o in ops)
 
     # add sequential instructions in the initialisers
     for inits in initialisers:
@@ -322,8 +321,7 @@ def instruction_dependencies(instructions, initialisers):
                 deps[p] |= frozenset(names[c] for c in imperatives(inits[:i])) - frozenset([name])
 
     # add name to deps
-    deps = dict((op, (names[op], dep)) for op, dep in deps.items())
-    return deps
+    return dict((op, (names[op], dep)) for op, dep in deps.items())
 
 
 def generate(builder, wrapper_name=None):
