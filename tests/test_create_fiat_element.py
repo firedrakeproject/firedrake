@@ -86,10 +86,12 @@ def test_triangle_variant_spectral_fail():
     with pytest.raises(ValueError):
         create_element(ufl_element)
 
+
 def test_triangle_variant_spectral_fail_l2():
     ufl_element = ufl.FiniteElement('DP L2', ufl.triangle, 2, variant='spectral')
     with pytest.raises(ValueError):
         create_element(ufl_element)
+
 
 def test_quadrilateral_variant_spectral_q():
     element = create_element(ufl.FiniteElement('Q', ufl.quadrilateral, 3, variant='spectral'))
@@ -102,10 +104,12 @@ def test_quadrilateral_variant_spectral_dq():
     assert isinstance(element.element.A, FIAT.GaussLegendre)
     assert isinstance(element.element.B, FIAT.GaussLegendre)
 
+
 def test_quadrilateral_variant_spectral_dq_l2():
     element = create_element(ufl.FiniteElement('DQ L2', ufl.quadrilateral, 1, variant='spectral'))
     assert isinstance(element.element.A, FIAT.GaussLegendre)
     assert isinstance(element.element.B, FIAT.GaussLegendre)
+
 
 def test_quadrilateral_variant_spectral_rtcf():
     element = create_element(ufl.FiniteElement('RTCF', ufl.quadrilateral, 2, variant='spectral'))
