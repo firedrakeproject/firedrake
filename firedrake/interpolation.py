@@ -78,7 +78,7 @@ class Interpolator(object):
 
         :returns: The resulting interpolated :class:`.Function`.
         """
-        if transpose and not self.nargs:
+        if transpose and self.nargs > 0:
             raise ValueError("Can currently only apply transpose interpolation with arguments.")
         if self.nargs != len(function):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
@@ -174,7 +174,7 @@ def make_interpolator(expr, V, subset, access):
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
-    # else:
+    else:
     #     # Slice the expression and pass in the right number of values for
     #     # each component function space of this function
     #     d = 0
@@ -184,7 +184,7 @@ def make_interpolator(expr, V, subset, access):
     #                                    SubExpression(expr, idx, fs.ufl_element().value_shape()),
     #                                    subset, arguments, access))
     #         d += dim
-    raise ValueError("Don't know how to interpolate a %r" % expr)
+        raise ValueError("Don't know how to interpolate a %r" % expr)
 
     def callable(loops, f):
         for l in loops:
