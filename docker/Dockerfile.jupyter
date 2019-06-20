@@ -19,7 +19,9 @@ WORKDIR /home/firedrake
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install jupyterhub ipykernel notebook ipywidgets mpltools nbformat"
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbextension enable --py widgetsnbextension --sys-prefix"
 RUN bash -c "rm firedrake-*"
-
 RUN bash -c "cp -r firedrake/src/firedrake/docs/notebooks/* ."
+
 ENV OMPI_MCA_btl=tcp,self
 ENV PATH=/home/firedrake/firedrake/bin:$PATH
+
+CMD /home/firedrake/firedrake/bin/jupyter notebook --ip 0.0.0.0 --no-browser --allow-root
