@@ -133,6 +133,7 @@ def test_assemble_mat_with_tensor(mesh):
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
+
 def test_assemble_mat_with_tensor_l2(mesh):
     V = FunctionSpace(mesh, "DG L2", 0)
     u = TestFunction(V)

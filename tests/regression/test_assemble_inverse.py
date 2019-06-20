@@ -17,6 +17,7 @@ def test_assemble_inverse(degree):
 
     assert ((eye - np.eye(fs.node_count)).round(12) == 0).all()
 
+
 @pytest.mark.parametrize("degree", range(4))
 def test_assemble_inverse_l2(degree):
     m = UnitSquareMesh(2, 1)

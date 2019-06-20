@@ -26,11 +26,13 @@ def cg2(mesh):
 def dg0(mesh):
     return VectorFunctionSpace(mesh, "DG", 0)
 
+
 @pytest.fixture(scope="module")
 def dg0l2(mesh):
     return VectorFunctionSpace(mesh, "DG L2", 0)
 
-@pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0',  'cg1dg0l2', 'cg2dg0l2'])
+
+@pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0', 'cg1dg0l2', 'cg2dg0l2'])
 def fs(request, cg1, cg2, dg0):
     return {'cg1cg1': cg1*cg1,
             'cg1cg2': cg1*cg2,
