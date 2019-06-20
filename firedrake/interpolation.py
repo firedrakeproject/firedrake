@@ -79,7 +79,7 @@ class Interpolator(object):
         :returns: The resulting interpolated :class:`.Function`.
         """
         if transpose and not self.nargs:
-            raise ValueError("Cannot currently apply transpose interpolation with no argument.")
+            raise ValueError("Can currently only apply transpose interpolation with arguments.")
         if self.nargs != len(function):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
                              % (len(function), self.nargs))
@@ -103,9 +103,19 @@ class Interpolator(object):
                         callable.handle.mult(x, out)
             else:
                 result = output or firedrake.Function(self.args[0].function_space())
-                with function.dat.vec_ro as x:
-                    with result.dat.vec_wo as out:
-                        callable.handle.multTranspose(x, out)
+                # with function.dat.vec_ro as x:
+                #     with result.dat.vec_wo as out:
+                #         callable.handle.multTranspose(x, out)
+                if transpose:
+                    mul = callable.handle.multTranspose
+                    V = self.args[0].function_space()
+                else:
+                    mul = callable.handle.mult
+                    V = self.V
+                result = output or firedrake.Function(V)
+                with function.dat.vec_ro as x, result.dat.vec_wo as out:
+                    mul(x, out)
+
 
             return result
         else:
