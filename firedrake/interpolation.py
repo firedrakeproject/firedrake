@@ -174,16 +174,17 @@ def make_interpolator(expr, V, subset, access):
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
-    else:
-        # Slice the expression and pass in the right number of values for
-        # each component function space of this function
-        d = 0
-        for fs, dat, dim in zip(V, f.dat, dims):
-            idx = d if fs.rank == 0 else slice(d, d+dim)
-            loops.extend(_interpolator(fs, dat,
-                                       SubExpression(expr, idx, fs.ufl_element().value_shape()),
-                                       subset, arguments, access))
-            d += dim
+    # else:
+    #     # Slice the expression and pass in the right number of values for
+    #     # each component function space of this function
+    #     d = 0
+    #     for fs, dat, dim in zip(V, f.dat, dims):
+    #         idx = d if fs.rank == 0 else slice(d, d+dim)
+    #         loops.extend(_interpolator(fs, dat,
+    #                                    SubExpression(expr, idx, fs.ufl_element().value_shape()),
+    #                                    subset, arguments, access))
+    #         d += dim
+    raise ValueError("Don't know how to interpolate a %r" % expr)
 
     def callable(loops, f):
         for l in loops:
