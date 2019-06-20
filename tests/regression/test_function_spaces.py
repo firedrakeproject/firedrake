@@ -26,13 +26,18 @@ def cg2(mesh):
 def dg0(mesh):
     return VectorFunctionSpace(mesh, "DG", 0)
 
+@pytest.fixture(scope="module")
+def dg0l2(mesh):
+    return VectorFunctionSpace(mesh, "DG L2", 0)
 
-@pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0'])
+@pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0',  'cg1dg0l2', 'cg2dg0l2'])
 def fs(request, cg1, cg2, dg0):
     return {'cg1cg1': cg1*cg1,
             'cg1cg2': cg1*cg2,
             'cg1dg0': cg1*dg0,
-            'cg2dg0': cg2*dg0}[request.param]
+            'cg2dg0': cg2*dg0,
+            'cg1dg0l2': cg1*dg0l2,
+            'cg2dg0l2': cg2*dg0l2}[request.param]
 
 
 def test_function_space_cached(mesh):
@@ -105,7 +110,9 @@ def test_function_space_collapse(cg1):
                           TensorProductElement(FiniteElement("CG", triangle, 1),
                                                FiniteElement("CG", interval, 3)),
                           MixedElement(FiniteElement("CG", triangle, 1),
-                                       FiniteElement("DG", triangle, 2))],
+                                       FiniteElement("DG", triangle, 2)),
+                          MixedElement(FiniteElement("CG", triangle, 1),
+                                       FiniteElement("DG L2", triangle, 2))],
                          ids=["FE", "Enriched", "TPE", "Mixed"])
 def test_validation(modifier, element):
     with pytest.raises(ValueError):
