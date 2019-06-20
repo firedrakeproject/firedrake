@@ -463,7 +463,11 @@ class MeshTopology(object):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
+                print(888)
+                sys.stdout.flush()
                 dmplex.mark_entity_classes(self._plex)
+                print(999)
+                sys.stdout.flush()
                 self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
@@ -1463,28 +1467,12 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
 
     # Create "exterior_facets" label
-    submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
-    """
-    subplex.createLabel("exterior_facets")
-    _subpoint_map = subplex.createSubpointIS().getIndices()
-    fStart, fEnd = subplex.getHeightStratum(1)
-    for f in range(fStart, fEnd):
-        p = _subpoint_map[f]
-        supports = plex.getSupport(p)
-        if supports.shape[0] == 1:
-            if plex.getLabelValue("exterior_facets", p) == 1:
-                # Exterior boundary
-                subplex.setLabelValue("exterior_facets", 1, f)
-        elif supports.shape[0] == 2:
-            if sorted([plex.getLabelValue(filterName, supports[i]) == filterValue for i in [0, 1]]) == [False, True]:
-                # Subdomain boundary: one support is in the domain and the other is not.
-                subplex.setLabelValue("exterior_facets", 1, f)
-        else:
-            raise RuntimeError("Support size of a facet must be 2 or less")
-    """
+    dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
+
     subgdim = subplex.getCoordinateDim()
     distribution_parameters = mesh._topology._distribution_parameters.copy()
     distribution_parameters["partition"] = False
+    distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.NONE, 0)
 
     submsh = Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)
     return submsh

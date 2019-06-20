@@ -766,15 +766,16 @@ def label_facets(PETSc.DM plex, label_boundary=True):
         PetscBool has_point
 
     fStart, fEnd = plex.getHeightStratum(1)
-    plex.createLabel(ext_label)
+    if not plex.hasLabel("exterior_facets"):
+        plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
+
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
-
     CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
@@ -800,28 +801,22 @@ def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, f
         DMLabel lbl_ext, plbl_ext
         PetscBool has_point
 
-    #plex.createLabel(ext_label)
-    #CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
-
-    # Mark boundaries as exterior_facets
-    #if label_boundary:
-    #    plex.markBoundaryFaces(ext_label)
-
     subplex.createLabel("exterior_facets")
     _subpoint_map = subplex.createSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
+    pfStart, pfEnd = plex.getHeightStratum(1)
     for f in range(fStart, fEnd):
+        pf = _subpoint_map[f]
         supports = subplex.getSupport(f)
         if supports.shape[0] == 1:
-            if plex.getLabelValue("exterior_facets", _subpoint_map[supports[0]]) == 1:
+            if plex.getLabelValue("exterior_facets", pf) == 1:
                 # Exterior boundary
-                subplex.setLabelValue("exterior_facets", 1, f)
-        elif supports.shape[0] == 2:
-            if sorted([plex.getLabelValue(filterName, _subpoint_map[supports[i]]) == filterValue for i in [0, 1]]) == [False, True]:
-                # Subdomain boundary: one support is in the domain and the other is not.
-                subplex.setLabelValue("exterior_facets", 1, f)
-        else:
-            raise RuntimeError("Support size of a facet must be 2 or less")
+                subplex.setLabelValue("exterior_facets", f, 1)
+                continue
+        pfsupports = plex.getSupport(pf)
+        if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
+            # Subdomain boundary: one support is in the domain and the other is not.
+            subplex.setLabelValue("exterior_facets", f, 1)
 
 
 @cython.boundscheck(False)
@@ -935,11 +930,14 @@ def mark_entity_classes(PETSc.DM plex):
 
     pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
-
+    print(plex.comm.rank, pStart, pEnd, cStart, cEnd)
+    import sys
+    sys.stdout.flush()
     plex.createLabel("pyop2_core")
     plex.createLabel("pyop2_owned")
     plex.createLabel("pyop2_ghost")
-
+    import time
+    time.sleep(2)
     CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &lbl_core))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
