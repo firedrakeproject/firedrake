@@ -15,7 +15,7 @@ def mesh():
 
 
 @pytest.fixture(scope='module', params=["DG", "DPC"])
-def DG0(request, mesh):
+def DGDPC0(request, mesh):
     return FunctionSpace(mesh, request.param, 0)
 
 
