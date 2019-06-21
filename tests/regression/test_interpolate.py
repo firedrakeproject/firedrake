@@ -327,17 +327,4 @@ def test_adjoint_dg():
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
-
-
-def test_adjoint_tr():
-    mesh = UnitSquareMesh(10,10)
-    cg = FunctionSpace(mesh, "CG", 1)
-    tr = FunctionSpace(mesh, "HDiv Trace", 1)
-
-    v = TestFunction(tr)
-    u_cg = assemble(TestFunction(cg) * ds)
-    interpolator = Interpolator(TestFunction(cg), tr)
-    v_adj = interpolator.interpolate(assemble(v * ds), transpose=True)
-
-    assert np.allclose(u_cg.dat.data, v_adj.dat.data)
     

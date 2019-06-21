@@ -78,7 +78,7 @@ class Interpolator(object):
 
         :returns: The resulting interpolated :class:`.Function`.
         """
-        if transpose and self.nargs > 0:
+        if transpose and not self.nargs:
             raise ValueError("Can currently only apply transpose interpolation with arguments.")
         if self.nargs != len(function):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
@@ -98,14 +98,17 @@ class Interpolator(object):
             function, = function
             if not transpose:
                 result = output or firedrake.Function(self.V)
-                with function.dat.vec_ro as x:
-                    with result.dat.vec_wo as out:
-                        callable.handle.mult(x, out)
+                if transpose:
+                    mul = callable.handle.multTranspose
+                    V = self.args[0].function_space()
+                else:
+                    mul = callable.handle.mult
+                    V = self.V
+                result = output or firedrake.Function(V)
+                with function.dat.vec_ro as x, result.dat.vec_wo as out:
+                    mul(x, out)
             else:
                 result = output or firedrake.Function(self.args[0].function_space())
-                # with function.dat.vec_ro as x:
-                #     with result.dat.vec_wo as out:
-                #         callable.handle.multTranspose(x, out)
                 if transpose:
                     mul = callable.handle.multTranspose
                     V = self.args[0].function_space()
@@ -175,15 +178,6 @@ def make_interpolator(expr, V, subset, access):
                 "Python expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
     else:
-    #     # Slice the expression and pass in the right number of values for
-    #     # each component function space of this function
-    #     d = 0
-    #     for fs, dat, dim in zip(V, f.dat, dims):
-    #         idx = d if fs.rank == 0 else slice(d, d+dim)
-    #         loops.extend(_interpolator(fs, dat,
-    #                                    SubExpression(expr, idx, fs.ufl_element().value_shape()),
-    #                                    subset, arguments, access))
-    #         d += dim
         raise ValueError("Don't know how to interpolate a %r" % expr)
 
     def callable(loops, f):
