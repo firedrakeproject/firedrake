@@ -211,6 +211,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
+        for e in f.coefficients():
+            if isinstance(e, AbstractPointwiseOperator):
+                f._coefficients += e.ufl_operands  # Use Extract_coefficients for the case where the operands are not coefficients
         kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
@@ -404,7 +407,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for c in coefficients:
             if isinstance(c, AbstractPointwiseOperator):
                 if collect_loops:
-                    loops.append(c.evaluate())
+                    loops.append(c.evaluate)
                 else:
                     c.evaluate()
 
