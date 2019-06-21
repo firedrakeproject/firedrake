@@ -5,10 +5,17 @@ import pytest
 from firedrake import *
 
 
+@pytest.fixture(params=["scalar", "vector"])
+def fs_kind(request):
+    return request.param
+
+
 @pytest.fixture
-def V(extmesh):
+def V(extmesh, fs_kind):
     mesh = extmesh(2, 2, 8)
-    return FunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
+    if fs_kind == 'scalar':
+        return FunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
+    return VectorFunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
 
 
 @pytest.fixture(params=["linear", "sin"])
@@ -19,15 +26,16 @@ def variant(request):
 @pytest.fixture
 def expr(variant, V):
     x, y, z = SpatialCoordinate(V.ufl_domain())
-    if variant == "linear":
-        return z
-    else:
-        return sin(pi*z)
+    val = {"linear": z, "sin": sin(pi*z)}[variant]
+    if V.value_size == 1:
+        return val
+    return as_vector((val, 0, 0))
 
 
 @pytest.fixture
-def solution(variant):
-    return {"linear": Constant(0.5), "sin": Constant(2.0/pi)}[variant]
+def solution(variant, fs_kind):
+    val = {"linear": 0.5, "sin": 2.0/pi}[variant]
+    return {"scalar": Constant(val), "vector": Constant((val, 0, 0))}[fs_kind]
 
 
 @pytest.fixture
@@ -41,8 +49,8 @@ def test_vertical_average(V, expr, solution, tolerance):
     v = TestFunction(V)
 
     out = Function(V)
-    solve(u*v*dx == expr*v*dx, out)
-    l2err = sqrt(assemble((out-solution)*(out-solution)*dx))
+    solve(dot(u, v)*dx == dot(expr, v)*dx, out)
+    l2err = sqrt(assemble(dot(out-solution, out-solution)*dx))
     assert abs(l2err) < tolerance
 
 
