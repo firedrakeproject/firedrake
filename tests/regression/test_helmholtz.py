@@ -20,11 +20,11 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
-def helmholtz(r, quadrilateral=False, degree=2, mesh=None, element="CG"):
+def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
     if mesh is None:
         mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
-    V = FunctionSpace(mesh, element, degree)
+    V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
     lmbda = 1
