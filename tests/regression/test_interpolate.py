@@ -123,35 +123,9 @@ def test_cell_orientation():
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
 
-def test_cell_orientation_l2():
-    m = UnitCubedSphereMesh(2)
-    x = SpatialCoordinate(m)
-    m.init_cell_orientations(x)
-    x = m.coordinates
-    U = FunctionSpace(m, 'RTCF', 1)
-    V = VectorFunctionSpace(m, 'DQ L2', 1)
-
-    f = project(as_tensor([x[1], -x[0], 0.0]), U)
-    g = interpolate(f, V)
-
-    # g shall be close to:
-    h = project(f, V)
-
-    assert abs(g.dat.data - h.dat.data).max() < 1e-2
-
-
 def test_cellvolume():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG', 0)
-
-    f = interpolate(CellVolume(m), V)
-
-    assert np.allclose(f.dat.data_ro, 0.125)
-
-
-def test_cellvolume_l2():
-    m = UnitSquareMesh(2, 2)
-    V = FunctionSpace(m, 'DG L2', 0)
 
     f = interpolate(CellVolume(m), V)
 
@@ -174,26 +148,6 @@ def test_cellvolume_higher_order_coords():
 
     mesh = Mesh(f)
     g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0))
-
-    assert np.allclose(g.dat.data_ro, 0.5 - (1.0/4.0 - (1 - 19.0/12.0)/3.0 - 19/24.0))
-
-
-def test_cellvolume_higher_order_coords_l2():
-    m = UnitTriangleMesh()
-    V = VectorFunctionSpace(m, 'P', 3)
-    f = Function(V)
-    f.interpolate(m.coordinates)
-
-    # Warp mesh so that the bottom triangle line is:
-    # x(x - 1)(x + a) with a = 19/12.0
-    def warp(x):
-        return x * (x - 1)*(x + 19/12.0)
-
-    f.dat.data[1, 1] = warp(1.0/3.0)
-    f.dat.data[2, 1] = warp(2.0/3.0)
-
-    mesh = Mesh(f)
-    g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG L2', 0))
 
     assert np.allclose(g.dat.data_ro, 0.5 - (1.0/4.0 - (1 - 19.0/12.0)/3.0 - 19/24.0))
 
