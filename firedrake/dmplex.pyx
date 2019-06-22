@@ -804,7 +804,6 @@ def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, f
     subplex.createLabel("exterior_facets")
     _subpoint_map = subplex.createSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
-    pfStart, pfEnd = plex.getHeightStratum(1)
     for f in range(fStart, fEnd):
         pf = _subpoint_map[f]
         supports = subplex.getSupport(f)
@@ -812,7 +811,7 @@ def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, f
             if plex.getLabelValue("exterior_facets", pf) == 1:
                 # Exterior boundary
                 subplex.setLabelValue("exterior_facets", f, 1)
-                continue
+            continue
         pfsupports = plex.getSupport(pf)
         if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
             # Subdomain boundary: one support is in the domain and the other is not.
@@ -930,24 +929,32 @@ def mark_entity_classes(PETSc.DM plex):
 
     pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
-    print(plex.comm.rank, pStart, pEnd, cStart, cEnd)
-    import sys
-    sys.stdout.flush()
+
     plex.createLabel("pyop2_core")
     plex.createLabel("pyop2_owned")
     plex.createLabel("pyop2_ghost")
-    import time
-    time.sleep(2)
+
     CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &lbl_core))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
 
+    
+    import sys
+    import time
     if plex.comm.size > 1:
         # Mark ghosts from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
+        print("middle", plex.comm.rank, "nleaves", nleaves)
+        sys.stdout.flush()
+        time.sleep(1)
         for p in range(nleaves):
+            print("rank: ", plex.comm.rank, p, ilocal[p])
+            sys.stdout.flush()
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
+        print("after", plex.comm.rank)
+        sys.stdout.flush()
+        time.sleep(1)
     else:
         # If sequential mark all points as core
         for p in range(pStart, pEnd):

@@ -1266,8 +1266,6 @@ values from f.)"""
             entity_coords = plex.vecGetClosure(coord_sec, coords, entity)
             n = entity_coords.shape[0]//gdim
             if all([geometric_expr([entity_coords[gdim * e + i] for i in range(gdim)]) for e in range(n)]):
-                for e in range(n):
-                    a = [entity_coords[gdim * e + i] for i in range(gdim)]
                 plex.setLabelValue(labelName, entity, labelValue)
 
     def __getattr__(self, name):
@@ -1465,6 +1463,12 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
         raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
+    point_sf = subplex.getPointSF()
+    _, local, _= point_sf.getGraph()
+    print("printing size...", subplex.comm.rank, "nleaves", local.shape)
+    sys.stdout.flush()
+    import time
+    time.sleep(1)
 
     # Create "exterior_facets" label
     dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
