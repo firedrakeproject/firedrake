@@ -9,10 +9,8 @@ def mat_type(request):
 
 
 @pytest.fixture(params=[(("RT", 3), ("DG", 2)),
-                        (("BDM", 2), ("DG", 1)),
-                        (("RT", 3), ("DG L2", 2)),
-                        (("BDM", 2), ("DG L2", 1))],
-                ids=["RT3-DG2", "BDM2-DG1", "RT3-DG2L2", "BDM2-DG1L2"])
+                        (("BDM", 2), ("DG", 1))],
+                ids=["RT3-DG2", "BDM2-DG1"])
 def element_pair(request):
     return request.param
 

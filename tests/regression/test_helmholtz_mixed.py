@@ -48,11 +48,7 @@ def helmholtz_mixed(r, V1, V2, action=False):
                          [(('RT', 1), ('DG', 0), 1.9, False),
                           (('BDM', 1), ('DG', 0), 1.89, False),
                           (('BDM', 1), ('DG', 0), 1.89, True),
-                          (('BDFM', 2), ('DG', 1), 1.9, False),
-                          (('RT', 1), ('DG L2', 0), 1.9, False),
-                          (('BDM', 1), ('DG L2', 0), 1.89, False),
-                          (('BDM', 1), ('DG L2', 0), 1.89, True),
-                          (('BDFM', 2), ('DG L2', 1), 1.9, False)])
+                          (('BDFM', 2), ('DG', 1), 1.9, False)])
 def test_firedrake_helmholtz(V1, V2, threshold, action):
     import numpy as np
     diff = np.array([helmholtz_mixed(i, V1, V2) for i in range(3, 6)])

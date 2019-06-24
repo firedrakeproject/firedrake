@@ -12,9 +12,7 @@ def mesh():
                                         'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
                                         'cg1vcg1[0]', 'cg1vcg1[1]',
                                         'cg1dg0', 'cg1dg0[0]', 'cg1dg0[1]',
-                                        'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]',
-                                        'cg1dg0l2', 'cg1dg0l2[0]', 'cg1dg0l2[1]',
-                                        'cg2dg1l2', 'cg2dg1l2[0]', 'cg2dg1l2[1]'])
+                                        'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]'])
 def fs(request, mesh):
     cg1 = FunctionSpace(mesh, "CG", 1)
     cg2 = FunctionSpace(mesh, "CG", 2)
@@ -22,8 +20,6 @@ def fs(request, mesh):
     tcg1 = TensorFunctionSpace(mesh, "CG", 1)
     dg0 = FunctionSpace(mesh, "DG", 0)
     dg1 = FunctionSpace(mesh, "DG", 1)
-    dg0l2 = FunctionSpace(mesh, "DG L2", 0)
-    dg1l2 = FunctionSpace(mesh, "DG L2", 1)
     return {'cg1': cg1,
             'vcg1': vcg1,
             'tcg1': tcg1,
@@ -38,13 +34,7 @@ def fs(request, mesh):
             'cg1dg0[1]': (cg1*dg0)[1],
             'cg2dg1': cg2*dg1,
             'cg2dg1[0]': (cg2*dg1)[0],
-            'cg2dg1[1]': (cg2*dg1)[1],
-            'cg1dg0l2': cg1*dg0l2,
-            'cg1dg0l2[0]': (cg1*dg0l2)[0],
-            'cg1dg0l2[1]': (cg1*dg0l2)[1],
-            'cg2dg1l2': cg2*dg1l2,
-            'cg2dg1l2[0]': (cg2*dg1l2)[0],
-            'cg2dg1l2[1]': (cg2*dg1l2)[1]}[request.param]
+            'cg2dg1[1]': (cg2*dg1)[1]}[request.param]
 
 
 @pytest.fixture
@@ -124,17 +114,6 @@ def test_assemble_with_tensor(mesh):
 
 def test_assemble_mat_with_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
-    u = TestFunction(V)
-    v = TrialFunction(V)
-    a = u*v*dx
-    M = assemble(a)
-    # Assemble a different form into M
-    M = assemble(Constant(2)*a, M)
-    # Make sure we get the result of the last assembly
-    assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
-
-def test_assemble_mat_with_tensor_l2(mesh):
-    V = FunctionSpace(mesh, "DG L2", 0)
     u = TestFunction(V)
     v = TrialFunction(V)
     a = u*v*dx
