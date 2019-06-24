@@ -124,7 +124,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     # Support foo x Real tensorproduct elements
     real_tensorproduct = False
     scalar_element = element
-    if isinstance(element, ufl.VectorElement):
+    if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
         scalar_element = element.sub_elements()[0]
     if isinstance(scalar_element, ufl.TensorProductElement):
         a, b = scalar_element.sub_elements()
