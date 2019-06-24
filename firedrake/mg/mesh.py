@@ -71,7 +71,8 @@ class HierarchyBase(object):
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
                   reorder=None,
-                  distribution_parameters=None, callbacks=None):
+                  distribution_parameters=None, callbacks=None,
+                  mesh_builder=firedrake.Mesh):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     :arg mesh: the coarse :func:`~.Mesh` to refine
@@ -89,6 +90,7 @@ def MeshHierarchy(mesh, refinement_levels,
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
+    :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
     cdm = mesh._plex
     cdm.setRefinementUniform(True)
@@ -142,9 +144,9 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [firedrake.Mesh(dm, dim=mesh.ufl_cell().geometric_dimension(),
-                                      distribution_parameters=distribution_parameters,
-                                      reorder=reorder)
+    meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
+                                    distribution_parameters=distribution_parameters,
+                                    reorder=reorder)
                        for dm in dms]
 
     lgmaps = []
@@ -172,10 +174,13 @@ def MeshHierarchy(mesh, refinement_levels,
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None,
-                          extrusion_type='uniform', gdim=None):
+                          extrusion_type='uniform', gdim=None,
+                          mesh_builder=firedrake.ExtrudedMesh):
     """Build a hierarchy of extruded meshes by extruded a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
+    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+       extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
     """
@@ -184,10 +189,10 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
     if any(m.cell_set._extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 
-    meshes = [firedrake.ExtrudedMesh(m, layers, kernel=kernel,
-                                     layer_height=layer_height,
-                                     extrusion_type=extrusion_type,
-                                     gdim=gdim)
+    meshes = [mesh_builder(m, layers, kernel=kernel,
+                           layer_height=layer_height,
+                           extrusion_type=extrusion_type,
+                           gdim=gdim)
               for m in base_hierarchy._meshes]
 
     return HierarchyBase(meshes,
