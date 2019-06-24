@@ -5,7 +5,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=["scalar", "vector"])
+@pytest.fixture(params=["scalar", "vector", "tensor"])
 def fs_kind(request):
     return request.param
 
@@ -13,9 +13,12 @@ def fs_kind(request):
 @pytest.fixture
 def V(extmesh, fs_kind):
     mesh = extmesh(2, 2, 8)
-    if fs_kind == 'scalar':
-        return FunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
-    return VectorFunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
+    fs = {
+        "scalar": FunctionSpace,
+        "vector": VectorFunctionSpace,
+        "tensor": TensorFunctionSpace
+    }
+    return fs[fs_kind](mesh, "CG", 1, vfamily="Real", vdegree=0)
 
 
 @pytest.fixture(params=["linear", "sin"])
@@ -24,18 +27,26 @@ def variant(request):
 
 
 @pytest.fixture
-def expr(variant, V):
+def expr(variant, V, fs_kind):
     x, y, z = SpatialCoordinate(V.ufl_domain())
     val = {"linear": z, "sin": sin(pi*z)}[variant]
-    if V.value_size == 1:
-        return val
-    return as_vector((val, 0, 0))
+    ret = {
+        "scalar": val,
+        "vector": as_vector((val, 0, 0)),
+        "tensor": as_tensor(((val, 0, 0), (0, 0, 0), (0, 0, 0)))
+    }
+    return ret[fs_kind]
 
 
 @pytest.fixture
 def solution(variant, fs_kind):
     val = {"linear": 0.5, "sin": 2.0/pi}[variant]
-    return {"scalar": Constant(val), "vector": Constant((val, 0, 0))}[fs_kind]
+    sol = {
+        "scalar": val,
+        "vector": as_vector((val, 0, 0)),
+        "tensor": as_tensor(((val, 0, 0), (0, 0, 0), (0, 0, 0)))
+    }
+    return sol[fs_kind]
 
 
 @pytest.fixture
@@ -49,8 +60,8 @@ def test_vertical_average(V, expr, solution, tolerance):
     v = TestFunction(V)
 
     out = Function(V)
-    solve(dot(u, v)*dx == dot(expr, v)*dx, out)
-    l2err = sqrt(assemble(dot(out-solution, out-solution)*dx))
+    solve(inner(u, v)*dx == inner(expr, v)*dx, out)
+    l2err = sqrt(assemble(inner(out-solution, out-solution)*dx))
     assert abs(l2err) < tolerance
 
 
