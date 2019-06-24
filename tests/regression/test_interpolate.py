@@ -122,7 +122,6 @@ def test_cell_orientation():
 
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
-
 def test_cell_orientation_l2():
     m = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(m)
@@ -139,7 +138,6 @@ def test_cell_orientation_l2():
 
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
-
 def test_cellvolume():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG', 0)
@@ -148,7 +146,6 @@ def test_cellvolume():
 
     assert np.allclose(f.dat.data_ro, 0.125)
 
-
 def test_cellvolume_l2():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG L2', 0)
@@ -156,7 +153,6 @@ def test_cellvolume_l2():
     f = interpolate(CellVolume(m), V)
 
     assert np.allclose(f.dat.data_ro, 0.125)
-
 
 def test_cellvolume_higher_order_coords():
     m = UnitTriangleMesh()
@@ -177,7 +173,6 @@ def test_cellvolume_higher_order_coords():
 
     assert np.allclose(g.dat.data_ro, 0.5 - (1.0/4.0 - (1 - 19.0/12.0)/3.0 - 19/24.0))
 
-
 def test_cellvolume_higher_order_coords_l2():
     m = UnitTriangleMesh()
     V = VectorFunctionSpace(m, 'P', 3)
@@ -196,7 +191,6 @@ def test_cellvolume_higher_order_coords_l2():
     g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG L2', 0))
 
     assert np.allclose(g.dat.data_ro, 0.5 - (1.0/4.0 - (1 - 19.0/12.0)/3.0 - 19/24.0))
-
 
 def test_mixed():
     m = UnitTriangleMesh()
