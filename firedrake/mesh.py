@@ -463,11 +463,7 @@ class MeshTopology(object):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                print(888)
-                sys.stdout.flush()
                 dmplex.mark_entity_classes(self._plex)
-                print(999)
-                sys.stdout.flush()
                 self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
@@ -1237,8 +1233,8 @@ values from f.)"""
         :arg filterValue: value for the filter
 
         """
-        self.init()
-        if labelName in (dmplex.FACE_SETS_LABEL, dmplex.CELL_SETS_LABEL, "exterior_facets", "interior_facets"):
+        #self.init()
+        if labelName in ("exterior_facets", "interior_facets"):
             raise NameError("%s is reserved for default label" % labelName)
         plex = self._plex
         if not plex.hasLabel(labelName):
@@ -1463,12 +1459,6 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
         raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
     subplex = plex.createSubDMPlex(filterName, filterValue, height)
-    point_sf = subplex.getPointSF()
-    _, local, _= point_sf.getGraph()
-    print("printing size...", subplex.comm.rank, "nleaves", local.shape)
-    sys.stdout.flush()
-    import time
-    time.sleep(1)
 
     # Create "exterior_facets" label
     dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)

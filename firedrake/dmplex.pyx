@@ -805,17 +805,31 @@ def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, f
     _subpoint_map = subplex.createSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
     for f in range(fStart, fEnd):
+        # parent facet
         pf = _subpoint_map[f]
-        supports = subplex.getSupport(f)
-        if supports.shape[0] == 1:
+        # parent facet supports
+        pfsupports = plex.getSupport(pf)
+        if pfsupports.shape[0] == 1:
             if plex.getLabelValue("exterior_facets", pf) == 1:
                 # Exterior boundary
                 subplex.setLabelValue("exterior_facets", f, 1)
-            continue
-        pfsupports = plex.getSupport(pf)
-        if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
-            # Subdomain boundary: one support is in the domain and the other is not.
-            subplex.setLabelValue("exterior_facets", f, 1)
+        elif pfsupports.shape[0] == 2:
+            if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
+                # Subdomain boundary: one support is in the domain and the other is not.
+                subplex.setLabelValue("exterior_facets", f, 1)
+        else:
+            raise RuntimeError("Facet must have 1 or 2 supports.  Something is wrong.")
+        #pf = _subpoint_map[f]
+        #supports = subplex.getSupport(f)
+        #if supports.shape[0] == 1:
+        #    if plex.getLabelValue("exterior_facets", pf) == 1:
+        #        # Exterior boundary
+        #        subplex.setLabelValue("exterior_facets", f, 1)
+        #        continue
+        #pfsupports = plex.getSupport(pf)
+        #if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
+        #    # Subdomain boundary: one support is in the domain and the other is not.
+        #    subplex.setLabelValue("exterior_facets", f, 1)
 
 
 @cython.boundscheck(False)
@@ -945,14 +959,9 @@ def mark_entity_classes(PETSc.DM plex):
         # Mark ghosts from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
-        print("middle", plex.comm.rank, "nleaves", nleaves)
-        sys.stdout.flush()
-        time.sleep(1)
         for p in range(nleaves):
-            print("rank: ", plex.comm.rank, p, ilocal[p])
             sys.stdout.flush()
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
-        print("after", plex.comm.rank)
         sys.stdout.flush()
         time.sleep(1)
     else:
