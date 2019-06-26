@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --package-branch ufl l2pullbacks --package-branch tsfc l2pullbacks --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint --no-package-manager || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --package-branch ufl mse --package-branch tsfc mse --package-branch fiat mse --package-branch FInAT mse --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint --no-package-manager || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
