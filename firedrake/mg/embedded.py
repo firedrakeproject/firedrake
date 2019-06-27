@@ -56,14 +56,15 @@ class SingleTransfer(object):
     def __init__(self, element, use_fortin_interpolation=True):
         degree = element.degree()
         cell = element.cell()
+        family = "DG" if cell.is_simplex() else "DQ"
         shape = element.value_shape()
         if len(shape) == 0:
-            DG = ufl.FiniteElement("DG", cell, degree)
+            DG = ufl.FiniteElement(family, cell, degree)
         elif len(shape) == 1:
             shape, = shape
-            DG = ufl.VectorElement("DG", cell, degree, dim=shape)
+            DG = ufl.VectorElement(family, cell, degree, dim=shape)
         else:
-            DG = ufl.TensorElement("DG", cell, degree, shape=shape)
+            DG = ufl.TensorElement(family, cell, degree, shape=shape)
 
         self.embedding_element = DG
         self.use_fortin_interpolation = use_fortin_interpolation
