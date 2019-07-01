@@ -7,7 +7,6 @@ from firedrake.function import Function
 from firedrake import utils
 from pyop2.datatypes import ScalarType
 from ufl.log import error
-from ufl.constantvalue import as_ufl
 import sympy as sp
 from scipy import optimize
 
@@ -92,17 +91,10 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
         if operator_data['point_solve'].__code__.co_argcount != len(operands) + 1:
             error("Expecting %s operands" % (operator_data['point_solve'].__code__.co_argcount-1))
-        if operator_data['solver'] not in ('newton','secant', 'halley'):
-            error("Expecting of the following method : %s" % ('newton','secant', 'halley'))
+        if operator_data['solver'] not in ('newton', 'secant', 'halley'):
+            error("Expecting of the following method : %s" % ('newton', 'secant', 'halley'))
         if not isinstance(operator_data['solver_params'], dict):
             error("Expecting a dict with the solver arguments instead of %s" % operator_data['solver_params'])
-
-    #def __call__(self, *operands):
-        # Check operands
-   #     for i in operands:
-   #         as_ufl(i)
-   #     self.ufl_operands = operands
-   #     return self
 
     @property
     def operator_f(self):
@@ -147,15 +139,15 @@ class PointsolveOperator(AbstractPointwiseOperator):
         args = (Function(space).interpolate(pi) for pi in self.ufl_operands)
         vals = tuple(coeff.dat.data for coeff in args)
 
-        if self.solver in ('newton','halley') and 'fprime' not in solver_params.keys():
+        if self.solver in ('newton', 'halley') and 'fprime' not in solver_params.keys():
             symb = sp.symbols('s:%d' % f.__code__.co_argcount)
-            fprime = sp.diff(f(*symb),symb[0])
+            fprime = sp.diff(f(*symb), symb[0])
             gprime = sp.lambdify(symb, fprime)
             solver_params['fprime'] = partial(gprime, **dict(zip(gprime.__code__.co_varnames[1:], vals)))
 
         if self.solver == 'halley' and 'fprime2' not in solver_params.keys():
             symb = sp.symbols('s:%d' % f.__code__.co_argcount)
-            fprime2 = sp.diff(f(*symb),symb[0], symb[0])
+            fprime2 = sp.diff(f(*symb), symb[0], symb[0])
             gprime2 = sp.lambdify(symb, fprime2)
             solver_params['fprime2'] = partial(gprime2, **dict(zip(gprime2.__code__.co_varnames[1:], vals)))
 
@@ -165,7 +157,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
             self.dat.data[:] = optimize.newton(g, **solver_params, x0=self.dat.data)
         else:
             self.dat.data[:] = optimize.newton(g, **solver_params)
-        return self.compute_derivatives(self) # Pk y a self ? au lieu supprimer f as arg
+        return self.compute_derivatives(self)
 
 
 class PointnetOperator(AbstractPointwiseOperator):
@@ -177,17 +169,11 @@ class PointnetOperator(AbstractPointwiseOperator):
 
         self.framework = framework
         self.model = model
-
-        control = 0 # By default the first operand is the control, display a Warning for this case ?
-        for i, e in enumerate(operands):
-            if e.name().strip() == 'Control':
-                control = i
-                break
-        self._control = control
+        self._controls = tuple(i for i, e in enumerate(operands) if e.name().strip() == 'Control')
 
     @property
-    def control(self):
-        return self.ufl_operands[self._control]
+    def controls(self):
+        return dict(zip(self._controls, tuple(self.ufl_operands[i] for i in self._controls)))
 
     def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, shape=None, count=None, name=None, model=None):
         "Return a new object of the same type with new operands."
@@ -204,7 +190,8 @@ class PointnetOperator(AbstractPointwiseOperator):
         # This should work for most cases
         r = "%s(%s,%s,%s,%s,%s)" % (type(self).__name__, ", ".join(repr(op) for op in self.ufl_operands), repr(self._ufl_function_space), repr(self.derivatives), repr(self.ufl_shape), repr(self.framework))
         return as_native_str(r)
-    #def compute_grad_inputs(self):
+
+    # def compute_grad_inputs(self):
     #    "Compute the gradient of the neural net output with respect to the inputs."
     #    raise NotImplementedError(self.__class__.compute_grad_inputs)
 
@@ -221,7 +208,6 @@ class PytorchOperator(PointnetOperator):
             import torch
         except ImportError:
             raise ImportError("Error when trying to import PyTorch")
-
 
     def compute_derivatives(self):
         """Compute the gradient of the network wrt inputs"""
@@ -244,11 +230,12 @@ class PytorchOperator(PointnetOperator):
         result = Function(self.ufl_function_space())
         result.dat.data[:] = model(model_input).detach().numpy().squeeze(1)
         return self.assign(result)
-        #for i, e in enumerate(torch_op):
-        #    model_input = torch.unsqueeze(e, 0)
-        #    result.dat.data[i] = model(model_input).detach().numpy()
-        #return self.assign(result)
-        
+        # for i, e in enumerate(torch_op):
+        #     model_input = torch.unsqueeze(e, 0)
+        #     result.dat.data[i] = model(model_input).detach().numpy()
+        # return self.assign(result)
+
+
 class TensorFlowOperator(PointnetOperator):
     r"""A :class:`TensorFlowOperator` ... TODO :
      """
@@ -295,7 +282,7 @@ def PointSolveOp(*operands, function_space, derivatives=None, count=None, shape=
 def point_solve(point_solve, solver='newton', solver_params=None):
     if solver_params is None:
         solver_params = {}
-    operator_data = {'point_solve':point_solve, 'solver':solver, 'solver_params':solver_params}
+    operator_data = {'point_solve': point_solve, 'solver': solver, 'solver_params': solver_params}
     return partial(PointSolveOp, operator_data=operator_data)
 
 
@@ -320,4 +307,3 @@ def neuralnet(framework):
         return partial(PointKerasOp, framework=framework)
     else:
         error("Expecting one of the following library : PyTorch, TensorFlow or Keras and not %s" % framework)
-

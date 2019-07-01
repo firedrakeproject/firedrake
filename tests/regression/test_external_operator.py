@@ -37,7 +37,6 @@ def test_pointwise_operator(mesh):
     assemble_a2 = assemble(a2)
 
     assert abs(assemble_a1 - assemble_a2) < 1.0e-3  # Not evaluate on the same space whence the lack of precision
-
     u2 = Function(V)
     u3 = Function(V)
     g = Function(V).interpolate(cos(x))
@@ -53,7 +52,7 @@ def test_pointwise_operator(mesh):
 
     F2 = (dot(grad((g**2+1)*u2),grad(v)) + u2*v)*dx - f*v*dx
     solve(F2 == 0,u2)
-    """
+    
     p = point_expr(lambda x:x**2+1)
     p2 = p(g, function_space=V)
     f = Function(V).interpolate(cos(x)*sin(y))
@@ -61,13 +60,12 @@ def test_pointwise_operator(mesh):
     problem = NonlinearVariationalProblem(F, u3)
     solver = NonlinearVariationalSolver(problem)
     solver.solve()
-    print("\n TEST POINTWISE EXPR :: assemble(u*dx) : ",assemble(u*dx)," assemble(u2*dx) : ",assemble(u2*dx),"assemble(u3*dx) : ",assemble(u3*dx))
-    """
-    print("\n TEST POINTWISE EXPR :: assemble(u*dx) : ",assemble(u*dx)," assemble(u2*dx) : ",assemble(u2*dx))
 
-    #error = ((u - u2)**2)*dx
-    #err = assemble(error)
-    #assert err < 1.0e-9
+    a1 = assemble(u*dx)
+    a2 = assemble(u2*dx)
+    a3 = assemble(u3*dx)
+    err = (a1-a2)**2 + (a2-a3)**2
+    assert err < 1.0e-9
 
 
 def test_pointwise_solver(mesh):
@@ -106,10 +104,12 @@ def test_pointwise_solver(mesh):
     v = TestFunction(V)
     g = Function(V).assign(1.)
 
+    f = Function(V).interpolate(cos(x)*sin(y))
     p = point_solve(lambda x,y:x**3-y)
     p2 = p(g, function_space=V)
-    f = Function(V).interpolate(cos(x)*sin(y))
+    #f = Function(V).interpolate(cos(x)*sin(y))
 
+    
     F = (dot(grad(p2*u),grad(v)) + u*v)*dx - f*v*dx
     solve(F == 0, u)
 
@@ -121,12 +121,11 @@ def test_pointwise_solver(mesh):
     solver = NonlinearVariationalSolver(problem)
     solver.solve()
 
-    print("\n TEST POINTWISE SOLVER :: assemble(u*dx) : ",assemble(u*dx)," assemble(u2*dx) : ",assemble(u2*dx),"assemble(u3*dx) : ",assemble(u3*dx))
-    t = Function(V)
-    error = norm(t)#, norm_type='L2')#((u - u2)**2)*dx# + (u2 - u3)**2)*dx
-    #err = assemble(error)
-    #print(err)
-    #assert err < 1.0e-9
+    a1 = assemble(u*dx)
+    a2 = assemble(u2*dx)
+    a3 = assemble(u3*dx)
+    err = (a1-a2)**2 + (a2-a3)**2
+    assert err < 1.0e-9
 
 
 
@@ -222,7 +221,7 @@ def test_pointwise_neuralnet_PyTorch(mesh):
     assert nP2.framework == 'PyTorch'
     assert fc == nP2.model
 
-    for batch_idx in range(5000):
+    for batch_idx in range(500):
         # Get data
         batch_x, batch_y = get_batch()
 
@@ -272,4 +271,36 @@ def test_pointwise_neuralnet_PyTorch_control(mesh):
 
     from ufl.algorithms.apply_derivatives import apply_derivatives
     dnp2_du = apply_derivatives(diff(nP2,u))
-    #dnp2_dg = apply_derivatives(diff(nP2,g))
+
+    try:
+        dnp2_dg = apply_derivatives(diff(nP2,g))
+        test_diff_control = 0
+    except:
+        test_diff_control = 1
+    assert test_diff_control
+
+def test_derivation_wrt_pointwiseoperator(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    P = FunctionSpace(mesh, "DG", 0)
+
+    x, y = SpatialCoordinate(mesh)
+
+    u = Function(V)
+    g = Function(V)
+    v = TestFunction(V)
+    u_hat = Function(V)
+    
+    p = point_expr(lambda x, y: x*y)
+    p2 = p(u, g, function_space=P)
+    
+    from ufl.algorithms.apply_derivatives import apply_derivatives
+
+    l = sin(p2**2)*v
+    dl_dp2 = p2*2.*cos(p2**2)*v
+    dl = diff(l, p2)
+    assert apply_derivatives(dl) == dl_dp2
+
+    L = p2*u*dx
+    dL_dp2 = u*u_hat*dx
+    Gateaux_dL = derivative(L,p2, u_hat)
+    assert apply_derivatives(Gateaux_dL) == dL_dp2
