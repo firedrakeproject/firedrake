@@ -135,7 +135,10 @@ class Interpolator(object):
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
-    arguments = extract_arguments(expr)
+    if isinstance(expr, Firedrake.Expression):
+        arguments = ()
+    else:
+        arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
             f = V
