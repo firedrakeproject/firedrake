@@ -84,52 +84,44 @@ class Interpolator(object):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
                              % (len(function), self.nargs))
         try:
-            callable = self.frozen_callable
+            assembled_interpolator = self.frozen_assembled_interpolator
+            copy_required = True
         except AttributeError:
-            callable = self.callable()
+            assembled_interpolator = self.callable()
+            copy_required = False # Return the original
             if self.freeze_expr:
-                if self.nargs:
-                    self.frozen_callable = callable
-                else:
-                    self.frozen_callable = callable.copy()
+                self.frozen_assembled_interpolator = assembled_interpolator
+            else:
+                # Save the copy
+                self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
         if self.nargs:
-            callable._force_evaluation()
+            assembled_interpolator._force_evaluation()
             function, = function
-            if not transpose:
-                result = output or firedrake.Function(self.V)
-                if transpose:
-                    mul = callable.handle.multTranspose
-                    V = self.args[0].function_space()
-                else:
-                    mul = callable.handle.mult
-                    V = self.V
-                result = output or firedrake.Function(V)
-                with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                    mul(x, out)
+            if transpose:
+                mul = assembled_interpolator.handle.multTranspose
+                V = self.args[0].function_space()
             else:
-                result = output or firedrake.Function(self.args[0].function_space())
-                if transpose:
-                    mul = callable.handle.multTranspose
-                    V = self.args[0].function_space()
-                else:
-                    mul = callable.handle.mult
-                    V = self.V
-                result = output or firedrake.Function(V)
-                with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                    mul(x, out)
-
-
+                mul = assembled_interpolator.handle.mult
+                V = self.V
+            result = output or firedrake.Function(V)
+            with function.dat.vec_ro as x, result.dat.vec_wo as out:
+                mul(x, out)
             return result
+
         else:
             if output:
-                output.assign(callable)
+                output.assign(assembled_interpolator)
                 return output
             if isinstance(self.V, firedrake.Function):
-                self.V.assign(callable)
+                if copy_required:
+                    self.V.assign(assembled_interpolator)
                 return self.V
             else:
-                return callable.copy()
+                if copy_required:
+                    return assembled_interpolator.copy()
+                else:
+                    return assembled_interpolator
 
 
 def make_interpolator(expr, V, subset, access):
