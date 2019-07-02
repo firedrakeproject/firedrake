@@ -112,38 +112,38 @@ class GTMGPC(PCBase):
         pcmg.setMGInterpolation(1, interp_petscmat)
         pcmg.setOperators(fine_petscmat)
 
-        # Now we configure the coarse solver. We need to set a DM
-        # and an appropriate SNESContext on the pc so we can do, for example,
-        # geometric multigrid on the coarse solve.
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.function import Function
-        from firedrake.ufl_expr import action
-        import ipdb
+        # # Now we configure the coarse solver. We need to set a DM
+        # # and an appropriate SNESContext on the pc so we can do, for example,
+        # # geometric multigrid on the coarse solve.
+        # from firedrake.variational_solver import NonlinearVariationalProblem
+        # from firedrake.solving_utils import _SNESContext
+        # from firedrake.function import Function
+        # from firedrake.ufl_expr import action
+        # import ipdb
 
-        ipdb.set_trace()
-        dm = opc.getDM()
-        oappctx = get_appctx(dm)
-        ipdb.set_trace()
-        cu = Function(coarse_space)
-        cF = action(coarse_operator, cu)
-        nproblem = NonlinearVariationalProblem(cF, cu, coarse_space_bcs,
-                                               J=coarse_operator,
-                                               form_compiler_parameters=fcp)
-        ncontext = _SNESContext(nproblem, coarse_mat_type, coarse_mat_type,
-                                oappctx.appctx)
-        push_appctx(dm, ncontext)
-        self._ctx_ref = ncontext
+        # ipdb.set_trace()
+        # dm = opc.getDM()
+        # oappctx = get_appctx(dm)
+        # ipdb.set_trace()
+        # cu = Function(coarse_space)
+        # cF = action(coarse_operator, cu)
+        # nproblem = NonlinearVariationalProblem(cF, cu, coarse_space_bcs,
+        #                                        J=coarse_operator,
+        #                                        form_compiler_parameters=fcp)
+        # ncontext = _SNESContext(nproblem, coarse_mat_type, coarse_mat_type,
+        #                         oappctx.appctx)
+        # push_appctx(dm, ncontext)
+        # self._ctx_ref = ncontext
 
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
-        pcmg.setDM(dm)
+        # pcmg.setDM(dm)
         coarse_solver = pcmg.getMGCoarseSolve()
         coarse_solver.setOperators(coarse_opmat)
         pcmg.setFromOptions()
         pcmg.setUp()
         self._pcmg = pcmg
-        pop_appctx(dm)
+        # pop_appctx(dm)
 
     def update(self, pc):
         self._assemble_fine_op()
