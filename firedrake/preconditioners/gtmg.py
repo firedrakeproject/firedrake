@@ -91,15 +91,16 @@ class GTMGPC(PCBase):
             coarse_opmat.setNullSpace(get_coarse_nullspace())
         if get_coarse_transpose_nullspace:
             coarse_opmat.setTransposeNullSpace(get_coarse_transpose_nullspace())
-
-        # Create interpolation matrix from coarse space to fine space
-        # fine_space = get_function_space(opc.getDM())
-        # import ipdb; ipdb.set_trace()
-        fine_space = context.a.arguments()[0].function_space()
-        interpolator = Interpolator(TestFunction(coarse_space), fine_space)
-        interpolation_matrix = interpolator.callable()
-        interpolation_matrix._force_evaluation()
-        interp_petscmat = interpolation_matrix.handle
+        interp_petscmat = appctx.get("interpolation_matrix", None)
+        if interp_petscmat is None:
+            # Create interpolation matrix from coarse space to fine space
+            # fine_space = get_function_space(opc.getDM())
+            # import ipdb; ipdb.set_trace()
+            fine_space = context.a.arguments()[0].function_space()
+            interpolator = Interpolator(TestFunction(coarse_space), fine_space)
+            interpolation_matrix = interpolator.callable()
+            interpolation_matrix._force_evaluation()
+            interp_petscmat = interpolation_matrix.handle
 
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.
