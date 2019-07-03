@@ -18,19 +18,15 @@ __all__ = ("interpolate", "Interpolator")
 
 def interpolate(expr, V, subset=None, access=op2.WRITE):
     """Interpolate an expression onto a new function in V.
-
     :arg expr: an :class:`.Expression`.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
-
     Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
     it was a Function).
-
     .. note::
-
        If you find interpolating the same expression again and again
        (for example in a time loop) you may find you get better
        performance by using a :class:`Interpolator` instead.
@@ -40,7 +36,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
 
 class Interpolator(object):
     """A reusable interpolation object.
-
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
@@ -48,12 +43,9 @@ class Interpolator(object):
         interpolation over.
     :kwarg freeze_expr: Set to True to prevent the expression being
         re-evaluated on each call.
-
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
-
     .. note::
-
        The :class:`Interpolator` holds a reference to the provided
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
@@ -68,14 +60,12 @@ class Interpolator(object):
     @utils.known_pyop2_safe
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
-
         :arg function: If the expression being interpolated contains an
            :class:`ufl.Argument`, then the :class:`.Function` value to
            interpolate.
         :kwarg output: Optional. A :class:`.Function` to contain the output.
         :kwarg transpose: Set to true to apply the transpose (adjoint) of the
            interpolation operator.
-
         :returns: The resulting interpolated :class:`.Function`.
         """
         if transpose and not self.nargs:
@@ -84,58 +74,53 @@ class Interpolator(object):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
                              % (len(function), self.nargs))
         try:
-            callable = self.frozen_callable
+            assembled_interpolator = self.frozen_assembled_interpolator
+            copy_required = True
         except AttributeError:
-            callable = self.callable()
+            assembled_interpolator = self.callable()
+            copy_required = False # Return the original
             if self.freeze_expr:
-                if self.nargs:
-                    self.frozen_callable = callable
-                else:
-                    self.frozen_callable = callable.copy()
+                self.frozen_assembled_interpolator = assembled_interpolator
+            else:
+                # Save the copy
+                self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
         if self.nargs:
-            callable._force_evaluation()
+            assembled_interpolator._force_evaluation()
             function, = function
-            if not transpose:
-                result = output or firedrake.Function(self.V)
-                if transpose:
-                    mul = callable.handle.multTranspose
-                    V = self.args[0].function_space()
-                else:
-                    mul = callable.handle.mult
-                    V = self.V
-                result = output or firedrake.Function(V)
-                with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                    mul(x, out)
+            if transpose:
+                mul = assembled_interpolator.handle.multTranspose
+                V = self.args[0].function_space()
             else:
-                result = output or firedrake.Function(self.args[0].function_space())
-                if transpose:
-                    mul = callable.handle.multTranspose
-                    V = self.args[0].function_space()
-                else:
-                    mul = callable.handle.mult
-                    V = self.V
-                result = output or firedrake.Function(V)
-                with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                    mul(x, out)
-
-
+                mul = assembled_interpolator.handle.mult
+                V = self.V
+            result = output or firedrake.Function(V)
+            with function.dat.vec_ro as x, result.dat.vec_wo as out:
+                mul(x, out)
             return result
+
         else:
             if output:
-                output.assign(callable)
+                output.assign(assembled_interpolator)
                 return output
             if isinstance(self.V, firedrake.Function):
-                self.V.assign(callable)
+                if copy_required:
+                    self.V.assign(assembled_interpolator)
                 return self.V
             else:
-                return callable.copy()
+                if copy_required:
+                    return assembled_interpolator.copy()
+                else:
+                    return assembled_interpolator
 
 
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
-    arguments = extract_arguments(expr)
+    if isinstance(expr, firedrake.Expression):
+        arguments = ()
+    else:
+        arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
             f = V
