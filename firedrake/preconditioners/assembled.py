@@ -4,7 +4,8 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
-from firedrake.dmhooks import get_function_space, get_appctx, push_appctx, pop_appctx
+import firedrake.dmhooks as dmhooks
+from firedrake.dmhooks import get_function_space, get_appctx
 
 __all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 
@@ -83,17 +84,15 @@ class AssembledPC(PCBase):
         octx = get_appctx(dm)
         oproblem = octx._problem
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
-        push_appctx(dm, nctx)
-        self._ctx_ref = nctx
-        pc.setDM(dm)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
 
-        pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(Pmat, Pmat)
-        pc.setFromOptions()
-        pc.setUp()
-        self.pc = pc
-        pop_appctx(dm)
+        with dmhooks.cleanup(dm), dmhooks.appctx(dm, self._ctx_ref):
+            pc.setDM(dm)
+            pc.setOptionsPrefix(options_prefix)
+            pc.setOperators(Pmat, Pmat)
+            pc.setFromOptions()
+            pc.setUp()
+            self.pc = pc
 
     def update(self, pc):
         self._assemble_P()
@@ -111,15 +110,13 @@ class AssembledPC(PCBase):
 
     def apply(self, pc, x, y):
         dm = pc.getDM()
-        push_appctx(dm, self._ctx_ref)
-        self.pc.apply(x, y)
-        pop_appctx(dm)
+        with dmhooks.cleanup(dm), dmhooks.appctx(dm, self._ctx_ref):
+            self.pc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
         dm = pc.getDM()
-        push_appctx(dm, self._ctx_ref)
-        self.pc.applyTranspose(x, y)
-        pop_appctx(dm)
+        with dmhooks.cleanup(dm), dmhooks.appctx(dm, self._ctx_ref):
+            self.pc.applyTranspose(x, y)
 
     def view(self, pc, viewer=None):
         super(AssembledPC, self).view(pc, viewer)

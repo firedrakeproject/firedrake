@@ -39,6 +39,7 @@ advance.
 
 import weakref
 import numpy
+from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -95,7 +96,76 @@ def set_function_space(dm, V):
     dm.setAttr("__fs_info__", info)
 
 
-def push_appctx(dm, ctx):
+class CleanupFunctions(object):
+    def __init__(self):
+        self.functions = []
+
+    def add(self, fn):
+        self.functions.append(fn)
+
+    def cleanup(self):
+        while self.functions:
+            f = self.functions.pop()
+            f()
+
+
+def get_parent(dm):
+    stack = dm.getAttr("__parent__")
+    if not stack:
+        return dm
+    return stack[-1]
+
+
+def push_parent(dm, parent):
+    stack = dm.getAttr("__parent__")
+    if stack is None:
+        stack = []
+        dm.setAttr("__parent__", stack)
+    stack.append(parent)
+    push_cleanup(parent, partial(pop_parent, dm, match=parent))
+
+
+def pop_parent(dm, match=None):
+    stack = dm.getAttr("__parent__")
+    if stack == [] or stack is None:
+        return None
+    ctx = stack[-1]
+    if match is not None:
+        if ctx == match:
+            return stack.pop()
+    else:
+        return stack.pop()
+
+
+def push_cleanup(dm, fn):
+    stack = dm.getAttr("__cleanup__")
+    if not stack:
+        raise ValueError("Expecting non-empty stack, did you use the cleanup contextmanager?")
+    obj = stack[-1]
+    obj.add(fn)
+
+
+class cleanup(object):
+    def __init__(self, dm):
+        self.dm = dm
+
+    def __enter__(self):
+        stack = self.dm.getAttr("__cleanup__")
+        if stack is None:
+            stack = []
+            self.dm.setAttr("__cleanup__", stack)
+        stack.append(CleanupFunctions())
+
+    def __exit__(self, *args):
+        stack = self.dm.getAttr("__cleanup__")
+        if stack:
+            cleanups = stack.pop()
+            cleanups.cleanup()
+        else:
+            raise ValueError("Expecting non-empty stack")
+
+
+def push_appctx(dm, ctx, parent=None):
     """Push an application context onto a DM.
 
     :arg DM: The DM.
@@ -110,15 +180,13 @@ def push_appctx(dm, ctx):
     if stack is None:
         stack = []
         dm.setAppCtx(stack)
+    stack.append(ctx)
 
-    def finalize(ref):
-        stack = dm.getAppCtx()
-        try:
-            stack.remove(ref)
-        except ValueError:
-            pass
-
-    stack.append(weakref.ref(ctx, finalize))
+    if parent is not None:
+        responsible = parent
+    else:
+        responsible = dm
+    push_cleanup(responsible, partial(pop_appctx, dm, match=ctx))
 
 
 def pop_appctx(dm, match=None):
@@ -130,12 +198,12 @@ def pop_appctx(dm, match=None):
     stack = dm.getAppCtx()
     if stack == [] or stack is None:
         return None
-    ctx = stack[-1]()
+    ctx = stack[-1]
     if match is not None:
         if ctx == match:
-            return stack.pop()()
+            return stack.pop()
     else:
-        return stack.pop()()
+        return stack.pop()
 
 
 def get_appctx(dm):
@@ -149,7 +217,7 @@ def get_appctx(dm):
     if stack == [] or stack is None:
         return None
     else:
-        return stack[-1]()
+        return stack[-1]
 
 
 class appctx(object):
@@ -157,37 +225,25 @@ class appctx(object):
         self.ctx = ctx
         self.dm = dm
 
-    @staticmethod
-    def get_dm(ctx):
-        return ctx._problem.u.function_space().dm
-
     def __enter__(self):
         push_appctx(self.dm, self.ctx)
-        ctx = self.ctx._coarse
-        while ctx is not None:
-            dm = self.get_dm(ctx)
-            if dm is not None:
-                push_appctx(dm, ctx)
-            ctx = ctx._coarse
 
     def __exit__(self, typ, value, traceback):
-        ctx = self.ctx
-        while ctx._coarse is not None:
-            ctx = ctx._coarse
-
-        while ctx._fine is not None:
-            dm = self.get_dm(ctx)
-            pop_appctx(dm, ctx)
-            ctx = ctx._fine
         pop_appctx(self.dm, self.ctx)
 
 
-def push_transfer_operators(dm, prolong, restrict, inject):
+def push_transfer_operators(dm, prolong, restrict, inject, parent=None):
     stack = dm.getAttr("__transfer__")
     if stack is None:
         stack = []
         dm.setAttr("__transfer__", stack)
-    stack.append((prolong, restrict, inject))
+    transfers = (prolong, restrict, inject)
+    stack.append(transfers)
+    if parent is not None:
+        responsible = parent
+    else:
+        responsible = dm
+    push_cleanup(responsible, partial(pop_transfer_operators, dm, match=transfers))
 
 
 def pop_transfer_operators(dm, match=None):
@@ -239,27 +295,22 @@ class transfer_operators(object):
 
     def __enter__(self):
         push_transfer_operators(self.V.dm, *self.transfer)
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-            push_transfer_operators(V.dm, *self.transfer)
 
     def __exit__(self, typ, value, traceback):
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-        while hasattr(V, "_fine"):
-            pop_transfer_operators(V.dm, match=self.transfer)
-            V = V._fine
         pop_transfer_operators(self.V.dm, match=self.transfer)
 
 
-def push_ctx_coarsener(dm, coarsen):
+def push_ctx_coarsener(dm, coarsen, parent=None):
     stack = dm.getAttr("__ctx_coarsen__")
     if stack is None:
         stack = []
         dm.setAttr("__ctx_coarsen__", stack)
     stack.append(coarsen)
+    if parent is not None:
+        responsible = parent
+    else:
+        responsible = dm
+    push_cleanup(responsible, partial(pop_ctx_coarsener, dm, match=coarsen))
 
 
 def pop_ctx_coarsener(dm, match):
@@ -296,19 +347,9 @@ class ctx_coarsener(object):
 
     def __enter__(self):
         push_ctx_coarsener(self.V.dm, self.coarsen)
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-            push_ctx_coarsener(V.dm, self.coarsen)
 
     def __exit__(self, typ, value, traceback):
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-        while hasattr(V, "_fine"):
-            pop_ctx_coarsener(V.dm, self.coarsen)
-            V = V._fine
-        pop_ctx_coarsener(V.dm, self.coarsen)
+        pop_ctx_coarsener(self.V.dm, self.coarsen)
 
 
 def create_matrix(dm):
@@ -350,11 +391,13 @@ def create_field_decomposition(dm, *args, **kwargs):
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
     coarsen = get_ctx_coarsener(dm)
+    parent = get_parent(dm)
     if ctx is not None:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
-            push_appctx(d, c)
-            push_ctx_coarsener(d, coarsen)
+            push_appctx(d, c, parent=parent)
+            push_ctx_coarsener(d, coarsen, parent=parent)
+            push_parent(d, parent)
     return names, W._ises, dms
 
 
@@ -367,6 +410,7 @@ def create_subdm(dm, fields, *args, **kwargs):
     W = get_function_space(dm)
     ctx = get_appctx(dm)
     coarsen = get_ctx_coarsener(dm)
+    parent = get_parent(dm)
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
         idx, = fields
@@ -374,16 +418,18 @@ def create_subdm(dm, fields, *args, **kwargs):
         iset = W._ises[idx]
         if ctx is not None:
             ctx, = ctx.split([(idx, )])
-            push_appctx(subdm, ctx)
-            push_ctx_coarsener(subdm, coarsen)
+            push_appctx(subdm, ctx, parent=parent)
+            push_ctx_coarsener(subdm, coarsen, parent=parent)
+            push_parent(subdm, parent)
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
 
+        push_parent(subspace.dm, parent)
         # Pass any transfer operators over
         prolong, restrict, inject = get_transfer_operators(dm)
-        push_transfer_operators(subspace.dm, prolong, restrict, inject)
+        push_transfer_operators(subspace.dm, prolong, restrict, inject, parent=parent)
 
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
@@ -391,8 +437,8 @@ def create_subdm(dm, fields, *args, **kwargs):
                                         comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
-            push_appctx(subspace.dm, ctx)
-            push_ctx_coarsener(subspace.dm, coarsen)
+            push_appctx(subspace.dm, ctx, parent=parent)
+            push_ctx_coarsener(subspace.dm, coarsen, parent=parent)
         return iset, subspace.dm
 
 
@@ -414,15 +460,18 @@ def coarsen(dm, comm):
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
     transfer = get_transfer_operators(dm)
-    push_transfer_operators(cdm, *transfer)
+    parent = get_parent(dm)
+    push_parent(cdm, parent)
+    push_transfer_operators(cdm, *transfer, parent=parent)
     if len(V) > 1:
         for V_, Vc_ in zip(V, Vc):
             transfer = get_transfer_operators(V_.dm)
-            push_transfer_operators(Vc_.dm, *transfer)
-    push_ctx_coarsener(cdm, coarsen)
+            push_parent(Vc_.dm, parent)
+            push_transfer_operators(Vc_.dm, *transfer, parent=parent)
+    push_ctx_coarsener(cdm, coarsen, parent=parent)
     ctx = get_appctx(dm)
     if ctx is not None:
-        push_appctx(cdm, coarsen(ctx, coarsen))
+        push_appctx(cdm, coarsen(ctx, coarsen), parent=parent)
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     return cdm
