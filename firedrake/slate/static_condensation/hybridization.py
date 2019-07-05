@@ -2,6 +2,7 @@ import ufl
 import numbers
 import numpy as np
 
+from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -206,7 +207,7 @@ class HybridizationPC(SCBase):
             form_compiler_parameters=self.ctx.fc_params)
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        # from IPython import embed; embed()
+
         schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
@@ -228,13 +229,37 @@ class HybridizationPC(SCBase):
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
+        # Create a SNESContext for the DM associated with the trace problem
+        from firedrake.variational_solver import NonlinearVariationalProblem
+        from firedrake.solving_utils import _SNESContext
+        from firedrake.ufl_expr import action
+
+        # Pull out dm from the original mixed system to get the original context
+        dm = pc.getDM()
+        octx = get_appctx(dm)
+        tmp = Function(TraceSpace)
+        F = action(schur_comp, tmp)
+        nproblem = NonlinearVariationalProblem(F, tmp, bcs=trace_bcs,
+                                               J=schur_comp,
+                                               form_compiler_parameters=self.ctx.fc_params)
+        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        self._ctx_ref = nctx
+
+        # Push new context onto the dm associated with the trace problem
+        trace_dm = TraceSpace.dm
+        push_appctx(trace_dm, nctx)
+
         # Set up the KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
         trace_ksp.setOptionsPrefix(prefix)
         trace_ksp.setOperators(Smat)
+        # Set the dm for the trace solver
+        trace_ksp.setDM(trace_dm)
+        trace_ksp.setDMActive(False)
         trace_ksp.setUp()
         trace_ksp.setFromOptions()
         self.trace_ksp = trace_ksp
+        pop_appctx(trace_dm)
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
@@ -343,6 +368,9 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
+        dm = self.trace_ksp.getDM()
+        push_appctx(dm, self._ctx_ref)
+
         # Solve the system for the Lagrange multipliers
         with self.schur_rhs.dat.vec_ro as b:
             if self.trace_ksp.getInitialGuessNonzero():
@@ -351,6 +379,8 @@ class HybridizationPC(SCBase):
                 acc = self.trace_solution.dat.vec_wo
             with acc as x_trace:
                 self.trace_ksp.solve(b, x_trace)
+
+        pop_appctx(dm)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
