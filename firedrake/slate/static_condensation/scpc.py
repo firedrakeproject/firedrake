@@ -1,3 +1,4 @@
+from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -122,14 +123,38 @@ class SCPC(SCBase):
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
+        # Create a SNESContext for the DM associated with the condensed problem
+        from firedrake.variational_solver import NonlinearVariationalProblem
+        from firedrake.solving_utils import _SNESContext
+        from firedrake.ufl_expr import action
+
+        # Pull out dm from the original mixed system to get the original context
+        dm = pc.getDM()
+        octx = get_appctx(dm)
+        tmp = Function(Vc)
+        F = action(S_expr, tmp)
+        nproblem = NonlinearVariationalProblem(F, tmp, bcs=bcs,
+                                               J=S_expr,
+                                               form_compiler_parameters=self.cxt.fc_params)
+        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        self._ctx_ref = nctx
+
+        # Push new context onto the dm associated with the condensed problem
+        c_dm = Vc.dm
+        push_appctx(c_dm, nctx)
+
         # Set up ksp for the condensed problem
         c_ksp = PETSc.KSP().create(comm=pc.comm)
         c_ksp.incrementTabLevel(1, parent=pc)
         c_ksp.setOptionsPrefix(prefix)
         c_ksp.setOperators(Smat)
+        # Set the dm for the condensed solver
+        c_ksp.setDM(c_dm)
+        c_ksp.setDMActive(False)
         c_ksp.setUp()
         c_ksp.setFromOptions()
         self.condensed_ksp = c_ksp
+        pop_appctx(c_dm)
 
         # Set up local solvers for backwards substitution
         self.local_solvers = self.local_solver_calls(A, self.residual,
@@ -211,6 +236,9 @@ class SCPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
+        dm = self.condensed_ksp.getDM()
+        push_appctx(dm, self._ctx_ref)
+
         with self.condensed_rhs.dat.vec_ro as rhs:
             if self.condensed_ksp.getInitialGuessNonzero():
                 acc = self.solution.split()[self.c_field].dat.vec
@@ -218,6 +246,8 @@ class SCPC(SCBase):
                 acc = self.solution.split()[self.c_field].dat.vec_wo
             with acc as sol:
                 self.condensed_ksp.solve(rhs, sol)
+
+        pop_appctx(dm)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
