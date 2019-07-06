@@ -23,7 +23,7 @@ class GTMGPC(PCBase):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
-        appctx = context.appctx
+        appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
         prefix = pc.getOptionsPrefix()
@@ -127,13 +127,15 @@ class GTMGPC(PCBase):
         from firedrake.function import Function
         from firedrake.ufl_expr import action
 
+        dm = opc.getDM()
+        octx = get_appctx(dm)
         coarse_tmp = Function(coarse_space)
         F = action(coarse_operator, coarse_tmp)
         nprob = NonlinearVariationalProblem(F, coarse_tmp,
                                             bcs=coarse_space_bcs,
                                             J=coarse_operator,
                                             form_compiler_parameters=fcp)
-        nctx = _SNESContext(nprob, coarse_mat_type, coarse_mat_type, appctx)
+        nctx = _SNESContext(nprob, coarse_mat_type, coarse_mat_type, octx.appctx)
         self._ctx_ref = nctx
 
         # Push new context onto the coarse space dm
