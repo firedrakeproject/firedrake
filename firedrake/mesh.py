@@ -406,8 +406,10 @@ class MeshTopology(object):
             # it, we grow the halo.
             partitioner = plex.getPartitioner()
             if IntType.itemsize == 8:
-                # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
-                partitioner.setType(partitioner.Type.PARMETIS)
+                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
+                partitioner.setType(partitioner.Type.PTSCOTCH)
+            else:
+                partitioner.setType(partitioner.Type.CHACO)
             try:
                 sizes, points = distribute
                 partitioner.setType(partitioner.Type.SHELL)
