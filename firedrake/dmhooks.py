@@ -184,9 +184,12 @@ def add_hook(dm, setup=None, teardown=None, call_setup=False, call_teardown=Fals
 class add_hooks(object):
     """Context manager for adding subproblem setup hooks to a DM.
 
-    :arg DM: The DM to remember setup/teardown for.
+    :arg dm: The DM to remember setup/teardown for.
     :arg obj: The object that we're going to setup, typically a solver
        of some kind: this is where the hooks are saved.
+    :arg auxdms: Any other DMs in the problem (e.g. for coefficients)
+       that might need setup. Use this if the problem will need coarse
+       grid coefficients on different function spaces.
     :arg save: Save this round of setup? Set this to False if all
         you're going to do is setFromOptions.
     :arg appctx: An application context to attach to the top-level DM
@@ -210,8 +213,9 @@ class add_hooks(object):
        with dmhooks.add_hooks(dm, self, appctx=self.ctx):
           pc.apply(...)
     """
-    def __init__(self, dm, obj, *, save=True, appctx=None):
+    def __init__(self, dm, obj, *, auxdms=(), save=True, appctx=None):
         self.dm = dm
+        self.auxdms = tuple(auxdms)
         self.obj = obj
         self.first_time = not hasattr(obj, "setup_hooks")
         self.save = save
@@ -230,6 +234,10 @@ class add_hooks(object):
                 # Remember it for later
                 self.obj.setup_hooks = hooks
             push_attr("__setup_hooks__", self.dm, hooks)
+            for d in self.auxdms:
+                add_hook(self.dm, setup=partial(push_parent, d, self.dm),
+                         teardown=partial(pop_parent, d, self.dm),
+                         call_setup=True)
             if self.appctx is not None:
                 add_hook(self.dm, setup=partial(push_appctx, self.dm, self.appctx),
                          teardown=partial(pop_appctx, self.dm, self.appctx),

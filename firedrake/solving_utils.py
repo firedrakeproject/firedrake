@@ -340,6 +340,24 @@ class _SNESContext(object):
             ctx._pjac.force_evaluation()
 
     @cached_property
+    def auxdms(self):
+        """Unique (sorted) DMs of any coefficients in the problem (excluding the DM the problem is defined on)"""
+        seen = set([self._problem.u.dof_dset])
+        dms = []
+        for f in (self._problem.J, self._problem.Jp, self._problem.F):
+            if f is not None:
+                for c in f.coefficients():
+                    try:
+                        dset = c.dof_dset
+                        if dset not in seen:
+                            dms.append(dset.dm)
+                            seen.add(dset)
+                    except AttributeError:
+                        # Constant, no need to handle
+                        pass
+        return tuple(dms)
+
+    @cached_property
     def _jac(self):
         from firedrake.assemble import allocate_matrix
         return allocate_matrix(self.J,

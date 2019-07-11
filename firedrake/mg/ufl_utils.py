@@ -173,14 +173,22 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.Function)
 def coarsen_function(expr, self, coefficient_mapping=None):
+    from firedrake.dmhooks import get_transfer_operators, get_parent, add_hook
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
+    _, _, inject = get_transfer_operators(expr.function_space().dm)
     if new is None:
-        _, _, inject = firedrake.dmhooks.get_transfer_operators(expr.function_space().dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
-        inject(expr, new)
+        try:
+            # Add a setup callback that reinjects new coarse grid values.
+            parent = get_parent(expr.function_space().dm)
+            add_hook(parent, setup=partial(inject, expr, new), teardown=None,
+                     call_setup=True)
+        except ValueError:
+            # Not in add_hooks context
+            inject(expr, new)
     return new
 
 

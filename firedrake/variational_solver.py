@@ -258,7 +258,8 @@ class NonlinearVariationalSolver(OptionsManager):
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
+                for ctx in chain((self.inserted_options(),
+                                  dmhooks.add_hooks(dm, self, auxdms=self._ctx.auxdms, appctx=self._ctx)),
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)

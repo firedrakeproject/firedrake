@@ -155,7 +155,12 @@ class LinearSolver(OptionsManager):
         else:
             acc = x.dat.vec_wo
 
-        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
+        appctx = dmhooks.get_appctx(self.ksp.dm)
+        if appctx is None:
+            auxdms = ()
+        else:
+            auxdms = appctx.auxdms
+        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self, auxdms=auxdms):
             self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()

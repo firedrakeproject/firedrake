@@ -1,9 +1,7 @@
-import pytest
 import numpy
 from firedrake import *
 
 
-@pytest.mark.xfail(reason="Coarse grid coefficient not updated for second solve")
 def test_coefficients_retransferred():
     mesh = UnitSquareMesh(1, 1)
 
