@@ -342,16 +342,16 @@ class _SNESContext(object):
     @cached_property
     def auxdms(self):
         """Unique (sorted) DMs of any coefficients in the problem (excluding the DM the problem is defined on)"""
-        seen = set([self._problem.u.dof_dset])
+        seen = set([self._problem.u.function_space().dm.handle])
         dms = []
         for f in (self._problem.J, self._problem.Jp, self._problem.F):
             if f is not None:
                 for c in f.coefficients():
                     try:
-                        dset = c.dof_dset
-                        if dset not in seen:
-                            dms.append(dset.dm)
-                            seen.add(dset)
+                        dm = c.function_space().dm
+                        if dm.handle not in seen:
+                            dms.append(dm)
+                            seen.add(dm.handle)
                     except AttributeError:
                         # Constant, no need to handle
                         pass

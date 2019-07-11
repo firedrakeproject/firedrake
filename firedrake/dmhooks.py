@@ -51,8 +51,7 @@ def get_function_space(dm):
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
     """
-    info = dm.getAttr("__fs_info__")
-    meshref, element, indices, (name, names) = info
+    meshref, element, indices, (name, names) = dm.getAttr("__fs_info__")
     mesh = meshref()
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
@@ -65,34 +64,23 @@ def get_function_space(dm):
     return V
 
 
-def set_function_space(dm, V):
+def set_function_space(dm, mesh, element, indices, name, names):
     """Set the :class:`~.FunctionSpace` on this DM.
 
     :arg dm: The DM
-    :arg V: The function space.
+    :arg mesh: The mesh
+    :arg element: The element (for the full space)
+    :arg indices: Indexing into a (potentially) mixed/vector/tensor
+        space (may be an empty tuple for no indexing)
+    :arg name: Name of the full space
+    :arg names: Names of the pieces (may be empty)
 
     .. note::
 
        This stores the information necessary to make a function space given a DM.
 
     """
-    mesh = V.mesh()
-
-    indices = []
-    names = []
-    while V.parent is not None:
-        if V.index is not None:
-            assert V.component is None
-            indices.append(V.index)
-        if V.component is not None:
-            assert V.index is None
-            indices.append(V.component)
-        V = V.parent
-    if len(V) > 1:
-        names = tuple(V_.name for V_ in V)
-    element = V.ufl_element()
-
-    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    info = (weakref.ref(mesh), element, indices, (name, names))
     dm.setAttr("__fs_info__", info)
 
 
@@ -376,6 +364,10 @@ def create_field_decomposition(dm, *args, **kwargs):
     if ctx is not None:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
+            # These might be different from the DMs above because
+            # MeshGeometry vs MeshTopology (don't quite understand why)
+            add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
+                     call_setup=True)
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),

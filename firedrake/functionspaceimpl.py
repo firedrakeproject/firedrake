@@ -14,9 +14,44 @@ import ufl
 from pyop2 import op2
 from tsfc.finatinterface import create_element
 
-from firedrake.functionspacedata import get_shared_data
+from firedrake.functionspacedata import get_shared_data, get_dm
 from firedrake import utils
 from firedrake import dmhooks
+
+
+def _dm(self, mixed=False):
+    # Can't be a method because we want to share between WithGeometry,
+    # FunctionSpace, and MixedFunctionSpace (but they are unrelated in
+    # the class hierarchy)
+    from firedrake.mg.utils import get_level
+    indices = []
+    V = self
+    while V.parent is not None:
+        if V.index is not None:
+            assert V.component is None
+            indices.append(V.index)
+        if V.component is not None:
+            assert V.index is None
+            indices.append(V.component)
+        V = V.parent
+    if len(V) > 1:
+        names = tuple(V_.name for V_ in V)
+    else:
+        names = ()
+    element = V.ufl_element()
+    mesh = V.mesh()
+    # Reversal to match up with dmhooks.get_function_space
+    indices = tuple(reversed(indices))
+    key = (mesh, self.dof_dset, element, indices, self.name, names)
+    dm = get_dm(mesh, key)
+    _, level = get_level(mesh)
+    if mixed:
+        dmhooks.attach_hooks(dm, level=level)
+    else:
+        dmhooks.attach_hooks(dm, level=level,
+                             sf=mesh._plex.getPointSF(),
+                             section=self._shared_data.global_numbering)
+    return dm
 
 
 class WithGeometry(ufl.FunctionSpace):
@@ -85,9 +120,8 @@ class WithGeometry(ufl.FunctionSpace):
 
     @utils.cached_property
     def dm(self):
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
+        r"""A PETSc DM describing the data layout for this FunctionSpace."""
+        return _dm(self, mixed=isinstance(self.topological, MixedFunctionSpace))
 
     @property
     def num_work_functions(self):
@@ -232,6 +266,12 @@ class WithGeometry(ufl.FunctionSpace):
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
+    @utils.cached_property
+    def parent(self):
+        if self.topological.parent is None:
+            return None
+        return WithGeometry(self.topological.parent, self.mesh())
+
 
 class FunctionSpace(object):
     r"""A representation of a function space.
@@ -348,20 +388,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
-                             section=self._shared_data.global_numbering)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+        return _dm(self)
 
     @utils.cached_property
     def _ises(self):
@@ -681,16 +708,7 @@ class MixedFunctionSpace(object):
     @utils.cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for fieldsplit solvers."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level)
-        return dm
+        return _dm(self, mixed=True)
 
     @utils.cached_property
     def _ises(self):
@@ -829,17 +847,6 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
-                             section=None)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.Global` representing the

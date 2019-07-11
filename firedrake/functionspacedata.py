@@ -327,6 +327,18 @@ def get_boundary_nodes(mesh, key, V):
     return indices.astype(IntType)
 
 
+@cached
+def get_dm(mesh, key):
+    from firedrake.dmhooks import set_function_space
+    # Key must contain actual mesh (to distinguish between topological
+    # and geometrical meshes)
+    mesh, dof_dset, element, indices, name, names = key
+    dm = PETSc.DMShell().create(comm=dof_dset.comm)
+    dm.setGlobalVector(dof_dset.layout_vec)
+    set_function_space(dm, mesh, element, indices, name, names)
+    return dm
+
+
 def get_max_work_functions(V):
     """Get the maximum number of work functions.
 
