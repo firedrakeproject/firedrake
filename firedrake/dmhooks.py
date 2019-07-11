@@ -376,6 +376,10 @@ def create_field_decomposition(dm, *args, **kwargs):
     if ctx is not None:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
+            # These might be different from the DMs above because
+            # MeshGeometry vs MeshTopology (don't quite understand why)
+            add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
+                     call_setup=True)
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),

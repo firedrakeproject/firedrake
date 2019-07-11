@@ -7,6 +7,7 @@ classes for attaching extra information to instances of these.
 from collections import OrderedDict
 
 import numpy
+import weakref
 
 import finat
 import ufl
@@ -15,6 +16,7 @@ from pyop2 import op2
 from tsfc.finatinterface import create_element
 
 from firedrake.functionspacedata import get_shared_data
+from firedrake.petsc import PETSc
 from firedrake import utils
 from firedrake import dmhooks
 
@@ -85,7 +87,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     @utils.cached_property
     def dm(self):
-        dm = self._dm()
+        dm = self.topological.dm
         dmhooks.set_function_space(dm, self)
         return dm
 
@@ -231,6 +233,12 @@ class WithGeometry(ufl.FunctionSpace):
 
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
+
+    @utils.cached_property
+    def parent(self):
+        if self.topological.parent is None:
+            return None
+        return WithGeometry(self.topological.parent, self.mesh())
 
 
 class FunctionSpace(object):
@@ -740,6 +748,30 @@ class ProxyFunctionSpace(FunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.Dat` objects"""
+
+    def _dm(self):
+        # The DM must be unique to the indexing (relative to the parent)
+        # So store on the parent and make it here.
+        from firedrake.mg.utils import get_level
+        pdm = self.parent.dm
+        dms = pdm.getAttr("__proxy_dms__")
+        if dms is None:
+            dms = weakref.WeakValueDictionary()
+            pdm.setAttr("__proxy_dms__", dms)
+
+        key = (self.index, self.component, self.identifier)
+        try:
+            return dms[key]
+        except KeyError:
+            dm = PETSc.DMShell().create(comm=self.comm)
+            dm.setGlobalVector(self.dof_dset.layout_vec)
+            _, level = get_level(self.mesh())
+            dmhooks.attach_hooks(dm, level=level,
+                                 sf=self.mesh()._plex.getPointSF(),
+                                 section=self._shared_data.global_numbering)
+            # Remember the function space so we can get from DM back to FunctionSpace.
+            dmhooks.set_function_space(dm, self)
+            return dms.setdefault(key, dm)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.Dat`.

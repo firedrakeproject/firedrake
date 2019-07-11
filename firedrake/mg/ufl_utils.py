@@ -55,6 +55,14 @@ def coarsen(expr, self, coefficient_mapping=None):
     return expr
 
 
+@coarsen.register(firedrake.mesh.MeshTopology)
+def coarsen_mesh_topology(mesh, self, coefficient_mapping=None):
+    hierarchy, level = utils.get_level(mesh)
+    if hierarchy is None:
+        raise CoarseningError("No mesh hierarchy available")
+    return hierarchy[level - 1].topological
+
+
 @coarsen.register(ufl.Mesh)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
@@ -177,18 +185,20 @@ def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
-    _, _, inject = get_transfer_operators(expr.function_space().dm)
     if new is None:
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
-        try:
-            # Add a setup callback that reinjects new coarse grid values.
-            parent = get_parent(expr.function_space().dm)
-            add_hook(parent, setup=partial(inject, expr, new), teardown=None,
-                     call_setup=True)
-        except ValueError:
-            # Not in add_hooks context
-            inject(expr, new)
+        for fine, coarse in zip(expr.split(), new.split()):
+            # Do this so we have a chance to attach the hooks to the pieces.
+            _, _, inject = get_transfer_operators(fine.function_space().dm)
+            try:
+                # Add a setup callback that reinjects new coarse grid values.
+                parent = get_parent(fine.function_space().dm)
+                add_hook(parent, setup=partial(inject, fine, coarse), teardown=None,
+                         call_setup=True)
+            except ValueError:
+                # Not in add_hooks context
+                inject(fine, coarse)
     return new
 
 
