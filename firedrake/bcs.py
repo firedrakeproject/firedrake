@@ -318,7 +318,8 @@ class DirichletBC(BCBase):
         if V == fs and \
            V.parent == fs.parent and \
            V.index == fs.index and \
-           V.component == fs.component and \
+           (V.parent is None or V.parent.parent == fs.parent.parent) and \
+           (V.parent is None or V.parent.index == fs.parent.index) and \
            g == self._original_arg and \
            sub_domain == self.sub_domain and method == self.method:
             return self
