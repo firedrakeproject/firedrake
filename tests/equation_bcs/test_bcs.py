@@ -1,16 +1,13 @@
-import pytest
-
 from firedrake import *
 
 
-@pytest.mark.parallel
 def test_bc_on_sub_sub_domain():
 
     # Solve a vector poisson problem
 
-    mesh = UnitSquareMesh(32, 32)
+    mesh = UnitSquareMesh(500, 500)
 
-    V = VectorFunctionSpace(mesh, "CG", 4)
+    V = VectorFunctionSpace(mesh, "CG", 1)
     VV = MixedFunctionSpace([V, V])
 
     x, y = SpatialCoordinate(mesh)
@@ -38,21 +35,15 @@ def test_bc_on_sub_sub_domain():
            DirichletBC(VV.sub(1).sub(0), gg[1][0], 3),
            DirichletBC(VV.sub(1).sub(1), gg[1][1], "on_boundary")]
 
-    parameters = {
-        "mat_type": "matfree",
-        "snes_max_it": 1,
-        "ksp_type": "gmres",
-        "ksp_rtol": 1.e-10,
-        "ksp_atol": 1.e-10,
-        "ksp_max_it": 200000,
-        "pc_type": "fieldsplit",
-        "pc_fieldsplit_type": "schur",
-        "pc_fieldsplit_schur_fact_type": "full",
-        "fieldsplit_0_ksp_type": "gmres",
-        "fieldsplit_0_ksp_rtol": 1.e-12,
-        "fieldsplit_1_ksp_type": "gmres",
-        "fieldsplit_1_ksp_rtol": 1.e-12,
-    }
+    parameters = {"mat_type": "matfree",
+                  "snes_type": "ksponly",
+                  "ksp_type": "preonly",
+                  "pc_type": "fieldsplit",
+                  "pc_fieldsplit_type": "additive",
+                  "fieldsplit_ksp_type": "preonly",
+                  "fieldsplit_pc_type": "python",
+                  "fieldsplit_pc_python_type": "firedrake.AssembledPC",
+                  "fieldsplit_assembled_pc_type": "lu"}
 
     solve(F == 0, uu, bcs=bcs, solver_parameters=parameters)
 
@@ -60,5 +51,5 @@ def test_bc_on_sub_sub_domain():
     f.interpolate(as_vector([cos(2 * pi * x) * cos(2 * pi * y),
                              cos(2 * pi * x) * cos(2 * pi * y)]))
 
-    assert(sqrt(assemble(dot(uu.split()[0] - f, uu.split()[0] - f) * dx)) < 4.3e-07)
-    assert(sqrt(assemble(dot(uu.split()[1] - f, uu.split()[1] - f) * dx)) < 1.5e-07)
+    assert(sqrt(assemble(dot(uu.split()[0] - f, uu.split()[0] - f) * dx)) < 4.0e-05)
+    assert(sqrt(assemble(dot(uu.split()[1] - f, uu.split()[1] - f) * dx)) < 4.0e-05)
