@@ -121,6 +121,7 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
+@coarsen.register(firedrake.functionspaceimpl.MixedFunctionSpace)
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
