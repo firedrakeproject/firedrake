@@ -1097,6 +1097,8 @@ if mode == "install" or not args.update_script:
             apt_packages = ["build-essential",
                             "autoconf",
                             "automake",
+                            "bison",  # for ptscotch
+                            "flex",   # for ptscotch
                             "cmake",
                             "gfortran",
                             "git",
