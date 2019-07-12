@@ -153,16 +153,7 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
-    elif element.family() == "DPC":
-        if element.cell().geometric_dimension() == 2:
-            element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell().geometric_dimension() == 3:
-            element = element.reconstruct(cell=ufl.cell.hypercube(3))
-    elif element.family() == "S":
-        if element.cell().geometric_dimension() == 2:
-            element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell().geometric_dimension() == 3:
-            element = element.reconstruct(cell=ufl.cell.hypercube(3))
+
     return lmbda(cell, element.degree()), set()
 
 

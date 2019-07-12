@@ -140,16 +140,7 @@ def convert_finiteelement(element, vector_is_mixed):
             lmbda = FIAT.GaussLegendre
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
-    elif element.family() == "DPC":
-        if element.cell().geometric_dimension() == 2:
-            element = element.reconstruct(cell=ufl.hypercube(2))
-        elif element.cell.geometric_dimension() == 3:
-            element = element.reconstruct(cell=ufl.hypercube(3))
-    elif element.family() == "S":
-        if element.cell().geometric_dimension() == 2:
-            element = element.reconstruct(cell=ufl.hypercube(2))
-        elif element.cell().geometric_dimension() == 3:
-            element = element.reconstruct(cell=ufl.hypercube(3))
+
     return lmbda(cell, element.degree())
 
 
