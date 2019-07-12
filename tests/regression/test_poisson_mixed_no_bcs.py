@@ -35,7 +35,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 
     # Define function spaces and mixed (product) space
     if quadrilateral:
-        BDM = FunctionSpace(mesh, "RTCF", 1)
+        BDM = FunctionSpace(mesh, "BDMCF", 1)
     else:
         BDM = FunctionSpace(mesh, "BDM", 1)
     DG = FunctionSpace(mesh, "DG", 0)
@@ -49,8 +49,8 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
     # Define variational form
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
-    L = - f*v*dx
+    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=10)
+    L = - f*v*dx(degree=10)
 
     # Compute solution
     w = Function(W)
@@ -88,5 +88,5 @@ def test_hdiv_convergence(testcase, convrate):
     start, end = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
-        l2err[ii - start] = poisson_mixed(ii, quadrilateral=True)[0]
+        l2err[ii - start]= poisson_mixed(ii, quadrilateral=True)[0]
     assert (np.log2(l2err[:-1] / l2err[1:]) > convrate).all()

@@ -63,6 +63,26 @@ def test_quad_vector(mesh_quad, family, degree):
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
 
 
+@pytest.mark.parametrize(('family', 'degree'),
+                         [('BDMCE', 2)])
+def test_quad_vector(mesh_quad, family, degree):
+    x, y = SpatialCoordinate(mesh_quad)
+    V = FunctionSpace(mesh_quad, family, degree)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    uex = as_vector([0.2 + y, 0.8*x + 0.2*y])
+
+    a = inner(u, v)*dx(degree=4)
+    L = inner(uex, v)*dx(degree=4)
+
+    sol = Function(V)
+    solve(a == L, sol)
+
+    l2err = errornorm(uex, sol, norm_type="l2")
+    assert l2err < 1e-6
+
+
 @pytest.mark.parametrize(('family', 'degree', 'vfamily', 'vdegree'),
                          [('CG', 3, 'DG', 2),
                           ('DG', 3, 'CG', 2)])
