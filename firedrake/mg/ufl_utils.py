@@ -182,7 +182,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.Function)
 def coarsen_function(expr, self, coefficient_mapping=None):
-    from firedrake.dmhooks import get_transfer_operators, get_parent, add_hook
+    from firedrake.dmhooks import (get_transfer_operators, get_parent, add_hook,
+                                   push_parent, pop_parent, push_transfer_operators,
+                                   pop_transfer_operators)
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
@@ -191,11 +193,19 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
         for fine, coarse in zip(expr.split(), new.split()):
             # Do this so we have a chance to attach the hooks to the pieces.
-            _, _, inject = get_transfer_operators(fine.function_space().dm)
+            fdm = fine.function_space().dm
+            cdm = coarse.function_space().dm
+            parent = get_parent(fdm)
+            transfer = get_transfer_operators(fdm)
+            inject = transfer[2]
             try:
                 # Add a setup callback that reinjects new coarse grid values.
-                parent = get_parent(fine.function_space().dm)
                 add_hook(parent, setup=partial(inject, fine, coarse), teardown=None,
+                         call_setup=True)
+                add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+                         call_setup=True)
+                add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
+                         teardown=partial(pop_transfer_operators, cdm, transfer),
                          call_setup=True)
             except ValueError:
                 # Not in add_hooks context

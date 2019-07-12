@@ -359,19 +359,32 @@ def create_field_decomposition(dm, *args, **kwargs):
     coarsen = get_ctx_coarsener(dm)
     parent = get_parent(dm)
     for d in dms:
-        add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
-                 call_setup=True)
+        add_hook(parent, setup=partial(push_parent, d, parent),
+                 teardown=partial(pop_parent, d, parent), call_setup=True)
     if ctx is not None:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
-        for d, c in zip(dms, ctxs):
-            # These might be different from the DMs above because
-            # MeshGeometry vs MeshTopology (don't quite understand why)
-            add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
-                     call_setup=True)
+        newdms = []
+        for olddm, c in zip(dms, ctxs):
+            # Move the transfer operators across
+            ctx_dm = c._problem.dm
+            if ctx_dm == olddm:
+                to_setup = (olddm, )
+            else:
+                to_setup = (olddm, ctx_dm)
+            for dm in to_setup:
+                if dm != olddm:
+                    transfer = get_transfer_operators(olddm)
+                    add_hook(parent, setup=partial(push_transfer_operators, dm, transfer),
+                             teardown=partial(pop_transfer_operators, dm, transfer), call_setup=True)
+                    add_hook(parent, setup=partial(push_parent, dm, parent),
+                             teardown=partial(pop_parent, dm, parent), call_setup=True)
+                # Setup the rest.
+                add_hook(parent, setup=partial(push_appctx, dm, c),
+                         teardown=partial(pop_appctx, dm, c), call_setup=True)
+                add_hook(parent, setup=partial(push_ctx_coarsener, dm, coarsen),
+                         teardown=partial(pop_ctx_coarsener, dm, coarsen), call_setup=True)
+            newdms.append(ctx_dm)
+        dms = newdms
     return names, W._ises, dms
 
 
@@ -395,10 +408,22 @@ def create_subdm(dm, fields, *args, **kwargs):
 
         if ctx is not None:
             ctx, = ctx.split([(idx, )])
-            add_hook(parent, setup=partial(push_appctx, subdm, ctx), teardown=partial(pop_appctx, subdm, ctx),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
-                     call_setup=True)
+            ctx_dm = ctx._problem.dm
+            if ctx_dm == subdm:
+                to_setup = (subdm, )
+            else:
+                to_setup = (ctx_dm, subdm)
+            for dm in to_setup:
+                if dm != subdm:
+                    transfer = get_transfer_operators(subdm)
+                    add_hook(parent, setup=partial(push_parent, dm, parent),
+                             teardown=partial(pop_parent, dm, parent), call_setup=True)
+                    add_hook(parent, setup=partial(push_transfer_operators, dm, transfer),
+                             teardown=partial(pop_transfer_operators, dm, transfer), call_setup=True)
+                add_hook(parent, setup=partial(push_appctx, dm, ctx),
+                         teardown=partial(pop_appctx, dm, ctx), call_setup=True)
+                add_hook(parent, setup=partial(push_ctx_coarsener, dm, coarsen),
+                         teardown=partial(pop_ctx_coarsener, dm, coarsen), call_setup=True)
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
@@ -408,16 +433,28 @@ def create_subdm(dm, fields, *args, **kwargs):
         transfer = get_transfer_operators(dm)
 
         add_hook(parent, setup=partial(push_transfer_operators, subspace.dm, transfer),
-                 teardown=partial(pop_transfer_operators, subspace.dm, transfer),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
-                 call_setup=True)
+                 teardown=partial(pop_transfer_operators, subspace.dm, transfer), call_setup=True)
+        add_hook(parent, setup=partial(push_parent, subspace.dm, parent),
+                 teardown=partial(pop_parent, subspace.dm, parent), call_setup=True)
+        for V_, W_ in zip(subspace, [W[f] for f in fields]):
+            # And on the pieces
+            transfer = get_transfer_operators(W_.dm)
+            coarsen = get_ctx_coarsener(W_.dm)
+            add_hook(parent, setup=partial(push_transfer_operators, V_.dm, transfer),
+                     teardown=partial(pop_transfer_operators, V_.dm, transfer), call_setup=True)
+            add_hook(parent, setup=partial(push_parent, V_.dm, parent),
+                     teardown=partial(pop_parent, V_.dm, parent), call_setup=True)
+            add_hook(parent, setup=partial(push_ctx_coarsener, V_.dm, coarsen),
+                     teardown=partial(pop_ctx_coarsener, V_.dm, coarsen),
+                     call_setup=True)
+
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
+            coarsen = get_ctx_coarsener(dm)
             add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),
                      teardown=partial(pop_appctx, subspace.dm, ctx),
                      call_setup=True)
@@ -451,6 +488,9 @@ def coarsen(dm, comm):
     add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
              teardown=partial(pop_transfer_operators, cdm, transfer),
              call_setup=True)
+    add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
+             teardown=partial(pop_ctx_coarsener, cdm, coarsen),
+             call_setup=True)
     if len(V) > 1:
         for V_, Vc_ in zip(V, Vc):
             transfer = get_transfer_operators(V_.dm)
@@ -459,9 +499,9 @@ def coarsen(dm, comm):
             add_hook(parent, setup=partial(push_transfer_operators, Vc_.dm, transfer),
                      teardown=partial(pop_transfer_operators, Vc_.dm, transfer),
                      call_setup=True)
-    add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
-             teardown=partial(pop_ctx_coarsener, cdm, coarsen),
-             call_setup=True)
+            add_hook(parent, setup=partial(push_ctx_coarsener, Vc_.dm, coarsen),
+                     teardown=partial(pop_ctx_coarsener, Vc_.dm, coarsen),
+                     call_setup=True)
     ctx = get_appctx(dm)
     if ctx is not None:
         cctx = coarsen(ctx, coarsen)
