@@ -34,20 +34,20 @@ def W(mesh):
         return FunctionSpace(mesh, "RTCF", 1)
 
 
-def run_left_to_right(mesh, DG0, W):
+def run_left_to_right(mesh, DGDPC0, W):
     velocity = as_vector((1.0, 0.0))
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
-    inflow = Function(DG0)
+    inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG0)
-    phi = TestFunction(DG0)
+    D = TrialFunction(DGDPC0)
+    phi = TestFunction(DGDPC0)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
@@ -56,7 +56,7 @@ def run_left_to_right(mesh, DG0, W):
 
     L = -inflow*phi*dot(u0, n)*ds(1)  # inflow at left-hand wall
 
-    out = Function(DG0)
+    out = Function(DGDPC0)
     solve(a == L, out)
 
     # we only use inflow at the left wall, but since the velocity field
@@ -65,13 +65,13 @@ def run_left_to_right(mesh, DG0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.2e-7
 
 
-def test_left_to_right(mesh, DG0, W):
-    run_left_to_right(mesh, DG0, W)
+def test_left_to_right(mesh, DGDPC0, W):
+    run_left_to_right(mesh, DGDPC0, W)
 
 
 @pytest.mark.parallel
-def test_left_to_right_parallel(mesh, DG0, W):
-    run_left_to_right(mesh, DG0, W)
+def test_left_to_right_parallel(mesh, DGDPC0, W):
+    run_left_to_right(mesh, DGDPC0, W)
 
 
 def run_up_to_down(mesh, DG1, W):

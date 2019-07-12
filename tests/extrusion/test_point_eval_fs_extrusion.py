@@ -64,7 +64,8 @@ def test_quad_vector(mesh_quad, family, degree):
 
 
 @pytest.mark.parametrize(('family', 'degree'),
-                         [('BDMCE', 2)])
+                         [('BDMCE', 2),
+                          ('BDMCF', 2)])
 def test_quad_vector(mesh_quad, family, degree):
     x, y = SpatialCoordinate(mesh_quad)
     V = FunctionSpace(mesh_quad, family, degree)
