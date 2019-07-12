@@ -407,7 +407,11 @@ class MeshTopology(object):
             partitioner = plex.getPartitioner()
             if IntType.itemsize == 8:
                 # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
-                partitioner.setType(partitioner.Type.PTSCOTCH)
+                from firedrake_configuration import get_config
+                if get_config().get("options", {}).get("with_parmetis", False):
+                    partitioner.setType(partitioner.Type.PARMETIS)
+                else:
+                    partitioner.setType(partitioner.Type.PTSCOTCH)
             else:
                 partitioner.setType(partitioner.Type.CHACO)
             try:
