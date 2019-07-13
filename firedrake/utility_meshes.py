@@ -106,46 +106,32 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    absfunc = 'cabs' if utils.complex_mode else 'fabs'
-
-    periodic_kernel = """
-    const {0} pi = 3.141592653589793;
-    const {0} eps = 1e-12;
-    {0} a = atan2(creal(old_coords[0][1]), creal(old_coords[0][0])) / (2*pi);
-    {0} b = atan2(creal(old_coords[1][1]), creal(old_coords[1][0])) / (2*pi);
-    int swap = 0;
-    if ( creal(a) >= creal(b) ) {{
-        const {0} tmp = b;
-        b = a;
-        a = tmp;
-        swap = 1;
-    }}
-    if ( creal({1}(b)) < creal(eps) && creal(a) < creal(-eps) ) {{
-        b = 1.0;
-    }}
-    if ( creal(a) < creal(-eps) ) {{
-        a += 1;
-    }}
-    if ( creal(b) < creal(-eps) ) {{
-        b += 1;
-    }}
-    if ( swap ) {{
-        const {0} tmp = b;
-        b = a;
-        a = tmp;
-    }}
-    new_coords[0][0] = a * L[0];
-    new_coords[1][0] = b * L[0];
+    domain = ""
+    instructions = """
+    <float64> eps = 1e-12
+    <float64> pi = 3.141592653589793
+    <float64> a = atan2(creal(old_coords[0, 1]), creal(old_coords[0, 0])) / (2*pi)
+    <float64> b = atan2(creal(old_coords[1, 1]), creal(old_coords[1, 0])) / (2*pi)
+    <int32> swap = if(a >= b, 1, 0)
+    <float64> aa = fmin(a, b)
+    <float64> bb = fmax(a, b)
+    <float64> bb_abs = fabs(bb)
+    bb = if(bb_abs < eps, if(aa < -eps, 1.0, bb), bb)
+    aa = if(aa < -eps, aa + 1, aa)
+    bb = if(bb < -eps, bb + 1, bb)
+    a = if(swap == 1, bb, aa)
+    b = if(swap == 1, aa, bb)
+    new_coords[0] = a * L[0]
+    new_coords[1] = b * L[0]
     """.format(utils.ScalarType_c, absfunc)
-
-    print(periodic_kernel)
 
     cL = Constant(length)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
-              "L": (cL, READ)})
+              "L": (cL, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -307,13 +293,11 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
             mcoords
 
     local_facet_dat = mash.topology.interior_facets.local_facet_dat
-    local_facet_number = mash.topology.interior_facets.local_facet_number
 
-    lfd_ro = local_facet_dat.data_ro
-    for i in range(lfd_ro.shape[0]):
-        if all(lfd_ro[i, :] == np.array([3, 3])):
-            local_facet_dat.data[i, :] = [2, 3]
-            local_facet_number[i, :] = [2, 3]
+    lfd = local_facet_dat.data
+    for i in range(lfd.shape[0]):
+        if all(lfd[i, :] == np.array([3, 3])):
+            lfd[i, :] = [2, 3]
 
     return mash
 
@@ -519,58 +503,45 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    absfunc, sinfunc, cosfunc = ('cabs', 'csin', 'ccos') if utils.complex_mode \
-        else ('fabs', 'sin', 'cos')
-
-    periodic_kernel = """
-{0} pi = 3.141592653589793;
-{0} eps = 1e-12;
-{0} bigeps = 1e-1;
-{0} phi, theta, Y, Z;
-Y = 0.0;
-Z = 0.0;
-
-for(int i=0; i<creal(old_coords.dofs); i++) {{
-    Y += old_coords[i][1];
-    Z += old_coords[i][2];
-}}
-
-for(int i=0; i<creal(new_coords.dofs); i++) {{
-    phi = atan2(creal(old_coords[i][1]), creal(old_coords[i][0]));
-    if (creal({1}({2}(phi))) > creal(bigeps))
-        theta = atan2(creal(old_coords[i][2]), creal(old_coords[i][1]/{2}(phi) - 1.0));
-    else
-        theta = atan2(creal(old_coords[i][2]), creal(old_coords[i][0]/{3}(phi) - 1.0));
-
-    new_coords[i][0] = phi/(2.0*pi);
-    if(creal(new_coords[i][0]) < creal(-eps)) {{
-        new_coords[i][0] += 1.0;
-    }}
-    if(creal({1}(new_coords[i][0])) < creal(eps) && creal(Y) < creal(0.0)) {{
-        new_coords[i][0] = 1.0;
-    }}
-
-    new_coords[i][1] = theta/(2.0*pi);
-    if(creal(new_coords[i][1]) < creal(-eps)) {{
-        new_coords[i][1] += 1.0;
-    }}
-    if(creal({1}(new_coords[i][1])) < creal(eps) && creal(Z) < creal(0.0)) {{
-        new_coords[i][1] = 1.0;
-    }}
-
-    new_coords[i][0] *= Lx[0];
-    new_coords[i][1] *= Ly[0];
-}}
-""".format(utils.ScalarType_c, absfunc, sinfunc, cosfunc)
+    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    instructions = """
+    <float64> pi = 3.141592653589793
+    <float64> eps = 1e-12
+    <float64> bigeps = 1e-1
+    <float64> Y = 0
+    <float64> Z = 0
+    for i
+        Y = Y + creal(old_coords[i, 1])
+        Z = Z + creal(old_coords[i, 2])
+    end
+    for j
+        <float64> phi = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0]))
+        <float64> _phi = fabs(sin(phi))
+        <double> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1)
+        <double> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1)
+        <float64> theta = if(_phi > bigeps, _theta_1, _theta_2)
+        new_coords[j, 0] = phi / (2 * pi)
+        new_coords[j, 0] = if(creal(new_coords[j, 0]) < -eps, new_coords[j, 0] + 1, new_coords[j, 0])
+        <float64> _nc_abs = fabs(new_coords[j, 0])
+        new_coords[j, 0] = if(_nc_abs < eps and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 1] = theta / (2 * pi)
+        new_coords[j, 1] = if(creal(new_coords[j, 1]) < -eps, new_coords[j, 1] + 1, new_coords[j, 1])
+        _nc_abs = fabs(new_coords[j, 1])
+        new_coords[j, 1] = if(_nc_abs < eps and Z < 0, 1, new_coords[j, 1])
+        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
+        new_coords[j, 1] = new_coords[j, 1] * Ly[0]
+    end
+    """
 
     cLx = Constant(Lx)
     cLy = Constant(Ly)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     return mesh.Mesh(new_coordinates)
 
@@ -1296,7 +1267,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
     offset = np.arange(nl, dtype=np.int32)*nr
-    cells = np.row_stack((ring_cells + i for i in offset))
+    cells = np.row_stack(tuple(ring_cells + i for i in offset))
     if not quadrilateral:
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
@@ -1387,31 +1358,32 @@ cells in each direction are not currently supported")
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
-    periodic_kernel = """{0} Y,pi;
-            Y = 0.0;
-            for(int i=0; i<creal(old_coords.dofs); i++) {{
-                Y += old_coords[i][1];
-            }}
+    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    instructions = """
+    <float64> Y = 0
+    <float64> pi = 3.141592653589793
+    for i
+        Y = Y + creal(old_coords[i, 1])
+    end
+    for j
+        new_coords[j, 0] = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0])) / (pi* 2)
+        new_coords[j, 0] = if(creal(new_coords[j, 0]) < 0, new_coords[j, 0] + 1, new_coords[j, 0])
+        new_coords[j, 0] = if(new_coords[j, 0] == 0 and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
+        new_coords[j, 1] = old_coords[j, 2] * Ly[0]
+    end
+    """
 
-            pi=3.141592653589793;
-            for(int i=0;i<creal(new_coords.dofs);i++){{
-            new_coords[i][0] = atan2(creal(old_coords[i][1]),creal(old_coords[i][0]))/pi/2;
-            if(creal(new_coords[i][0])<creal(0.)) new_coords[i][0] += 1;
-            if(creal(new_coords[i][0])==creal(0) && creal(Y)<creal(0.)) new_coords[i][0] = 1.0;
-            new_coords[i][0] *= Lx[0];
-            new_coords[i][1] = old_coords[i][2]*Ly[0];
-            }}""".format(utils.ScalarType_c)
-
-    print(periodic_kernel)
 
     cLx = Constant(La)
     cLy = Constant(Lb)
 
-    par_loop(periodic_kernel, dx,
+    par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
 
     if direction == "y":
         # flip x and y coordinates

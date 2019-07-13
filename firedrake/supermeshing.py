@@ -198,12 +198,12 @@ each supermesh cell.
     %(evaluate_B)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
-    void print_array(double *arr, int d)
+    static void print_array(double *arr, int d)
     {
         for(int j=0; j<d; j++)
             PrintInfo("%%+.2f ", arr[j]);
     }
-    void print_coordinates(double *simplex, int d)
+    static void print_coordinates(double *simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
@@ -214,7 +214,10 @@ each supermesh cell.
     }
     int supermesh_kernel(double* simplex_A, double* simplex_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
     {
-        int d = %(dim)s;
+#define d %(dim)s
+#define num_nodes_A %(num_nodes_A)s
+#define num_nodes_B %(num_nodes_B)s
+
         double simplex_ref_measure;
         PrintInfo("simplex_A coordinates\\n");
         print_coordinates(simplex_A, d);
@@ -224,9 +227,6 @@ each supermesh cell.
 
         if (d == 2) simplex_ref_measure = 0.5;
         else if (d == 3) simplex_ref_measure = 1.0/6;
-
-        int num_nodes_A = %(num_nodes_A)s;
-        int num_nodes_B = %(num_nodes_B)s;
 
         double R_AS[num_nodes_A][num_nodes_A];
         double R_BS[num_nodes_B][num_nodes_B];
@@ -243,8 +243,8 @@ each supermesh cell.
         // would like to do this
         //double MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (double (*)[%(num_nodes_B)s])outptr;
         // but have to do this instead because we don't grok C
-        double (*MAB)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])outptr;
-        double (*MSS)[%(num_nodes_A)s] = (double (*)[%(num_nodes_A)s])M_SS; // note the underscore
+        double (*MAB)[num_nodes_A] = (double (*)[num_nodes_A])outptr;
+        double (*MSS)[num_nodes_A] = (double (*)[num_nodes_A])M_SS; // note the underscore
 
         for ( int i = 0; i < num_nodes_B; i++ ) {
             for (int j = 0; j < num_nodes_A; j++) {
@@ -265,9 +265,9 @@ each supermesh cell.
             double physical_nodes_A[num_nodes_A][d];
             for(int n=0; n < num_nodes_A; n++) {
                 double* reference_node_location = &nodes_A[n*d];
-                double* physical_node_location = &physical_nodes_A[n];
+                double* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -278,9 +278,9 @@ each supermesh cell.
             double physical_nodes_B[num_nodes_B][d];
             for(int n=0; n < num_nodes_B; n++) {
                 double* reference_node_location = &nodes_B[n*d];
-                double* physical_node_location = &physical_nodes_B[n];
+                double* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -314,7 +314,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -325,7 +325,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");

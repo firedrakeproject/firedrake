@@ -91,13 +91,11 @@ class SingleTransfer(object):
             # global Vector counting the number of cells that see each
             # dof.
             f = firedrake.Function(V)
-            firedrake.par_loop(
-                """for (int i = 0; i < A.dofs; i++)
-                       for (int j = 0; j < {}; j++)
-                          A[i][j] += 1;
-                """.format(V.value_size),
-                firedrake.dx,
-                {"A": (f, firedrake.INC)})
+            firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.value_size,
+                               "A[i, j] = A[i, j] + 1"),
+                               firedrake.dx,
+                               {"A": (f, firedrake.INC)},
+                               is_loopy_kernel=True)
             with f.dat.vec_ro as fv:
                 return self._V_dof_weights.setdefault(key, fv.copy())
 

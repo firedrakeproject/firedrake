@@ -1,4 +1,5 @@
 import ufl
+import numbers
 import numpy as np
 
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -14,6 +15,9 @@ __all__ = ['HybridizationPC']
 
 
 class HybridizationPC(SCBase):
+
+    needs_python_pmat = True
+
     """A Slate-based python preconditioner that solves a
     mixed H(div)-conforming problem using hybridization.
     Currently, this preconditioner supports the hybridization
@@ -96,19 +100,22 @@ class HybridizationPC(SCBase):
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
                   np.prod(V[self.vidx].shape))
-        weight_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        w[i][j] += 1.0;
-        }}""" % shapes
-
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
         self.weight = Function(V[self.vidx])
-        par_loop(weight_kernel, ufl.dx, {"w": (self.weight, INC)})
-        self.average_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        vec_out[i][j] += vec_in[i][j]/w[i][j];
-        }}""" % shapes
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
+
+        instructions = """
+        for i, j
+            vec_out[i,j] = vec_out[i,j] + vec_in[i,j]/w[i,j]
+        end
+        """
+        self.average_kernel = (domain, instructions)
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -149,7 +156,7 @@ class HybridizationPC(SCBase):
                 if isinstance(subdom, str):
                     neumann_subdomains |= set([subdom])
                 else:
-                    neumann_subdomains |= set(as_tuple(subdom, int))
+                    neumann_subdomains |= set(as_tuple(subdom, numbers.Integral))
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
@@ -321,7 +328,8 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)})
+                      "vec_out": (broken_res_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -370,7 +378,8 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)})
+                      "vec_out": (unbroken_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

@@ -101,15 +101,14 @@ The additional functionality required to support ensemble parallelism
 is the ability to send instances of :class:`~.Function` from one
 ensemble to another.  This is handled by the :class:`~.Ensemble`
 class. Instantiating an ensemble requires a communicator (usually
-``MPI_COMM_WORLD``) plus the number of independent simulations making
-up the ensemble (5, in the case of the example
-below). Each ensemble member will have the same spatial
-parallelism with the number of ranks in each spatial communicator
-given by dividing the size of the original communicator
-the number of ensemble members. The total number of processes launched
-by ``mpiexec`` must therefore be
-equal to the product of number of ensemble members with the number of
-processes to be used for each ensemble member.
+``MPI_COMM_WORLD``) plus the number of MPI processes to be used in
+each member of the ensemble (5, in the case of the example
+below). Each ensemble member will have the same spatial parallelism
+with the number of ensemble members given by dividing the size of the
+original communicator by the number processes in each ensemble
+member. The total number of processes launched by ``mpiexec`` must
+therefore be equal to the product of number of ensemble members with
+the number of processes to be used for each ensemble member.
 
 .. code-block:: python
 

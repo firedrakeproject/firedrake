@@ -19,6 +19,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
            DirichletBC(V, 42, 2)]
     for bc in bcs:
         bc.apply(u)
+
     v = Function(V)
     xs = SpatialCoordinate(mesh)
     v.interpolate(conditional(xs[0] < 0.05,
