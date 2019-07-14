@@ -955,12 +955,14 @@ def mark_entity_classes(PETSc.DM plex):
     
     import sys
     import time
+    from mpi4py import MPI
     if plex.comm.size > 1:
         # Mark ghosts from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
+        print('rank =', MPI.COMM_WORLD.rank,', num leaves = ', nleaves)
+        sys.stdout.flush()
         for p in range(nleaves):
-            sys.stdout.flush()
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
         sys.stdout.flush()
         time.sleep(1)

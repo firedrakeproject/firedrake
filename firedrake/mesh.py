@@ -723,6 +723,10 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_set(self):
+        from mpi4py import MPI
+        print('rank =', MPI.COMM_WORLD.rank, self._entity_classes[self.cell_dimension(), :])
+        import sys
+        sys.stdout.flush()
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 

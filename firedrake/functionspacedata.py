@@ -168,6 +168,11 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
+    #print(mesh.cell_set)
+    #print(mesh.interior_facets.set)
+    print(mesh.exterior_facets.set)
+    import sys
+    sys.stdout.flush()
     return {mesh.cell_set: None,
             mesh.interior_facets.set: None,
             mesh.exterior_facets.set: None,
@@ -402,6 +407,7 @@ class FunctionSpaceData(object):
 
         # These are keyed only on nodes per topological entity.
         global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+        
         node_set = get_node_set(mesh, (nodes_per_entity, real_tensorproduct))
 
         edofs_key = entity_dofs_key(entity_dofs)
@@ -410,6 +416,9 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
+        print(888)
+        import sys
+        sys.stdout.flush()
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
