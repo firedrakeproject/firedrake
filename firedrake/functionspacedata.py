@@ -170,7 +170,7 @@ def get_map_cache(mesh, key):
     """
     #print(mesh.cell_set)
     #print(mesh.interior_facets.set)
-    print(mesh.exterior_facets.set)
+    print(999,mesh.exterior_facets.set)
     import sys
     sys.stdout.flush()
     return {mesh.cell_set: None,
@@ -416,9 +416,6 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        print(888)
-        import sys
-        sys.stdout.flush()
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)

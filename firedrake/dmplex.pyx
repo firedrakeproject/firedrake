@@ -963,9 +963,11 @@ def mark_entity_classes(PETSc.DM plex):
         print('rank =', MPI.COMM_WORLD.rank,', num leaves = ', nleaves)
         sys.stdout.flush()
         for p in range(nleaves):
+            print('rank=', MPI.COMM_WORLD.rank,', 777777777')
+            sys.stdout.flush()
+            print('rank=', MPI.COMM_WORLD.rank,',  99999999, ilocalp =', ilocal[p])
+            sys.stdout.flush()
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
-        sys.stdout.flush()
-        time.sleep(1)
     else:
         # If sequential mark all points as core
         for p in range(pStart, pEnd):

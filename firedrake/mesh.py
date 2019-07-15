@@ -464,6 +464,9 @@ class MeshTopology(object):
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
                 dmplex.mark_entity_classes(self._plex)
+                print(4444)
+                import sys
+                sys.stdout.flush()
                 self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
