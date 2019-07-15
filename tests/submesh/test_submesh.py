@@ -36,9 +36,6 @@ def test_submesh_facet_extraction():
     if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 4) > 0:
         assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
 
-    # make submesh
-    #submsh = SubMesh(msh, "custom_facet", 111, "facet")
-
 
 @pytest.mark.parallel
 def test_submesh_edge_extraction():
@@ -65,22 +62,28 @@ def test_submesh_edge_extraction():
             v = plex.vecGetClosure(coord_sec, coords, edge)
             assert(np.allclose(v, np.array([0., 1.])))
 
-    # make submesh
-    #_ = SubMesh(msh, "custom_edge", 123, "edge")
 
+@pytest.mark.parallel
+@pytest.mark.parametrize("f_lambda", [lambda x: x[0] < 1.0001, lambda x: x[0] > 0.9999])
+@pytest.mark.parametrize("b_lambda", [lambda x: x[0] > 0.9999, lambda x: x[0] < 1.0001, lambda x: x[1] < 0.0001, lambda x: x[1] > 0.9999])
+def test_submesh_poisson_cell(f_lambda, b_lambda):
 
-def test_submesh_poisson_cell():
+    msh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
+    msh.init()
 
-    msh = UnitSquareMesh(20, 20)
+    msh.markSubdomain("half_domain", 111, "cell", f_lambda)
 
-    V = FunctionSpace(msh, "CG", 3)
+    submsh = SubMesh(msh, "half_domain", 111, "cell")
+    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", b_lambda, filterName="exterior_facets", filterValue=1)
+
+    V = FunctionSpace(submsh, "CG", 1)
 
     u = Function(V)
     v = TestFunction(V)
 
     f = Function(V)
-    x, y = SpatialCoordinate(mesh)
-    f.interpolate(-8.0*pi*pi*cos(x*pi*2)*cos(y*pi*2))
+    x, y = SpatialCoordinate(submsh)
+    f.interpolate(-8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
 
     a = - dot(grad(v), grad(u)) * dx
     L = f * v * dx
@@ -88,22 +91,54 @@ def test_submesh_poisson_cell():
     g = Function(V)
     g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
 
-    n = FacetNormal(mesh)
-    e2 = as_vector([0., 1.])
-    bc1 = EquationBC((-dot(grad(v), e2) * dot(grad(u), e2) + 4 * pi * pi * v * u ) * ds(1) == 0, u, 1, bcs=[bbc])
+    bc1 = DirichletBC(V, g, 1)
 
-    parameters = {
-        "mat_type": "aij",
-        "snes_max_it": 1,
-        "snes_monitor": True,
-        "ksp_type": "gmres",
-        "ksp_rtol": 1.e-12,
-        "ksp_atol": 1.e-12,
-        "ksp_max_it": 500000,
-        "pc_type": "asm"
-    }
+    parameters = {"mat_type": "aij",
+                  "snes_type": "ksponly",
+                  "ksp_type": "preonly",
+                  "pc_type": "lu"}
 
     solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
 
-    f.interpolate(cos(x*pi*2)*cos(y*pi*2))
-    print(math.log2(sqrt(assemble(dot(u - f, u - f) * dx))))
+
+    #assert(sqrt(assemble(dot(u - g, u - g) * dx)) < )
+
+
+@pytest.mark.parametrize("f_lambda", [lambda x: x[0] < 1.0001, lambda x: x[0] > 0.9999])
+@pytest.mark.parametrize("b_lambda", [lambda x: x[0] > 0.9999, lambda x: x[0] < 1.0001, lambda x: x[1] < 0.0001, lambda x: x[1] > 0.9999])
+def test_submesh_poisson_cell_error(f_lambda, b_lambda):
+
+    msh = RectangleMesh(200, 100, 2., 1., quadrilateral=True)
+    msh.init()
+
+    msh.markSubdomain("half_domain", 111, "cell", f_lambda)
+
+    submsh = SubMesh(msh, "half_domain", 111, "cell")
+    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", b_lambda, filterName="exterior_facets", filterValue=1)
+
+    V = FunctionSpace(submsh, "CG", 1)
+
+    u = Function(V)
+    v = TestFunction(V)
+
+    f = Function(V)
+    x, y = SpatialCoordinate(submsh)
+    f.interpolate(-8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
+
+    a = - dot(grad(v), grad(u)) * dx
+    L = f * v * dx
+
+    g = Function(V)
+    g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
+
+    bc1 = DirichletBC(V, g, 1)
+
+    parameters = {"mat_type": "aij",
+                  "snes_type": "ksponly",
+                  "ksp_type": "preonly",
+                  "pc_type": "lu"}
+
+    solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
+
+
+    assert(sqrt(assemble(dot(u - g, u - g) * dx)) < 0.00016)
