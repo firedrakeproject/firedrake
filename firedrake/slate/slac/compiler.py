@@ -27,6 +27,7 @@ from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
+from firedrake.utils import complex_mode
 from ufl.log import GREEN
 from gem.utils import groupby
 
@@ -59,9 +60,10 @@ if COMM_WORLD.rank == 0:
             if line.find("EIGEN_INCLUDE") == 0:
                 EIGEN_INCLUDE_DIR = line[18:].rstrip()
                 break
-    if EIGEN_INCLUDE_DIR is None:
+    if EIGEN_INCLUDE_DIR is None and not complex_mode:
         raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+if not complex_mode:
+    EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -73,6 +75,8 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
+        if complex_mode:
+            raise NotImplementedError("SLATE doesn't work in complex mode yet")
         if self._initialized:
             return
         self.split_kernel = generate_kernel(expr, tsfc_parameters)
