@@ -1075,6 +1075,9 @@ if mode == "install" or not args.update_script:
             brew_install("libtool")
             brew_install("mercurial")
             brew_install("boost")
+            if args.opencascade:
+                check_call(["brew", "tap", "brewsci/science"])
+                brew_install("oce")
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
 
