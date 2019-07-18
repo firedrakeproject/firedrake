@@ -1,6 +1,6 @@
 # coding=utf-8
 from firedrake import *
-
+import pytest
 
 @pytest.mark.skipif(utils.complex_mode, reason="Not clear this should work in complex")
 def test_hyperelastic_convergence():
