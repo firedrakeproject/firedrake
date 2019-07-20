@@ -40,8 +40,9 @@ def compute_err(mh, v_true):
 def test_volume(stepdata):
 
     (stepfile, h) = stepdata
+    dim = 3
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
         v_true = get_volume(stepfile)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
