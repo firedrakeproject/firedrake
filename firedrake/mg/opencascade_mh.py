@@ -1,5 +1,5 @@
 from firedrake import *
-from .mesh import MeshHierarchy
+from .mesh import MeshHierarchy, HierarchyBase
 
 import numpy
 import subprocess
@@ -32,14 +32,26 @@ def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm
 
     coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
 
-    if order > 1:
-        assert coarse.comm.size == 1, "Sorry, high-order mesh construction from CAD only works in serial for now"
-        V = VectorFunctionSpace(coarse, "CG", order)
-        newcoords = Function(V)
-        newcoords.interpolate(coarse.coordinates)
-        coarse = Mesh(newcoords)
-
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
+
+    if order > 1:
+        VFS = VectorFunctionSpace
+        Ts = [
+            Function(VFS(mesh, "CG", order)).interpolate(mesh.coordinates)
+            for mesh in mh]
+        ho_meshes = [Mesh(T) for T in Ts]
+        from collections import defaultdict
+        for i, m in enumerate(ho_meshes):
+            m._shared_data_cache = defaultdict(dict)
+            for k in mh[i]._shared_data_cache:
+                if k != "hierarchy_physical_node_locations":
+                    m._shared_data_cache[k] = mh[i]._shared_data_cache[k]
+        mh = HierarchyBase(
+            ho_meshes, mh.coarse_to_fine_cells,
+            mh.fine_to_coarse_cells,
+            refinements_per_level=mh.refinements_per_level, nested=mh.nested
+        )
+
     for mesh in mh:
         if dim == 2:
             project_mesh_to_cad_2d(mesh, cad)
