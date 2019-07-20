@@ -1,5 +1,5 @@
 from firedrake import *
-from .mesh import MeshHierarchy
+from .mesh import MeshHierarchy, HierarchyBase
 
 import numpy
 import subprocess
@@ -10,7 +10,7 @@ import warnings
 __all__ = ("OpenCascadeMeshHierarchy",)
 
 
-def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True):
+def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True):
 
     # OpenCascade doesn't give a nice error message if stepfile
     # doesn't exist, it segfaults ...
@@ -30,23 +30,48 @@ def OpenCascadeMeshHierarchy(stepfile, mincoarseh, maxcoarseh, levels, comm=COMM
     shape = step_reader.Shape()
     cad = TopologyExplorer(shape)
 
-    coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
-
-    if order > 1:
-        assert coarse.comm.size == 1, "Sorry, high-order mesh construction from CAD only works in serial for now"
-        V = VectorFunctionSpace(coarse, "CG", order)
-        newcoords = Function(V)
-        newcoords.interpolate(coarse.coordinates)
-        coarse = Mesh(newcoords)
+    coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
 
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
     for mesh in mh:
-        project_mesh_to_cad(mesh, cad)
+        if dim == 2:
+            project_mesh_to_cad_2d(mesh, cad)
+        elif dim == 3:
+            project_mesh_to_cad_3d(mesh, cad)
+        else:
+            raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
+        push_coordinates_to_plex(mesh)
+
+    if order > 1:
+        VFS = VectorFunctionSpace
+        Ts = [
+            Function(VFS(mesh, "CG", order)).interpolate(mesh.coordinates)
+            for mesh in mh]
+        ho_meshes = [Mesh(T) for T in Ts]
+        from collections import defaultdict
+        for i, m in enumerate(ho_meshes):
+            m._shared_data_cache = defaultdict(dict)
+            for k in mh[i]._shared_data_cache:
+                if k != "hierarchy_physical_node_locations":
+                    m._shared_data_cache[k] = mh[i]._shared_data_cache[k]
+        mh = HierarchyBase(
+            ho_meshes, mh.coarse_to_fine_cells,
+            mh.fine_to_coarse_cells,
+            refinements_per_level=mh.refinements_per_level, nested=mh.nested
+        )
+
+        for mesh in mh:
+            if dim == 2:
+                project_mesh_to_cad_2d(mesh, cad)
+            elif dim == 3:
+                project_mesh_to_cad_3d(mesh, cad)
+            else:
+                raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
 
     return mh
 
 
-def make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, comm=COMM_WORLD, distribution_parameters=None, cache=True, verbose=True):
+def make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=COMM_WORLD, distribution_parameters=None, cache=True, verbose=True):
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
     stepname = os.path.basename(os.path.splitext(stepfile)[0])
@@ -65,10 +90,19 @@ Mesh.CharacteristicLengthMax = %s;
 a() = ShapeFromFile("%s");
 """ % (mincoarseh, maxcoarseh, os.path.abspath(stepfile))
 
-            for i in range(1, cad.number_of_faces()+1):
-                geostr += "Physical Surface(%d) = {%d};\n" % (i, i)
+            if dim == 2:
+                for i in range(1, cad.number_of_edges()+1):
+                    geostr += "Physical Line(%d) = {%d};\n" % (i, i)
+                for i in range(1, cad.number_of_faces()+1):
+                    geostr += ('Physical Surface(%d) = {%d};\n' % (i+cad.number_of_edges(), i))
+                if cad.number_of_faces() > 1:
+                    surfs = "".join(["Surface{%d}; " % i for i in range(2, cad.number_of_faces()+1)])
+                    geostr += ('BooleanUnion{ Surface{1}; Delete;}{' + surfs + 'Delete;}')
+            elif dim == 3:
+                for i in range(1, cad.number_of_faces()+1):
+                    geostr += "Physical Surface(%d) = {%d};\n" % (i, i)
 
-            geostr += ('Physical Volume("Combined volume", %d) = {a()};\n' % (cad.number_of_faces()+1))
+                geostr += ('Physical Volume("Combined volume", %d) = {a()};\n' % (cad.number_of_faces()+1))
 
             logging.debug(geostr)
 
@@ -85,7 +119,7 @@ a() = ShapeFromFile("%s");
             else:
                 stdout = subprocess.DEVNULL
 
-            gmsh = subprocess.Popen(["gmsh", "-3", geopath], stdout=stdout)
+            gmsh = subprocess.Popen(["gmsh", "-%d" % dim, geopath], stdout=stdout)
             gmsh.wait()
 
         comm.barrier()
@@ -102,7 +136,7 @@ def push_coordinates_to_plex(mesh):
         plex.setCoordinatesLocal(x_)
 
 
-def project_mesh_to_cad(mesh, cad):
+def project_mesh_to_cad_3d(mesh, cad):
 
     from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
     from OCC.Core.gp import gp_Pnt
@@ -176,4 +210,33 @@ def project_mesh_to_cad(mesh, cad):
                 (projpt, sqdist) = min(projections, key=lambda x: x[1])
                 coorddata[node, :] = projpt.Coord()
 
-    push_coordinates_to_plex(mesh)
+
+def project_mesh_to_cad_2d(mesh, cad):
+
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
+    from OCC.Core.gp import gp_Pnt
+    from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf, GeomAPI_ProjectPointOnCurve
+
+    coorddata = mesh.coordinates.dat.data
+    ids = mesh.exterior_facets.unique_markers
+
+    filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
+    boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id), "topological")) for id in ids}
+
+    for (id, edge) in zip(ids, cad.edges()):
+        owned_nodes = boundary_nodes[id]
+        for other_id in ids:
+            if id == other_id:
+                continue
+            owned_nodes = numpy.setdiff1d(owned_nodes, boundary_nodes[other_id])
+
+        curve = BRepAdaptor_Curve(edge)
+
+        for node in owned_nodes:
+            pt = gp_Pnt(*coorddata[node, :], 0)
+            proj = GeomAPI_ProjectPointOnCurve(pt, curve.Curve().Curve())
+            if proj.NbPoints() > 0:
+                projpt = proj.NearestPoint()
+                coorddata[node, :] = projpt.Coord()[0:2]
+            else:
+                warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])

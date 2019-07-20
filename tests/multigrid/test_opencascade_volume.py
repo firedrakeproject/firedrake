@@ -11,6 +11,11 @@ def stepdata(request):
     return (os.path.abspath(os.path.join(curpath, os.path.pardir, "meshes", stepfile)), h)
 
 
+@pytest.fixture(scope='module', params=[1, 2])
+def order(request):
+    return request.param
+
+
 def get_volume(stepfile):
 
     from OCC.Core.GProp import GProp_GProps
@@ -40,8 +45,9 @@ def compute_err(mh, v_true):
 def test_volume(stepdata):
 
     (stepfile, h) = stepdata
+    dim = 3
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
         v_true = get_volume(stepfile)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
@@ -50,5 +56,23 @@ def test_volume(stepdata):
     err = compute_err(mh, v_true)
     print("Volume errors: %s" % err)
 
+    for pair in zip(err, err[1:]):
+        assert pair[0] > pair[1]
+
+@pytest.mark.parallel(nprocs=2)
+def test_area(order):
+    curpath = os.path.dirname(os.path.realpath(__file__))
+    stepfile = os.path.abspath(os.path.join(curpath, os.path.pardir, "meshes", "disk.step"))
+    h = 0.5
+    dim = 2
+    try:
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False, order=order)
+    except ImportError:
+        pytest.skip(msg="OpenCascade unavailable, skipping test")
+    from math import pi
+    a_true = pi/4
+    print("True ara for %s: %s" % (os.path.basename(stepfile), a_true))
+    err = compute_err(mh, a_true)
+    print("Area errors: %s" % err)
     for pair in zip(err, err[1:]):
         assert pair[0] > pair[1]
