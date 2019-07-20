@@ -33,6 +33,14 @@ def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm
     coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
 
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
+    for mesh in mh:
+        if dim == 2:
+            project_mesh_to_cad_2d(mesh, cad)
+        elif dim == 3:
+            project_mesh_to_cad_3d(mesh, cad)
+        else:
+            raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
+        push_coordinates_to_plex(mesh)
 
     if order > 1:
         VFS = VectorFunctionSpace
@@ -52,13 +60,13 @@ def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm
             refinements_per_level=mh.refinements_per_level, nested=mh.nested
         )
 
-    for mesh in mh:
-        if dim == 2:
-            project_mesh_to_cad_2d(mesh, cad)
-        elif dim == 3:
-            project_mesh_to_cad_3d(mesh, cad)
-        else:
-            raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
+        for mesh in mh:
+            if dim == 2:
+                project_mesh_to_cad_2d(mesh, cad)
+            elif dim == 3:
+                project_mesh_to_cad_3d(mesh, cad)
+            else:
+                raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
 
     return mh
 
@@ -202,7 +210,6 @@ def project_mesh_to_cad_3d(mesh, cad):
                 (projpt, sqdist) = min(projections, key=lambda x: x[1])
                 coorddata[node, :] = projpt.Coord()
 
-    push_coordinates_to_plex(mesh)
 
 def project_mesh_to_cad_2d(mesh, cad):
 
@@ -233,5 +240,3 @@ def project_mesh_to_cad_2d(mesh, cad):
                 coorddata[node, :] = projpt.Coord()[0:2]
             else:
                 warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])
-
-    push_coordinates_to_plex(mesh)
