@@ -4,11 +4,11 @@ import pytest
 import os
 
 
-@pytest.fixture(scope='module', params=[("cylinder.step", 20), ("t_twist.step", 3)])
+@pytest.fixture(scope='module', params=[("cylinder.step", 20, 3), ("t_twist.step", 3, 3), ("disk.step", 1, 2)])
 def stepdata(request):
-    (stepfile, h) = request.param
+    (stepfile, h, dim) = request.param
     curpath = os.path.dirname(os.path.realpath(__file__))
-    return (os.path.join(curpath, os.path.pardir, "meshes", stepfile), h)
+    return (os.path.join(curpath, os.path.pardir, "meshes", stepfile), h, dim)
 
 
 @pytest.fixture(scope='module', params=[1, 2])
@@ -17,8 +17,7 @@ def order(request):
 
 
 def test_opencascade_poisson(stepdata, order):
-    (stepfile, h) = stepdata
-    dim = 3
+    (stepfile, h, dim) = stepdata
     try:
         mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=True)
     except ImportError:
