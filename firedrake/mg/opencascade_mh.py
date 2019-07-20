@@ -213,9 +213,9 @@ def project_mesh_to_cad_3d(mesh, cad):
 
 def project_mesh_to_cad_2d(mesh, cad):
 
-    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
     from OCC.Core.gp import gp_Pnt
-    from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf, GeomAPI_ProjectPointOnCurve
+    from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
     ids = mesh.exterior_facets.unique_markers

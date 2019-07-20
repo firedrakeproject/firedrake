@@ -59,6 +59,7 @@ def test_volume(stepdata):
     for pair in zip(err, err[1:]):
         assert pair[0] > pair[1]
 
+
 @pytest.mark.parallel(nprocs=2)
 def test_area(order):
     curpath = os.path.dirname(os.path.realpath(__file__))
