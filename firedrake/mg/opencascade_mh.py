@@ -131,7 +131,7 @@ def project_mesh_to_cad(mesh, cad):
                 projpt = proj.NearestPoint()
                 coorddata[node, :] = projpt.Coord()
             else:
-                warnings.warn("Projection of point %s onto face %d failed" % (coordata[node, :], id))
+                warnings.warn("Projection of point %s onto face %d failed" % (coorddata[node, :], id))
 
         edges = set(cad.edges_from_face(face))
 
@@ -171,7 +171,7 @@ def project_mesh_to_cad(mesh, cad):
                         sqdist = projpt.SquareDistance(pt)
                         projections.append((projpt, sqdist))
                     else:
-                        warnings.warn("Projection of point %s onto curve failed" % coordata[node, :])
+                        warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])
 
                 (projpt, sqdist) = min(projections, key=lambda x: x[1])
                 coorddata[node, :] = projpt.Coord()
