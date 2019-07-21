@@ -1,5 +1,6 @@
 from firedrake import *
 from .mesh import MeshHierarchy, HierarchyBase
+from .interface import prolong
 
 import numpy
 import subprocess
@@ -10,7 +11,7 @@ import warnings
 __all__ = ("OpenCascadeMeshHierarchy",)
 
 
-def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True, gmsh="gmsh"):
+def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True, gmsh="gmsh", project_refinements_to_cad=True):
 
     # OpenCascade doesn't give a nice error message if stepfile
     # doesn't exist, it segfaults ...
@@ -33,14 +34,12 @@ def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORL
     coarse = make_coarse_mesh(stepfile, cad, element_size, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose, gmsh=gmsh)
 
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
-    for mesh in mh:
-        if dim == 2:
-            project_mesh_to_cad_2d(mesh, cad)
-        elif dim == 3:
-            project_mesh_to_cad_3d(mesh, cad)
-        else:
-            raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
-        push_coordinates_to_plex(mesh)
+    project_to_cad = project_mesh_to_cad_2d if dim == 2 else project_mesh_to_cad_3d
+
+    if project_refinements_to_cad:
+        for mesh in mh:
+            project_to_cad(mesh, cad)
+            push_coordinates_to_plex(mesh)
 
     if order > 1:
         VFS = VectorFunctionSpace
@@ -59,15 +58,13 @@ def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORL
             mh.fine_to_coarse_cells,
             refinements_per_level=mh.refinements_per_level, nested=mh.nested
         )
-
-        for mesh in mh:
-            if dim == 2:
-                project_mesh_to_cad_2d(mesh, cad)
-            elif dim == 3:
-                project_mesh_to_cad_3d(mesh, cad)
-            else:
-                raise NotImplementedError("Can project a mesh onto CAD in 2 or 3 dimensions.")
-
+        if project_refinements_to_cad:
+            for mesh in mh:
+                project_to_cad(mesh, cad)
+        else:
+            project_to_cad(mh[0], cad)
+            for i in range(1, len(mh)):
+                prolong(Ts[i-1], Ts[i])
     return mh
 
 
