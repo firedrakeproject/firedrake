@@ -47,7 +47,7 @@ def test_volume(stepdata):
     (stepfile, h) = stepdata
     dim = 3
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False)
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, element_size=h, levels=3, cache=False, verbose=False)
         v_true = get_volume(stepfile)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
@@ -67,7 +67,7 @@ def test_area(order):
     h = 0.5
     dim = 2
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, cache=False, verbose=False, order=order)
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, element_size=h, levels=3, cache=False, verbose=False, order=order)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
     from math import pi

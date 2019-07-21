@@ -19,7 +19,7 @@ def order(request):
 def test_opencascade_poisson(stepdata, order):
     (stepfile, h, dim) = stepdata
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh=h, maxcoarseh=h, levels=3, order=order, cache=False, verbose=True)
+        mh = OpenCascadeMeshHierarchy(stepfile, dim, element_size=h, levels=3, order=order, cache=False, verbose=True)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
 
