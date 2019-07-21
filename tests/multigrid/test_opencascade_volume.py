@@ -45,9 +45,8 @@ def compute_err(mh, v_true):
 def test_volume(stepdata):
 
     (stepfile, h) = stepdata
-    dim = 3
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, dim, element_size=h, levels=3, cache=False, verbose=False)
+        mh = OpenCascadeMeshHierarchy(stepfile, element_size=h, levels=3, cache=False, verbose=False)
         v_true = get_volume(stepfile)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
@@ -65,9 +64,8 @@ def test_area(order):
     curpath = os.path.dirname(os.path.realpath(__file__))
     stepfile = os.path.abspath(os.path.join(curpath, os.path.pardir, "meshes", "disk.step"))
     h = 0.5
-    dim = 2
     try:
-        mh = OpenCascadeMeshHierarchy(stepfile, dim, element_size=h, levels=3, cache=False, verbose=False, order=order)
+        mh = OpenCascadeMeshHierarchy(stepfile, element_size=h, levels=3, cache=False, verbose=False, order=order)
     except ImportError:
         pytest.skip(msg="OpenCascade unavailable, skipping test")
     from math import pi

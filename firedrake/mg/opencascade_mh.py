@@ -11,7 +11,7 @@ import warnings
 __all__ = ("OpenCascadeMeshHierarchy",)
 
 
-def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True, gmsh="gmsh", project_refinements_to_cad=True):
+def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True, gmsh="gmsh", project_refinements_to_cad=True):
 
     # OpenCascade doesn't give a nice error message if stepfile
     # doesn't exist, it segfaults ...
@@ -30,7 +30,7 @@ def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORL
     step_reader.TransferRoot()
     shape = step_reader.Shape()
     cad = TopologyExplorer(shape)
-
+    dim = 3 if cad.number_of_solids() > 0 else 2
     coarse = make_coarse_mesh(stepfile, cad, element_size, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose, gmsh=gmsh)
 
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
