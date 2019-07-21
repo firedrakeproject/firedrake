@@ -10,7 +10,7 @@ import warnings
 __all__ = ("OpenCascadeMeshHierarchy",)
 
 
-def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True):
+def OpenCascadeMeshHierarchy(stepfile, dim, element_size, levels, comm=COMM_WORLD, distribution_parameters=None, callbacks=None, order=1, mh_constructor=MeshHierarchy, cache=True, verbose=True, gmsh="gmsh"):
 
     # OpenCascade doesn't give a nice error message if stepfile
     # doesn't exist, it segfaults ...
@@ -30,7 +30,7 @@ def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm
     shape = step_reader.Shape()
     cad = TopologyExplorer(shape)
 
-    coarse = make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose)
+    coarse = make_coarse_mesh(stepfile, cad, element_size, dim, comm=comm, distribution_parameters=distribution_parameters, cache=cache, verbose=verbose, gmsh=gmsh)
 
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks)
     for mesh in mh:
@@ -71,24 +71,34 @@ def OpenCascadeMeshHierarchy(stepfile, dim, mincoarseh, maxcoarseh, levels, comm
     return mh
 
 
-def make_coarse_mesh(stepfile, cad, mincoarseh, maxcoarseh, dim, comm=COMM_WORLD, distribution_parameters=None, cache=True, verbose=True):
+def make_coarse_mesh(stepfile, cad, element_size, dim, comm=COMM_WORLD, distribution_parameters=None, cache=True, verbose=True, gmsh="gmsh"):
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
     stepname = os.path.basename(os.path.splitext(stepfile)[0])
-    geopath = os.path.join(curdir, "coarse-%s-%s-%s.geo" % (stepname, mincoarseh, maxcoarseh))
+    geopath = os.path.join(curdir, "coarse-%s.geo" % (stepname))
     mshpath = geopath.replace("geo", "msh")
 
     if not os.path.isfile(mshpath) or not cache:
 
         if comm.rank == 0:
-            geostr = """
-SetFactory("OpenCASCADE");
+            geostr = 'SetFactory("OpenCASCADE");\n'
+            if isinstance(element_size, tuple):
+                assert len(element_size) == 2
 
+                geostr += """
 Mesh.CharacteristicLengthMin = %s;
 Mesh.CharacteristicLengthMax = %s;
-
-a() = ShapeFromFile("%s");
-""" % (mincoarseh, maxcoarseh, os.path.abspath(stepfile))
+                """ % (element_size[0], element_size[1])
+            elif isinstance(element_size, int) or isinstance(element_size, float):
+                geostr += """
+Mesh.CharacteristicLengthMin = %s;
+Mesh.CharacteristicLengthMax = %s;
+                """ % (element_size, element_size)
+            elif isinstance(element_size, str):
+                geostr += element_size
+            else:
+                raise NotImplementedError("element_size has to be a tuple, a number or a string")
+            geostr += 'a() = ShapeFromFile("%s");\n' % os.path.abspath(stepfile)
 
             if dim == 2:
                 for i in range(1, cad.number_of_edges()+1):
@@ -119,7 +129,7 @@ a() = ShapeFromFile("%s");
             else:
                 stdout = subprocess.DEVNULL
 
-            gmsh = subprocess.Popen(["gmsh", "-%d" % dim, geopath], stdout=stdout)
+            gmsh = subprocess.Popen(gmsh.split(" ") + ["-%d" % dim, geopath], stdout=stdout)
             gmsh.wait()
 
         comm.barrier()
