@@ -40,6 +40,7 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
         for mesh in mh:
             project_to_cad(mesh, cad)
             push_coordinates_to_plex(mesh)
+        mh.nested = False
 
     if order > 1:
         VFS = VectorFunctionSpace
