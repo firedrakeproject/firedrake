@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -22,8 +21,8 @@ def test_pointwise_operator(mesh):
     m = u*v
     a1 = m*dx
 
-    p = point_expr(lambda x, y: x*y)
-    p2 = p(u, v, function_space=P)
+    p = point_expr(lambda x, y: x*y, function_space=P)
+    p2 = p(u, v)
     a2 = p2*dx
 
     assert p2.ufl_operands[0] == u
@@ -43,8 +42,8 @@ def test_pointwise_operator(mesh):
     v = TestFunction(V)
 
     f = Function(V).interpolate(cos(x)*sin(y))
-    p = point_expr(lambda x:x**2+1)
-    p2 = p(g, function_space=V)
+    p = point_expr(lambda x:x**2+1, function_space=V)
+    p2 = p(g)
     #f = Function(V).interpolate(cos(x)*sin(y))
 
     F = (dot(grad(p2*u),grad(v)) + u*v)*dx - f*v*dx
@@ -53,8 +52,8 @@ def test_pointwise_operator(mesh):
     F2 = (dot(grad((g**2+1)*u2),grad(v)) + u2*v)*dx - f*v*dx
     solve(F2 == 0,u2)
     
-    p = point_expr(lambda x:x**2+1)
-    p2 = p(g, function_space=V)
+    p = point_expr(lambda x:x**2+1, function_space=V)
+    p2 = p(g)
     f = Function(V).interpolate(cos(x)*sin(y))
     F = (dot(grad(p2*u3),grad(v)) + u3*v)*dx - f*v*dx
     problem = NonlinearVariationalProblem(F, u3)
@@ -83,8 +82,8 @@ def test_pointwise_solver(mesh):
     b = Function(V).assign(1)
 
     # Conflict with ufl if we use directly cos()
-    p = point_solve(lambda x, y, m1, m2: (1-m1)*(1-x)**2 + 100*m2*(y-x**2)**2)
-    p2 = p(b, a, b, function_space=P)  # Rosenbrock function for (m1,m2) = (0,1), the global minimum is reached in (1,1)
+    p = point_solve(lambda x, y, m1, m2: (1-m1)*(1-x)**2 + 100*m2*(y-x**2)**2, function_space=P)
+    p2 = p(b, a, b)  # Rosenbrock function for (m1,m2) = (0,1), the global minimum is reached in (1,1)
     a2 = p2*dx
 
     assert p2.ufl_operands == (b, a, b)
@@ -105,8 +104,8 @@ def test_pointwise_solver(mesh):
     g = Function(V).assign(1.)
 
     f = Function(V).interpolate(cos(x)*sin(y))
-    p = point_solve(lambda x,y:x**3-y)
-    p2 = p(g, function_space=V)
+    p = point_solve(lambda x,y:x**3-y, function_space=V)
+    p2 = p(g)
     #f = Function(V).interpolate(cos(x)*sin(y))
 
     
@@ -141,8 +140,8 @@ def test_compute_derivatives(mesh):
     m = u*v
     a1 = m*dx
 
-    p = point_expr(lambda x, y: 0.5*x**2*y)
-    p2 = p(u, v, function_space=P, derivatives=(1, 0))
+    p = point_expr(lambda x, y: 0.5*x**2*y, function_space=P)
+    p2 = p(u, v, derivatives=(1, 0))
     a2 = p2*dx
 
     assert p2.ufl_operands[0] == u
@@ -161,8 +160,8 @@ def test_compute_derivatives(mesh):
     b = Function(V).assign(1)
 
     x0 = Function(P).assign(1.1)
-    p = point_solve(lambda x, y, m1, m2: x - y**2 + m1*m2, solver_params={'x0': x0})
-    p2 = p(b, a, a, function_space=P, derivatives=(1, 0, 0))
+    p = point_solve(lambda x, y, m1, m2: x - y**2 + m1*m2, function_space=P, solver_params={'x0': x0})
+    p2 = p(b, a, a, derivatives=(1, 0, 0))
     a3 = p2*dx
 
     a4 = 2*b*dx  # dp2/db
@@ -179,7 +178,6 @@ def test_pointwise_neuralnet_PyTorch(mesh):
 
     x, y = SpatialCoordinate(mesh)
 
-    nP = neuralnet('PyTorch')
     #nT = neuralnet('TensorFlow')
     #nK = neuralnet('Keras')
 
@@ -216,7 +214,8 @@ def test_pointwise_neuralnet_PyTorch(mesh):
 
     # Define model
     fc = torch.nn.Linear(1, 1)#(V.node_count, V.node_count)
-    nP2 = nP(u, function_space=V, model=fc)
+    nP = neuralnet(fc, function_space=V)
+    nP2 = nP(u)
 
     assert nP2.framework == 'PyTorch'
     assert fc == nP2.model
@@ -257,14 +256,15 @@ def test_pointwise_neuralnet_PyTorch_control(mesh):
 
     x, y = SpatialCoordinate(mesh)
 
-    nP = neuralnet('PyTorch')
-
     u = Function(V)
-    g = Function(V, name='Control')
+    g = Function(V) # g will be the control
 
     # Define model
     fc = torch.nn.Linear(1, 1)
-    nP2 = nP(u, g, function_space=V, model=fc)
+   # nP = neuralnet(fc, function_space=V, controls=(0,1)) 
+   # Another possibility :
+    nP = neuralnet(fc, function_space=V, ncontrols=1)  #  By default ncontrols = 1
+    nP2 = nP(g, u) # The ncontrols first operands are taken as controls
 
     assert nP2.framework == 'PyTorch'
     assert fc == nP2.model
@@ -290,8 +290,8 @@ def test_derivation_wrt_pointwiseoperator(mesh):
     v = TestFunction(V)
     u_hat = Function(V)
     
-    p = point_expr(lambda x, y: x*y)
-    p2 = p(u, g, function_space=P)
+    p = point_expr(lambda x, y: x*y, function_space=P)
+    p2 = p(u, g)
     
     from ufl.algorithms.apply_derivatives import apply_derivatives
 

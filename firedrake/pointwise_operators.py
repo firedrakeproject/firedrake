@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from functools import partial
 import types
 from ufl.core.external_operator import ExternalOperator
+from ufl.core.expr import Expr
 from ufl.utils.str import as_native_str
 from firedrake.function import Function
 from firedrake import utils
@@ -57,7 +58,10 @@ class PointexprOperator(AbstractPointwiseOperator):
         # Check
         if not isinstance(operator_data, types.FunctionType):
             error("Expecting a FunctionType pointwise expression")
-
+        expr_shape = operator_data(*operands).ufl_shape
+        if expr_shape != function_space.ufl_element().value_shape():
+            error("The dimension does not match with the dimension of the function space %s" % function_space)
+    
     @property
     def expr(self):
         return self.operator_data
@@ -130,9 +134,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
         f = self.operator_f
 
         # Pre-processing to get the values of the initial guesses
-        if 'x0' in solver_params.keys() and isinstance(solver_params['x0'], Function):
+        if 'x0' in solver_params.keys() and isinstance(solver_params['x0'],Expr):
             solver_params['x0'] = Function(space).assign(solver_params['x0']).dat.data
-        if 'x1' in solver_params.keys() and isinstance(solver_params['x1'], Function):
+        if 'x1' in solver_params.keys() and isinstance(solver_params['x1'], Expr):
             solver_params['x1'] = Function(space).assign(solver_params['x1']).dat.data
 
         # Vectorized Newton
@@ -164,18 +168,23 @@ class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model):
+    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model, ncontrols=None):
         AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype)
+
+        # Checks
+        if not isinstance(ncontrols, int) or ncontrols > len(self.ufl_operands):
+            error("Expecting for the number of controls an int type smaller or equal than the number of operands and not %s" % ncontrols)
 
         self.framework = framework
         self.model = model
-        self._controls = tuple(i for i, e in enumerate(operands) if e.name().strip() == 'Control')
+        self.ncontrols = ncontrols
+        self._controls = tuple(range(0,self.ncontrols))
 
     @property
     def controls(self):
         return dict(zip(self._controls, tuple(self.ufl_operands[i] for i in self._controls)))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, shape=None, count=None, name=None, model=None):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, shape=None, count=None, name=None, model=None, ncontrols=None):
         "Return a new object of the same type with new operands."
         return type(self)(*operands, function_space=function_space or self._ufl_function_space,
                           derivatives=derivatives or self.derivatives,
@@ -183,7 +192,8 @@ class PointnetOperator(AbstractPointwiseOperator):
                           count=count or self._count,
                           name=name or self.name(),
                           framework=self.framework,
-                          model=model or self.model)
+                          model=model or self.model,
+                          ncontrols=ncontrols or self.ncontrols)
 
     def __str__(self):
         "Default repr string construction for PointwiseOperator operators."
@@ -200,14 +210,14 @@ class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
+    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model, ncontrols=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model, ncontrols=ncontrols)
 
         # Check
-        try:
-            import torch
-        except ImportError:
-            raise ImportError("Error when trying to import PyTorch")
+        #try:
+        #    import torch
+        #except ImportError:
+        #    raise ImportError("Error when trying to import PyTorch")
 
     def compute_derivatives(self):
         """Compute the gradient of the network wrt inputs"""
@@ -240,70 +250,69 @@ class TensorFlowOperator(PointnetOperator):
     r"""A :class:`TensorFlowOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
+    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model, ncontrols=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model, ncontrols=ncontrols)
 
         # Check
-        try:
-            import tensorflow
-        except ImportError:
-            raise ImportError("Error when trying to import TensorFlow")
+        #try:
+        #    import tensorflow
+        #except ImportError:
+        #    raise ImportError("Error when trying to import TensorFlow")
 
 
 class KerasOperator(PointnetOperator):
     r"""A :class:`KerasOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
+    def __init__(self, *operands, function_space, derivatives=None, shape=None, count=None, val=None, name=None, dtype=ScalarType, framework, model, ncontrols=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model, ncontrols=ncontrols)
 
         # Check
-        try:
-            from tensorflow import keras
-        except ImportError:
-            raise ImportError("Error when trying to import tensorflow.keras")
+        #try:
+        #    from tensorflow import keras
+        #except ImportError:
+        #    raise ImportError("Error when trying to import tensorflow.keras")
 
 
-def PointExprOp(*operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
-    expr_shape = operator_data(*operands).ufl_shape
-    if expr_shape != function_space.ufl_element().value_shape():
-        error("The dimension does not match with the dimension of the function space %s" % function_space)
-    return PointexprOperator(*operands, function_space=function_space, derivatives=derivatives, shape=expr_shape, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
+def point_expr(point_expr, function_space):
+    return partial(PointexprOperator, operator_data=point_expr, function_space=function_space)
 
 
-def point_expr(point_expr):
-    return partial(PointExprOp, operator_data=point_expr)
-
-
-def PointSolveOp(*operands, function_space, derivatives=None, count=None, shape=(), val=None, name=None, dtype=ScalarType, operator_data):
-    return PointsolveOperator(*operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
-
-
-def point_solve(point_solve, solver='newton', solver_params=None):
+def point_solve(point_solve, function_space, solver='newton', solver_params=None):
     if solver_params is None:
         solver_params = {}
     operator_data = {'point_solve': point_solve, 'solver': solver, 'solver_params': solver_params}
-    return partial(PointSolveOp, operator_data=operator_data)
+    return partial(PointsolveOperator, operator_data=operator_data, function_space=function_space)
 
 
-def PointPyTorchOp(*operands, function_space, derivatives=None, count=None, shape=(), val=None, name=None, dtype=ScalarType, framework, model):
-    return PytorchOperator(*operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
+def neuralnet(model, function_space, ncontrols=1):
 
+    torch_module = type(None); tensorflow_module = type(None); keras_module = type(None);
 
-def PointTensorFlowOp(*operands, function_space, derivatives=None, count=None, shape=(), val=None, name=None, dtype=ScalarType, framework, model):
-    return TensorFlowOperator(*operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
+    # Checks
+    try:
+        import torch
+        torch_module = torch.nn.modules.module.Module
+    except ImportError:
+        pass
+    
+    try:
+        import tensorflow
+        #tensorflow_module = 
+    except ImportError:
+        pass
+    
+    try:
+        from tensorflow import keras
+        #keras_module = 
+    except ImportError:
+        pass
 
-
-def PointKerasOp(*operands, function_space, derivatives=None, count=None, shape=(), val=None, name=None, dtype=ScalarType, framework, model):
-    return KerasOperator(*operands, function_space=function_space, derivatives=derivatives, shape=shape, count=count, val=val, name=name, dtype=dtype, framework=framework, model=model)
-
-
-def neuralnet(framework):
-    if framework == 'PyTorch':
-        return partial(PointPyTorchOp, framework=framework)
-    elif framework == 'TensorFlow':
-        return partial(PointTensorFlowOp, framework=framework)
-    elif framework == 'Keras':
-        return partial(PointKerasOp, framework=framework)
+    if isinstance(model, torch_module):
+        return partial(PytorchOperator, function_space=function_space, framework='PyTorch', model=model, ncontrols=ncontrols)
+    elif isinstance(model, tensorflow_module):
+        return partial(TensorFlowOperator, function_space=function_space, framework='TensorFlow', model=model, ncontrols=ncontrols)
+    elif isinstance(model, keras_module):
+        return partial(KerasOperator, function_space=function_space, framework='Keras', model=model, ncontrols=ncontrols)
     else:
-        error("Expecting one of the following library : PyTorch, TensorFlow or Keras and not %s" % framework)
+        error("Expecting one of the following library : PyTorch, TensorFlow or Keras and that the library has been installed")
