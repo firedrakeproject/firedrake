@@ -168,11 +168,6 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    #print(mesh.cell_set)
-    #print(mesh.interior_facets.set)
-    print(999,mesh.exterior_facets.set)
-    import sys
-    sys.stdout.flush()
     return {mesh.cell_set: None,
             mesh.interior_facets.set: None,
             mesh.exterior_facets.set: None,

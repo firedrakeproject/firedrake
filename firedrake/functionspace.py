@@ -116,9 +116,6 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    print(8998)
-    import sys
-    sys.stdout.flush()
 
     # Support FunctionSpace(mesh, MixedElement)
     if type(element) is ufl.MixedElement:

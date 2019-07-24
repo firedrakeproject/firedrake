@@ -101,9 +101,6 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
     solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
 
 
-    #assert(sqrt(assemble(dot(u - g, u - g) * dx)) < )
-
-
 @pytest.mark.parametrize("f_lambda", [lambda x: x[0] < 1.0001, lambda x: x[0] > 0.9999])
 @pytest.mark.parametrize("b_lambda", [lambda x: x[0] > 0.9999, lambda x: x[0] < 1.0001, lambda x: x[1] < 0.0001, lambda x: x[1] > 0.9999])
 def test_submesh_poisson_cell_error(f_lambda, b_lambda):

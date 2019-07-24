@@ -352,6 +352,9 @@ class MeshTopology(object):
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`Mesh` for details.
         """
+        # Parent
+        self._submesh_parent = None
+
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
         self._distribution_parameters = distribution_parameters.copy()
@@ -464,9 +467,6 @@ class MeshTopology(object):
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
                 dmplex.mark_entity_classes(self._plex)
-                print(4444)
-                import sys
-                sys.stdout.flush()
                 self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
@@ -726,10 +726,6 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_set(self):
-        from mpi4py import MPI
-        print('rank =', MPI.COMM_WORLD.rank, self._entity_classes[self.cell_dimension(), :])
-        import sys
-        sys.stdout.flush()
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
@@ -809,6 +805,24 @@ class MeshTopology(object):
                                                     all_integer_subdomain_ids)
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
+
+    @utils.cached_property
+    def submesh_sub_super_map(self, dim):
+        """Return a map to the parent mesh if self._submesh_parent is not None
+
+          :arg dim: Dimension of the entities to create mapping for.
+
+          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
+        """
+        if self._submesh_parent is None:
+            return
+        #TODO: generalize over cell_set
+        return op2.Map(self.cell_set, self._submesh_parent.cell_set, 1,
+                       dmplex.submesh_create_sub_super_map(self, dim),
+                       "sub_to_super_map")
+
+    def get_composed_map(self):
+        pass
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -1008,6 +1022,9 @@ class MeshGeometry(ufl.Mesh):
 
         :arg coordinates: a coordinateless function containing the coordinates
         """
+        # Parent
+        self._submesh_parent = None
+
         # Direct link to topology
         self._topology = coordinates.function_space().mesh()
 
@@ -1023,6 +1040,16 @@ class MeshGeometry(ufl.Mesh):
         constructing it) you need to call this manually."""
         if hasattr(self, '_callback'):
             self._callback(self)
+
+    def submesh_base(self):
+        if self.submesh_parent == None:
+            return self
+        else:
+            return self.submesh_parent.submesh_base()
+
+    @property
+    def submesh_parent(self):
+        return self._submesh_parent
 
     @property
     def topology(self):
@@ -1476,6 +1503,28 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.NONE, 0)
 
     submsh = Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)
+
+    #delete this
+    """
+    import copy
+    _callback_copy = copy.deepcopy(submsh._callback)
+
+    def callback(self):
+        _callback_copy(self)
+        self._topology._submesh_parent = mesh._topology
+        self._submesh_parent = mesh
+
+    submsh._callback = callback
+    """
+
+    def wrap_callback(old_callback, mesh):
+        def callback(self):
+            old_callback(self)
+            self._topology._submesh_parent = mesh._topology
+            self._submesh_parent = mesh
+        return callback;
+
+    submsh._callback = wrap_callback(submsh._callback, mesh)
     return submsh
 
 

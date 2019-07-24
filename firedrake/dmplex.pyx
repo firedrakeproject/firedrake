@@ -2428,3 +2428,55 @@ def clear_adjacency_callback(PETSc.DM dm not None):
         dm.removeLabel("ghost_region")
         CHKERR(DMLabelDestroy(&label))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_create_sub_super_map(submesh, dim):
+    """
+    Builds mapping from submesh to original mesh of entities of dimension, `dim`.
+
+    :arg submesh: `MeshTopology` object.
+    :arg dim: Dimension of the entities to create mapping for.
+
+    :returns: a numpy array of the map from renumbered sub entities
+              to renumbered original entities.
+    """
+    cdef:
+        PetscInt codim, pStart, pEnd, point
+        PetscInt subcodim, subpStart, subpEnd, subpoint
+        PETSc.Section numbering, subnumbering
+        np.ndarray[PetscInt, ndim=2, mode="c"] sub_super_map
+
+    # Check dim
+    if dim > submesh._plex.getDimension():
+        raise ValueError("Given dimension is larger than topological dimension of submesh")
+
+    # Parent MeshTopology object
+    mesh = submesh._submesh_parent
+
+    # Fill sub_super_map
+    subpStart, subpEnd = submesh._plex.getDepthStratum(dim)
+    sub_super_map = np.empty((subpEnd - subpStart, 1), dtype=IntType)
+
+    codim = mesh._plex.getDimension() - dim
+    subcodim = submesh._plex.getDimension() - dim
+
+    if codim == 0:
+        numbering = mesh._cell_numbering
+    else:
+        raise NotImplementedError("Only codim == 0 is implemented now")
+
+    if subcodim == 0:
+        subnumbering = submesh._cell_numbering
+    else:
+        raise NotImplementedError("Only codim == 0 is implemented now")
+
+    subpointindices = submesh._plex.createSubpointIS().getIndices()
+    for subp in range(subpStart, subpEnd):
+        CHKERR(PetscSectionGetOffset(subnumbering.sec, subp, &subpoint))
+        p = subpointindices[subp]
+        CHKERR(PetscSectionGetOffset(numbering.sec, p, &point))
+        sub_super_map[subpoint, 0] = point
+
+    return sub_super_map
