@@ -80,6 +80,7 @@ def make_coarse_mesh(stepfile, cad, element_size, dim, comm=COMM_WORLD, distribu
 
         if comm.rank == 0:
             geostr = 'SetFactory("OpenCASCADE");\n'
+            geostr += 'a() = ShapeFromFile("%s");\n' % os.path.abspath(stepfile)
             if isinstance(element_size, tuple):
                 assert len(element_size) == 2
 
@@ -96,7 +97,6 @@ Mesh.CharacteristicLengthMax = %s;
                 geostr += element_size
             else:
                 raise NotImplementedError("element_size has to be a tuple, a number or a string")
-            geostr += 'a() = ShapeFromFile("%s");\n' % os.path.abspath(stepfile)
 
             if dim == 2:
                 for i in range(1, cad.number_of_edges()+1):
