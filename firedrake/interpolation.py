@@ -78,7 +78,7 @@ class Interpolator(object):
             copy_required = True
         except AttributeError:
             assembled_interpolator = self.callable()
-            copy_required = False # Return the original
+            copy_required = False  # Return the original
             if self.freeze_expr:
                 self.frozen_assembled_interpolator = assembled_interpolator
             else:
@@ -233,7 +233,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if isinstance(tensor, op2.Dat):
         args.append(tensor(access, V.cell_node_map()))
     else:
-        assert access == op2.WRITE # Other access descriptors not done for Matrices.
+        assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         args.append(tensor(op2.WRITE, (V.cell_node_map(),
                                        arguments[0].function_space().cell_node_map())))
     if oriented:
