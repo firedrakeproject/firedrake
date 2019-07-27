@@ -69,19 +69,12 @@ def test_quad_vector(mesh_quad, family, degree):
 def test_quad_vector(mesh_quad, family, degree):
     x, y = SpatialCoordinate(mesh_quad)
     V = FunctionSpace(mesh_quad, family, degree)
-    u = TrialFunction(V)
-    v = TestFunction(V)
+    f = Function(V).project(as_vector([0.2 + y, 0.8*x + 0.2*y]))
 
-    uex = as_vector([0.2 + y, 0.8*x + 0.2*y])
+    W = VectorFunctionSpace(mesh_quad, "DG", 1)
+    g = Function(W).interpolate(as_vector([0.2 + y, 0.8*x + 0.2*y]))
 
-    a = inner(u, v)*dx(degree=4)
-    L = inner(uex, v)*dx(degree=4)
-
-    sol = Function(V)
-    solve(a == L, sol)
-
-    l2err = errornorm(uex, sol, norm_type="l2")
-    assert l2err < 1e-6
+    assert sqrt(assemble(dot(g - f, g - f) * dx)) <1e-6
 
 
 @pytest.mark.parametrize(('family', 'degree', 'vfamily', 'vdegree'),
