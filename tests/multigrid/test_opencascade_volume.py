@@ -4,7 +4,7 @@ import pytest
 import os
 
 
-@pytest.fixture(scope='module', params=[("cylinder.step", 20), ("cylinder.step", (15, 30)), ("cylinder.step", "Mesh.CharacteristicLengthFactor=2;\n "), ("t_twist.step", 3)])
+@pytest.fixture(scope='module', params=[("cylinder.step", 20), ("cylinder.step", (15, 30)), ("cylinder.step", "Mesh.CharacteristicLengthFactor=2;\n "), ("cylinder.step", "Characteristic Length{2}=10;\nCharacteristic Length {1}=5;"), ("t_twist.step", 3)])
 def stepdata(request):
     (stepfile, h) = request.param
     curpath = os.path.dirname(os.path.realpath(__file__))
