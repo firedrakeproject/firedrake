@@ -38,8 +38,12 @@ def diagonal(request):
 
 def run_periodic_helmholtz(direction, quadrilateral, diagonal):
     if quadrilateral:
-        if diagonal == "left": diagonal = None
-        else: return
+        if diagonal == "left":
+            # run the test
+            diagonal = None
+        else:
+            # don't run the test
+            return
 
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
                                  direction=direction)
