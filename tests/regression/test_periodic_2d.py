@@ -46,7 +46,7 @@ def run_periodic_helmholtz(direction, quadrilateral, diagonal):
             return
 
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
-                                 direction=direction)
+                                 diagonal=diagonal, direction=direction)
     x = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
