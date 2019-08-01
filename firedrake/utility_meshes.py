@@ -460,7 +460,9 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
 
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
-                          distribution_parameters=None, comm=COMM_WORLD):
+                          distribution_parameters=None,
+                          diagonal=None,
+                          comm=COMM_WORLD):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -471,6 +473,8 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+        Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -495,7 +499,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                                               quadrilateral=quadrilateral,
                                               reorder=reorder,
                                               distribution_parameters=distribution_parameters,
-                                              comm=comm)
+                                              diagonal=diagonal, comm=comm)
     if nx < 3 or ny < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
@@ -550,7 +554,7 @@ cells in each direction are not currently supported")
 
 
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       distribution_parameters=None, comm=COMM_WORLD):
+                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -560,6 +564,8 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+        Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -576,11 +582,12 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
                                  quadrilateral=quadrilateral, reorder=reorder,
                                  distribution_parameters=distribution_parameters,
-                                 comm=comm)
+                                 diagonal=diagonal, comm=comm)
 
 
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
-                           quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+                           quadrilateral=False, distribution_parameters=None,
+                           diagonal=None, comm=COMM_WORLD):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -589,6 +596,8 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+        Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -605,7 +614,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral,
                               distribution_parameters=distribution_parameters,
-                              comm=comm)
+                              diagonal=diagonal, comm=comm)
 
 
 def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
@@ -1233,7 +1242,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
 
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribution_parameters=None, comm=COMM_WORLD, diagonal=None):
+                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1246,6 +1255,8 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     :kwarg longitudinal_direction: (option) direction for the
          longitudinal axis of the cylinder.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+        Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -1358,7 +1369,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
 
 
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
-                                   reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
@@ -1368,6 +1379,8 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
     :kwarg direction: The direction of the periodicity (default x).
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+        Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -1396,7 +1409,8 @@ cells in each direction are not currently supported")
 
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder,
-                     distribution_parameters=distribution_parameters, comm=comm)
+                     distribution_parameters=distribution_parameters,
+                     diagonal=diagonal, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
     coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
