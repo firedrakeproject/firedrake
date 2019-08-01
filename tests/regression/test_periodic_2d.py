@@ -31,7 +31,16 @@ def quadrilateral(request):
     return request.param
 
 
-def run_periodic_helmholtz(direction, quadrilateral):
+@pytest.fixture(params=["left", "right", "crossed"])
+def diagonal(request):
+    return request.param
+
+
+def run_periodic_helmholtz(direction, quadrilateral, diagonal):
+    if quadrilateral:
+        if diagonal == "left": diagonal = None
+        else: return
+
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
                                  direction=direction)
     x = SpatialCoordinate(mesh)
@@ -61,10 +70,10 @@ def run_periodic_helmholtz(direction, quadrilateral):
     assert l2err/l2norm < 0.004
 
 
-def test_periodic_helmholtz(direction, quadrilateral):
-    run_periodic_helmholtz(direction, quadrilateral)
+def test_periodic_helmholtz(direction, quadrilateral, diagonal):
+    run_periodic_helmholtz(direction, quadrilateral, diagonal)
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_periodic_helmholtz_parallel(direction, quadrilateral):
-    run_periodic_helmholtz(direction, quadrilateral)
+def test_periodic_helmholtz_parallel(direction, quadrilateral, diagonal):
+    run_periodic_helmholtz(direction, quadrilateral, diagonal)
