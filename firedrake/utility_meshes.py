@@ -1233,7 +1233,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
 
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribution_parameters=None, comm=COMM_WORLD):
+                 distribution_parameters=None, comm=COMM_WORLD, diagonal=None):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1256,6 +1256,10 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     """
     if nr < 3:
         raise ValueError("CylinderMesh must have at least three cells")
+    if quadrilateral and diagonal is not None:
+        raise ValueError("Cannot specify slope of diagonal on quad meshes")
+    if not quadrilateral and diagonal is None:
+        diagonal = "left"
 
     coord_xy = radius*np.column_stack((np.cos(np.arange(nr)*(2*np.pi/nr)),
                                        np.sin(np.arange(nr)*(2*np.pi/nr))))
@@ -1269,11 +1273,51 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                                   np.roll(np.arange(0, nr, dtype=np.int32), -1)))
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
-    offset = np.arange(nl, dtype=np.int32)*nr
-    cells = np.row_stack(tuple(ring_cells + i for i in offset))
-    if not quadrilateral:
-        # two cells per cell above...
-        cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
+
+    if not quadrilateral and diagonal == "crossed":
+        dxy = np.pi/nr
+        Lxy = 2*np.pi
+        extra_uv = np.linspace(dxy, Lxy - dxy, nr, dtype=np.double)
+        extra_xy = radius*np.column_stack((np.cos(extra_uv),
+                                           np.sin(extra_uv)))
+        dz = 1 * 0.5 / nl
+        extra_z = depth*np.linspace(dz, 1 - dz, nl).reshape(-1, 1)
+        extras = np.asarray(np.column_stack((np.tile(extra_xy, (nl, 1)),
+                                             np.tile(extra_z, (1, nr)).reshape(-1, 1))),
+                            dtype=np.double)
+        origvertices = vertices
+        vertices = np.vstack([vertices, extras])
+        #
+        # 2-----3
+        # | \ / |
+        # |  4  |
+        # | / \ |
+        # 0-----1
+
+        offset = np.arange(nl, dtype=np.int32)*nr
+        origquads = np.row_stack(tuple(ring_cells + i for i in offset))
+        cells = np.zeros((origquads.shape[0]*4, 3), dtype=np.int32)
+        cellidx = 0
+        newvertices = range(len(origvertices), len(origvertices) + len(extras))
+        for (origquad, extravertex) in zip(origquads, newvertices):
+            cells[cellidx + 0, :] = [origquad[0], origquad[1], extravertex]
+            cells[cellidx + 1, :] = [origquad[0], origquad[3], extravertex]
+            cells[cellidx + 2, :] = [origquad[3], origquad[2], extravertex]
+            cells[cellidx + 3, :] = [origquad[2], origquad[1], extravertex]
+            cellidx += 4
+
+    else:
+        offset = np.arange(nl, dtype=np.int32)*nr
+        cells = np.row_stack(tuple(ring_cells + i for i in offset))
+        if not quadrilateral:
+            if diagonal == "left":
+                idx = [0, 1, 3, 1, 2, 3]
+            elif diagonal == "right":
+                idx = [0, 1, 2, 0, 2, 3]
+            else:
+                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+            # two cells per cell above...
+            cells = cells[:, idx].reshape(-1, 3)
 
     if longitudinal_direction == "x":
         rotation = np.asarray([[0, 0, 1],
