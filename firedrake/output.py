@@ -211,7 +211,7 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False
             if offset is None:
                 raise ValueError("Must provide offset")
             offset += nbytes
-            nbytes += (4 + array.nbytes) #  4 is for the array size (uint32)
+            nbytes += (4 + array.nbytes)  # 4 is for the array size (uint32)
             f.write(('<DataArray Name="%s" type="%s" '
                      'NumberOfComponents="%s" '
                      'format="appended" '

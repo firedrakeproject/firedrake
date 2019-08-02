@@ -22,11 +22,11 @@ def run_no_manifold():
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 
@@ -59,11 +59,11 @@ def run_manifold():
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 

@@ -73,7 +73,8 @@ def test_galerkin_projection(mesh, shapify, A, B):
         "pc_factor_mat_solver_type": "mumps",
     }
 
-    f_B_project = project(f_A, V_B, solver_parameters=solver_parameters)
+    f_B_project = project(f_A, V_B, solver_parameters=solver_parameters,
+                          use_slate_for_inverse=False)
 
     diff = Function(V_B)
     diff.assign(f_B_prolong - f_B_project)

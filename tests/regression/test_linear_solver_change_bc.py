@@ -8,7 +8,7 @@ def test_linear_solver_change_bc():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*dx
+    a = inner(grad(u), grad(v))*dx
 
     bcval = Function(V)
     x, y = SpatialCoordinate(mesh)

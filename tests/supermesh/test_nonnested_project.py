@@ -60,7 +60,7 @@ def test_project(hierarchy, coarse, fine):
     c.interpolate(SpatialCoordinate(cmesh)**2)
     expect = assemble(c*dx)
 
-    actual = project(c, Vf)
+    actual = project(c, Vf, use_slate_for_inverse=False)
 
     actual = assemble(actual*dx)
 
@@ -81,7 +81,7 @@ def test_project_parallel(hierarchy, coarse, fine):
     c.interpolate(SpatialCoordinate(cmesh)**2)
     expect = assemble(c*dx)
 
-    actual = project(c, Vf)
+    actual = project(c, Vf, use_slate_for_inverse=False)
 
     actual = assemble(actual*dx)
 

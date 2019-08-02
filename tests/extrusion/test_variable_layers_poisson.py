@@ -49,8 +49,8 @@ def test_poisson_variable_layers():
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(u), grad(v))*dx
-    L = Constant(0)*v*dx
+    a = inner(grad(u), grad(v))*dx
+    L = inner(Constant(0), v)*dx
 
     x, y = SpatialCoordinate(extmesh)
 

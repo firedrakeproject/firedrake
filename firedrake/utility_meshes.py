@@ -136,7 +136,7 @@ cells are not currently supported")
     }}
     new_coords[0][0] = a * L[0];
     new_coords[1][0] = b * L[0];
-    """.format(utils.ScalarType, absfunc)
+    """.format(utils.ScalarType_c, absfunc)
 
     print(periodic_kernel)
 
@@ -520,7 +520,7 @@ cells in each direction are not currently supported")
     new_coordinates = Function(coord_fs)
 
     absfunc, sinfunc, cosfunc = ('cabs', 'csin', 'ccos') if utils.complex_mode \
-                                else ('fabs', 'sin', 'cos')
+        else ('fabs', 'sin', 'cos')
 
     periodic_kernel = """
 {0} pi = 3.141592653589793;

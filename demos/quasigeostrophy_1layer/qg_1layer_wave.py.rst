@@ -208,7 +208,7 @@ names. ::
   q0.rename("Potential vorticity")
   psi0.rename("Stream function")
   v = Function(Vu, name="gradperp(stream function)")
-  v.project(gradperp(psi0))
+  v.project(gradperp(psi0), use_slate_for_inverse=False)
 
   output = File("output.pvd")
 
@@ -251,7 +251,7 @@ execute the time loop. ::
     tdump += 1
     if tdump == dumpfreq:
         tdump -= dumpfreq
-        v.project(gradperp(psi0))
+        v.project(gradperp(psi0), use_slate_for_inverse=False)
         output.write(q0, psi0, v, time=t)
 
 A python script version of this demo can be found `here <qg_1layer_wave.py>`__.

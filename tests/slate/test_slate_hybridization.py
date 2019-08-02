@@ -45,8 +45,8 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
 
     # Define the variational forms
-    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
-    L = f * v * dx - 42 * dot(tau, n)*ds
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx
+    L = inner(f, v) * dx - 42 * inner(n, tau)*ds
 
     # Compare hybridized solution with non-hybridized
     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC

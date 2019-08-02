@@ -43,7 +43,7 @@ def test_assembled_solve(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = inner(u, v) *dx
+    a = inner(u, v) * dx
 
     L = conj(v) * dx
 
@@ -69,7 +69,7 @@ def test_linearvariationalsolver(bcs, benchmark):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = inner(u, v) *dx
+    a = inner(u, v) * dx
 
     L = conj(v) * dx
 

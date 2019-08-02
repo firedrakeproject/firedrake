@@ -21,10 +21,11 @@ def test_identity_scalar(extmesh, hfamily, hdegree, vfamily, vdegree):
     v = TestFunction(fspace)
 
     xs = SpatialCoordinate(mesh)
-    f = project(xs[2]-xs[0], fspace)
+    # use_slate_for_inverse *False* because projecting to DG space
+    f = project(xs[2]-xs[0], fspace, use_slate_for_inverse=False)
 
     out = Function(fspace)
-    solve(u*v*dx == f*v*dx, out, solver_parameters=params)
+    solve(inner(u, v)*dx == inner(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
@@ -39,10 +40,11 @@ def test_identity_vector(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(as_vector([z-x, y-z, x-y]), fspace)
+    # use_slate_for_inverse *False* because projecting to DG space
+    f = project(as_vector([z-x, y-z, x-y]), fspace, use_slate_for_inverse=False)
 
     out = Function(fspace)
-    solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
+    solve(inner(u, v)*dx == inner(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
@@ -64,10 +66,11 @@ def test_identity_hdiv(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(as_vector([y, -x, z]), fspace)
+    # use_slate_for_inverse *False* because projecting to DG space
+    f = project(as_vector([y, -x, z]), fspace, use_slate_for_inverse=False)
 
     out = Function(fspace)
-    solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
+    solve(inner(u, v)*dx == inner(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
@@ -89,8 +92,9 @@ def test_identity_hcurl(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     x, y, z = SpatialCoordinate(mesh)
 
-    f = project(as_vector([y, -x, z]), fspace)
+    # use_slate_for_inverse *False* because projecting to DG space
+    f = project(as_vector([y, -x, z]), fspace, use_slate_for_inverse=False)
 
     out = Function(fspace)
-    solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
+    solve(inner(u, v)*dx == inner(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13

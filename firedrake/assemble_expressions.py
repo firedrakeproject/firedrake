@@ -20,6 +20,7 @@ from firedrake import function
 from firedrake import utils
 from firedrake.utils import complex_mode
 
+
 def ufl_type(*args, **kwargs):
     r"""Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
 
@@ -632,7 +633,7 @@ _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _as
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
 _absfunc = lambda e: ast.FunCall("cabs" if complex_mode else "abs",
-                            _ast(e.ufl_operands[0]))
+                                 _ast(e.ufl_operands[0]))
 
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),

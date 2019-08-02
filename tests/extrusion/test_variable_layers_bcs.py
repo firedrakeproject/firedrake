@@ -45,7 +45,7 @@ def test_variable_layers_bcs_application(measure, subdomain):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*measure
+    a = inner(grad(u), grad(v))*measure
 
     bcs = DirichletBC(V, 0, subdomain)
 
@@ -103,7 +103,7 @@ def test_variable_layers_bcs_application_interior(measure, subdomain):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(avg(grad(u)), avg(grad(v)))*measure
+    a = inner(avg(grad(u)), avg(grad(v)))*measure
 
     bcs = DirichletBC(V, 0, subdomain)
 

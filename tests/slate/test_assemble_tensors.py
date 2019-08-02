@@ -122,20 +122,20 @@ def test_assemble_vector_into_tensor(mesh):
     v = TestFunction(V)
     f = Function(V)
     # Assemble a SLATE tensor into f
-    f = assemble(Tensor(v * dx), f)
+    f = assemble(Tensor(conj(v) * dx), f)
     # Assemble a different tensor into f
-    f = assemble(Tensor(Constant(2) * v * dx), f)
-    assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
+    f = assemble(Tensor(Constant(2) * conj(v) * dx), f)
+    assert np.allclose(f.dat.data, 2*assemble(Tensor(conj(v) * dx)).dat.data, rtol=1e-14)
 
 
 def test_assemble_matrix_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)
     v = TrialFunction(V)
-    M = assemble(Tensor(u * v * dx))
+    M = assemble(Tensor(inner(v, u) * dx))
     # Assemble a different SLATE tensor into M
-    M = assemble(Tensor(Constant(2) * u * v * dx), M)
-    assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
+    M = assemble(Tensor(Constant(2) * inner(v, u) * dx), M)
+    assert np.allclose(M.M.values, 2*assemble(Tensor(inner(v, u) * dx)).M.values, rtol=1e-14)
 
 
 def test_mixed_coefficient_matrix(mesh):
@@ -146,8 +146,8 @@ def test_mixed_coefficient_matrix(mesh):
     f.assign(1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    T = Tensor((f[0] + f[1]) * u * v * dx)
-    ref = assemble((f[0] + f[1]) * u * v * dx)
+    T = Tensor((f[0] + f[1]) * inner(u, v) * dx)
+    ref = assemble((f[0] + f[1]) * inner(u, v) * dx)
 
     assert np.allclose(assemble(T).M.values, ref.M.values, rtol=1e-14)
 
@@ -173,7 +173,7 @@ def test_nested_coefficients_matrix(mesh):
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = inner(v, f*u)*dx - div(T(v))*inner(u, n)*ds
+    form = inner(f*u, v)*dx - inner(inner(u, n), div(T(v)))*ds
     A = Tensor(form)
     M = assemble(A)
 
@@ -186,7 +186,7 @@ def test_mixed_argument_tensor(mesh):
     W = V * U
     sigma, _ = TrialFunctions(W)
     tau, _ = TestFunctions(W)
-    T = Tensor(sigma * tau * dx)
+    T = Tensor(inner(sigma, tau) * dx)
     with pytest.raises(NotImplementedError):
         assemble(T)
 
@@ -225,9 +225,9 @@ def test_matrix_subblocks(mesh):
     u, p, lambdar = TrialFunctions(W)
     w, q, gammar = TestFunctions(W)
 
-    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
-               + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
-               + lambdar*gammar*ds)
+    A = Tensor(inner(u, w)*dx + inner(p, q)*dx - inner(p, div(w))*dx + inner(div(u), q)*dx
+               + inner(lambdar('+'), jump(w, n=n))*dS + inner(jump(u, n=n), gammar('+'))*dS
+               + inner(lambdar, gammar)*ds)
 
     # Test individual blocks
     indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]

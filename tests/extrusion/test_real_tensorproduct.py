@@ -41,8 +41,8 @@ def test_vertical_average(V, expr, solution, tolerance):
     v = TestFunction(V)
 
     out = Function(V)
-    solve(u*v*dx == expr*v*dx, out)
-    l2err = sqrt(assemble((out-solution)*(out-solution)*dx))
+    solve(inner(u, v)*dx == inner(expr, v)*dx, out)
+    l2err = sqrt(assemble(inner((out-solution), (out-solution))*dx))
     assert abs(l2err) < tolerance
 
 
@@ -73,7 +73,7 @@ def test_vertical_average_variable(quadrilateral):
     fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
     f_real = Function(fs_real).project(f)
 
-    l2err = l2err = sqrt(assemble((f_real-correct)*(f_real-correct)*dx))
+    l2err = l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
     assert abs(l2err) < tolerance
 
 
@@ -102,9 +102,9 @@ def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
         xyz = SpatialCoordinate(mesh)
         f.interpolate((1+8*pi*pi)*cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
 
-        solve(dot(grad(u), grad(v))*dx + u*v*dx == f*v*dx, s)
+        solve(inner(grad(u), grad(v))*dx + inner(u, v)*dx == inner(f, v)*dx, s)
 
-    l2err = sqrt(assemble((sol_real-sol_ref)*(sol_real-sol_ref)*dx))
+    l2err = sqrt(assemble(inner((sol_real-sol_ref), (sol_real-sol_ref))*dx))
     assert abs(l2err) < tolerance
 
 
@@ -130,9 +130,9 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
         f.interpolate((1+8*pi*pi)*cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
 
         out = Function(fspace)
-        solve(dot(grad(u), grad(v))*dx + u*v*dx == f*v*dx, out)
+        solve(inner(grad(u), grad(v))*dx + inner(u, v)*dx == inner(f, v)*dx, out)
 
         exact = Function(fspace)
         exact.interpolate(cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
-        l2err[ii - start] = sqrt(assemble((out-exact)*(out-exact)*dx))
+        l2err[ii - start] = sqrt(assemble(inner((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()

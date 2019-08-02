@@ -32,7 +32,9 @@ def run_vector_test(x, degree=1, family='CG'):
     # alternate syntax in which the target Function is already
     # available.
     ret = Function(V)
-    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    use_slate_for_inverse = (family != 'DG')
+    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'},
+            use_slate_for_inverse=use_slate_for_inverse)
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -50,7 +52,9 @@ def run_tensor_test(x, degree=1, family='CG'):
     # alternate syntax in which the target Function is already
     # available.
     ret = Function(V)
-    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    use_slate_for_inverse = (family != 'DG')
+    project(expr, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'},
+            use_slate_for_inverse=use_slate_for_inverse)
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -66,7 +70,9 @@ def run_test(x, degree=1, family='CG'):
     # Solve to machine precision. This version of the test uses the
     # method version of project.
     ret = Function(V)
-    ret.project(e, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    use_slate_for_inverse = (family != 'DG')
+    ret.project(e, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'},
+                use_slate_for_inverse=use_slate_for_inverse)
 
     return sqrt(assemble((ret - exact) * (ret - exact) * dx))
 
@@ -184,10 +190,10 @@ def test_repeatable():
     V3 = FunctionSpace(mesh, 'DG', 0)
     W = V2 * V3
     expr = Constant(1.0)
-    old = project(expr, Q)
+    old = project(expr, Q, use_slate_for_inverse=False)
 
     f = project(as_vector((-1.0, -1.0)), W)  # noqa
-    new = project(expr, Q)
+    new = project(expr, Q, use_slate_for_inverse=False)
 
     for fd, ud in zip(new.dat.data, old.dat.data):
         assert (fd == ud).all()

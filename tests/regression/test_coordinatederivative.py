@@ -88,7 +88,7 @@ def test_integral_scaling_edge_case():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
 
-    J = u * u * dx
+    J = inner(u, u) * dx
     with pytest.raises(UFLException):
         assemble(Constant(2.0) * derivative(J, X))
     with pytest.raises(UFLException):

@@ -11,7 +11,7 @@ def test_real_assembly():
 
     f.dat.data[0] = 2.
 
-    assert assemble(f*dx) == 2.0
+    assert assemble(f * dx) == 2.0
 
 
 def test_real_one_form_assembly():
@@ -19,7 +19,7 @@ def test_real_one_form_assembly():
     fs = FunctionSpace(mesh, "Real", 0)
     v = TestFunction(fs)
 
-    assert assemble(v*dx).dat.data[0] == 1.0
+    assert assemble(v * dx).dat.data[0] == 1.0
 
 
 def test_real_two_form_assembly():
@@ -28,7 +28,7 @@ def test_real_two_form_assembly():
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    assert assemble(2*u*v*dx).M.values == 2.0
+    assert assemble(2*u*v * dx).M.values == 2.0
 
 
 def test_real_nonsquare_two_form_assembly():
@@ -38,12 +38,12 @@ def test_real_nonsquare_two_form_assembly():
     u = TrialFunction(rfs)
     v = TestFunction(cgfs)
 
-    base_case = assemble(2*v*dx)
-    m1 = assemble(2*u*v*dx)
+    base_case = assemble(2 * conj(v) * dx)
+    m1 = assemble(2 * inner(u, v) * dx)
 
     u = TrialFunction(cgfs)
     v = TestFunction(rfs)
-    m2 = assemble(2*u*v*dx)
+    m2 = assemble(2 * inner(u, v) * dx)
 
     np.testing.assert_almost_equal(base_case.dat.data,
                                    m1.M.values[:, 0])
@@ -59,11 +59,11 @@ def test_real_mixed_one_form_assembly():
     mfs = cgfs*rfs
     v, q = TestFunctions(mfs)
 
-    A = assemble(v*dx + q*dx)
+    A = assemble(conj(v) * dx + q * dx)
 
     qq = TestFunction(rfs)
 
-    AA = assemble(qq*dx)
+    AA = assemble(qq * dx)
 
     np.testing.assert_almost_equal(A.dat.data[1],
                                    AA.dat.data)
@@ -78,16 +78,16 @@ def test_real_mixed_two_form_assembly():
     u, p = TrialFunctions(mfs)
     v, q = TestFunctions(mfs)
 
-    m = assemble(u*v*dx + p*q*dx + u*q*dx + p*v*dx)
+    m = assemble(inner(u, v) * dx + p * q * dx + u * q * dx + inner(p, v) * dx)
 
     qq = TestFunction(rfs)
     vv = TestFunction(cgfs)
     uu = TrialFunction(cgfs)
 
-    m00 = assemble(uu*vv*dx)
+    m00 = assemble(inner(uu, vv) * dx)
     np.testing.assert_almost_equal(m00.M.values,
                                    m.M.blocks[0][0].values)
-    m01 = assemble(uu*qq*dx)
+    m01 = assemble(uu * qq * dx)
     np.testing.assert_almost_equal(m01.M.values.T,
                                    m.M.blocks[0][1].values)
     np.testing.assert_almost_equal(m01.M.values,
@@ -106,7 +106,7 @@ def test_real_mixed_monolithic_two_form_assembly():
     v, q = TestFunctions(mfs)
 
     with pytest.raises(ValueError):
-        assemble(u*v*dx + p*q*dx + u*q*dx + p*v*dx, mat_type="aij")
+        assemble(inner(u, v) * dx + p * q * dx + u * q * dx + inner(p, v) * dx, mat_type="aij")
 
 
 def test_real_extruded_mixed_two_form_assembly():
@@ -119,16 +119,16 @@ def test_real_extruded_mixed_two_form_assembly():
     u, p = TrialFunctions(mfs)
     v, q = TestFunctions(mfs)
 
-    m = assemble(dot(u, v)*dx + dot(p, q)*dx + dot(u, q)*dx + dot(p, v)*dx)
+    m = assemble(inner(u, v) * dx + p * q * dx + u * q * dx + inner(p, v) * dx)
 
     qq = TestFunction(rfs)
     vv = TestFunction(cgfs)
     uu = TrialFunction(cgfs)
 
-    m00 = assemble(uu*vv*dx)
+    m00 = assemble(inner(uu, vv) * dx)
     np.testing.assert_almost_equal(m00.M.values,
                                    m.M.blocks[0][0].values)
-    m01 = assemble(uu*qq*dx)
+    m01 = assemble(uu * qq * dx)
     np.testing.assert_almost_equal(m01.M.values.T,
                                    m.M.blocks[0][1].values)
     np.testing.assert_almost_equal(m01.M.values,
@@ -160,11 +160,11 @@ def test_real_mixed_solve():
 
         phi_0, phi_1 = split(phi)
 
-        residual_form = (dot(grad(phi_0), grad(v)) + phi_1*v + phi_0*q - f0*v) * dx
+        residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
         solve(residual_form == 0, phi)
 
-        return sqrt(assemble((f - phi)**2*dx))
+        return sqrt(assemble(inner(f - phi, f - phi) * dx))
 
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
@@ -192,11 +192,11 @@ def test_real_mixed_solve_split_comms():
 
         phi_0, phi_1 = split(phi)
 
-        residual_form = (dot(grad(phi_0), grad(v)) + phi_1*v + phi_0*q - f0*v) * dx
+        residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
         solve(residual_form == 0, phi)
 
-        return sqrt(assemble((f - phi)**2*dx))
+        return sqrt(assemble(inner(f - phi, f - phi) * dx))
 
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 

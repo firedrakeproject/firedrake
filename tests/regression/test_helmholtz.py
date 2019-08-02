@@ -33,7 +33,7 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    a = (inner(grad(u), grad(v)) + lmbda * u * v) * dx
+    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
     L = inner(f, v) * dx
 
     # Compute solution

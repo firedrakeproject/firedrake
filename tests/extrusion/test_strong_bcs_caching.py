@@ -15,7 +15,7 @@ def test_extrusion_strong_bcs_caching(extmesh, method):
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v)*dx
 
     Aboth = assemble(a, bcs=[bc1, bc2])
     Aneither = assemble(a)

@@ -55,9 +55,9 @@ def test_periodic_rectangle_advection(degree, threshold,
         n = FacetNormal(mesh)
         un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-        a_mass = phi*D*dx
-        a_int = dot(grad(phi), -u*D)*dx
-        a_flux = dot(jump(phi), jump(un*D))*dS
+        a_mass = inner(D, phi)*dx
+        a_int = inner(-u*D, grad(phi))*dx
+        a_flux = inner(jump(un*D), jump(phi))*dS
 
         dD1 = Function(V)
         D1 = Function(V)

@@ -11,12 +11,13 @@ def test_Taylor():
     V0 = FunctionSpace(mesh, "DG", 0)
     x = SpatialCoordinate(mesh)
     v = Function(V1).interpolate(sin(2*pi*x[0]))
-    v0 = Function(V0).project(v)
-    vt = Function(VT).project(v)
+    # use_slate_for_inverse is *False* because using a "DG" space
+    v0 = Function(V0).project(v, use_slate_for_inverse=False)
+    vt = Function(VT).project(v, use_slate_for_inverse=False)
 
     assert(numpy.abs(v0.dat.data - vt.dat.data[::3]).max() < 1.0e-10)
 
     vt.dat.data[2::3] = 0.
-    v0_1 = Function(V0).project(vt)
+    v0_1 = Function(V0).project(vt, use_slate_for_inverse=False)
 
     assert(numpy.abs(v0.dat.data - v0_1.dat.data).max() < 1.0e-10)

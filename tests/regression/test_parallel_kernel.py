@@ -31,5 +31,5 @@ def test_kernel_with_det_of_tensor_of_derivatives_of_field():
     phi = TestFunction(V2)
     p = TrialFunction(V2)
     D0 = Function(V2)
-    solve(phi*p*detJ*dx == phi*Dexpr*detJ*dx, D0)
+    solve(inner(p*detJ, phi)*dx == inner(Dexpr*detJ, phi)*dx, D0)
     assert errornorm(Dexpr, D0, degree_rise=0) < 1e-6

@@ -68,7 +68,9 @@ def test_triangle(mesh_triangle, family, degree):
     V = FunctionSpace(mesh_triangle, family, degree)
     # Bernstein currently requires projection
     x = SpatialCoordinate(mesh_triangle)
-    f = Function(V).project((x[0] - 0.5)*(x[1] - 0.2))
+    use_slate_for_inverse = (family != 'DG')
+    f = Function(V).project((x[0] - 0.5)*(x[1] - 0.2),
+                            use_slate_for_inverse=use_slate_for_inverse)
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
 

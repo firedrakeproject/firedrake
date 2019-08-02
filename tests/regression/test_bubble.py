@@ -7,7 +7,7 @@ def test_simple():
     mesh = UnitTriangleMesh()
     V = FunctionSpace(mesh, "B", 3)
     x = SpatialCoordinate(mesh)
-    u = project(27*x[0]*x[1]*(1-x[0]-x[1]), V)
+    u = project(27*x[0]*x[1]*(1-x[0]-x[1]), V, use_slate_for_inverse=False)
     assert (u.dat.data[0] - 1.0) < 1e-14
 
 

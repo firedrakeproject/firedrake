@@ -48,19 +48,19 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
 
         # Manually specify integration degree due to non-polynomial
         # source terms.
-        a = (inner(grad(u), grad(v)) - p*div(v) - q*div(u))*dx(degree=6)
+        a = (inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q))*dx(degree=6)
 
-        a += (- inner(avg(grad(u)), outer(jump(v), n("+")))
-              - inner(avg(grad(v)), outer(jump(u), n("+")))
+        a += (- inner(avg(grad(u)), outer(jump(conj(v)), n("+")))
+              - inner(avg(grad(conj(v))), outer(jump(u), n("+")))
               + (sigma/avg(h))*inner(jump(u), jump(v)))*dS(degree=6)
 
-        a += (- inner(grad(u), outer(v, n))
-              - inner(grad(v), outer(u, n))
+        a += (- inner(grad(u), outer(conj(v), n))
+              - inner(grad(conj(v)), outer(u, n))
               + (sigma/h)*inner(u, v))*ds(degree=6)
 
         L = (inner(source, v)*dx(degree=6)
              + (sigma/h)*inner(u_exact, v)*ds(degree=6)
-             - inner(grad(v), outer(u_exact, n))*ds(degree=6))
+             - inner(grad(conj(v)), outer(u_exact, n))*ds(degree=6))
 
         # left = 1
         # right = 2
@@ -119,11 +119,11 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         u, p = UP.split()
         u_error = u - u_exact
         p_error = p - p_exact
-        err_u.append(sqrt(abs(assemble(dot(u_error, u_error)*dx))))
-        err_p.append(sqrt(abs(assemble(p_error*p_error*dx))))
-        err_div.append(sqrt(assemble(div(u)**2*dx)))
-    err_u = numpy.asarray(err_u)
-    err_p = numpy.asarray(err_p)
+        err_u.append(sqrt(abs(assemble(inner(u_error, u_error) * dx))))
+        err_p.append(sqrt(abs(assemble(inner(p_error, p_error) * dx))))
+        err_div.append(sqrt(abs(assemble(inner(div(u), div(u)) * dx))))
+    err_u = numpy.real(numpy.asarray(err_u))
+    err_p = numpy.real(numpy.asarray(err_p))
     err_div = numpy.asarray(err_div)
 
     assert numpy.allclose(err_div, 0, atol=1e-7, rtol=1e-5)
