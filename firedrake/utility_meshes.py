@@ -331,7 +331,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
         COMM_WORLD).
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
-        bottom right (``"left"``).
+        bottom right (``"left"``), or put in both diagonals (``"crossed"``).
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -473,8 +473,8 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
-        Not valid for quad meshes.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+        Not valid for quad meshes. Only used for direction ``"x"`` or direction ``"y"``.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
 
@@ -564,7 +564,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -596,7 +596,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
         ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -1255,7 +1255,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     :kwarg longitudinal_direction: (option) direction for the
          longitudinal axis of the cylinder.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
-    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -1379,7 +1379,7 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
     :kwarg direction: The direction of the periodicity (default x).
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of "crossed", "left", "right". "left" is the default.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
