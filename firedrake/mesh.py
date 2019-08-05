@@ -806,6 +806,26 @@ class MeshTopology(object):
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
+    @property
+    def submesh_parent(self):
+        return self._submesh_parent
+
+    @submesh_parent.setter
+    def submesh_parent(self, p):
+        self._submesh_parent = p
+
+    def submesh_get_base(self):
+        if self.submesh_parent is None:
+            return self
+        else:
+            return self.submesh_parent.submesh_get_base()
+
+    def submesh_get_depth(self):
+        if self.submesh_parent is None:
+            return 0
+        else:
+            return self.submesh_parent.submesh_get_depth() + 1
+
     @utils.cached_property
     def submesh_sub_super_map(self, dim):
         """Return a map to the parent mesh if self._submesh_parent is not None
@@ -814,15 +834,27 @@ class MeshTopology(object):
 
           :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
         """
-        if self._submesh_parent is None:
-            return
-        #TODO: generalize over cell_set
-        return op2.Map(self.cell_set, self._submesh_parent.cell_set, 1,
+        if self.submesh_parent is None:
+            raise RuntimeError("`submesh_sub_super_map` must not be called if submesh_parent is None")
+        #TODO: generalize for facet_set etc..
+        return op2.Map(self.cell_set, self.submesh_parent.cell_set, 1,
                        dmplex.submesh_create_sub_super_map(self, dim),
                        "sub_to_super_map")
 
-    def get_composed_map(self):
-        pass
+    def submesh_get_entity_map_list(self, other, dim):
+        """Return a list of :class:`pyop2.Map`s to map indices from submesh to mesh
+
+          :arg other: The other mesh.
+          :dim: Dimension to create map for.
+
+          :returns: A list of :class:`pyop2.Map`s that, when composed by :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim) from a submesh to the original mesh.
+        """
+        if self.submesh_get_base() is not other.submesh_get_base():
+            raise RuntimeError("`self` and `other` must share the same base mesh")
+        if self > other:
+            return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
+        else:
+            return []
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -1298,6 +1330,26 @@ values from f.)"""
             if all([geometric_expr([entity_coords[gdim * e + i] for i in range(gdim)]) for e in range(n)]):
                 plex.setLabelValue(labelName, entity, labelValue)
 
+    @property
+    def submesh_parent(self):
+        return self._submesh_parent
+
+    @submesh_parent.setter
+    def submesh_parent(self, p):
+        self._submesh_parent = p
+
+    def submesh_get_base(self):
+        if self.submesh_parent is None:
+            return self
+        else:
+            return self.submesh_parent.submesh_get_base()
+
+    def submesh_get_depth(self):
+        if self.submesh_parent is None:
+            return 0
+        else:
+            return self.submesh_parent.submesh_get_depth() + 1
+
     def __getattr__(self, name):
         return getattr(self._topology, name)
 
@@ -1520,8 +1572,8 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     def wrap_callback(old_callback, mesh):
         def callback(self):
             old_callback(self)
-            self._topology._submesh_parent = mesh._topology
-            self._submesh_parent = mesh
+            self._topology.submesh_parent = mesh._topology
+            self.submesh_parent = mesh
         return callback;
 
     submsh._callback = wrap_callback(submsh._callback, mesh)

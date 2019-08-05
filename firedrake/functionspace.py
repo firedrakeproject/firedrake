@@ -240,14 +240,11 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         rec(spaces.sub_elements())
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
-    # Check that function spaces are on the same mesh
-    meshes = [space.mesh() for space in spaces]
-    for i in range(1, len(meshes)):
-        if meshes[i] is not meshes[0]:
-            raise ValueError("All function spaces must be defined on the same mesh!")
+    # Check that function spaces have the same base
+    base_meshes = [space.mesh().submesh_get_base() for space in spaces]
+    if base_meshes[:-1] != base_meshes[1:]:
+        raise ValueError("All function spaces must be defined on the meshes sharing the same base!")
 
-    # Select mesh
-    mesh = meshes[0]
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
@@ -260,6 +257,9 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
             continue
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
+
+    # Select mesh
+    mesh = base_meshes[0]
 
     new = impl.MixedFunctionSpace(spaces, name=name)
     if mesh is not mesh.topology:
