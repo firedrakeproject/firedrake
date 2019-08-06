@@ -194,31 +194,6 @@ def test_update_bc_constant(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
-def test_preassembly_change_bcs(V, f, mat_type):
-    v = TestFunction(V)
-    u = TrialFunction(V)
-    a = dot(u, v)*dx
-    bc = DirichletBC(V, f, 1)
-
-    A = assemble(a, bcs=[bc], mat_type=mat_type)
-    L = dot(v, f)*dx
-    b = assemble(L)
-
-    y = Function(V)
-    y.assign(7)
-    bc1 = DirichletBC(V, y, 1)
-    u = Function(V)
-
-    solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
-
-    u.assign(0)
-    b = assemble(dot(v, y)*dx)
-    solve(A, u, b, bcs=[bc1])
-    assert np.allclose(u.vector().array(), 7.0)
-
-
 def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)

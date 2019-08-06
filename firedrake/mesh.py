@@ -7,6 +7,7 @@ import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 import enum
+import numbers
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
@@ -175,7 +176,7 @@ class _Facets(object):
             (or ``None``, for an empty subset).
         """
         valid_markers = set([unmarked]).union(self.unique_markers)
-        markers = as_tuple(markers, int)
+        markers = as_tuple(markers, numbers.Integral)
         if self.markers is None and valid_markers.intersection(markers):
             return self._null_subset
         try:

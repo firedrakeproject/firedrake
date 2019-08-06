@@ -3,6 +3,7 @@ import firedrake.function as function
 import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
+from firedrake import dmhooks
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
@@ -154,7 +155,7 @@ class LinearSolver(OptionsManager):
         else:
             acc = x.dat.vec_wo
 
-        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution:
+        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
             self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()
