@@ -90,10 +90,12 @@ class Interpolator(object):
             assembled_interpolator = self.callable()
             copy_required = False  # Return the original
             if self.freeze_expr:
-                self.frozen_assembled_interpolator = assembled_interpolator
-            else:
-                # Save the copy
-                self.frozen_assembled_interpolator = assembled_interpolator.copy()
+                if self.nargs:
+                    # Interpolation operator
+                    self.frozen_assembled_interpolator = assembled_interpolator
+                else:
+                    # Interpolation action
+                    self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
         if self.nargs:
             assembled_interpolator._force_evaluation()
