@@ -35,10 +35,21 @@ class WithGeometry(ufl.FunctionSpace):
     """
     def __init__(self, function_space, mesh):
         function_space = function_space.topological
-        assert mesh.topology is function_space.mesh()
-        assert mesh.topology is not mesh
+        if isinstance(mesh, (list, tuple)):
+            if mesh[:-1] == mesh[1:]:
+                mesh = mesh[0]
+        if isinstance(mesh, (list, tuple)):
+            #assert mesh
+            assert all([m.topology is not m for m in mesh])
+            # Nested meshes have the same ufl_cell()
+            cell = mesh[0].ufl_cell()
+        else:
+            assert mesh.topology is function_space.mesh()
+            assert mesh.topology is not mesh
+            cell = mesh.ufl_cell()
 
-        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
+        #On a mixed space, there's no single ufl_element in general...
+        element = function_space.ufl_element().reconstruct(cell=cell)
         super(WithGeometry, self).__init__(mesh, element)
         self.topological = function_space
 
@@ -49,8 +60,12 @@ class WithGeometry(ufl.FunctionSpace):
 
     @utils.cached_property
     def _split(self):
-        return tuple(WithGeometry(subspace, self.mesh())
-                     for subspace in self.topological.split())
+        if isinstance(self.mesh(), (list, tuple)):
+            return tuple(WithGeometry(subspace, mesh)
+                         for subspace, mesh in zip(self.topological.split(), self.mesh()))
+        else:
+            return tuple(WithGeometry(subspace, self.mesh())
+                         for subspace in self.topological.split())
 
     mesh = ufl.FunctionSpace.ufl_domain
 

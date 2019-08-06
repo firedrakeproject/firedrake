@@ -851,7 +851,7 @@ class MeshTopology(object):
         """
         if self.submesh_get_base() is not other.submesh_get_base():
             raise RuntimeError("`self` and `other` must share the same base mesh")
-        if self > other:
+        if self.submesh_get_depth() < other.submesh_get_depth():
             return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
         else:
             return []
