@@ -29,7 +29,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     .. note::
        If you find interpolating the same expression again and again
        (for example in a time loop) you may find you get better
-       performance by using a :class:`Interpolator` instead.
+       performance by using an :class:`Interpolator` instead.
     """
     return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
