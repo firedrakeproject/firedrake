@@ -179,7 +179,7 @@ def test_lvalue_rvalue():
 
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_interpolator_Pk(degree):
-    mesh = UnitSquareMesh(10, 10)
+    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
     x = SpatialCoordinate(mesh)
     P1 = FunctionSpace(mesh, "CG", degree)
     P2 = FunctionSpace(mesh, "CG", degree + 1)
@@ -195,7 +195,7 @@ def test_interpolator_Pk(degree):
 
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_interpolator_spectral(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
     fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="spectral")
     P1 = FunctionSpace(mesh, fe1)
@@ -229,7 +229,7 @@ def test_interpolator_equiquads(degree):
 
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_interpolator_equitris(degree):
-    mesh = UnitSquareMesh(10, 10)
+    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
     x = SpatialCoordinate(mesh)
     fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
     P1 = FunctionSpace(mesh, fe1)
@@ -327,4 +327,3 @@ def test_adjoint_dg():
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
-    

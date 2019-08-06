@@ -51,9 +51,9 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
-        self.callable, args = make_interpolator(expr, V, subset, access)
-        self.args = args
-        self.nargs = len(args)
+        self.callable, arguments = make_interpolator(expr, V, subset, access)
+        self.arguments = arguments
+        self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
         self.V = V
 
@@ -90,7 +90,7 @@ class Interpolator(object):
             function, = function
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
-                V = self.args[0].function_space()
+                V = self.arguments[0].function_space()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
@@ -217,7 +217,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if subset is not None:
         assert subset.superset == cell_set
         cell_set = subset
-    args = [kernel, cell_set]
+    arguments = [kernel, cell_set]
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -231,20 +231,20 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         copyin = ()
         copyout = ()
     if isinstance(tensor, op2.Dat):
-        args.append(tensor(access, V.cell_node_map()))
+        arguments.append(tensor(access, V.cell_node_map()))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
-        args.append(tensor(op2.WRITE, (V.cell_node_map(),
+        arguments.append(tensor(op2.WRITE, (V.cell_node_map(),
                                        arguments[0].function_space().cell_node_map())))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map()))
+        arguments.append(co.dat(op2.READ, co.cell_node_map()))
     if needs_cell_sizes:
         cs = mesh.cell_sizes
-        args.append(cs.dat(op2.READ, cs.cell_node_map()))
+        arguments.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         m_ = coefficient.cell_node_map()
-        args.append(coefficient.dat(op2.READ, m_))
+        arguments.append(coefficient.dat(op2.READ, m_))
 
     for o in coefficients:
         domain = o.ufl_domain()
@@ -252,16 +252,16 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
     if isinstance(tensor, op2.Mat):
-        return partial(op2.par_loop, *args), tensor.assemble()
+        return partial(op2.par_loop, *arguments), tensor.assemble()
     else:
-        return copyin + (partial(op2.par_loop, *args), ) + copyout
+        return copyin + (partial(op2.par_loop, *arguments), ) + copyout
 
 
 class GlobalWrapper(object):
     """Wrapper object that fakes a Global to behave like a Function."""
     def __init__(self, glob):
         self.dat = glob
-        self.cell_node_map = lambda *args: None
+        self.cell_node_map = lambda *arguments: None
         self.ufl_domain = lambda: None
 
 
@@ -275,11 +275,11 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # The par_loop will just pass us arguments, since it doesn't
-    # know about keyword args at all so unpack into a dict that we
+    # know about keyword arguments at all so unpack into a dict that we
     # can pass to the user's eval method.
-    def kernel(output, x, *args):
+    def kernel(output, x, *arguments):
         kwargs = {}
-        for (slot, _), arg in zip(expression._user_args, args):
+        for (slot, _), arg in zip(expression._user_args, arguments):
             kwargs[slot] = arg
         X = numpy.dot(X_remap.T, x)
 
