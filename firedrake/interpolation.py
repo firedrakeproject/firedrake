@@ -60,7 +60,7 @@ class Interpolator(object):
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
         self.callable, args = make_interpolator(expr, V, subset, access)
-        self.args = args
+        self.arguments = args
         self.nargs = len(args)
         self.freeze_expr = freeze_expr
         self.V = V
@@ -102,7 +102,7 @@ class Interpolator(object):
             function, = function
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
-                V = self.args[0].function_space()
+                V = self.arguments[0].function_space()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
