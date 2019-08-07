@@ -41,22 +41,28 @@ class WithGeometry(ufl.FunctionSpace):
         if isinstance(mesh, (list, tuple)):
             #assert mesh
             assert all([m.topology is not m for m in mesh])
-            # Nested meshes have the same ufl_cell()
-            cell = mesh[0].ufl_cell()
+            # When dealing with subdomains:
+            # ufl.FunctionSpace carries ufl.Mesh, which virtually
+            # only carries tdim, gdim, and coordinate_element, so
+            # we can just use a representative mesh here.
+            # Lower dimensional subdomains would require more thoughts
+            # as a subdomain can have a different tdim.
+            domain = mesh[0]
         else:
             assert mesh.topology is function_space.mesh()
             assert mesh.topology is not mesh
-            cell = mesh.ufl_cell()
+            domain = mesh
 
         #On a mixed space, there's no single ufl_element in general...
-        element = function_space.ufl_element().reconstruct(cell=cell)
-        super(WithGeometry, self).__init__(mesh, element)
+        element = function_space.ufl_element().reconstruct(cell=domain.ufl_cell())
+        super(WithGeometry, self).__init__(domain, element)
         self.topological = function_space
 
         if function_space.parent is not None:
             self.parent = WithGeometry(function_space.parent, mesh)
         else:
             self.parent = None
+        self._mesh = mesh
 
     @utils.cached_property
     def _split(self):
@@ -67,7 +73,11 @@ class WithGeometry(ufl.FunctionSpace):
             return tuple(WithGeometry(subspace, self.mesh())
                          for subspace in self.topological.split())
 
-    mesh = ufl.FunctionSpace.ufl_domain
+    #mesh = ufl.FunctionSpace.ufl_domain
+    def mesh(self):
+        # self.ufl_domain only returns a representative mesh
+        # If multiple meshes exist, call this method.
+        return self._mesh
 
     def ufl_function_space(self):
         r"""The :class:`~ufl.classes.FunctionSpace` this object represents."""
