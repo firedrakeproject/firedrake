@@ -3,6 +3,7 @@ from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
 from tsfc import default_parameters
 import sys
+from firedrake import utils
 
 max_float = sys.float_info[0]
 
@@ -74,6 +75,7 @@ pyop2_opts["opt_level"] = coffee_default_optlevel
 parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
+parameters["form_compiler"]['scalar_type'] = utils.ScalarType
 
 parameters["reorder_meshes"] = True
 
