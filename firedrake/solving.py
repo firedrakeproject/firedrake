@@ -27,7 +27,7 @@ from firedrake import solving_utils
 from firedrake import dmhooks
 import firedrake
 
-from firedrake.utils import ScalarType_c
+from firedrake.utils import ScalarType
 
 
 def solve(*args, **kwargs):
@@ -141,7 +141,7 @@ def _solve_varproblem(*args, **kwargs):
 
     if form_compiler_parameters is None:
         form_compiler_parameters = {}
-    form_compiler_parameters['scalar_type'] = ScalarType_c
+    form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem

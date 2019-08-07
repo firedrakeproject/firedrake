@@ -76,6 +76,7 @@ parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
 parameters["form_compiler"]['scalar_type'] = utils.ScalarType
+parameters["form_compiler"]['scalar_type_c'] = utils.ScalarType_c
 
 parameters["reorder_meshes"] = True
 
