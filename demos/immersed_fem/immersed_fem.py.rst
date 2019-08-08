@@ -1,9 +1,9 @@
-Creating Firedrake compatible meshes in Gmsh
+Creating Firedrake-compatible meshes in Gmsh
 ============================================
 
 The purpose of this demo is to summarize the
 key structure of a ``gmsh.geo`` file that creates
-Firedrake compatible mesh. For more details about Gmsh, please
+Firedrake-compatible mesh. For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
 
 The first thing we define are four corners of a rectangle.
