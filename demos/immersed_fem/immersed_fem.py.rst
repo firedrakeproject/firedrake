@@ -5,17 +5,22 @@ The purpose of this demo is to summarize the
 key structure of a ``gmsh.geo`` file that creates a
 Firedrake-compatible mesh. For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
+The Gmsh syntax used in this document is for Gmsh version 4.4.1 .
 
 The first thing we define are four corners of a rectangle.
 We specify the x,y, and z(=0) coordinates, as well as the target
-element size at these corners (which we set to 0.5). ::
+element size at these corners (which we set to 0.5).
+
+.. code-block:: none
 
   Point(1) = {-6,  2, 0, 0.5};
   Point(2) = {-6, -2, 0, 0.5};
   Point(3) = { 6, -2, 0, 0.5};
   Point(4) = { 6,  2, 0, 0.5};
 
-Then, we define 5 points to describe a circle. ::
+Then, we define 5 points to describe a circle.
+
+.. code-block:: none
 
   Point(5) = {   0,    0, 0, 0.1};
   Point(6) = { 0.5,    0, 0, 0.1};
@@ -24,8 +29,10 @@ Then, we define 5 points to describe a circle. ::
   Point(9) = {   0, -0.5, 0, 0.1};
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
-Recall that the Gmsh command ``Circle`` requires the arc to be
-strictly smaller than :math:`\pi`. ::
+Note that the Gmsh command ``Circle`` requires the arc to be
+strictly smaller than :math:`\pi`.
+
+.. code-block:: none
 
   Line(1) = {1, 4};
   Line(2) = {4, 3};
@@ -38,18 +45,25 @@ strictly smaller than :math:`\pi`. ::
 
 Then, we glue together the rectangle edges and, separately, the circle edges.
 Note that ``Line``, ``Circle``, and ``Curve Loop`` (as well as ``Physical Curve`` below)
-are all curves in Gmsh and must possess a unique tag. ::
+are all curves in Gmsh and must possess a unique tag.
+
+.. code-block:: none
 
   Curve Loop( 9) = {1, 2, 3, 4};
   Curve Loop(10) = {8, 5, 6, 7};
 
-Then, we define two plane surfaces: the rectangle without the disc first, and the disc itself then. ::
+Then, we define two plane surfaces: the rectangle without the disc first, and the disc itself then.
+
+.. code-block:: none
 
   Plane Surface(1) = {9, 10};
   Plane Surface(2) = {10};
 
-Finally, we group together some edges and define ``Physical`` entities, which
-can be accessed in Firedrake. ::
+Finally, we group together some edges and define ``Physical`` entities.
+Firedrake uses the tags of these physical identities to distinguish
+between parts of the mesh (see the concrete example at the end of this page).
+
+.. code-block:: none
 
   Physical Curve("HorEdges", 11) = {1, 3};
   Physical Curve("VerEdges", 12) = {2, 4};
@@ -59,9 +73,11 @@ can be accessed in Firedrake. ::
 
 For simplicity, we have gathered all this commands in the file
 `immersed_domain.geo <immersed_domain.geo>`__. To generate a mesh using this file,
-you can type the following command in the terminal::
+you can type the following command in the terminal
 
-    gmsh -2 punched_domain.geo -format msh2
+.. code-block:: none
+
+    gmsh -2 immersed_domain.geo
 
 To illustrate how to access all these features within Firedrake,
 we consider the following interface problem. Denoting by
@@ -75,7 +91,7 @@ we seek a function :math:`u\in H^1_0(\Omega)` such that
 where :math:`\sigma = 1` in :math:`\Omega \setminus D` and :math:`\sigma = 2`
 in :math:`D`. Since :math:`\sigma` attains different values across :math:`\partial D`,
 we need to prescribe the behavior of :math:`u` across this interface. This is
-implicitely done by imposing :math:`u\in H^1_0(\Omega)`: the function :math:`u` must be continuous
+implicitly done by imposing :math:`u\in H^1_0(\Omega)`: the function :math:`u` must be continuous
 across :math:`\partial \Omega`. This allows us to employ Lagrangian finite elements
 to approximate :math:`u`. However, we also need to specify the the jump
 of :math:`\sigma \nabla u \cdot \vec{n}` on :math:`\partial D`. This term arises
@@ -84,13 +100,7 @@ we simply set
 
 .. math::
 
-   [\sigma \nabla u \cdot \vec{n}] = 3 \quad \textrm{on}\ \partial D
-
-.. note::
-   To derive the correct weak formulation it is important to decide whether the normal vector
-   :math:`\vec{n}` points inward or outward. One should also decide the order in which
-   the jump operator is computed. This is irrelevant for the purpose of our demo and may
-   only lead to replacing the sign of the boundary integral in the weak formulation.
+   \llbracket\sigma \nabla u \cdot \vec{n}\rrbracket = 3 \quad \textrm{on}\ \partial D
 
 The resulting weak formulation reads as follows:
 
@@ -102,14 +112,35 @@ The following Firedrake code shows how to solve this variational problem
 using linear Lagrangian finite elements. ::
 
    from firedrake import *
+
+   # load the mesh generated with Gmsh
    mesh = Mesh('immersed_domain.msh')
+
+   # define the space of linear Lagrangian finite elements
    V = FunctionSpace(mesh, "CG", 1)
+
+   # define the trial function u and the test function v
    u = TrialFunction(V)
    v = TestFunction(V)
-   a = 2*dot(grad(v), grad(u))*dx((4,)) + dot(grad(v), grad(u))*dx((3,)) + v*u*dx
-   L = Constant(5.) * v * dx + Constant(3.)*v*ds((13,))
+
+   # define the bilinear form of the problem under consideration
+   # to specify the domain of integration, the surface tag is specified in brackets after dx
+   # in this example, 3 is the tag of the rectangle without the disc, and 4 is the disc tag
+   a = 2*dot(grad(v), grad(u))*dx(4) + dot(grad(v), grad(u))*dx(3) + v*u*dx
+
+   # define the linear form of the problem under consideration
+   # to specify the boundary of the boundary integral, the boundary tag is specified after dS
+   # note the use of dS due to 13 not being an external boundary
+   L = Constant(5.) * v * dx + Constant(3.)*v*dS(13)
+
+   # set homogeneous Dirichlet boundary conditions on the rectangle boundaries
+   # the tag  11 referes to the horizontal edges, the tag 12 refers to the vertical edges
    DirBC = DirichletBC(V, 0, [11, 12])
+
+   # define u to contain the solution to the problem under consideration
    u = Function(V)
+
+   # solve the variational problem
    solve(a == L, u, bcs=DirBC, solver_parameters={'ksp_type': 'cg'})
 
 A python script version of this demo can be found `here <immersed_fem.py>`__.
