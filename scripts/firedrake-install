@@ -464,7 +464,7 @@ if not options["minimal_petsc"]:
     petsc_options.add("--download-pastix")
     # Serial mesh partitioner
     petsc_options.add("--download-metis")
-    if options["with_parmetis"]:
+    if options.get("with_parmetis", None):
         # Non-free license.
         petsc_options.add("--download-parmetis")
 
