@@ -141,7 +141,6 @@ def push_coordinates_to_plex(mesh):
     x = mesh.coordinates
     with x.dat.vec_ro as x_:
         plex.setCoordinates(x_)
-        plex.setCoordinatesLocal(x_)
 
 
 def project_mesh_to_cad_3d(mesh, cad):
