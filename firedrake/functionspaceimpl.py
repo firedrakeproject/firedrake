@@ -19,7 +19,7 @@ from firedrake import utils
 from firedrake import dmhooks
 
 
-class WithGeometry(ufl.FunctionSpace):
+class WithGeometryBase(object):
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
     Function spaces on meshes with different geometry but the same
@@ -33,54 +33,8 @@ class WithGeometry(ufl.FunctionSpace):
         geometry to.
     :arg mesh: The mesh with geometric information to use.
     """
-    def __init__(self, function_space, mesh):
-        function_space = function_space.topological
-        if isinstance(mesh, (list, tuple)):
-            if mesh[:-1] == mesh[1:]:
-                mesh = mesh[0]
-        if isinstance(mesh, (list, tuple)):
-            #assert mesh
-            assert all([m.topology is not m for m in mesh])
-            # When dealing with subdomains:
-            # ufl.FunctionSpace carries ufl.Mesh, which virtually
-            # only carries tdim, gdim, and coordinate_element, so
-            # we can just use a representative mesh here.
-            # Lower dimensional subdomains would require more thoughts
-            # as a subdomain can have a different tdim.
-            domain = mesh[0]
-        else:
-            assert mesh.topology is function_space.mesh()
-            assert mesh.topology is not mesh
-            domain = mesh
-
-        #On a mixed space, there's no single ufl_element in general...
-        element = function_space.ufl_element().reconstruct(cell=domain.ufl_cell())
-        super(WithGeometry, self).__init__(domain, element)
-        self.topological = function_space
-
-        if function_space.parent is not None:
-            self.parent = WithGeometry(function_space.parent, mesh)
-        else:
-            self.parent = None
-        self._mesh = mesh
-
-    @utils.cached_property
-    def _split(self):
-        if isinstance(self.mesh(), (list, tuple)):
-            return tuple(WithGeometry(subspace, mesh)
-                         for subspace, mesh in zip(self.topological.split(), self.mesh()))
-        else:
-            return tuple(WithGeometry(subspace, self.mesh())
-                         for subspace in self.topological.split())
-
-    #mesh = ufl.FunctionSpace.ufl_domain
-    def mesh(self):
-        # self.ufl_domain only returns a representative mesh
-        # If multiple meshes exist, call this method.
-        return self._mesh
-
     def ufl_function_space(self):
-        r"""The :class:`~ufl.classes.FunctionSpace` this object represents."""
+        r"""The :class:`~ufl.classes.FunctionSpace` or `~ufl.classes.MixedFunctionSpace` this object represents."""
         return self
 
     def ufl_cell(self):
@@ -230,10 +184,10 @@ class WithGeometry(ufl.FunctionSpace):
         return len(self.topological)
 
     def __repr__(self):
-        return "WithGeometry(%r, %r)" % (self.topological, self.mesh())
+        return "%s(%r, %r)" % (type(self).__name__, self.topological, self.mesh())
 
     def __str__(self):
-        return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
+        return "%s(%s, %s)" % (type(self).__name__, self.topological, self.mesh())
 
     def __iter__(self):
         return iter(self._split)
@@ -251,11 +205,66 @@ class WithGeometry(ufl.FunctionSpace):
         return getattr(self.topological, name)
 
     def __dir__(self):
-        current = super(WithGeometry, self).__dir__()
+        current = object.__dir__(self)
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def collapse(self):
+        print("self.topological may not have collapse attr. is mixed")
         return type(self)(self.topological.collapse(), self.mesh())
+
+
+class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
+
+    def __init__(self, function_space, mesh):
+        function_space = function_space.topological
+        assert mesh.topology is function_space.mesh()
+        assert mesh.topology is not mesh
+
+        WithGeometryBase.__init__(self)
+
+        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
+        ufl.FunctionSpace.__init__(self, mesh, element)
+        self.topological = function_space
+
+        if function_space.parent is not None:
+            self.parent = WithGeometry(function_space.parent, mesh)
+        else:
+            self.parent = None
+
+    mesh = ufl.FunctionSpace.ufl_domain
+
+    @utils.cached_property
+    def _split(self):
+        return tuple(WithGeometry(subspace, self.mesh())
+                     for subspace in self.topological.split())
+
+
+class WithGeometryMixed(WithGeometryBase, ufl.MixedFunctionSpace):
+
+    def __init__(self, function_space, meshes, with_geometry_function_spaces):
+        function_space = function_space.topological
+        #assert mesh
+        assert all([m.topology is not m for m in meshes])
+
+        WithGeometryBase.__init__(self)
+
+        ufl.MixedFunctionSpace.__init__(self, *with_geometry_function_spaces)
+        self.topological = function_space
+        self.with_geometry_function_spaces = with_geometry_function_spaces
+
+        if function_space.parent is not None:
+            raise NotImplementedError("This case has not been considered yet!")
+        else:
+            self.parent = None
+
+        self._meshes = meshes
+
+    def mesh(self):
+        return self._meshes
+
+    @utils.cached_property
+    def _split(self):
+        return self.with_geometry_function_spaces
 
 
 class FunctionSpace(object):
@@ -540,6 +549,9 @@ class MixedFunctionSpace(object):
 
     :arg spaces: The constituent spaces.
     :kwarg name: An optional name for the mixed space.
+    :kwarg has_multiple_meshes: A Flag indicating that
+        spaces are defined on multiple meshes; this is
+        required for general subdomain problems.
 
     .. warning::
 
@@ -547,16 +559,22 @@ class MixedFunctionSpace(object):
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None):
+    def __init__(self, spaces, name=None, has_multiple_meshes=False):
         super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s
-                                               in spaces])
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
-        self._mesh = spaces[0].mesh()
         self.comm = self.node_set.comm
+        # Multiple meshes: Does this _ufl_element make everything consistent?
+        self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s in spaces])
+        if has_multiple_meshes:
+            # Multiple meshes: Does this _mesh make everything consistent?
+            self._mesh = [s.mesh() for s in spaces]
+        else:
+            # MixedFunctionSpace on a single mesh
+            self._mesh = spaces[0].mesh()
+        self.has_multiple_meshes = has_multiple_meshes
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -565,6 +583,8 @@ class MixedFunctionSpace(object):
     rank = 1
 
     def mesh(self):
+        if self.has_multiple_meshes:
+            print("returning _mesh, is this good?")
         return self._mesh
 
     @property
@@ -573,6 +593,8 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
+        if self.has_multiple_meshes:
+            print("returning _ufl_element, is this good?")
         r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
         return self._ufl_element
 
@@ -711,6 +733,8 @@ class MixedFunctionSpace(object):
         return dm
 
     def _dm(self):
+        if self.has_multiple_meshes:
+            raise NotImplementedError("Need to think what to do when multiple meshes exist")
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())

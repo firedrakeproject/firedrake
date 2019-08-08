@@ -1357,6 +1357,10 @@ values from f.)"""
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
+    def __lt__(self, other):
+        # __lt__ has been removed in ufl.Mesh, but is required in `ufl.domain.extract_domains`
+        return self._ufl_id < other._ufl_id
+
 
 def make_mesh_from_coordinates(coordinates):
     """Given a coordinate field build a new mesh, using said coordinate field.

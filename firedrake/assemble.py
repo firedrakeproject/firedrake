@@ -262,12 +262,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                                       appctx=appctx,
                                                       options_prefix=options_prefix)
                 yield lambda: result_matrix
-                raise StopIteration()
+                #raise StopIteration()
+                return
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
             yield lambda: tensor
-            raise StopIteration()
+            #raise StopIteration()
+            return
 
         test, trial = f.arguments()
 
@@ -364,7 +366,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: result_matrix
         if allocate_only:
             yield result
-            raise StopIteration()
+            #raise StopIteration()
+            return
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:

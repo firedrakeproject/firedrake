@@ -240,16 +240,13 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         rec(spaces.sub_elements())
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
-    # Check that function spaces have the same base
+    # Extract meshes
     meshes = [space.mesh() for space in spaces]
-    base_meshes = [m.submesh_get_base() for m in meshes]
-    if base_meshes[:-1] != base_meshes[1:]:
-        raise ValueError("All function spaces must be defined on the meshes sharing the same base!")
 
     # Get topological spaces
-    spaces = tuple(s.topological for s in flatten(spaces))
+    tspaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
-    for space in spaces:
+    for space in tspaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
@@ -259,9 +256,29 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    new = impl.MixedFunctionSpace(spaces, name=name)
-    # Select mesh
-    mesh = base_meshes[0]
-    if mesh is not mesh.topology:
-        return impl.WithGeometry(new, meshes)
-    return new
+    # tspaces may or may not share the same mesh
+    if meshes[:-1] == meshes[1:]:
+        # All tspaces share the same mesh
+        new = impl.MixedFunctionSpace(tspaces, name=name)
+
+        # Select mesh
+        mesh = meshes[0]
+        if mesh is not mesh.topology:
+            return impl.WithGeometry(new, mesh)
+        return new
+    else:
+        # Spaces are defined on multiple meshes
+
+        # Check that they all have the same base mesh
+        base_meshes = [m.submesh_get_base() for m in meshes]
+        if base_meshes[:-1] != base_meshes[1:]:
+            raise ValueError("All function spaces must be defined on meshes sharing the same base!")
+
+        new = impl.MixedFunctionSpace(tspaces, name=name, has_multiple_meshes=True)
+
+        if all([m is not m.topology for m in meshes]):
+            return impl.WithGeometryMixed(new, meshes, spaces)
+        elif all([m is m.topology for m in meshes]):
+            return new
+        else:
+            raise TypeError("FunctionSpaces have inconsistent mesh types.")
