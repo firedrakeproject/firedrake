@@ -5,7 +5,7 @@ mesh = UnitSquareMesh(1, 1, quadrilateral=True)
 x = SpatialCoordinate(mesh)
 
 BDM = FunctionSpace(mesh, "BDMCF", 3)
-DG = FunctionSpace(mesh, "DG", 2)
+DG = FunctionSpace(mesh, "DP", 2)
 W = BDM * DG
 
 # Define trial and test functions
@@ -16,8 +16,8 @@ tau, v = TestFunctions(W)
 f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
 # Define variational form
-a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=4)
-L = -f*v*dx(degree=4)
+a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=6)
+L = -f*v*dx(degree=6)
 
 # Compute solution
 w = Function(W)
