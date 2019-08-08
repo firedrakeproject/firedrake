@@ -2,26 +2,26 @@ Creating Firedrake-compatible meshes in Gmsh
 ============================================
 
 The purpose of this demo is to summarize the
-key structure of a ``gmsh.geo`` file that creates
+key structure of a ``gmsh.geo`` file that creates a
 Firedrake-compatible mesh. For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
 
 The first thing we define are four corners of a rectangle.
 We specify the x,y, and z(=0) coordinates, as well as the target
-element size at these corner (which we set to 0.5). ::
+element size at these corners (which we set to 0.5). ::
 
-  Point(1) = {-6, 2, 0, 0.5};
+  Point(1) = {-6,  2, 0, 0.5};
   Point(2) = {-6, -2, 0, 0.5};
-  Point(3) = {6, -2, 0, 0.5};
-  Point(4) = {6, 2, 0, 0.5};
+  Point(3) = { 6, -2, 0, 0.5};
+  Point(4) = { 6,  2, 0, 0.5};
 
 Then, we define 5 points to describe a circle. ::
 
-  Point(5) = {0, 0, 0, 0.1};
-  Point(6) = {0.5, 0, 0, 0.1};
-  Point(7) = {-0.5, 0, 0, 0.1};
-  Point(8) = {0, 0.5, 0, 0.1};
-  Point(9) = {0, -0.5, 0, 0.1};
+  Point(5) = {   0,    0, 0, 0.1};
+  Point(6) = { 0.5,    0, 0, 0.1};
+  Point(7) = {-0.5,    0, 0, 0.1};
+  Point(8) = {   0,  0.5, 0, 0.1};
+  Point(9) = {   0, -0.5, 0, 0.1};
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
 Recall that the Gmsh command ``Circle`` requires the arc to be
@@ -58,7 +58,7 @@ can be accessed in Firedrake. ::
   Physical Surface("Disc", 4) = {2};
 
 For simplicity, we have gathered all this commands in the file
-`punched_domain.geo <punched_domain.geo>`__. To generate a mesh using this file,
+`immersed_domain.geo <immersed_domain.geo>`__. To generate a mesh using this file,
 you can type the following command in the terminal::
 
     gmsh -2 punched_domain.geo -format msh2
@@ -70,16 +70,16 @@ we seek a function :math:`u\in H^1_0(\Omega)` such that
 
 .. math::
 
-   -\nabla \cdot (\sigma \nabla  u) + u = 5 \quad \textrm{in } D
+   -\nabla \cdot (\sigma \nabla  u) + u = 5 \quad \textrm{in } \Omega
 
 where :math:`\sigma = 1` in :math:`\Omega \setminus D` and :math:`\sigma = 2`
-in :math:`D`. Since :math:`sigma` attains different values across :math:`\partial \Omega`,
-we need to prescribe the behavior of :math:`u` across the interface. This is
+in :math:`D`. Since :math:`\sigma` attains different values across :math:`\partial D`,
+we need to prescribe the behavior of :math:`u` across this interface. This is
 implicitely done by imposing :math:`u\in H^1_0(\Omega)`: the function :math:`u` must be continuous
 across :math:`\partial \Omega`. This allows us to employ Lagrangian finite elements
-to approximate :math:`u`. However, something that we need to specify is the the jump
-of :math:`\sigma \nabla u \cdot \vec{n}` on :math:`\partial \Omega`. This terms arises
-natuarlly in the weak formulation of the problem under consideration. In this demo
+to approximate :math:`u`. However, we also need to specify the the jump
+of :math:`\sigma \nabla u \cdot \vec{n}` on :math:`\partial D`. This term arises
+naturally in the weak formulation of the problem under consideration. In this demo
 we simply set
 
 .. math::
@@ -87,22 +87,22 @@ we simply set
    [\sigma \nabla u \cdot \vec{n}] = 3 \quad \textrm{on}\ \partial D
 
 .. note::
-   In in practical applications, it is imporant to specify whether the normal vector
-   :math:`\vec{n}` points inward or outward. One should also specify the order in which
+   To derive the correct weak formulation it is important to decide whether the normal vector
+   :math:`\vec{n}` points inward or outward. One should also decide the order in which
    the jump operator is computed. This is irrelevant for the purpose of our demo and may
-   only lead to replacing the sign of boundary integral in the weak formulation.
+   only lead to replacing the sign of the boundary integral in the weak formulation.
 
 The resulting weak formulation reads as follows:
 
 .. math::
 
-   \int_D \sigma \nabla u \cdot \nabla v + uv \mathrm{d}\mathbf{x} - \int_{\partial D} 3v \mathrm{d}S = \int_{\Omega} 5v \mathrm{d}\mathbf{x} \quad \text{for every } v\in H^1_0(\Omega)\,.
+   \int_\Omega \sigma \nabla u \cdot \nabla v + uv \,\mathrm{d}\mathbf{x} - \int_{\partial D} 3v \,\mathrm{d}S = \int_{\Omega} 5v \,\mathrm{d}\mathbf{x} \quad \text{for every } v\in H^1_0(\Omega)\,.
 
 The following Firedrake code shows how to solve this variational problem
 using linear Lagrangian finite elements. ::
 
    from firedrake import *
-   mesh = Mesh('punched_domain.msh')
+   mesh = Mesh('immersed_domain.msh')
    V = FunctionSpace(mesh, "CG", 1)
    u = TrialFunction(V)
    v = TestFunction(V)
@@ -111,3 +111,5 @@ using linear Lagrangian finite elements. ::
    DirBC = DirichletBC(V, 0, [11, 12])
    u = Function(V)
    solve(a == L, u, bcs=DirBC, solver_parameters={'ksp_type': 'cg'})
+
+A python script version of this demo can be found `here <immersed_fem.py>`__.
