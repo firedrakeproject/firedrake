@@ -1,7 +1,7 @@
 from firedrake import *
 import matplotlib.pyplot as plt
 
-mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+mesh = UnitSquareMesh(32, 32, quadrilateral=True)
 x = SpatialCoordinate(mesh)
 
 BDM = FunctionSpace(mesh, "BDMCF", 3)
@@ -16,8 +16,8 @@ tau, v = TestFunctions(W)
 f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
 # Define variational form
-a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=4)
-L = -f*v*dx(degree=4)
+a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=12)
+L = -f*v*dx(degree=12)
 
 # Compute solution
 w = Function(W)
