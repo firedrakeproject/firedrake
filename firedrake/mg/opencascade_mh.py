@@ -39,7 +39,6 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
     if project_refinements_to_cad:
         for mesh in mh:
             project_to_cad(mesh, cad)
-            push_coordinates_to_plex(mesh)
         mh.nested = False
 
     if order > 1:
@@ -134,13 +133,6 @@ Mesh.CharacteristicLengthMax = %s;
 
     coarse = Mesh(mshpath, distribution_parameters=distribution_parameters, comm=comm)
     return coarse
-
-
-def push_coordinates_to_plex(mesh):
-    plex = mesh._plex
-    x = mesh.coordinates
-    with x.dat.vec_ro as x_:
-        plex.setCoordinates(x_)
 
 
 def project_mesh_to_cad_3d(mesh, cad):
