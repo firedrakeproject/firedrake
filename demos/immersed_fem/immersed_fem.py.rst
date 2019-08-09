@@ -86,7 +86,12 @@ you can type the following command in the terminal
 
 .. code-block:: none
 
-    gmsh -2 immersed_domain.geo
+    gmsh -2 immersed_domain.geo -format msh2
+
+.. note::
+
+   Depending on you version of gmsh and DMPlex, the
+   gmsh option ``-format msh2`` may be omitted.
 
 To illustrate how to access all these features within Firedrake,
 we consider the following interface problem. Denoting by
