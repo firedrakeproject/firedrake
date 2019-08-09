@@ -63,20 +63,6 @@ def test_quad_vector(mesh_quad, family, degree):
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
 
 
-@pytest.mark.parametrize(('family', 'degree'),
-                         [('BDMCE', 2),
-                          ('BDMCF', 2)])
-def test_quad_vector(mesh_quad, family, degree):
-    x, y = SpatialCoordinate(mesh_quad)
-    V = FunctionSpace(mesh_quad, family, degree)
-    f = Function(V).project(as_vector([0.2 + y, 0.8*x + 0.2*y]))
-
-    W = VectorFunctionSpace(mesh_quad, "DG", 1)
-    g = Function(W).interpolate(as_vector([0.2 + y, 0.8*x + 0.2*y]))
-
-    assert sqrt(assemble(dot(g - f, g - f) * dx)) <1e-6
-
-
 @pytest.mark.parametrize(('family', 'degree', 'vfamily', 'vdegree'),
                          [('CG', 3, 'DG', 2),
                           ('DG', 3, 'CG', 2)])
