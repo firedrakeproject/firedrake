@@ -66,7 +66,11 @@ supported_elements = {
     "NCF": None,
     "Real": finat.DiscontinuousLagrange,
     "DPC": finat.DPC,
-    "S": finat.Serendipity
+    "S": finat.Serendipity,
+    "DPC L2": finat.DPC,
+    "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
+    "Gauss-Legendre L2": finat.GaussLegendre,
+    "DQ L2": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -139,7 +143,7 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
-    elif element.family() == "Discontinuous Lagrange":
+    elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         kind = element.variant() or 'equispaced'
         if kind == 'equispaced':
             lmbda = finat.DiscontinuousLagrange
@@ -153,6 +157,16 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
+    elif element.family() == ["DPC", "DPC L2"]:
+        if element.cell().geometric_dimension() == 2:
+            element = element.reconstruct(cell=ufl.cell.hypercube(2))
+        elif element.cell().geometric_dimension() == 3:
+            element = element.reconstruct(cell=ufl.cell.hypercube(3))
+    elif element.family() == "S":
+        if element.cell().geometric_dimension() == 2:
+            element = element.reconstruct(cell=ufl.cell.hypercube(2))
+        elif element.cell().geometric_dimension() == 3:
+            element = element.reconstruct(cell=ufl.cell.hypercube(3))
 
     return lmbda(cell, element.degree()), set()
 
