@@ -109,7 +109,7 @@ we simply set
 
 .. math::
 
-   \llbracket\sigma \nabla u \cdot \vec{n}\rrbracket = 3 \quad \textrm{on}\ \partial D
+   [\![\sigma \nabla u \cdot \vec{n}]\!]= 3 \quad \textrm{on}\ \partial D
 
 The resulting weak formulation reads as follows:
 
