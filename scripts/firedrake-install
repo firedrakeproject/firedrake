@@ -1033,7 +1033,7 @@ your own SLEPc version, you must also build your own PETSc and run
 with --honour-petsc-dir.""")
 
 
-if args.show_petsc_configure_options and not args.honour_petsc_dir:
+if mode == "install" and args.show_petsc_configure_options and not args.honour_petsc_dir:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
     log.info("*********************************************\n")
