@@ -7,6 +7,15 @@ Firedrake-compatible mesh. For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
 The Gmsh syntax used in this document is for Gmsh version 4.4.1 .
 
+As example, we will construct and mesh the following geometry:
+a rectangle with a disc in the middle. In the picture,
+numbers in black refer to Gmsh point tags, whereas numbers in
+read refer to Gmsh curve tags (see below).
+
+.. image:: immerseddomain.png
+   :width: 400px
+   :align: center
+
 The first thing we define are four corners of a rectangle.
 We specify the x,y, and z(=0) coordinates, as well as the target
 element size at these corners (which we set to 0.5).
@@ -22,11 +31,11 @@ Then, we define 5 points to describe a circle.
 
 .. code-block:: none
 
-  Point(5) = {   0,    0, 0, 0.1};
-  Point(6) = { 0.5,    0, 0, 0.1};
-  Point(7) = {-0.5,    0, 0, 0.1};
-  Point(8) = {   0,  0.5, 0, 0.1};
-  Point(9) = {   0, -0.5, 0, 0.1};
+  Point(5) = { 0,  0, 0, 0.1};
+  Point(6) = { 1,  0, 0, 0.1};
+  Point(7) = {-1,  0, 0, 0.1};
+  Point(8) = { 0,  1, 0, 0.1};
+  Point(9) = { 0, -1, 0, 0.1};
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
 Note that the Gmsh command ``Circle`` requires the arc to be
