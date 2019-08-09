@@ -154,6 +154,7 @@ def convert_finiteelement(element, vector_is_mixed):
             element = element.reconstruct(cell=ufl.hypercube(2))
         elif element.cell().geometric_dimension() == 3:
             element = element.reconstruct(cell=ufl.hypercube(3))
+
     return lmbda(cell, element.degree())
 
 

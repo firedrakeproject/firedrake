@@ -167,6 +167,7 @@ def convert_finiteelement(element, **kwargs):
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
         elif element.cell().geometric_dimension() == 3:
             element = element.reconstruct(cell=ufl.cell.hypercube(3))
+
     return lmbda(cell, element.degree()), set()
 
 
