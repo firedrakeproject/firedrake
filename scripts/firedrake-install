@@ -54,6 +54,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
+                           "opencascade",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -194,6 +195,8 @@ honoured.""",
 
     parser.add_argument("--slepc", action="store_true",
                         help="Install SLEPc along with PETSc.")
+    parser.add_argument("--opencascade", action="store_true",
+                        help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -301,6 +304,8 @@ else:
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
                         help="Install SLEPc along with PETSc")
+    parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
+                        help="Install OpenCASCADE for CAD integration.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        default=config["options"].get("honour_petsc_dir", False),
@@ -886,6 +891,27 @@ def build_and_install_libsupermesh():
         log.info("No need to rebuild libsupermesh")
 
 
+def build_and_install_pythonocc():
+    log.info("Installing pythonocc-core")
+    url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
+    if not os.path.exists("pythonocc-core"):
+        git_clone(url)
+        with directory("pythonocc-core"):
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            check_call(["mkdir", "-p", "build"])
+            with directory("build"):
+                check_call(["cmake", "..",
+                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                            "-DPYTHON_EXECUTABLE=" + python[0],
+                            "-DMPI_C_COMPILER=" + cc,
+                            "-DMPI_CXX_COMPILER=" + cxx,
+                            "-DMPI_Fortran_COMPILER=" + f90])
+                check_call(["make", "install"])
+    else:
+        log.info("No need to rebuild pythonocc-core")
+
+
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -1032,6 +1058,10 @@ if "SLEPC_DIR" in os.environ and not args.honour_petsc_dir and options["slepc"]:
 your own SLEPc version, you must also build your own PETSc and run
 with --honour-petsc-dir.""")
 
+if platform.uname()[0] == "Darwin" and args.opencascade:
+    quit("""Sorry, automatically installing opencascade on OSX hasn't been
+implemented yet. (It's not a supported package in brew.)
+Please contact us to get this working.""")
 
 if mode == "install" and args.show_petsc_configure_options and not args.honour_petsc_dir:
     log.info("*********************************************")
@@ -1113,6 +1143,7 @@ if mode == "install" or not args.update_script:
                             "python3-tk",
                             "python3-venv",
                             "zlib1g-dev",
+                            "liboce-ocaf-dev",  # for mesh hierarchies built from CAD data
                             "libboost-dev"]  # For ROL in pyadjoint
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
@@ -1350,6 +1381,10 @@ with environment(**compiler_env):
     with pipargs("--no-deps"):
         if options["slepc"]:
             build_and_install_slepc()
+
+        if options["opencascade"]:
+            build_and_install_pythonocc()
+
     if args.documentation_dependencies:
         install_documentation_dependencies()
 
