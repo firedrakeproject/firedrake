@@ -5,15 +5,15 @@ mesh = UnitSquareMesh(16, 16, quadrilateral=True)
 x = SpatialCoordinate(mesh)
 
 BDM = FunctionSpace(mesh, "BDMCF", 1)
-DG = FunctionSpace(mesh, "DPC", 0)
-W = BDM * DG
+DPC = FunctionSpace(mesh, "DPC", 0)
+W = BDM * DPC
 
 # Define trial and test functions
 sigma, u = TrialFunctions(W)
 tau, v = TestFunctions(W)
 
 # Define source function
-f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
+f = Function(DPC).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
 # Define variational form
 a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=10)
