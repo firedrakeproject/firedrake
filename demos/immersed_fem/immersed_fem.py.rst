@@ -90,7 +90,7 @@ you can type the following command in the terminal
 
 .. note::
 
-   Depending on you version of gmsh and DMPlex, the
+   Depending on your version of gmsh and DMPlex, the
    gmsh option ``-format msh2`` may be omitted.
 
 To illustrate how to access all these features within Firedrake,
