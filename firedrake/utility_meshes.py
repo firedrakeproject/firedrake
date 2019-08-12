@@ -645,7 +645,7 @@ def UnitTetrahedronMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, hexahedral=False):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -688,13 +688,17 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     v6 = v2 + (nx + 1)*(ny + 1)
     v7 = v3 + (nx + 1)*(ny + 1)
 
-    cells = [v0, v1, v3, v7,
-             v0, v1, v7, v5,
-             v0, v5, v7, v4,
-             v0, v3, v2, v7,
-             v0, v6, v4, v7,
-             v0, v2, v6, v7]
-    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    if hexahedral:
+        cells = [v0, v2, v3, v1, v4, v5, v7, v6]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 8)
+    else:
+        cells = [v0, v1, v3, v7,
+                 v0, v1, v7, v5,
+                 v0, v5, v7, v4,
+                 v0, v3, v2, v7,
+                 v0, v6, v4, v7,
+                 v0, v2, v6, v7]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
 
     plex = mesh._from_cell_list(3, cells, coords, comm)
 
