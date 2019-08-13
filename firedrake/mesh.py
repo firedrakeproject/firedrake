@@ -561,6 +561,20 @@ class MeshTopology(object):
             return dmplex.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
 
+        elif cell.cellname() == "hexahedron":
+            cStart, cEnd = plex.getHeightStratum(0)
+            out = np.zeros((cEnd - cStart, 27), dtype=np.int32)
+
+            for (i, cell) in enumerate(range(cStart, cEnd)):
+                closure = plex.getTransitiveClosure(cStart)[0]
+                # permute Matt's numbering to firedrake numbering
+                reverse = closure[::-1]
+                reverse[1], reverse[3] = reverse[3], reverse[1]
+                reverse[2], reverse[3] = reverse[3], reverse[2]
+                reverse[6], reverse[7] = reverse[7], reverse[6]
+                out[i, :] = reverse
+            return out
+
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 

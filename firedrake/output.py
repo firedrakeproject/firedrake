@@ -28,7 +28,8 @@ cells = {
     ufl.TensorProductCell(ufl.Cell("triangle"),
                           ufl.Cell("interval")): VTK_WEDGE,
     ufl.TensorProductCell(ufl.Cell("quadrilateral"),
-                          ufl.Cell("interval")): VTK_HEXAHEDRON
+                          ufl.Cell("interval")): VTK_HEXAHEDRON,
+    ufl.Cell("hexahedron"): VTK_HEXAHEDRON,
 }
 
 
