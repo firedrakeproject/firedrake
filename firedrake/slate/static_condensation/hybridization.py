@@ -218,8 +218,10 @@ class HybridizationPC(SCBase):
                                                     form_compiler_parameters=self.ctx.fc_params,
                                                     mat_type=mat_type)
 
-        self._assemble_S()
-        self.S.force_evaluation()
+        with timed_region("HybridOperatorAssembly"):
+            self._assemble_S()
+            self.S.force_evaluation()
+
         Smat = self.S.petscmat
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
