@@ -1143,8 +1143,10 @@ if mode == "install" or not args.update_script:
                             "python3-tk",
                             "python3-venv",
                             "zlib1g-dev",
-                            "liboce-ocaf-dev",  # for mesh hierarchies built from CAD data
                             "libboost-dev"]  # For ROL in pyadjoint
+
+            if args.opencascade:
+                apt_packages.append("liboce-ocaf-dev")
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:
