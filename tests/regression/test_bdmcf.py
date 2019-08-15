@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 mesh = UnitSquareMesh(16, 16, quadrilateral=True)
 x = SpatialCoordinate(mesh)
 
-BDM = FunctionSpace(mesh, "BDMCF", 1)
-DPC = FunctionSpace(mesh, "DPC", 0)
+BDM = FunctionSpace(mesh, "BDMCF", 2)
+DPC = FunctionSpace(mesh, "DPC", 1)
 W = BDM * DPC
 
 # Define trial and test functions
