@@ -39,6 +39,7 @@ advance.
 
 import weakref
 import numpy
+from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -95,128 +96,190 @@ def set_function_space(dm, V):
     dm.setAttr("__fs_info__", info)
 
 
-def push_appctx(dm, ctx):
-    """Push an application context onto a DM.
-
-    :arg DM: The DM.
-    :arg ctx: The context.
-
-    .. note::
-
-       This stores a weakref to the context in the DM, so you should
-       hold a strong reference somewhere else.
-    """
-    stack = dm.getAppCtx()
+# Attribute management on DMs. Since they are reused in multiple
+# places, use a stack.
+def push_attr(attr, dm, obj):
+    stack = dm.getAttr(attr)
     if stack is None:
         stack = []
-        dm.setAppCtx(stack)
-
-    def finalize(ref):
-        stack = dm.getAppCtx()
-        try:
-            stack.remove(ref)
-        except ValueError:
-            pass
-
-    stack.append(weakref.ref(ctx, finalize))
+        dm.setAttr(attr, stack)
+    stack.append(obj)
 
 
-def pop_appctx(dm, match=None):
-    """Pop the most recent application context from a DM.
-
-    :arg DM: The DM.
-    :returns: Either an application context, or ``None``.
-    """
-    stack = dm.getAppCtx()
-    if stack == [] or stack is None:
+def pop_attr(attr, dm, match=None):
+    stack = dm.getAttr(attr)
+    if not stack:
         return None
-    ctx = stack[-1]()
-    if match is not None:
-        if ctx == match:
-            return stack.pop()()
-    else:
-        return stack.pop()()
-
-
-def get_appctx(dm):
-    """Get the most recent application context from a DM.
-
-    :arg DM: The DM.
-    :returns: Either the stored application context, or ``None`` if
-       none was found.
-    """
-    stack = dm.getAppCtx()
-    if stack == [] or stack is None:
+    obj = stack.pop()
+    if match is not None and obj != match:
+        stack.append(obj)
         return None
     else:
-        return stack[-1]()
+        return obj
 
 
-class appctx(object):
-    def __init__(self, dm, ctx):
-        self.ctx = ctx
+def get_attr(attr, dm, default=None):
+    stack = dm.getAttr(attr)
+    if not stack:
+        return default
+    return stack[-1]
+
+
+class SetupHooks(object):
+    """Hooks run for setup and teardown of DMs inside solvers.
+
+    Used for transferring problem-specific data onto subproblems.
+
+    You probably don't want to use this directly, instead see
+    :class:`~add_hooks` or :func:`add_hook`."""
+    def __init__(self):
+        self._setup = []
+        self._teardown = []
+
+    def add_setup(self, f):
+        self._setup.append(f)
+
+    def add_teardown(self, f):
+        self._teardown.append(f)
+
+    def setup(self):
+        for f in self._setup:
+            f()
+
+    def teardown(self):
+        # We push onto a stack, so to pop off in the correct order, go backwards.
+        for f in reversed(self._teardown):
+            f()
+
+
+def add_hook(dm, setup=None, teardown=None, call_setup=False, call_teardown=False):
+    """Add a hook to a DM to be called for setup/teardown of
+    subproblems.
+
+    :arg dm: The DM to save the hooks on. This is normally the DM
+         associated with the Firedrake solver.
+    :arg setup: function of no arguments to call to set up subproblem
+         data.
+    :arg teardown: function of no arguments to call to remove
+         subproblem data.
+    :arg call_setup: Should the setup function be called now?
+    :arg call_teardown: Should the teardown function be called now?
+
+    See also :class:`add_hooks` which provides a context manager which
+    manages everything."""
+    stack = dm.getAttr("__setup_hooks__")
+    if not stack:
+        raise ValueError("Expecting non-empty stack")
+    obj = stack[-1]
+    if setup is not None:
+        obj.add_setup(setup)
+        if call_setup:
+            setup()
+    if teardown is not None:
+        obj.add_teardown(teardown)
+        if call_teardown:
+            teardown()
+
+
+class add_hooks(object):
+    """Context manager for adding subproblem setup hooks to a DM.
+
+    :arg DM: The DM to remember setup/teardown for.
+    :arg obj: The object that we're going to setup, typically a solver
+       of some kind: this is where the hooks are saved.
+    :arg save: Save this round of setup? Set this to False if all
+        you're going to do is setFromOptions.
+    :arg appctx: An application context to attach to the top-level DM
+        that describes the problem-specific data.
+
+    This is your normal entry-point for setting up problem specific
+    data on subdms. You would likely do something like, for a Python PC.
+
+    .. code::
+
+       # In setup
+       pc = ...
+       pc.setDM(dm)
+       with dmhooks.add_hooks(dm, self, appctx=ctx, save=False):
+           pc.setFromOptions()
+
+       ...
+
+       # in apply
+       dm = pc.getDM()
+       with dmhooks.add_hooks(dm, self, appctx=self.ctx):
+          pc.apply(...)
+    """
+    def __init__(self, dm, obj, *, save=True, appctx=None):
         self.dm = dm
-
-    @staticmethod
-    def get_dm(ctx):
-        return ctx._problem.u.function_space().dm
+        self.obj = obj
+        self.first_time = not hasattr(obj, "setup_hooks")
+        self.save = save
+        self.appctx = appctx
+        if not (self.save or self.first_time):
+            raise ValueError("Can't have save=False for non-first-time usage")
 
     def __enter__(self):
-        push_appctx(self.dm, self.ctx)
-        ctx = self.ctx._coarse
-        while ctx is not None:
-            dm = self.get_dm(ctx)
-            if dm is not None:
-                push_appctx(dm, ctx)
-            ctx = ctx._coarse
+        if not self.first_time:
+            # We've already run setup, so just attach the data to the subdms.
+            self.obj.setup_hooks.setup()
+        else:
+            # Not yet seen, let's save the relevant information.
+            hooks = SetupHooks()
+            if self.save:
+                # Remember it for later
+                self.obj.setup_hooks = hooks
+            push_attr("__setup_hooks__", self.dm, hooks)
+            if self.appctx is not None:
+                add_hook(self.dm, setup=partial(push_appctx, self.dm, self.appctx),
+                         teardown=partial(pop_appctx, self.dm, self.appctx),
+                         call_setup=True)
 
     def __exit__(self, typ, value, traceback):
-        ctx = self.ctx
-        while ctx._coarse is not None:
-            ctx = ctx._coarse
-
-        while ctx._fine is not None:
-            dm = self.get_dm(ctx)
-            pop_appctx(dm, ctx)
-            ctx = ctx._fine
-        pop_appctx(self.dm, self.ctx)
-
-
-def push_transfer_operators(dm, prolong, restrict, inject):
-    stack = dm.getAttr("__transfer__")
-    if stack is None:
-        stack = []
-        dm.setAttr("__transfer__", stack)
-    stack.append((prolong, restrict, inject))
-
-
-def pop_transfer_operators(dm, match=None):
-    stack = dm.getAttr("__transfer__")
-    if stack:
-        if match is not None:
-            transfer = stack[-1]
-            if transfer == match:
-                stack.pop()
-            else:
-                pass
+        if self.first_time:
+            # This was the first time round, so pop the hooks stack.
+            hooks = pop_attr("__setup_hooks__", self.dm)
+            assert hooks is not None
         else:
-            stack.pop()
+            hooks = self.obj.setup_hooks
+        hooks.teardown()
+
+
+# Things we're going to transfer around DMs
+push_parent = partial(push_attr, "__parent__")
+pop_parent = partial(pop_attr, "__parent__")
+
+
+def get_parent(dm):
+    return get_attr("__parent__", dm, default=dm)
+
+
+push_appctx = partial(push_attr, "__appctx__")
+pop_appctx = partial(pop_attr, "__appctx__")
+get_appctx = partial(get_attr, "__appctx__")
+
+push_transfer_operators = partial(push_attr, "__transfer__")
+pop_transfer_operators = partial(pop_attr, "__transfer__")
 
 
 def get_transfer_operators(dm):
-    stack = dm.getAttr("__transfer__")
-    if stack:
-        prolong, restrict, inject = stack[-1]
-    else:
-        prolong, restrict, inject = None, None, None
-
+    prolong, restrict, inject = get_attr("__transfer__", dm, default=(None, None, None))
     if prolong is None:
         prolong = firedrake.prolong
     if restrict is None:
         restrict = firedrake.restrict
     if inject is None:
         inject = firedrake.inject
-    return prolong, restrict, inject
+    return (prolong, restrict, inject)
+
+
+push_ctx_coarsener = partial(push_attr, "__ctx_coarsener__")
+pop_ctx_coarsener = partial(pop_attr, "__ctx_coarsener__")
+
+
+def get_ctx_coarsener(dm):
+    from firedrake.mg.ufl_utils import coarsen
+    return get_attr("__ctx_coarsener__", dm, default=coarsen)
 
 
 class transfer_operators(object):
@@ -238,52 +301,10 @@ class transfer_operators(object):
         self.transfer = prolong, restrict, inject
 
     def __enter__(self):
-        push_transfer_operators(self.V.dm, *self.transfer)
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-            push_transfer_operators(V.dm, *self.transfer)
+        push_transfer_operators(self.V.dm, self.transfer)
 
     def __exit__(self, typ, value, traceback):
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-        while hasattr(V, "_fine"):
-            pop_transfer_operators(V.dm, match=self.transfer)
-            V = V._fine
         pop_transfer_operators(self.V.dm, match=self.transfer)
-
-
-def push_ctx_coarsener(dm, coarsen):
-    stack = dm.getAttr("__ctx_coarsen__")
-    if stack is None:
-        stack = []
-        dm.setAttr("__ctx_coarsen__", stack)
-    stack.append(coarsen)
-
-
-def pop_ctx_coarsener(dm, match):
-    stack = dm.getAttr("__ctx_coarsen__")
-    if stack:
-        if match is not None:
-            coarsen = stack[-1]
-            if coarsen == match:
-                stack.pop()
-            else:
-                pass
-        else:
-            stack.pop()
-
-
-def get_ctx_coarsener(dm):
-    from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
-    stack = dm.getAttr("__ctx_coarsen__")
-    if stack:
-        coarsen = stack[-1]
-    else:
-        coarsen = symbolic_coarsen
-
-    return coarsen
 
 
 class ctx_coarsener(object):
@@ -296,19 +317,9 @@ class ctx_coarsener(object):
 
     def __enter__(self):
         push_ctx_coarsener(self.V.dm, self.coarsen)
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-            push_ctx_coarsener(V.dm, self.coarsen)
 
     def __exit__(self, typ, value, traceback):
-        V = self.V
-        while hasattr(V, "_coarse"):
-            V = V._coarse
-        while hasattr(V, "_fine"):
-            pop_ctx_coarsener(V.dm, self.coarsen)
-            V = V._fine
-        pop_ctx_coarsener(V.dm, self.coarsen)
+        pop_ctx_coarsener(self.V.dm, self.coarsen)
 
 
 def create_matrix(dm):
@@ -350,11 +361,17 @@ def create_field_decomposition(dm, *args, **kwargs):
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
     coarsen = get_ctx_coarsener(dm)
+    parent = get_parent(dm)
+    for d in dms:
+        add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
+                 call_setup=True)
     if ctx is not None:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
-            push_appctx(d, c)
-            push_ctx_coarsener(d, coarsen)
+            add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
+                     call_setup=True)
+            add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
+                     call_setup=True)
     return names, W._ises, dms
 
 
@@ -367,32 +384,46 @@ def create_subdm(dm, fields, *args, **kwargs):
     W = get_function_space(dm)
     ctx = get_appctx(dm)
     coarsen = get_ctx_coarsener(dm)
+    parent = get_parent(dm)
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
         idx, = fields
         subdm = W[idx].dm
         iset = W._ises[idx]
+        add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
+                 call_setup=True)
+
         if ctx is not None:
             ctx, = ctx.split([(idx, )])
-            push_appctx(subdm, ctx)
-            push_ctx_coarsener(subdm, coarsen)
+            add_hook(parent, setup=partial(push_appctx, subdm, ctx), teardown=partial(pop_appctx, subdm, ctx),
+                     call_setup=True)
+            add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
+                     call_setup=True)
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
 
         # Pass any transfer operators over
-        prolong, restrict, inject = get_transfer_operators(dm)
-        push_transfer_operators(subspace.dm, prolong, restrict, inject)
+        transfer = get_transfer_operators(dm)
 
+        add_hook(parent, setup=partial(push_transfer_operators, subspace.dm, transfer),
+                 teardown=partial(pop_transfer_operators, subspace.dm, transfer),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
+                 call_setup=True)
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
-            push_appctx(subspace.dm, ctx)
-            push_ctx_coarsener(subspace.dm, coarsen)
+            add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),
+                     teardown=partial(pop_appctx, subspace.dm, ctx),
+                     call_setup=True)
+            add_hook(parent, setup=partial(push_ctx_coarsener, subspace.dm, coarsen),
+                     teardown=partial(pop_ctx_coarsener, subspace.dm, coarsen),
+                     call_setup=True)
         return iset, subspace.dm
 
 
@@ -413,10 +444,30 @@ def coarsen(dm, comm):
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
-    push_ctx_coarsener(cdm, coarsen)
+    transfer = get_transfer_operators(dm)
+    parent = get_parent(dm)
+    add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+             call_setup=True)
+    add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
+             teardown=partial(pop_transfer_operators, cdm, transfer),
+             call_setup=True)
+    if len(V) > 1:
+        for V_, Vc_ in zip(V, Vc):
+            transfer = get_transfer_operators(V_.dm)
+            add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
+                     call_setup=True)
+            add_hook(parent, setup=partial(push_transfer_operators, Vc_.dm, transfer),
+                     teardown=partial(pop_transfer_operators, Vc_.dm, transfer),
+                     call_setup=True)
+    add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
+             teardown=partial(pop_ctx_coarsener, cdm, coarsen),
+             call_setup=True)
     ctx = get_appctx(dm)
     if ctx is not None:
-        push_appctx(cdm, coarsen(ctx, coarsen))
+        cctx = coarsen(ctx, coarsen)
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx),
+                 teardown=partial(pop_appctx, cdm, cctx),
+                 call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     return cdm
