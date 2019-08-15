@@ -5,6 +5,7 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("S", 1, (4, 6)), 1.9),
                           (("S", 2, (3, 5)), 2.8),

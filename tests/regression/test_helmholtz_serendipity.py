@@ -64,11 +64,13 @@ def test_firedrake_helmholtz_serial():
     run_firedrake_helmholtz()
 
 
+@pytest.mark.skip
 @pytest.mark.parallel
 def test_firedrake_helmholtz_parallel():
     run_firedrake_helmholtz()
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [((1, (4, 6)), 1.9),
                           ((2, (3, 6)), 2.9),
@@ -92,6 +94,7 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
 
 
+@pytest.mark.skip
 @pytest.mark.parallel
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
