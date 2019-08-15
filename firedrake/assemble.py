@@ -208,18 +208,20 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-    topology = f.ufl_domains()[0].topology
+    # All ufl_domains must share the same base topology
+    topology = f.ufl_domains()[0].topology.submesh_get_base()
     for m in f.ufl_domains():
         # Ensure mesh is "initialised" (could have got here without
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
-        if m.topology != topology:
-            raise NotImplementedError("All integration domains must share a mesh topology.")
+        if m.topology.submesh_get_base() != topology:
+            raise NotImplementedError("All integration domains must share the same base mesh topology.")
 
     for o in chain(f.arguments(), f.coefficients()):
-        domain = o.ufl_domain()
-        if domain is not None and domain.topology != topology:
-            raise NotImplementedError("Assembly with multiple meshes not supported.")
+        domains = o.ufl_domains()
+        for domain in domains:
+            if domain is not None and domain.topology.submesh_get_base() != topology:
+                raise NotImplementedError("Assembly with objects defined on domains with multiple base meshes is currently not supported.")
 
     if isinstance(f, slate.TensorBase):
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)

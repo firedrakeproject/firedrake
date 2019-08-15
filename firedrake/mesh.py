@@ -905,6 +905,8 @@ class ExtrudedMeshTopology(MeshTopology):
             self.variable_layers = False
         self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
 
+        self._submesh_parent = None
+
     @property
     def name(self):
         return self._base_mesh.name
@@ -1578,6 +1580,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
             old_callback(self)
             self._topology.submesh_parent = mesh._topology
             self.submesh_parent = mesh
+            self._ufl_parent = mesh
         return callback;
 
     submsh._callback = wrap_callback(submsh._callback, mesh)
