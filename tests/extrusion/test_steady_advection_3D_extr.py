@@ -79,20 +79,20 @@ def test_left_to_right(mesh, DG1, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-6
 
 
-def test_right_to_left(mesh, DG0, W):
+def test_right_to_left(mesh, DGDPC0, W):
     velocity = as_vector((-1.0, 0.0, 0.0))
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
-    inflow = Function(DG0)
+    inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG0)
-    phi = TestFunction(DG0)
+    D = TrialFunction(DGDPC0)
+    phi = TestFunction(DGDPC0)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
@@ -101,7 +101,7 @@ def test_right_to_left(mesh, DG0, W):
 
     L = -inflow*phi*dot(u0, n)*ds_v(2)  # inflow at right-hand wall
 
-    out = Function(DG0)
+    out = Function(DGDPC0)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-7
@@ -135,20 +135,20 @@ def test_near_to_far(mesh, DG1, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 3.5e-7
 
 
-def test_far_to_near(mesh, DG0, W):
+def test_far_to_near(mesh, DGDPC0, W):
     velocity = as_vector((0.0, -1.0, 0.0))
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = conditional(And(xs[2] > 0.25, xs[2] < 0.75), 1.0, 0.5)
-    inflow = Function(DG0)
+    inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG0)
-    phi = TestFunction(DG0)
+    D = TrialFunction(DGDPC0)
+    phi = TestFunction(DGDPC0)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
@@ -157,7 +157,7 @@ def test_far_to_near(mesh, DG0, W):
 
     L = -inflow*phi*dot(u0, n)*ds_v(4)  # inflow at far wall
 
-    out = Function(DG0)
+    out = Function(DGDPC0)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.4e-7
@@ -191,20 +191,20 @@ def test_bottom_to_top(mesh, DG1, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-13
 
 
-def test_top_to_bottom(mesh, DG0, W):
+def test_top_to_bottom(mesh, DGDPC0, W):
     velocity = as_vector((0.0, 0.0, -1.0))
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = conditional(And(xs[0] > 0.25, xs[0] < 0.75), 1.0, 0.5)
-    inflow = Function(DG0)
+    inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG0)
-    phi = TestFunction(DG0)
+    D = TrialFunction(DGDPC0)
+    phi = TestFunction(DGDPC0)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_h
@@ -213,7 +213,7 @@ def test_top_to_bottom(mesh, DG0, W):
 
     L = -inflow*phi*dot(u0, n)*ds_t  # inflow at top wall
 
-    out = Function(DG0)
+    out = Function(DGDPC0)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
