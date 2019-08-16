@@ -57,8 +57,6 @@ class BCBase(object):
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
-        if V.extruded and V.component is not None:
-            raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -318,7 +316,8 @@ class DirichletBC(BCBase):
         if V == fs and \
            V.parent == fs.parent and \
            V.index == fs.index and \
-           V.component == fs.component and \
+           (V.parent is None or V.parent.parent == fs.parent.parent) and \
+           (V.parent is None or V.parent.index == fs.parent.index) and \
            g == self._original_arg and \
            sub_domain == self.sub_domain and method == self.method:
             return self
