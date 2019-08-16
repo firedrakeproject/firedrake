@@ -8,8 +8,10 @@ from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 from ufl.cell import num_cell_entities
 import enum
+import numbers
 import petsc4py
 
+from mpi4py import MPI
 from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
@@ -180,7 +182,7 @@ class _Facets(object):
             (or ``None``, for an empty subset).
         """
         valid_markers = set([unmarked]).union(self.unique_markers)
-        markers = as_tuple(markers, int)
+        markers = as_tuple(markers, numbers.Integral)
         if self.markers is None and valid_markers.intersection(markers):
             return self._null_subset
         try:
@@ -412,8 +414,14 @@ class MeshTopology(object):
             # it, we grow the halo.
             partitioner = plex.getPartitioner()
             if IntType.itemsize == 8:
-                # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
-                partitioner.setType(partitioner.Type.PARMETIS)
+                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
+                from firedrake_configuration import get_config
+                if get_config().get("options", {}).get("with_parmetis", False):
+                    partitioner.setType(partitioner.Type.PARMETIS)
+                else:
+                    partitioner.setType(partitioner.Type.PTSCOTCH)
+            else:
+                partitioner.setType(partitioner.Type.CHACO)
             try:
                 sizes, points = distribute
                 partitioner.setType(partitioner.Type.SHELL)
@@ -424,20 +432,18 @@ class MeshTopology(object):
             plex.distribute(overlap=0)
 
         dim = plex.getDimension()
+
+        # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
-            # This process has zero cells.
-            # This must be allowed now, as submesh can
-            # contain few cells.
-            cell_nfacets = 0
+            cell_nfacets = 0  # -1
         else:
             # If dim = 0, nfacets = 1 for simplex
             cell_nfacets = plex.getConeSize(cStart) if dim > 0 else 1
-        from mpi4py import MPI
+        # TODO: this needs to be updated for mixed-cell meshes.
         cell_nfacets = self.comm.allreduce(cell_nfacets, op=MPI.MAX)
-        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
-
         self._grown_halos = False
+        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -538,9 +544,16 @@ class MeshTopology(object):
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
+        assert dim == cell.topological_dimension()
         if cell.is_simplex():
             # Simplex mesh
-            entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
+            #entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
+            import FIAT
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+
             return dmplex.closure_ordering(plex, vertex_numbering,
                                            cell_numbering, entity_per_cell)
 

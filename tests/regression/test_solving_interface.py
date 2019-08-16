@@ -189,19 +189,3 @@ def test_constant_jacobian_lvs():
     lvs.solve()
 
     assert not (norm(assemble(out*5 - f)) < 2e-7)
-
-
-def test_quasinewton_ops_assembled():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-
-    u = Function(V)
-    v = TestFunction(V)
-
-    F = inner(u*grad(u), grad(v))*dx
-
-    problem = NonlinearVariationalProblem(F, u)
-    solver_parameters = {'snes_type': 'qn'}
-    solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-
-    assert solver.snes.ksp.pc.getOperators()[0].assembled
