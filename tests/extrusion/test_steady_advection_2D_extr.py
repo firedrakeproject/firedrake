@@ -8,22 +8,26 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module')
 def mesh():
     m = UnitIntervalMesh(10)
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module', params=["DG", "DPC"])
 def DGDPC0(request, mesh):
     return FunctionSpace(mesh, request.param, 0)
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module')
 def DG1(mesh):
     return FunctionSpace(mesh, "DG", 1)
 
 
+@pytest.mark.skip
 @pytest.fixture
 def W(mesh):
     # BDM1 element on a quad

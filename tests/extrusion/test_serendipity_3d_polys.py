@@ -4,6 +4,7 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize(('testcase'),
                          [(5), (6)])
 def test_scalar_convergence(testcase):

@@ -8,12 +8,14 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skip
 @pytest.fixture(params=[False, True],
                 ids=["triangle", "quadrilateral"])
 def mesh(request):
     return UnitSquareMesh(5, 5, quadrilateral=request.param)
 
 
+@pytest.mark.skip
 @pytest.fixture(params=["DG", "DPC"])
 def DGDPC0(request, mesh):
     if mesh.ufl_cell() == triangle:
@@ -21,11 +23,14 @@ def DGDPC0(request, mesh):
     else:
         return FunctionSpace(mesh, request.param, 0)
 
+
+@pytest.mark.skip
 @pytest.fixture
 def DG1(mesh):
     return FunctionSpace(mesh, "DG", 1)
 
 
+@pytest.mark.skip
 @pytest.fixture
 def W(mesh):
     if mesh.ufl_cell() == triangle:
