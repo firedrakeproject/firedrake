@@ -8,6 +8,7 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param
@@ -15,11 +16,13 @@ def mesh(request):
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module')
 def DG0(mesh):
     return FunctionSpace(mesh, "DG", 0)
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module')
 def DPC0():
     m = UnitSquareMesh(4, 4, quadrilateral=True)
@@ -27,11 +30,13 @@ def DPC0():
     return FunctionSpace(mesh, "DPC", 0)
 
 
+@pytest.mark.skip
 @pytest.fixture(scope='module')
 def DG1(mesh):
     return FunctionSpace(mesh, "DG", 1)
 
 
+@pytest.mark.skip
 @pytest.fixture
 def W(mesh):
     if mesh.ufl_cell().sub_cells()[0].cellname() == "quadrilateral":
