@@ -35,8 +35,8 @@ class SCPC(SCBase):
         from firedrake.interpolation import interpolate
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
-        _, P = pc.getOperators()
-        self.cxt = P.getPythonContext()
+        A, P = pc.getOperators()
+        self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
 
@@ -86,8 +86,8 @@ class SCPC(SCBase):
         self.solution = Function(W)
 
         # Get expressions for the condensed linear system
-        A = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A, self.residual, elim_fields)
+        A_tensor = Tensor(self.bilinear_form)
+        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -114,6 +114,36 @@ class SCPC(SCBase):
         self._assemble_S()
         self.S.force_evaluation()
         Smat = self.S.petscmat
+
+        # If a different matrix is used for preconditioning,
+        # assemble this as well
+        if (not A == P):
+            self.cxt_pc = P.getPythonContext()
+            self.P_bilinear_form = self.cxt_pc.a
+            P_tensor = Tensor(self.P_bilinear_form)
+            P_reduced_sys = self.condensed_system(P_tensor,
+                                                  self.residual,
+                                                  elim_fields)
+            S_pc_expr = P_reduced_sys.lhs
+            # Allocate and set the condensed operator
+            self.S_pc = allocate_matrix(S_expr,
+                                        bcs=bcs,
+                                        form_compiler_parameters=self.cxt.fc_params,
+                                        mat_type=mat_type,
+                                        options_prefix=prefix,
+                                        appctx=self.get_appctx(pc))
+            self._assemble_S_pc = create_assembly_callable(
+                S_pc_expr,
+                tensor=self.S_pc,
+                bcs=bcs,
+                form_compiler_parameters=self.cxt.fc_params,
+                mat_type=mat_type)
+
+            self._assemble_S_pc()
+            self.S_pc.force_evaluation()
+            Smat_pc = self.S_pc.petscmat
+        else:
+            Smat_pc = Smat
 
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
@@ -147,7 +177,7 @@ class SCPC(SCBase):
         c_ksp = PETSc.KSP().create(comm=pc.comm)
         c_ksp.incrementTabLevel(1, parent=pc)
         c_ksp.setOptionsPrefix(prefix)
-        c_ksp.setOperators(Smat)
+        c_ksp.setOperators(Smat,Smat_pc)
         # Set the dm for the condensed solver
         c_ksp.setDM(c_dm)
         c_ksp.setDMActive(False)
@@ -157,7 +187,8 @@ class SCPC(SCBase):
         pop_appctx(c_dm)
 
         # Set up local solvers for backwards substitution
-        self.local_solvers = self.local_solver_calls(A, self.residual,
+        self.local_solvers = self.local_solver_calls(A_tensor,
+                                                     self.residual,
                                                      self.solution,
                                                      elim_fields)
 
