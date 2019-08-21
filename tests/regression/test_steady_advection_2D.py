@@ -8,25 +8,29 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[False, True],
+@pytest.fixture(scope='module', params=[False, True],
                 ids=["triangle", "quadrilateral"])
 def mesh(request):
     return UnitSquareMesh(5, 5, quadrilateral=request.param)
 
 
-@pytest.fixture(params=["DG", "DPC"])
+@pytest.fixture(scope='module', params=["DG", "DPC"])
 def DGDPC0(request, mesh):
     if mesh.ufl_cell() == triangle:
         return FunctionSpace(mesh, "DG", 0)
     else:
         return FunctionSpace(mesh, request.param, 0)
 
-@pytest.fixture
-def DG1(mesh):
-    return FunctionSpace(mesh, "DG", 1)
+
+@pytest.fixture(scope='module', params=["DG", "DPC"])
+def DGDPC1(request, mesh):
+    if mesh.ufl_cell() == triangle:
+        return FunctionSpace(mesh, "DG", 1)
+    else:
+        return FunctionSpace(mesh, request.param, 1)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def W(mesh):
     if mesh.ufl_cell() == triangle:
         return FunctionSpace(mesh, "BDM", 1)
@@ -74,20 +78,20 @@ def test_left_to_right_parallel(mesh, DGDPC0, W):
     run_left_to_right(mesh, DGDPC0, W)
 
 
-def run_up_to_down(mesh, DG1, W):
+def run_up_to_down(mesh, DGDPC1, W):
     velocity = as_vector((0.0, -1.0))
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = 1 + xs[0]
-    inflow = Function(DG1)
+    inflow = Function(DGDPC1)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG1)
-    phi = TestFunction(DG1)
+    D = TrialFunction(DGDPC1)
+    phi = TestFunction(DGDPC1)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
@@ -96,16 +100,16 @@ def run_up_to_down(mesh, DG1, W):
 
     L = -inflow*phi*dot(u0, n)*ds(4)  # inflow at upper wall
 
-    out = Function(DG1)
+    out = Function(DGDPC1)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.1e-6
 
 
-def test_up_to_down(mesh, DG1, W):
-    run_up_to_down(mesh, DG1, W)
+def test_up_to_down(mesh, DGDPC1, W):
+    run_up_to_down(mesh, DGDPC1, W)
 
 
 @pytest.mark.parallel
-def test_up_to_down_parallel(mesh, DG1, W):
-    run_up_to_down(mesh, DG1, W)
+def test_up_to_down_parallel(mesh, DGDPC1, W):
+    run_up_to_down(mesh, DGDPC1, W)
