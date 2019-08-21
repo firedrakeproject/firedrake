@@ -639,13 +639,68 @@ class MeshTopology(object):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets,
+            should_reorder=True):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
         :arg offsets: layer offsets for each entity dof (may be None).
         """
+        old_ordering = dmplex.get_cell_nodes(self, global_numbering,
+                                entity_dofs, offsets)
+
+        new_ordering = np.empty_like(old_ordering)
+        ncells, ndofs = old_ordering.shape
+
+        # FIXME: Generalize this.
+        # But how?
+        batch_size = 4
+        assert ncells % batch_size == 0
+        nbatches = ncells // batch_size
+
+        old_to_new = {}
+        counter = 0
+
+        STRATEGY = 'GCD'
+        print("CAUTION: Data layout adjusted for %s" % STRATEGY)
+
+        for ibatch in range(nbatches):
+            cell_start, cell_end = ibatch * batch_size, (ibatch+1) * batch_size
+            for idof in range(ndofs):
+                for icell in range(cell_start, cell_end):
+                    old_idx = old_ordering[icell, idof]
+                    if old_idx in old_to_new:
+                        new_ordering[icell, idof] = old_to_new[old_idx]
+                    else:
+                        new_ordering[icell, idof] = counter
+                        old_to_new[old_idx] = counter
+                        counter += 1
+
+        new_ordering = new_ordering.T
+
+        if not should_reorder:
+            # Coordinate mapping
+            if STRATEGY == 'SCPT':
+                old_to_new_np_array = np.array([old_to_new[i] for i in range(len(old_to_new))], dtype=old_ordering.dtype)
+                return new_ordering, old_to_new_np_array
+            elif STRATEGY == 'GCD':
+                old_to_new_np_array = np.arange(len(old_to_new), dtype=old_ordering.dtype)
+                return old_ordering.T, old_to_new_np_array
+            else:
+                raise NotImplementedError()
+        else:
+            # DOF Mapping
+            if STRATEGY == 'SCPT':
+                return new_ordering
+            elif STRATEGY == 'GCD':
+                return old_ordering.T
+            else:
+                raise NotImplementedError()
+
+
+
+
         return dmplex.get_cell_nodes(self, global_numbering,
                                      entity_dofs, offsets)
 
@@ -1362,9 +1417,11 @@ def Mesh(meshfile, **kwargs):
         self.topology.init()
 
         coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                           dim=geometric_dim)
+                                                           dim=geometric_dim,
+                                                           should_reorder=False)
 
         coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
+                                                   coordinates_fs._shared_data.old_to_new_ordering,
                                                    (self.num_vertices(), geometric_dim))
 
         coordinates = function.CoordinatelessFunction(coordinates_fs,

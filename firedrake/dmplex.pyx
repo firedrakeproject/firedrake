@@ -846,7 +846,7 @@ def cell_facet_labeling(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
+def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, np.ndarray[PetscInt, ndim=1, mode="c"] old_to_new_ordering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.
 
@@ -863,7 +863,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     for v in range(vStart, vEnd):
         CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
         for i in range(dim):
-            coords[offset, i] = plex_coords[v - vStart, i]
+            coords[old_to_new_ordering[offset], i] = plex_coords[v - vStart, i]
 
     return coords
 
