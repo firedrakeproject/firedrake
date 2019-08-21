@@ -3443,7 +3443,7 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, iterset, *args, **kwargs):
         counter = itertools.count()
         seen = defaultdict(lambda: next(counter))
-        key = (kernel._wrapper_cache_key_ + iterset._wrapper_cache_key_
+        key = ((id(dup_comm(iterset.comm)), ) + kernel._wrapper_cache_key_ + iterset._wrapper_cache_key_
                + (iterset._extruded, (iterset._extruded and iterset.constant_layers), isinstance(iterset, Subset)))
 
         for arg in args:
