@@ -50,7 +50,8 @@ class TSFCKernel(Cached):
     @classmethod
     def _cache_lookup(cls, key):
         key, comm = key
-        return cls._cache.get(key) or cls._read_from_disk(key, comm)
+        memory_key = (id(comm), key)
+        return cls._cache.get(memory_key) or cls._read_from_disk(key, comm)
 
     @classmethod
     def _read_from_disk(cls, key, comm):
@@ -72,12 +73,12 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        return cls._cache.setdefault(key, pickle.loads(val))
+        return cls._cache.setdefault((id(comm), key), pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
-        cls._cache[key] = val
+        cls._cache[(id(comm), key)] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
