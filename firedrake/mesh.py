@@ -362,19 +362,19 @@ class MeshTopology(object):
             raise ValueError("Overlap depth must be >= 0")
         if overlap_type == DistributedMeshOverlapType.NONE:
             def add_overlap():
-                pass
+                self._overlapsf = None
             if overlap > 0:
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
                 dmplex.set_adjacency_callback(self._plex)
-                self._plex.distributeOverlap(overlap)
+                self._overlapsf = self._plex.distributeOverlap(overlap)
                 dmplex.clear_adjacency_callback(self._plex)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
                 # Default is FEM (vertex star) adjacency.
-                self._plex.distributeOverlap(overlap)
+                self._overlapsf = self._plex.distributeOverlap(overlap)
                 self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -421,7 +421,10 @@ class MeshTopology(object):
             except TypeError:
                 pass
             partitioner.setFromOptions()
-            plex.distribute(overlap=0)
+            self._migrationsf = plex.distribute(overlap=0)
+        else:
+            self._migrationsf = None
+            self._overlapsf = None
 
         dim = plex.getDimension()
 
