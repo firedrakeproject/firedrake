@@ -1,15 +1,23 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
+from mpi4py import MPI
+from pyop2.mpi import refcount_keyval
+from itertools import count
 
 
-_current_uid = 0
+uid_keyval = MPI.Comm.Create_keyval()
 
 
-def _new_uid():
-    global _current_uid
-    _current_uid += 1
-    return _current_uid
+def _new_uid(comm):
+    """Produce a new unique ID on this communicator."""
+    if comm.Get_attr(refcount_keyval) is None:
+        raise ValueError("Must be called on an internal communicator")
+    uid = comm.Get_attr(uid_keyval)
+    if uid is None:
+        uid = count()
+        comm.Set_attr(uid_keyval, uid)
+    return next(uid)
 
 
 def _init():

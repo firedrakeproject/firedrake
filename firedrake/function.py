@@ -62,8 +62,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or 'function_%d' % utils._new_uid(self.comm)
         self._label = "a function"
 
         if isinstance(val, vector.Vector):
