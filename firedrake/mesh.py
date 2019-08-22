@@ -990,9 +990,8 @@ class MeshGeometry(ufl.Mesh):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        mesh.uid = utils._new_uid()
         assert isinstance(element, ufl.FiniteElementBase)
-        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
+        ufl.Mesh.__init__(mesh, element)
         return mesh
 
     def __init__(self, coordinates):
