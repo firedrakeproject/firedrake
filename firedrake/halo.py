@@ -10,6 +10,18 @@ import firedrake.dmplex as dmplex
 
 _MPI_types = {}
 
+try:
+    typedict = MPI.__TypeDict__
+except AttributeError:
+    typedict = MPI._typedict
+
+
+def _get_mpi_type(dtype):
+    try:
+        return typedict[dtype.char]
+    except KeyError:
+        raise RuntimeError("Unknown base type %r" % dtype)
+
 
 def _get_mtype(dat):
     """Get an MPI datatype corresponding to a Dat.
@@ -23,14 +35,7 @@ def _get_mtype(dat):
     try:
         return _MPI_types[key]
     except KeyError:
-        try:
-            tdict = MPI.__TypeDict__
-        except AttributeError:
-            tdict = MPI._typedict
-        try:
-            btype = tdict[dat.dtype.char]
-        except KeyError:
-            raise RuntimeError("Unknown base type %r", dat.dtype)
+        btype = _get_mpi_type(dat.dtype)
         if dat.cdim == 1:
             typ = btype
             builtin = True
