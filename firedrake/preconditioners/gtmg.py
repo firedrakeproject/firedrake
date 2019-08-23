@@ -91,10 +91,12 @@ class GTMGPC(PCBase):
 
         # Set nullspace if provided
         if get_coarse_nullspace:
-            coarse_opmat.setNullSpace(get_coarse_nullspace())
+            nsp = get_coarse_nullspace()
+            coarse_opmat.setNullSpace(nsp.nullspace(comm=opc.comm))
 
         if get_coarse_transpose_nullspace:
-            coarse_opmat.setTransposeNullSpace(get_coarse_transpose_nullspace())
+            tnsp = get_coarse_transpose_nullspace()
+            coarse_opmat.setTransposeNullSpace(tnsp.nullspace(comm=opc.comm))
 
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:
