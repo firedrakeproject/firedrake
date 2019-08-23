@@ -130,14 +130,16 @@ class RedistributedMeshManager(object):
             be on same communicator as :attr:`source_mesh`.
         :arg target: The target function space, should be on same
             communicator as :attr:`target_mesh`.
-        :returns: An SF that migrates nodes from the source to the target.
+        :returns: A pair of SFs that migrates nodes from the source to
+            the target. The first is for local vectors, the second for
+            global vectors.
 
         The source and target function spaces must be the same, up to
         the mesh they are defined on. IOW, they must represent the
         same discretisation just with a different data layout.
         """
         if self.migrationsf is None:
-            return None
+            return None, None
         entity_dofs = target.finat_element.entity_dofs()
         nodes_per_entity = tuple(target.mesh().make_dofs_per_plex_entity(entity_dofs))
         try:
@@ -149,8 +151,20 @@ class RedistributedMeshManager(object):
         else:
             source_section = source.dm.getDefaultSection()
         target_section = target.dm.getDefaultSection()
+        # This one migrates data between vectors that contain halo regions
         sf = PETSc.SF.createSectionMigrationSF(self.migrationsf, source_section, target_section)
-        return self._sectionsf_cache.setdefault(nodes_per_entity, sf)
+        # Build an SF that operators on global vectors (no halo region)
+        # First remove roots that are outside of the source owned size
+        if source is None:
+            esf = sf.createEmbeddedSF(numpy.empty(0, dtype=IntType))
+        else:
+            esf = sf.createEmbeddedSF(numpy.arange(source.dof_dset.size, dtype=IntType))
+        # Then remove leaves that are outside the target owned size.
+        _, local, _ = esf.getGraph()
+        indices, = numpy.where(local < target.dof_dset.size)
+        indices = indices.astype(IntType)
+        esf = esf.createEmbeddedLeafSF(indices)
+        return self._sectionsf_cache.setdefault(nodes_per_entity, (sf, esf))
 
     def source_to_target(self, source, target):
         """Move data in a source function to a target function.
@@ -169,10 +183,10 @@ class RedistributedMeshManager(object):
             rootdata = numpy.empty(0, dtype=target.dat.dtype)
         else:
             Vs = source.function_space()
-            rootdata = source.dat.data_ro_with_halos
-        sf = self.function_space_migration_sf(Vs, target.function_space())
+            rootdata = source.dat.data_ro
+        _, sf = self.function_space_migration_sf(Vs, target.function_space())
         # FIXME: More exchanges than necessary
-        leafdata = target.dat.data_with_halos
+        leafdata = target.dat.data
         if sf is None:
             leafdata[:] = rootdata[:]
         else:
@@ -197,9 +211,9 @@ class RedistributedMeshManager(object):
             rootdata = numpy.empty(0, dtype=target.dat.dtype)
         else:
             Vs = source.function_space()
-            rootdata = source.dat.data_with_halos
-        leafdata = target.dat.data_ro_with_halos
-        sf = self.function_space_migration_sf(Vs, target.function_space())
+            rootdata = source.dat.data
+        leafdata = target.dat.data_ro
+        _, sf = self.function_space_migration_sf(Vs, target.function_space())
         if sf is None:
             rootdata[:] = leafdata[:]
         else:
