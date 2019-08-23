@@ -843,7 +843,7 @@ def build_and_install_h5py():
         changed = True
 
     petsc_dir, petsc_arch = get_petsc_dir()
-    hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
+    hdf5_dir = os.environ.get("HDF5_DIR", "%s/%s" % (petsc_dir, petsc_arch))
     if changed or args.rebuild:
         log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
         with environment(HDF5_DIR=hdf5_dir,
