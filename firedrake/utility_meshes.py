@@ -405,7 +405,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
-
+    plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
@@ -732,6 +732,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 6)
 
+    plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
@@ -1364,8 +1365,8 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 # top of cylinder
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
-    return m
+    plex.removeLabel("boundary_faces")
+    return mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
