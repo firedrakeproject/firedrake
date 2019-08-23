@@ -1037,6 +1037,15 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
+if mode == "install" and args.show_petsc_configure_options:
+    log.info("*********************************************")
+    log.info("Would build PETSc with the following options:")
+    log.info("*********************************************\n")
+    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
+    log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
+    sys.exit(0)
+
+
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1062,13 +1071,6 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
     quit("""Sorry, automatically installing opencascade on OSX hasn't been
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
-
-if mode == "install" and args.show_petsc_configure_options and not args.honour_petsc_dir:
-    log.info("*********************************************")
-    log.info("Would build PETSc with the following options:")
-    log.info("*********************************************\n")
-    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
-    sys.exit(0)
 
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
