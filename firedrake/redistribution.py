@@ -51,6 +51,11 @@ class RedistributedMeshManager(object):
         self.bcast_rank = target_comm.allreduce(target_rank, op=MPI.MAX)
         self._source_already_overlapped = target_comm.bcast(overlapped, root=self.bcast_rank)
         migrationsf, distdm = PETSc.DMPlex.distributeToComm(dm, 0, target_comm)
+        # These will be reconstructed.
+        distdm.removeLabel("interior_facets")
+        distdm.removeLabel("pyop2_core")
+        distdm.removeLabel("pyop2_owned")
+        distdm.removeLabel("pyop2_ghost")
         if distdm.handle == 0:
             # No redistribution occurred.
             assert migrationsf.handle == 0
