@@ -183,7 +183,8 @@ def plot_mesh(mesh, axes=None, surface=False, colors=None, **kwargs):
         amin -= extra
         amax += extra
         setter(amin, amax)
-    axes.set_aspect("equal")
+    if gdim < 3:
+        axes.set_aspect("equal")
     return axes
 
 

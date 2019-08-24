@@ -27,3 +27,8 @@
 /firedrake_configuration/configuration.json
 /docs/source/firedrake.slate.rst
 /docs/source/firedrake.slate.slac.rst
+/demos/immersed_fem/immersed_domain.msh
+/docs/source/firedrake.slate.static_condensation.rst
+/firedrake/supermeshimpl.c
+/firedrake.egg-info
+__pycache__/
