@@ -188,7 +188,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s *" % ScalarType_c, builder.coord_sym,
+    args = [result, ast.Decl(ScalarType_c, builder.coord_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"])]
 
