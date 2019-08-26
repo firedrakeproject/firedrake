@@ -79,7 +79,8 @@ def transfer_kernel(Pk, P1):
     ir = imp.compile_gem([(outgem, expr)], indices)
 
     index_names = [(i, "i"), (j, "j"), (k, "k")]
-    body = generate_coffee(ir, index_names, default_parameters()["precision"])
+    precision = default_parameters()["precision"]
+    body = generate_coffee(ir, index_names, precision, ScalarType_c)
     function = coffee.FunDecl("void", name, funargs, body,
                               pred=["static", "inline"])
 
