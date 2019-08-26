@@ -60,14 +60,11 @@ class Kernel(object):
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type=None, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        if scalar_type is None:
-            from tsfc.parameters import SCALAR_TYPE
-            scalar_type = SCALAR_TYPE
         super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
                                                 interior_facet=interior_facet)
 
@@ -119,8 +116,8 @@ class KernelBuilderBase(_KernelBuilderBase):
 class ExpressionKernelBuilder(KernelBuilderBase):
     """Builds expression kernels for UFL interpolation in Firedrake."""
 
-    def __init__(self, scalar_type=None):
-        super(ExpressionKernelBuilder, self).__init__(scalar_type=None)
+    def __init__(self, scalar_type):
+        super(ExpressionKernelBuilder, self).__init__(scalar_type=scalar_type)
         self.oriented = False
         self.cell_sizes = False
 
@@ -167,14 +164,16 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         for name_, shape in self.tabulations:
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
-        loopy_kernel = generate_loopy(impero_c, args, precision, "expression_kernel", index_names, self.scalar_type)
-        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes, self.coefficients, self.tabulations)
+        loopy_kernel = generate_loopy(impero_c, args, precision, self.scalar_type,
+                                      "expression_kernel", index_names)
+        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
+                                self.coefficients, self.tabulations)
 
 
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None, dont_split=()):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type, dont_split=()):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
@@ -290,7 +289,8 @@ class KernelBuilder(KernelBuilderBase):
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
         self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.ast = generate_loopy(impero_c, args, precision, name, index_names, self.scalar_type)
+        self.kernel.ast = generate_loopy(impero_c, args, precision,
+                                         self.scalar_type, name, index_names)
         return self.kernel
 
     def construct_empty_kernel(self, name):
