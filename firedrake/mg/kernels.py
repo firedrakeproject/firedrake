@@ -527,7 +527,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0)
+    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
     coarse_builder.set_coordinates(Vc.mesh())
     argument_multiindices = (Vce.get_indices(), )
     argument_multiindex, = argument_multiindices
