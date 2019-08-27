@@ -177,7 +177,7 @@ class SCPC(SCBase):
         c_ksp = PETSc.KSP().create(comm=pc.comm)
         c_ksp.incrementTabLevel(1, parent=pc)
         c_ksp.setOptionsPrefix(prefix)
-        c_ksp.setOperators(Smat,Smat_pc)
+        c_ksp.setOperators(Smat, Smat_pc)
         # Set the dm for the condensed solver
         c_ksp.setDM(c_dm)
         c_ksp.setDMActive(False)
