@@ -261,8 +261,6 @@ def test_pointwise_neuralnet_PyTorch_control(mesh):
 
     # Define model
     fc = torch.nn.Linear(1, 1)
-   # nP = neuralnet(fc, function_space=V, controls=(0,1)) 
-   # Another possibility :
     nP = neuralnet(fc, function_space=V, ncontrols=1)  #  By default ncontrols = 1
     nP2 = nP(g, u) # The ncontrols first operands are taken as controls
 
