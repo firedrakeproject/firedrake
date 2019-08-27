@@ -1,7 +1,7 @@
 from firedrake import *
 import matplotlib.pyplot as plt
 
-nn = 32
+nn = 64
 mesh = UnitSquareMesh(nn, nn)
 
 BDM = FunctionSpace(mesh, "BDM", 1)
@@ -17,6 +17,19 @@ f = Function(DG).interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02)
 g = Function(DG).interpolate(exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 120))
 h = Function(DG).interpolate(cos(x)*sin(y)+2)
 k = (abs(g)*g**2)/h
+
+
+#We are solving the following system of equation (mixed possion with a modified flux sigma = \nabla (ps*u)) :
+#
+#   \sigma - \nabla (ps*u) = 0  on \Omega
+#   \nabla \cdot \sigma = -f   on \Omega
+#   u = u_{0}  on \Gamma_{D}
+#   \sigma \cdot n = g  on \Gamma_{N}
+
+# Where ps is the solution of the following implicit relation :
+#  (cos(x)*sin(y)+2)*ps - |g|*g^{2}
+#  g = exp^{(-((x - 0.5)^{2} + (y - 0.5)^{2}) / 120)}
+
 
 a = (dot(sigma, tau) + div(tau)*k*u + dot(tau, u*grad(k)) + div(sigma)*v)*dx
 L = - f*v*dx
