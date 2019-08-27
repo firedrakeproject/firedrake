@@ -1,6 +1,6 @@
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+import firedrake.dmhooks as dmhooks
 
 
 __all__ = ['GTMGPC']
@@ -116,6 +116,7 @@ class GTMGPC(PCBase):
         pc.setType(pc.Type.MG)
         pc.setOptionsPrefix(options_prefix)
         pc.setMGLevels(2)
+        pc.setMGCycleType(pc.MGCycleType.V)
         pc.setMGInterpolation(1, interp_petscmat)
         pc.setOperators(fine_petscmat, fine_petscmat)
 
@@ -130,7 +131,7 @@ class GTMGPC(PCBase):
         from firedrake.ufl_expr import action
 
         dm = opc.getDM()
-        octx = get_appctx(dm)
+        octx = dmhooks.get_appctx(dm)
         coarse_tmp = Function(coarse_space)
         F = action(coarse_operator, coarse_tmp)
         nprob = NonlinearVariationalProblem(F, coarse_tmp,
@@ -140,17 +141,18 @@ class GTMGPC(PCBase):
         nctx = _SNESContext(nprob, coarse_mat_type, coarse_mat_type, octx.appctx)
         self._ctx_ref = nctx
 
-        # Push new context onto the coarse space dm
+        # coarse space dm
         coarse_dm = coarse_space.dm
-        push_appctx(coarse_dm, nctx)
-
         coarse_solver.setDM(coarse_dm)
         coarse_solver.setDMActive(False)
+        pc.setDM(dm)
         pc.setFromOptions()
-        pc.setUp()
         self.pc = pc
-        self.coarse_solver = coarse_solver
-        pop_appctx(coarse_dm)
+
+        with dmhooks.add_hooks(coarse_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            coarse_solver.setFromOptions()
 
     def update(self, pc):
         self._assemble_fine_op()
@@ -159,17 +161,17 @@ class GTMGPC(PCBase):
         self.coarse_op.force_evaluation()
 
     def apply(self, pc, X, Y):
-        dm = self.coarse_solver.getDM()
-        push_appctx(dm, self._ctx_ref)
-        self.pc.apply(X, Y)
-        pop_appctx(dm)
+        dm = pc.getPythonContext().pc.getMGCoarseSolve().getDM()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            self.pc.apply(X, Y)
 
     def applyTranspose(self, pc, X, Y):
-        dm = self.coarse_solver.getDM()
-        push_appctx(dm, self._ctx_ref)
-        self.pc.applyTranspose(X, Y)
-        pop_appctx(dm)
+        dm = pc.getPythonContext().pc.getMGCoarseSolve().getDM()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            self.pc.applyTranspose(X, Y)
 
     def view(self, pc, viewer=None):
         super(GTMGPC, self).view(pc, viewer)
-        self.pc.view(viewer)
+        if hasattr(self, "pc"):
+            viewer.printfASCII("PC using Gopalakrishnan and Tan algorithm\n")
+            self.pc.view(viewer)
