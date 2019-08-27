@@ -252,6 +252,7 @@ class HybridizationPC(SCBase):
 
         # KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.incrementTabLevel(1, parent=pc)
 
         # Set the dm for the trace solver
         trace_ksp.setDM(trace_dm)
@@ -420,6 +421,7 @@ class HybridizationPC(SCBase):
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
+
         super(HybridizationPC, self).view(pc, viewer)
         if hasattr(self, "trace_ksp"):
             viewer.printfASCII("Applying hybridization to mixed problem.\n")

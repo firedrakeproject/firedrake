@@ -1,4 +1,5 @@
-from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+import firedrake.dmhooks as dmhooks
+
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -117,14 +118,15 @@ class SCPC(SCBase):
 
         # If a different matrix is used for preconditioning,
         # assemble this as well
-        if (not A == P):
+        if A != P:
             self.cxt_pc = P.getPythonContext()
-            self.P_bilinear_form = self.cxt_pc.a
-            P_tensor = Tensor(self.P_bilinear_form)
+            P_tensor = Tensor(self.cxt_pc.a)
             P_reduced_sys = self.condensed_system(P_tensor,
                                                   self.residual,
                                                   elim_fields)
             S_pc_expr = P_reduced_sys.lhs
+            self.S_pc_expr = S_pc_expr
+
             # Allocate and set the condensed operator
             self.S_pc = allocate_matrix(S_expr,
                                         bcs=bcs,
@@ -143,6 +145,7 @@ class SCPC(SCBase):
             self.S_pc.force_evaluation()
             Smat_pc = self.S_pc.petscmat
         else:
+            self.S_pc_expr = S_expr
             Smat_pc = Smat
 
         # Get nullspace for the condensed operator (if any).
@@ -160,31 +163,34 @@ class SCPC(SCBase):
 
         # Pull out dm from the original mixed system to get the original context
         dm = pc.getDM()
-        octx = get_appctx(dm)
+        octx = dmhooks.get_appctx(dm)
         tmp = Function(Vc)
         F = action(S_expr, tmp)
         nproblem = NonlinearVariationalProblem(F, tmp, bcs=bcs,
                                                J=S_expr,
+                                               Jp=S_pc_expr,
                                                form_compiler_parameters=self.cxt.fc_params)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         self._ctx_ref = nctx
 
         # Push new context onto the dm associated with the condensed problem
         c_dm = Vc.dm
-        push_appctx(c_dm, nctx)
 
         # Set up ksp for the condensed problem
         c_ksp = PETSc.KSP().create(comm=pc.comm)
         c_ksp.incrementTabLevel(1, parent=pc)
-        c_ksp.setOptionsPrefix(prefix)
-        c_ksp.setOperators(Smat, Smat_pc)
+
         # Set the dm for the condensed solver
         c_ksp.setDM(c_dm)
         c_ksp.setDMActive(False)
-        c_ksp.setUp()
-        c_ksp.setFromOptions()
+        c_ksp.setOptionsPrefix(prefix)
+        c_ksp.setOperators(Smat, Smat_pc)
         self.condensed_ksp = c_ksp
-        pop_appctx(c_dm)
+
+        with dmhooks.add_hooks(c_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            c_ksp.setFromOptions()
 
         # Set up local solvers for backwards substitution
         self.local_solvers = self.local_solver_calls(A_tensor,
@@ -245,6 +251,12 @@ class SCPC(SCBase):
         self._assemble_S()
         self.S.force_evaluation()
 
+        # Only reassemble if a preconditioning operator
+        # is provided for the condensed system
+        if hasattr(self, "S_pc"):
+            self._assemble_S_pc()
+            self.S_pc.force_evaluation()
+
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
         provide the reduced right-hand side for the condensed
@@ -268,17 +280,16 @@ class SCPC(SCBase):
         """
 
         dm = self.condensed_ksp.getDM()
-        push_appctx(dm, self._ctx_ref)
 
-        with self.condensed_rhs.dat.vec_ro as rhs:
-            if self.condensed_ksp.getInitialGuessNonzero():
-                acc = self.solution.split()[self.c_field].dat.vec
-            else:
-                acc = self.solution.split()[self.c_field].dat.vec_wo
-            with acc as sol:
-                self.condensed_ksp.solve(rhs, sol)
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
 
-        pop_appctx(dm)
+            with self.condensed_rhs.dat.vec_ro as rhs:
+                if self.condensed_ksp.getInitialGuessNonzero():
+                    acc = self.solution.split()[self.c_field].dat.vec
+                else:
+                    acc = self.solution.split()[self.c_field].dat.vec_wo
+                with acc as sol:
+                    self.condensed_ksp.solve(rhs, sol)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -297,6 +308,8 @@ class SCPC(SCBase):
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
 
-        viewer.printfASCII("Static condensation preconditioner\n")
-        viewer.printfASCII("KSP to solve the reduced system:\n")
-        self.condensed_ksp.view(viewer=viewer)
+        super(SCPC, self).view(pc, viewer)
+        if hasattr(self, "condensed_ksp"):
+            viewer.printfASCII("Solving linear system using static condensation.\n")
+            self.condensed_ksp.view(viewer=viewer)
+            viewer.printfASCII("Locally reconstructing unknowns.\n")
