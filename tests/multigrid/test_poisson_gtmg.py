@@ -10,21 +10,17 @@ def run_gtmg_mixed_poisson():
     mesh = mh[-1]
     x = SpatialCoordinate(mesh)
 
-
     def get_p1_space():
         return FunctionSpace(mesh, "CG", 1)
 
-
     def get_p1_prb_bcs():
         return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
-
 
     def p1_callback():
         P1 = get_p1_space()
         p = TrialFunction(P1)
         q = TestFunction(P1)
         return inner(grad(p), grad(q))*dx
-
 
     degree = 2
     RT = FunctionSpace(mesh, "RT", degree)
@@ -33,7 +29,6 @@ def run_gtmg_mixed_poisson():
 
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    n = FacetNormal(mesh)
 
     f = Function(DG)
     f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
