@@ -1,4 +1,5 @@
 import ufl
+import numbers
 import numpy as np
 
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -155,7 +156,7 @@ class HybridizationPC(SCBase):
                 if isinstance(subdom, str):
                     neumann_subdomains |= set([subdom])
                 else:
-                    neumann_subdomains |= set(as_tuple(subdom, int))
+                    neumann_subdomains |= set(as_tuple(subdom, numbers.Integral))
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
@@ -217,8 +218,10 @@ class HybridizationPC(SCBase):
                                                     form_compiler_parameters=self.ctx.fc_params,
                                                     mat_type=mat_type)
 
-        self._assemble_S()
-        self.S.force_evaluation()
+        with timed_region("HybridOperatorAssembly"):
+            self._assemble_S()
+            self.S.force_evaluation()
+
         Smat = self.S.petscmat
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)

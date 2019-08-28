@@ -15,7 +15,6 @@ This has the analytical solution
   u(x, y) = 42*x[1]
 """
 import pytest
-import numpy as np
 from firedrake import *
 
 
@@ -67,71 +66,6 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_test_preassembled(r, degree, parameters={}, quadrilateral=False):
-    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
-    x = SpatialCoordinate(mesh)
-    V = FunctionSpace(mesh, "CG", degree)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
-    f = Function(V)
-    f.assign(0)
-    L = v*f*dx
-    bcs = [DirichletBC(V, Constant(0), 3),
-           DirichletBC(V, Constant(42), 4)]
-
-    u = Function(V)
-
-    A = assemble(a)
-    b = assemble(L)
-    for bc in bcs:
-        bc.apply(A)
-        bc.apply(b)
-    solve(A, u, b, solver_parameters=parameters)
-
-    expected = Function(V)
-    expected.interpolate(42*x[1])
-
-    method_A = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    A = assemble(a)
-    b = assemble(L)
-    solve(A, u, b, bcs=bcs, solver_parameters=parameters)
-    method_B = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    A = assemble(a, bcs=bcs)
-    b = assemble(L, bcs=bcs)
-    solve(A, u, b, solver_parameters=parameters)
-    method_C = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    A = assemble(a, bcs=bcs)
-    b = assemble(L)
-    solve(A, u, b, solver_parameters=parameters)
-    method_D = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    A = assemble(a)
-    b = assemble(L)
-    # Don't actually need to apply the bcs to b explicitly since it's
-    # done in the solve if A has any.
-    for bc in bcs:
-        bc.apply(A)
-    solve(A, u, b, solver_parameters=parameters)
-    method_E = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    A = assemble(a, bcs=[bcs[0]])
-    b = assemble(L)
-    # This will not give the right answer
-    solve(A, u, b, solver_parameters=parameters)
-    bcs[1].apply(A)
-    b = assemble(L)
-    # This will, because we reassemble using the new set of bcs
-    solve(A, u, b, solver_parameters=parameters)
-    method_F = sqrt(assemble(dot(u - expected, u - expected) * dx))
-
-    return np.asarray([method_A, method_B, method_C, method_D, method_E, method_F])
-
-
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
                          [(p, d, q)
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
@@ -148,15 +82,6 @@ def test_poisson_analytic(params, degree, quadrilateral):
                           for q in [False, True]])
 def test_poisson_analytic_linear(params, degree, quadrilateral):
     assert (run_test_linear(2, degree, parameters=params, quadrilateral=quadrilateral) < 5.e-6)
-
-
-@pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
-                         [(p, d, q)
-                          for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
-                          for d in (1, 2)
-                          for q in [False, True]])
-def test_poisson_analytic_preassembled(params, degree, quadrilateral):
-    assert (run_test_preassembled(2, degree, parameters=params, quadrilateral=quadrilateral) < 5.e-6).all()
 
 
 @pytest.mark.parallel(nprocs=2)
