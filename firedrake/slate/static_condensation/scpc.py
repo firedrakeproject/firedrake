@@ -168,7 +168,7 @@ class SCPC(SCBase):
         F = action(S_expr, tmp)
         nproblem = NonlinearVariationalProblem(F, tmp, bcs=bcs,
                                                J=S_expr,
-                                               Jp=S_pc_expr,
+                                               Jp=self.S_pc_expr,
                                                form_compiler_parameters=self.cxt.fc_params)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         self._ctx_ref = nctx
