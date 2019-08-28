@@ -22,7 +22,6 @@ class GTMGPC(PCBase):
 
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
-        opc = pc
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
@@ -92,11 +91,11 @@ class GTMGPC(PCBase):
         # Set nullspace if provided
         if get_coarse_nullspace:
             nsp = get_coarse_nullspace()
-            coarse_opmat.setNullSpace(nsp.nullspace(comm=opc.comm))
+            coarse_opmat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
         if get_coarse_transpose_nullspace:
             tnsp = get_coarse_transpose_nullspace()
-            coarse_opmat.setTransposeNullSpace(tnsp.nullspace(comm=opc.comm))
+            coarse_opmat.setTransposeNullSpace(tnsp.nullspace(comm=pc.comm))
 
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:
@@ -110,18 +109,15 @@ class GTMGPC(PCBase):
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.
         # This is a two-level multigrid preconditioner.
-        pc = PETSc.PC().create(comm=opc.comm)
-        pc.incrementTabLevel(1, parent=opc)
+        pcmg = PETSc.PC().create(comm=pc.comm)
+        pcmg.incrementTabLevel(1, parent=pc)
 
-        pc.setType(pc.Type.MG)
-        pc.setOptionsPrefix(options_prefix)
-        pc.setMGLevels(2)
-        pc.setMGCycleType(pc.MGCycleType.V)
-        pc.setMGInterpolation(1, interp_petscmat)
-        pc.setOperators(fine_petscmat, fine_petscmat)
-
-        coarse_solver = pc.getMGCoarseSolve()
-        coarse_solver.setOperators(coarse_opmat, coarse_opmat)
+        pcmg.setType(pc.Type.MG)
+        pcmg.setOptionsPrefix(options_prefix)
+        pcmg.setMGLevels(2)
+        pcmg.setMGCycleType(pc.MGCycleType.V)
+        pcmg.setMGInterpolation(1, interp_petscmat)
+        pcmg.setOperators(A=fine_petscmat, P=fine_petscmat)
 
         # We set a DM and an appropriate SNESContext for the coarse solver
         # so we can do multigrid or patch solves.
@@ -130,7 +126,7 @@ class GTMGPC(PCBase):
         from firedrake.function import Function
         from firedrake.ufl_expr import action
 
-        dm = opc.getDM()
+        dm = pc.getDM()
         octx = dmhooks.get_appctx(dm)
         coarse_tmp = Function(coarse_space)
         F = action(coarse_operator, coarse_tmp)
@@ -141,13 +137,16 @@ class GTMGPC(PCBase):
         nctx = _SNESContext(nprob, coarse_mat_type, coarse_mat_type, octx.appctx)
         self._ctx_ref = nctx
 
+        coarse_solver = pcmg.getMGCoarseSolve()
+        coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
         # coarse space dm
         coarse_dm = coarse_space.dm
         coarse_solver.setDM(coarse_dm)
         coarse_solver.setDMActive(False)
-        pc.setDM(dm)
-        pc.setFromOptions()
-        self.pc = pc
+        pcmg.setDM(coarse_dm)
+        pcmg.setFromOptions()
+        self.pc = pcmg
+        self._dm = coarse_dm
 
         with dmhooks.add_hooks(coarse_dm, self,
                                appctx=self._ctx_ref,
@@ -161,12 +160,12 @@ class GTMGPC(PCBase):
         self.coarse_op.force_evaluation()
 
     def apply(self, pc, X, Y):
-        dm = pc.getPythonContext().pc.getMGCoarseSolve().getDM()
+        dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.apply(X, Y)
 
     def applyTranspose(self, pc, X, Y):
-        dm = pc.getPythonContext().pc.getMGCoarseSolve().getDM()
+        dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.applyTranspose(X, Y)
 
