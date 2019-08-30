@@ -54,8 +54,10 @@ def test_ensemble_solvers():
     usum = Function(V)
 
     params = {'ksp_type': 'preonly',
-              'pc_type': 'lu',
-              "pc_factor_mat_solver_type": "mumps"}
+              'pc_type': 'redundant',
+              "redundant_pc_type": "lu",
+              "redundant_pc_factor_mat_solver_type": "mumps",
+              "redundant_mat_mumps_icntl_14": 200}
 
     combinedProblem = LinearVariationalProblem(a, Lcombined, u_combined)
     combinedSolver = LinearVariationalSolver(combinedProblem,
