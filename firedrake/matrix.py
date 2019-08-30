@@ -34,14 +34,6 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
         or 'matfree' for matrix-free."""
 
-    @abc.abstractmethod
-    def force_evaluation(self):
-        """Force any pending writes to this matrix.
-
-        Ensures that the matrix is assembled and populated with
-        values, ready for sending to PETSc."""
-        pass
-
     @property
     def has_bcs(self):
         """Return True if this :class:`MatrixBase` has any boundary
@@ -114,10 +106,6 @@ class Matrix(MatrixBase):
                                   has been removed.  Use 'assemble(a, bcs=bcs)', which\
                                   now returns an assembled matrix.")
 
-    def force_evaluation(self):
-        "Ensures that the matrix is fully assembled."
-        pass
-
 
 class ImplicitMatrix(MatrixBase):
     """A representation of the action of bilinear form operating
@@ -165,5 +153,3 @@ class ImplicitMatrix(MatrixBase):
         # Ensures that if the matrix changed, the preconditioner is
         # updated if necessary.
         self.petscmat.assemble()
-
-    force_evaluation = assemble
