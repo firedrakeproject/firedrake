@@ -54,25 +54,6 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         viewer.printfASCII("Firedrake custom %s %s\n" %
                            (self._asciiname, type(self).__name__))
 
-    def _get_new_snes_context(self, pc, J, mat_type, bcs=None, fc_params=None):
-        """
-        """
-
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.dmhooks import get_appctx
-
-        dm = pc.getDM()
-        octx = get_appctx(dm)
-        oproblem = octx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F,
-                                               oproblem.u,
-                                               bcs=bcs,
-                                               J=J,
-                                               form_compiler_parameters=fc_params)
-        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
-        return dm, nctx
-
     @staticmethod
     def get_appctx(pc):
         from firedrake.dmhooks import get_appctx
