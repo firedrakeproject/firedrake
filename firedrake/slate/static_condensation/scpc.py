@@ -128,7 +128,7 @@ class SCPC(SCBase):
             S_pc_expr = P_reduced_sys.lhs
             self.S_pc_expr = S_pc_expr
 
-             # Allocate and set the condensed operator
+            # Allocate and set the condensed operator
             self.S_pc = allocate_matrix(S_expr,
                                         bcs=bcs,
                                         form_compiler_parameters=self.cxt.fc_params,

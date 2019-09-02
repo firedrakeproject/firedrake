@@ -100,8 +100,9 @@ def run_gtmg_scpc_mixed_poisson():
     f = Function(V)
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
-    a = ((dot(sigma, tau) - div(tau)*u + v*div(sigma)) * dx
-         + lambdar('+')*jump(tau, n=n)* dS
+    a = (dot(sigma, tau)*dx - div(tau)*u*dx
+         + v*div(sigma)*dx
+         + lambdar('+')*jump(tau, n=n)*dS
          # Multiply transmission equation by -1 to ensure
          # SCPC produces the SPD operator after statically
          # condensing
