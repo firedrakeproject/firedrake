@@ -36,8 +36,8 @@ class SCPC(SCBase):
         from firedrake.interpolation import interpolate
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
-        _, P = pc.getOperators()
-        self.cxt = P.getPythonContext()
+        A, P = pc.getOperators()
+        self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
 
@@ -87,8 +87,8 @@ class SCPC(SCBase):
         self.solution = Function(W)
 
         # Get expressions for the condensed linear system
-        A = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A, self.residual, elim_fields)
+        A_tensor = Tensor(self.bilinear_form)
+        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -102,7 +102,10 @@ class SCPC(SCBase):
         self.S = allocate_matrix(S_expr,
                                  bcs=bcs,
                                  form_compiler_parameters=self.cxt.fc_params,
-                                 mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
+
         self._assemble_S = create_assembly_callable(
             S_expr,
             tensor=self.S,
@@ -113,6 +116,40 @@ class SCPC(SCBase):
         self._assemble_S()
         self.S.force_evaluation()
         Smat = self.S.petscmat
+
+        # If a different matrix is used for preconditioning,
+        # assemble this as well
+        if A != P:
+            self.cxt_pc = P.getPythonContext()
+            P_tensor = Tensor(self.cxt_pc.a)
+            P_reduced_sys = self.condensed_system(P_tensor,
+                                                  self.residual,
+                                                  elim_fields)
+            S_pc_expr = P_reduced_sys.lhs
+            self.S_pc_expr = S_pc_expr
+
+             # Allocate and set the condensed operator
+            self.S_pc = allocate_matrix(S_expr,
+                                        bcs=bcs,
+                                        form_compiler_parameters=self.cxt.fc_params,
+                                        mat_type=mat_type,
+                                        options_prefix=prefix,
+                                        appctx=self.get_appctx(pc))
+
+            self._assemble_S_pc = create_assembly_callable(
+                S_pc_expr,
+                tensor=self.S_pc,
+                bcs=bcs,
+                form_compiler_parameters=self.cxt.fc_params,
+                mat_type=mat_type)
+
+            self._assemble_S_pc()
+            self.S_pc.force_evaluation()
+            Smat_pc = self.S_pc.petscmat
+
+        else:
+            self.S_pc_expr = S_expr
+            Smat_pc = Smat
 
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
@@ -134,7 +171,7 @@ class SCPC(SCBase):
         F = action(S_expr, tmp)
         nproblem = NonlinearVariationalProblem(F, tmp, bcs=bcs,
                                                J=S_expr,
-                                               Jp=S_expr,
+                                               Jp=self.S_pc_expr,
                                                form_compiler_parameters=self.cxt.fc_params)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         self._ctx_ref = nctx
@@ -150,7 +187,7 @@ class SCPC(SCBase):
         c_ksp.setDM(c_dm)
         c_ksp.setDMActive(False)
         c_ksp.setOptionsPrefix(prefix)
-        c_ksp.setOperators(A=Smat, P=Smat)
+        c_ksp.setOperators(A=Smat, P=Smat_pc)
         self.condensed_ksp = c_ksp
 
         with dmhooks.add_hooks(c_dm, self,
@@ -159,7 +196,8 @@ class SCPC(SCBase):
             c_ksp.setFromOptions()
 
         # Set up local solvers for backwards substitution
-        self.local_solvers = self.local_solver_calls(A, self.residual,
+        self.local_solvers = self.local_solver_calls(A_tensor,
+                                                     self.residual,
                                                      self.solution,
                                                      elim_fields)
 
@@ -215,6 +253,12 @@ class SCPC(SCBase):
 
         self._assemble_S()
         self.S.force_evaluation()
+
+        # Only reassemble if a preconditioning operator
+        # is provided for the condensed system
+        if hasattr(self, "S_pc"):
+            self._assemble_S_pc()
+            self.S_pc.force_evaluation()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
