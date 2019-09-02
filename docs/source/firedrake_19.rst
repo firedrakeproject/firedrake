@@ -56,7 +56,10 @@ The workshop programme is `available on Easychair
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-To be announced.
+There will be a workshop dinner in the evening of 26 September at `ASK
+Italian <https://www.askitalian.co.uk/restaurant/durham/>`_ on
+Durham's Millenium Square (easily accessible by foot from the
+conference location and town centre).
 
 Location
 ~~~~~~~~

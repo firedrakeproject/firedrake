@@ -1149,6 +1149,7 @@ if mode == "install" or not args.update_script:
 
             if args.opencascade:
                 apt_packages.append("liboce-ocaf-dev")
+                apt_packages.append("swig")
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:
