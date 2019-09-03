@@ -231,7 +231,11 @@ class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
         else:
             self.parent = None
 
-    mesh = ufl.FunctionSpace.ufl_domain
+        self._mesh = mesh
+
+    #mesh = ufl.FunctionSpace.ufl_domain
+    def mesh(self):
+        return self._mesh
 
     @utils.cached_property
     def _split(self):
