@@ -144,7 +144,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None, coffee=False):
+def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None, coffee=True):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
