@@ -653,16 +653,16 @@ class MeshTopology(object):
         new_ordering = np.empty_like(old_ordering)
         ncells, ndofs = old_ordering.shape
 
-        # FIXME: Generalize this.
-        # But how?
-        batch_size = 4
+        # FIXME: Generalize this for CPU and GPU targets.
+        from pyop2.configuration import configuration
+        batch_size = configuration["cuda_block_size"]
         assert ncells % batch_size == 0
         nbatches = ncells // batch_size
 
         old_to_new = {}
         counter = 0
 
-        STRATEGY = 'GCD'
+        STRATEGY = 'Cell-fastest'
         print("CAUTION: Data layout adjusted for %s" % STRATEGY)
 
         for ibatch in range(nbatches):
@@ -681,28 +681,22 @@ class MeshTopology(object):
 
         if not should_reorder:
             # Coordinate mapping
-            if STRATEGY == 'SCPT':
+            if STRATEGY == 'Cell-fastest':
                 old_to_new_np_array = np.array([old_to_new[i] for i in range(len(old_to_new))], dtype=old_ordering.dtype)
                 return new_ordering, old_to_new_np_array
-            elif STRATEGY == 'GCD':
+            elif STRATEGY == 'DOF-fastest':
                 old_to_new_np_array = np.arange(len(old_to_new), dtype=old_ordering.dtype)
                 return old_ordering.T, old_to_new_np_array
             else:
                 raise NotImplementedError()
         else:
             # DOF Mapping
-            if STRATEGY == 'SCPT':
+            if STRATEGY == 'Cell-fastest':
                 return new_ordering
-            elif STRATEGY == 'GCD':
+            elif STRATEGY == 'DOF-fastest':
                 return old_ordering.T
             else:
                 raise NotImplementedError()
-
-
-
-
-        return dmplex.get_cell_nodes(self, global_numbering,
-                                     entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
