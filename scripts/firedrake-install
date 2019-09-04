@@ -54,7 +54,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade",
+                           "opencascade", "cuda",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -197,6 +197,8 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--cuda", action="store_true",
+                        help="Use CUDA as backend.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -263,6 +265,19 @@ honoured.""",
 
     if args.package_branch:
         branches = {package.lower(): branch for package, branch in args.package_branch}
+
+    #FIXME: Remove this once merged into master
+    if args.cuda:
+        err = InstallError("Append '--package-branch firedrake"
+                " gpu --package-branch tsfc gpu"
+                " --package-branch PyOP2 cuda' to the options.")
+
+        try:
+            if (branches['firedrake'] != 'gpu') and (branches['tsfc'] != 'gpu') and (branches['pyop2'] != 'cuda'):
+                raise err
+        except KeyError:
+            raise err
+
     if args.test_doi_resolution:
         actual = resolve_doi_branches("10.5281/zenodo.1322546")
         expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
@@ -486,6 +501,12 @@ if options["petsc_int_type"] == "int32":
         petsc_options.add("--download-pragmatic")
 else:
     petsc_options.add("--with-64-bit-indices")
+
+
+if args.cuda:
+    petsc_options.add('--with-cuda=1')
+    petsc_options.add('--with-cuda-dir=/usr/local/cuda')
+    petsc_options.add('--with-cudac=nvcc')
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
