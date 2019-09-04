@@ -137,7 +137,12 @@ def plot_mesh(mesh, axes=None, surface=False, colors=None, **kwargs):
         values = np.choose(indices, values[np.newaxis, ...].T)
     else:
         quad = mesh.ufl_cell().cellname() == "quadrilateral"
-        values = coordinates.cell_node_map().values
+        if True:
+            # Transposed map
+            values = coordinates.cell_node_map().values.T
+        else:
+            values = coordinates.cell_node_map().values
+
         if tdim == 2 and quad:
             # permute for clockwise ordering
             idx = (0, 1, 3, 2)

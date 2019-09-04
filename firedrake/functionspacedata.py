@@ -133,7 +133,8 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
 
 
 @cached
-def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
+def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets,
+        should_reorder=True):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
@@ -399,6 +400,7 @@ class FunctionSpaceData(object):
     """
     __slots__ = ("map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
+                 "old_to_new_ordering",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
