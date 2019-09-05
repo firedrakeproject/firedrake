@@ -152,6 +152,5 @@ def split_form(form):
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
-            print(idx, f)
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)

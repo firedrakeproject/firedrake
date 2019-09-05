@@ -460,7 +460,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         decoration = None
         itspace = m.measure_set(integral_type, subdomain_id,
                                 all_integer_subdomain_ids)
-        print("itspace", itspace)
+        #print("itspace", itspace)
         if integral_type == "cell":
             itspace = sdata or itspace
             if subdomain_id not in ["otherwise", "everywhere"] and sdata is not None:
@@ -525,11 +525,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         for i, n in enumerate(coeff_map):
             c = coefficients[n]
-            print("c: ", repr(c))
+            #print("c: ", repr(c))
             for j, c_ in enumerate(c.split()):
                 if coeff_enabled_components is not None and coeff_enabled_components[i] is not None and j not in coeff_enabled_components[i]:
                     continue
-                print("c_:", repr(c_))
+                #print("c_:", repr(c_))
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:

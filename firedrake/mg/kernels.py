@@ -148,7 +148,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate UFL -> GEM
     if coefficient:
         assert dual_space is None
-        f_arg = [builder._coefficient(arg, "f")]
+        f_arg = [builder._coefficient(arg, "f")[0]]
     else:
         f_arg = []
     translator = tsfc.fem.Translator(context)

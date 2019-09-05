@@ -68,6 +68,9 @@ def test_submesh_edge_extraction():
 @pytest.mark.parametrize("b_lambda", [lambda x: x[0] > 0.9999, lambda x: x[0] < 1.0001, lambda x: x[1] < 0.0001, lambda x: x[1] > 0.9999])
 def test_submesh_poisson_cell(f_lambda, b_lambda):
 
+    # This test is for checking an edge case
+    # where we have few elements.
+
     msh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
     msh.init()
 
@@ -84,6 +87,8 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
     f = Function(V)
     x, y = SpatialCoordinate(submsh)
     f.interpolate(-8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
+
+    dx = Measure("cell", submsh)
 
     a = - dot(grad(v), grad(u)) * dx
     L = f * v * dx
@@ -122,6 +127,8 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     x, y = SpatialCoordinate(submsh)
     f.interpolate(-8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
 
+    dx = Measure("cell", submsh)
+
     a = - dot(grad(v), grad(u)) * dx
     L = f * v * dx
 
@@ -136,6 +143,5 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
                   "pc_type": "lu"}
 
     solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
-
 
     assert(sqrt(assemble(dot(u - g, u - g) * dx)) < 0.00016)
