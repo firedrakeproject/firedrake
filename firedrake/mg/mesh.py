@@ -176,7 +176,7 @@ def MeshHierarchy(mesh, refinement_levels,
 def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None,
                           extrusion_type='uniform', gdim=None,
                           mesh_builder=firedrake.ExtrudedMesh):
-    """Build a hierarchy of extruded meshes by extruded a hierarchy of meshes.
+    """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
     :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
@@ -201,10 +201,10 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
                          refinements_per_level=base_hierarchy.refinements_per_level,
                          nested=base_hierarchy.nested)
 
-def ExtrudedMeshHierarchyUniform(base_hierarchy, layers, kernel=None, layer_height=None,
+def ExtrudedMeshHierarchyUniform(base_hierarchy, base_layers, height, kernel=None,
                           extrusion_type='uniform', gdim=None,
                           mesh_builder=firedrake.ExtrudedMesh):
-    """Build a hierarchy of extruded meshes by extruded a hierarchy of meshes.
+    """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
     :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
@@ -217,8 +217,8 @@ def ExtrudedMeshHierarchyUniform(base_hierarchy, layers, kernel=None, layer_heig
     if any(m.cell_set._extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 
-    meshes = [mesh_builder(m, layers*(2**idx), kernel=kernel,
-                           layer_height=layer_height/(2**idx),
+    meshes = [mesh_builder(m, base_layers * 2**idx, kernel=kernel,
+                           layer_height=height/(base_layers * 2**idx),
                            extrusion_type=extrusion_type,
                            gdim=gdim)
               for idx, m in enumerate(base_hierarchy._meshes)]
