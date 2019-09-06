@@ -8,7 +8,7 @@ __all__ = ['GTMGPC']
 
 class GTMGPC(PCBase):
 
-    needs_python_pmat = True
+    needs_python_pmat = False
     _prefix = "gt_"
 
     def initialize(self, pc):
@@ -16,37 +16,55 @@ class GTMGPC(PCBase):
         from firedrake import TestFunction, parameters
         from firedrake.assemble import allocate_matrix, create_assembly_callable
         from firedrake.interpolation import Interpolator
+        from firedrake.solving_utils import _SNESContext
 
         _, P = pc.getOperators()
-        context = P.getPythonContext()
+        appctx = self.get_appctx(pc)
+        fcp = appctx.get("form_compiler_parameters")
 
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+
+        ctx = dmhooks.get_appctx(pc.getDM())
+        if ctx is None:
+            raise ValueError("No context found.")
+        if not isinstance(ctx, _SNESContext):
+            raise ValueError("Don't know how to get form from %r", ctx)
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         opts = PETSc.Options()
 
-        # Handle the fine operator
-        fine_mat_type = opts.getString(options_prefix + "mat_type",
-                                       parameters["default_matrix_type"])
-        fine_operator = context.a
-        fine_bcs = context.row_bcs
-        self.fine_op = allocate_matrix(fine_operator,
-                                       bcs=fine_bcs,
-                                       form_compiler_parameters=fcp,
-                                       mat_type=fine_mat_type,
-                                       options_prefix=options_prefix)
-        self._assemble_fine_op = create_assembly_callable(fine_operator,
-                                                          tensor=self.fine_op,
-                                                          bcs=fine_bcs,
-                                                          form_compiler_parameters=fcp,
-                                                          mat_type=fine_mat_type)
-        self._assemble_fine_op()
-        self.fine_op.force_evaluation()
-        fine_petscmat = self.fine_op.petscmat
+        # Handle the fine operator if type is python
+        if P.getType() == "python":
+            ictx = P.getPythonContext()
+            if ictx is None:
+                raise ValueError("No context found on matrix")
+            if not isinstance(ictx, ImplicitMatrixContext):
+                raise ValueError("Don't know how to get form from %r", ictx)
+
+            fine_operator = ictx.a
+            fine_bcs = ictx.row_bcs
+            if fine_bcs != ictx.col_bcs:
+                raise NotImplementedError("Row and column bcs must match")
+
+            fine_mat_type = opts.getString(options_prefix + "mat_type",
+                                           parameters["default_matrix_type"])
+            self.fine_op = allocate_matrix(fine_operator,
+                                           bcs=fine_bcs,
+                                           form_compiler_parameters=fcp,
+                                           mat_type=fine_mat_type,
+                                           options_prefix=options_prefix)
+            self._assemble_fine_op = create_assembly_callable(fine_operator,
+                                                              tensor=self.fine_op,
+                                                              bcs=fine_bcs,
+                                                              form_compiler_parameters=fcp,
+                                                              mat_type=fine_mat_type)
+            self._assemble_fine_op()
+            self.fine_op.force_evaluation()
+            fine_petscmat = self.fine_op.petscmat
+        else:
+            fine_petscmat = P
 
         # Transfer fine operator null space
         fine_petscmat.setNullSpace(P.getNullSpace())
@@ -100,7 +118,7 @@ class GTMGPC(PCBase):
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:
             # Create interpolation matrix from coarse space to fine space
-            fine_space = context.a.arguments()[0].function_space()
+            fine_space = ctx.J.arguments()[0].function_space()
             interpolator = Interpolator(TestFunction(coarse_space), fine_space)
             interpolation_matrix = interpolator.callable()
             interpolation_matrix._force_evaluation()
@@ -122,7 +140,6 @@ class GTMGPC(PCBase):
         # We set a DM and an appropriate SNESContext for the coarse solver
         # so we can do multigrid or patch solves.
         from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
         from firedrake.function import Function
         from firedrake.ufl_expr import action
 
@@ -154,10 +171,13 @@ class GTMGPC(PCBase):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
-        self._assemble_fine_op()
-        self.fine_op.force_evaluation()
+        if hasattr(self, "fine_op"):
+            self._assemble_fine_op()
+            self.fine_op.force_evaluation()
+
         self._assemble_coarse_op()
         self.coarse_op.force_evaluation()
+        self.pcmg.setUp()
 
     def apply(self, pc, X, Y):
         dm = self._dm
