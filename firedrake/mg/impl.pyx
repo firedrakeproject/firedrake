@@ -124,9 +124,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
         coarse_layers = Vc.mesh().layers - 1
         fine_layers = Vf.mesh().layers - 1
 
-        ratio = fine_layers / coarse_layers
-        assert ratio == int(ratio)
-        ratio = int(ratio)
+        ratio = fine_layers // coarse_layers
+        assert ratio * coarse_layers == fine_layers # check ratio is an int
 
     fine_cells = fine_to_coarse_cells.shape[0]
     coarse_per_fine = fine_to_coarse_cells.shape[1]

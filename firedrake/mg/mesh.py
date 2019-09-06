@@ -8,7 +8,7 @@ from . import impl
 from .utils import set_level
 
 
-__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "ExtrudedMeshHierarchyUniform", "NonNestedHierarchy")
+__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy")
 
 
 class HierarchyBase(object):
@@ -173,8 +173,8 @@ def MeshHierarchy(mesh, refinement_levels,
                          refinements_per_level, nested=True)
 
 
-def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None,
-                          extrusion_type='uniform', gdim=None,
+def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
+                          kernel=None, extrusion_type='uniform', gdim=None,
                           mesh_builder=firedrake.ExtrudedMesh):
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
@@ -189,42 +189,20 @@ def ExtrudedMeshHierarchy(base_hierarchy, layers, kernel=None, layer_height=None
     if any(m.cell_set._extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 
-    meshes = [mesh_builder(m, layers, kernel=kernel,
-                           layer_height=layer_height,
+    if layers is None:
+        if base_layer == -1:
+            raise ValueError("Must specify number of layers for coarsest grid with base_layer=N")
+        layers = [base_layer * refinement_ratio**idx for idx in range(len(base_hierarchy._meshes))]
+    else:
+        if base_layer != -1:
+            raise ValueError("Can't specify both layers and base_layer")
+
+    meshes = [mesh_builder(m, layer, kernel=kernel,
+                           layer_height=height/layer,
                            extrusion_type=extrusion_type,
                            gdim=gdim)
-              for m in base_hierarchy._meshes]
+              for (m, layer) in zip(base_hierarchy._meshes, layers)]
 
-    return HierarchyBase(meshes,
-                         base_hierarchy.coarse_to_fine_cells,
-                         base_hierarchy.fine_to_coarse_cells,
-                         refinements_per_level=base_hierarchy.refinements_per_level,
-                         nested=base_hierarchy.nested)
-
-def ExtrudedMeshHierarchyUniform(base_hierarchy, base_layers, height, kernel=None,
-                          extrusion_type='uniform', gdim=None,
-                          mesh_builder=firedrake.ExtrudedMesh):
-    """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
-
-    :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
-       extruded mesh. Used by pyadjoint.
-
-    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
-    """
-    if not isinstance(base_hierarchy, HierarchyBase):
-        raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
-    if any(m.cell_set._extruded for m in base_hierarchy):
-        raise ValueError("Meshes in base hierarchy must not be extruded")
-
-    meshes = [mesh_builder(m, base_layers * 2**idx, kernel=kernel,
-                           layer_height=height/(base_layers * 2**idx),
-                           extrusion_type=extrusion_type,
-                           gdim=gdim)
-              for idx, m in enumerate(base_hierarchy._meshes)]
-
-    base_hierarchy.coarse_to_fine_cells
-    
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
                          base_hierarchy.fine_to_coarse_cells,

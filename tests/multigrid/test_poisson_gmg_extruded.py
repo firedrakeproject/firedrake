@@ -52,7 +52,7 @@ def run_poisson(typ):
     N = 10
     base = UnitIntervalMesh(N)
     basemh = MeshHierarchy(base, 2)
-    mh = ExtrudedMeshHierarchyUniform(basemh, N, height=1)
+    mh = ExtrudedMeshHierarchy(basemh, height=1, base_layer=N)
 
     V = FunctionSpace(mh[-1], 'CG', 2)
 
