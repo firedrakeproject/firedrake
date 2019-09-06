@@ -607,6 +607,18 @@ def loopy_inst_abs(expr, context):
     return p.Variable("abs")(child)
 
 
+@loopy_instructions.register(ufl.classes.MaxValue)
+def loopy_inst_max(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("max")(*children)
+
+
+@loopy_instructions.register(ufl.classes.MinValue)
+def loopy_inst_min(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("min")(*children)
+
+
 @loopy_instructions.register(ufl.classes.Conditional)
 def loopy_inst_conditional(expr, context):
     children = [loopy_instructions(o, context) for o in expr.ufl_operands]
