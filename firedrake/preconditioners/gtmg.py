@@ -17,6 +17,7 @@ class GTMGPC(PCBase):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
         from firedrake.interpolation import Interpolator
         from firedrake.solving_utils import _SNESContext
+        from firedrake.matrix_free.operators import ImplicitMatrixContext
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -177,7 +178,7 @@ class GTMGPC(PCBase):
 
         self._assemble_coarse_op()
         self.coarse_op.force_evaluation()
-        self.pcmg.setUp()
+        self.pc.setUp()
 
     def apply(self, pc, X, Y):
         dm = self._dm
