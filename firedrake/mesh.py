@@ -1137,7 +1137,7 @@ values from f.)"""
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-        x = np.asarray(x, dtype=np.float)
+        x = np.asarray(x, dtype=utils.ScalarType)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:

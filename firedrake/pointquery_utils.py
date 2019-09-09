@@ -16,6 +16,8 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
+from firedrake.utils import ScalarType_c
+
 from coffee.base import ArrayInit
 
 
@@ -108,7 +110,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr)
     expr = ufl_utils.simplify_abs(expr)
 
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
@@ -141,7 +143,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
     body.open_scope = False
 
     return body

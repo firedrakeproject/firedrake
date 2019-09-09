@@ -34,9 +34,10 @@ def transfer_kernel(Pk, P1):
     """
     # Mapping of a residual in Pk into a residual in P1
     from coffee import base as coffee
-    from tsfc.coffee import generate as generate_coffee, SCALAR_TYPE
+    from tsfc.coffee import generate as generate_coffee
     from tsfc.parameters import default_parameters
     from gem import gem, impero_utils as imp
+    from firedrake.utils import ScalarType_c
 
     # Pk should be at least the same size as P1
     assert Pk.finat_element.space_dimension() >= P1.finat_element.space_dimension()
@@ -58,7 +59,7 @@ def transfer_kernel(Pk, P1):
 
     shape = (P1e.space_dimension() * Vout.value_size,
              Pke.space_dimension() * Vin.value_size)
-    outarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
+    outarg = coffee.Decl(ScalarType_c, coffee.Symbol("A", rank=shape))
     i = gem.Index()
     j = gem.Index()
     k = gem.Index()
@@ -78,7 +79,8 @@ def transfer_kernel(Pk, P1):
     ir = imp.compile_gem([(outgem, expr)], indices)
 
     index_names = [(i, "i"), (j, "j"), (k, "k")]
-    body = generate_coffee(ir, index_names, default_parameters()["precision"])
+    precision = default_parameters()["precision"]
+    body = generate_coffee(ir, index_names, precision, ScalarType_c)
     function = coffee.FunDecl("void", name, funargs, body,
                               pred=["static", "inline"])
 
