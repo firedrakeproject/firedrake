@@ -15,6 +15,7 @@ from ufl import Form
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
+from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
@@ -26,6 +27,10 @@ from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
 from firedrake import utils
+
+
+# Set TSFC default scalar type at load time
+tsfc_default_parameters["scalar_type"] = utils.ScalarType_c
 
 
 KernelInfo = collections.namedtuple("KernelInfo",
@@ -181,8 +186,6 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         _ = parameters
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
-
-    parameters['scalar_type'] = utils.ScalarType_c
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations

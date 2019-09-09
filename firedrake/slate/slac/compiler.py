@@ -96,7 +96,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cache = slate_expr._metakernel_cache
     if tsfc_parameters is None:
         tsfc_parameters = parameters["form_compiler"]
-    tsfc_parameters['scalar_type'] = ScalarType_c
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
