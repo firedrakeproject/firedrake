@@ -33,6 +33,10 @@ class WithGeometryBase(object):
         geometry to.
     :arg mesh: The mesh with geometric information to use.
     """
+    def __init__(self):
+        self.topological = None
+        self.parent = None
+
     def ufl_function_space(self):
         r"""The :class:`~ufl.classes.FunctionSpace` or `~ufl.classes.MixedFunctionSpace` this object represents."""
         return self
@@ -738,7 +742,7 @@ class MixedFunctionSpace(object):
 
     def _dm(self):
         if self.has_multiple_meshes:
-            raise NotImplementedError("Need to think what to do when multiple meshes exist")
+            print("This is probably fine.")
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())

@@ -839,7 +839,7 @@ class MeshTopology(object):
         else:
             return self.submesh_parent.submesh_get_depth() + 1
 
-    @utils.cached_property
+    #@utils.cached_property
     def submesh_sub_super_map(self, dim):
         """Return a map to the parent mesh if self._submesh_parent is not None
 

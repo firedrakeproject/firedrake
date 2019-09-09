@@ -307,24 +307,37 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             # Used for the sparsity construction
             iteration_regions = []
+            nrow = len(test.function_space())
+            ncol = len(trial.function_space())
+            map_pairs_ij = [[[] for _ in range(ncol)] for _ in range(nrow)]
             if cell_domains:
                 map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
+                for i in range(nrow):
+                    imesh = test.function_space()[i].mesh().topology
+                    idim = imesh._plex.getDimension()
+                    for j in range(ncol):
+                        jmesh = trial.function_space()[j].mesh().topology
+                        jdim = jmesh._plex.getDimension()
+                        map_pairs_ij[i][j].append((op2.ComposedMap([test.cell_node_map().split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim)), 
+                                                   op2.ComposedMap([trial.cell_node_map().split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))))
                 iteration_regions.append(tuple(cell_domains))
             if exterior_facet_domains:
                 map_pairs.append((test.exterior_facet_node_map(), trial.exterior_facet_node_map()))
+                map_pairs_ij = None
                 iteration_regions.append(tuple(exterior_facet_domains))
             if interior_facet_domains:
                 map_pairs.append((test.interior_facet_node_map(), trial.interior_facet_node_map()))
+                map_pairs_ij = None
                 iteration_regions.append(tuple(interior_facet_domains))
 
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
-
             try:
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
                                         map_pairs,
+                                        maps_ij=map_pairs_ij,
                                         iteration_regions=iteration_regions,
                                         name="%s_%s_sparsity" % fs_names,
                                         nest=nest,
