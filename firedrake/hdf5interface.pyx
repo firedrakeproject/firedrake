@@ -1,3 +1,4 @@
+# cython: language_level=3
 import h5py
 cimport petsc4py.PETSc as PETSc
 

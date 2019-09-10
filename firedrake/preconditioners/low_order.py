@@ -105,7 +105,6 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
     op2.par_loop(transfer_kernel(Pk, P1), mesh.cell_set,
                  matarg)
     mat.assemble()
-    mat._force_evaluation()
     return mat.handle
 
 
@@ -155,7 +154,6 @@ class P1PC(PCBase):
                                              firedrake.parameters["default_matrix_type"])
         self.lo_op = firedrake.assemble(self.lo_J, bcs=self.lo_bcs,
                                         mat_type=mat_type)
-        self.lo_op.force_evaluation()
         A, P = pc.getOperators()
         nearnullsp = P.getNearNullSpace()
         if nearnullsp.handle != 0:
@@ -192,7 +190,6 @@ class P1PC(PCBase):
 
     def update(self, pc):
         firedrake.assemble(self.lo_J, bcs=self.lo_bcs, tensor=self.lo_op)
-        self.lo_op.force_evaluation()
 
     def apply(self, pc, x, y):
         work1, work2 = self.work

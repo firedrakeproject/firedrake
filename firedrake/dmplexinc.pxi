@@ -56,10 +56,10 @@ cdef extern from "petscis.h" nogil:
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
 
 cdef extern from "petscsf.h" nogil:
-    struct PetscSFNode:
+    struct PetscSFNode_:
         PetscInt rank
         PetscInt index
-    ctypedef PetscSFNode PetscSFNode "PetscSFNode"
+    ctypedef PetscSFNode_ PetscSFNode "PetscSFNode"
 
     int PetscSFGetGraph(PETSc.PetscSF,PetscInt*,PetscInt*,PetscInt**,PetscSFNode**)
     int PetscSFSetGraph(PETSc.PetscSF,PetscInt,PetscInt,PetscInt*,PetscCopyMode,PetscSFNode*,PetscCopyMode)

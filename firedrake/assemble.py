@@ -4,7 +4,6 @@ from itertools import chain
 import functools
 
 from pyop2 import op2
-from pyop2.base import collecting_loops
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
 from firedrake import assemble_expressions
@@ -263,12 +262,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                                       appctx=appctx,
                                                       options_prefix=options_prefix)
                 yield lambda: result_matrix
-                raise StopIteration()
+                return
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
             yield lambda: tensor
-            raise StopIteration()
+            return
 
         test, trial = f.arguments()
 
@@ -332,13 +331,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, ScalarType,
                                           "%s_%s_matrix" % fs_names,
                                           options_prefix=options_prefix)
-            tensor = result_matrix._M
+            tensor = result_matrix.M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting matfree with implicit matrix")
 
             result_matrix = tensor
-            tensor = tensor._M
+            tensor = tensor.M
             zero_tensor_parloop = tensor.zero
 
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
@@ -365,7 +364,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: result_matrix
         if allocate_only:
             yield result
-            raise StopIteration()
+            return
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
@@ -529,8 +528,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
         try:
-            with collecting_loops(True):
-                yield op2.par_loop(*args, **kwargs)
+            yield op2.ParLoop(*args, **kwargs).compute
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -548,30 +546,29 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if len(fs) > 1:
                     raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = result_matrix.block_shape
-                with collecting_loops(True):
-                    for i in range(shape[0]):
-                        for j in range(shape[1]):
-                            # Set diagonal entries on bc nodes to 1 if the current
-                            # block is on the matrix diagonal and its index matches the
-                            # index of the function space the bc is defined on.
-                            if i != j:
-                                continue
-                            if fs.component is None and fs.index is not None:
-                                # Mixed, index (no ComponentFunctionSpace)
-                                if fs.index == i:
-                                    yield tensor[i, j].set_local_diagonal_entries(nodes)
-                            elif fs.component is not None:
-                                # ComponentFunctionSpace, check parent index
-                                if fs.parent.index is not None:
-                                    # Mixed, index doesn't match
-                                    if fs.parent.index != i:
-                                        continue
-                                # Index matches
-                                yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
-                            elif fs.index is None:
-                                yield tensor[i, j].set_local_diagonal_entries(nodes)
-                            else:
-                                raise RuntimeError("Unhandled BC case")
+                for i in range(shape[0]):
+                    for j in range(shape[1]):
+                        # Set diagonal entries on bc nodes to 1 if the current
+                        # block is on the matrix diagonal and its index matches the
+                        # index of the function space the bc is defined on.
+                        if i != j:
+                            continue
+                        if fs.component is None and fs.index is not None:
+                            # Mixed, index (no ComponentFunctionSpace)
+                            if fs.index == i:
+                                yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        elif fs.component is not None:
+                            # ComponentFunctionSpace, check parent index
+                            if fs.parent.index is not None:
+                                # Mixed, index doesn't match
+                                if fs.parent.index != i:
+                                    continue
+                            # Index matches
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes, idx=fs.component)
+                        elif fs.index is None:
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        else:
+                            raise RuntimeError("Unhandled BC case")
             elif isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
@@ -604,6 +601,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if zero_tensor:
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
-            yield tensor.assemble()
+            yield tensor.assemble
         if assemble_now:
             yield result

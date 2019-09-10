@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 # Utility functions to derive global and local numbering from DMPlex
 from firedrake.petsc import PETSc
 import numpy as np
@@ -43,7 +45,7 @@ def facet_numbering(PETSc.DM plex, kind,
     cdef:
         PetscInt f, fStart, fEnd, fi, cell
         PetscInt nfacets, nclosure, ncells, cells_per_facet
-        PetscInt *cells = NULL
+        const PetscInt *cells = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_local_num
 
@@ -129,7 +131,7 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *facets = NULL
         PetscInt *faces = NULL
         PetscInt *face_indices = NULL
-        PetscInt *face_vertices = NULL
+        const PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
@@ -885,9 +887,9 @@ def mark_entity_classes(PETSc.DM plex):
         PetscInt nleaves
         PetscInt *closure = NULL
         PetscInt nclosure
-        PetscInt *ilocal = NULL
+        const PetscInt *ilocal = NULL
         PetscBool non_exec
-        PetscSFNode *iremote = NULL
+        const PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
         PetscBool is_ghost, is_owned
         DMLabel lbl_core, lbl_owned, lbl_ghost
@@ -962,7 +964,7 @@ def get_entity_classes(PETSc.DM plex):
         np.ndarray[PetscInt, ndim=2, mode="c"] entity_class_sizes
         np.ndarray[PetscInt, mode="c"] eStart, eEnd
         PetscInt depth, d, i, ci, class_size, start, end
-        PetscInt *indices = NULL
+        const PetscInt *indices = NULL
         PETSc.IS class_is
 
     depth = plex.getDimension() + 1
@@ -1292,8 +1294,8 @@ def get_cell_remote_ranks(PETSc.DM plex):
         PetscInt cStart, cEnd, ncells, i
         PETSc.SF sf
         PetscInt nroots, nleaves
-        PetscInt *ilocal
-        PetscSFNode *iremote
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
         np.ndarray[PetscInt, ndim=1, mode="c"] result
 
     cStart, cEnd = plex.getHeightStratum(0)
@@ -1334,7 +1336,7 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
     """
     cdef:
         PetscInt nvertices, ndofs
-        PetscInt *vs = NULL
+        const PetscInt *vs = NULL
 
     CHKERR(DMPlexGetConeSize(plex.dm, facet, &nvertices))
     assert nvertices == 2
@@ -1423,7 +1425,7 @@ cdef inline void get_communication_lists(
         PetscInt cStart, cEnd
         PetscInt nfacets, fStart, fEnd, f
         PetscInt i, k, support_size
-        PetscInt *support = NULL
+        const PetscInt *support = NULL
         PetscInt local_count, remote
         PetscInt v[2]
         PetscInt *facet_ranks = NULL
@@ -1556,7 +1558,7 @@ cdef inline void plex_get_restricted_support(PETSc.DM plex,
     cdef:
         PetscInt cStart, cEnd, c
         PetscInt support_size
-        PetscInt *support = NULL
+        const PetscInt *support = NULL
         PetscInt i, k
 
     CHKERR(DMPlexGetHeightStratum(plex.dm, 0, &cStart, &cEnd))
@@ -1612,8 +1614,8 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
         PetscInt local_from, local_to
 
         PetscInt cone_size, support_size
-        PetscInt *cone = NULL
-        PetscInt *cone_orient = NULL
+        const PetscInt *cone = NULL
+        const PetscInt *cone_orient = NULL
         PetscInt support[2]
         PetscInt i, ncells_adj
 
@@ -1986,8 +1988,8 @@ def orientations_facet2cell(
     cdef:
         PetscInt c, cStart, cEnd, ncells, cell
         PetscInt fStart, fEnd
-        PetscInt *cone = NULL
-        PetscInt *cone_orient = NULL
+        const PetscInt *cone = NULL
+        const PetscInt *cone_orient = NULL
         np.int8_t dst_orient[4]
         int i, off
         PetscInt facet, v, V
@@ -2088,8 +2090,8 @@ def exchange_cell_orientations(
     cdef:
         PETSc.SF sf
         PetscInt nroots, nleaves
-        PetscInt *ilocal
-        PetscSFNode *iremote
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
         MPI.Datatype dtype
         PETSc.Section new_section
         PetscInt *new_values = NULL
@@ -2160,9 +2162,9 @@ def prune_sf(PETSc.SF sf):
     cdef:
         PetscInt nroots, nleaves, new_nleaves, i, j
         PetscInt rank
-        PetscInt *ilocal = NULL
+        const PetscInt *ilocal = NULL
         PetscInt *new_ilocal = NULL
-        PetscSFNode *iremote = NULL
+        const PetscSFNode *iremote = NULL
         PetscSFNode *new_iremote = NULL
         PETSc.SF pruned_sf
 
