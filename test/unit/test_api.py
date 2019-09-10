@@ -205,29 +205,6 @@ class TestClassAPI:
         assert not issubclass(type(dat), op2.Set)
 
 
-class TestAccessAPI:
-
-    """
-    Access API unit tests
-    """
-
-    @pytest.mark.parametrize("mode", base.Access._modes)
-    def test_access_repr(self, mode):
-        "Access repr should produce an Access object when eval'd."
-        from pyop2.base import Access
-        assert isinstance(eval(repr(Access(mode))), Access)
-
-    @pytest.mark.parametrize("mode", base.Access._modes)
-    def test_access_str(self, mode):
-        "Access should have the expected string representation."
-        assert str(base.Access(mode)) == "OP2 Access: %s" % mode
-
-    def test_illegal_access(self):
-        "Illegal access modes should raise an exception."
-        with pytest.raises(exceptions.ModeValueError):
-            base.Access('ILLEGAL_ACCESS')
-
-
 class TestArgAPI:
 
     """
@@ -1708,9 +1685,6 @@ class TestParLoopAPI:
         d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
         k = op2.Kernel("static void k(int *x) {}", "k")
         op2.par_loop(k, s1, d(op2.READ, m))
-        # Force evaluation otherwise this loop will remain in the trace forever
-        # in case of lazy evaluation mode
-        base._trace.evaluate_all()
 
 
 if __name__ == '__main__':

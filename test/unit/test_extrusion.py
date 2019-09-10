@@ -37,7 +37,40 @@ import numpy
 import random
 
 from pyop2 import op2
-from pyop2.computeind import compute_ind_extr
+
+
+def compute_ind_extr(nums,
+                     map_dofs,
+                     lins,
+                     layers,
+                     mesh2d,
+                     dofs,
+                     A,
+                     wedges,
+                     map,
+                     lsize):
+    count = 0
+    ind = numpy.zeros(lsize, dtype=numpy.int)
+    len1 = len(mesh2d)
+    for mm in range(lins):
+        offset = 0
+        for d in range(2):
+            c = 0
+            for i in range(len1):
+                a4 = dofs[i, d]
+                if a4 != 0:
+                    len2 = len(A[d])
+                    for j in range(0, mesh2d[i]):
+                        m = map[mm][c]
+                        for k in range(0, len2):
+                            ind[count] = m*(layers - d) + A[d][k] + offset
+                            count += 1
+                        c += 1
+                elif dofs[i, 1-d] != 0:
+                    c += mesh2d[i]
+                offset += a4*nums[i]*(layers - d)
+    return ind
+
 
 from coffee.base import *
 

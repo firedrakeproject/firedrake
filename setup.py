@@ -79,14 +79,11 @@ try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
     sparsity_sources = ['pyop2/sparsity.pyx']
-    computeind_sources = ['pyop2/computeind.pyx']
-
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
     sparsity_sources = ['pyop2/sparsity.c']
-    computeind_sources = ['pyop2/computeind.c']
-    sources = sparsity_sources + computeind_sources
+    sources = sparsity_sources
     from os.path import exists
     if not all([exists(f) for f in sources]):
         raise ImportError("Installing from source requires Cython")
@@ -102,8 +99,9 @@ install_requires = [
 dep_links = ['git+https://github.com/coneoproject/COFFEE#egg=COFFEE-dev']
 
 version = sys.version_info[:2]
-if version < (2, 7) or (3, 0) <= version <= (3, 1):
-    install_requires += ['argparse', 'ordereddict']
+
+if version < (3, 5):
+    raise ValueError("Python version >= 3.5 required")
 
 test_requires = [
     'flake8>=2.1.0',
@@ -124,7 +122,6 @@ class sdist(_sdist):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
         cythonize(sparsity_sources, language="c", include_path=includes)
-        cythonize(computeind_sources)
         _sdist.run(self)
 
 
@@ -144,8 +141,8 @@ setup(name='PyOP2',
           'Operating System :: OS Independent',
           'Programming Language :: C',
           'Programming Language :: Cython',
-          'Programming Language :: Python :: 2',
-          'Programming Language :: Python :: 2.7',
+          'Programming Language :: Python :: 3',
+          'Programming Language :: Python :: 3.5',
       ],
       install_requires=install_requires,
       dependency_links=dep_links,
@@ -159,6 +156,4 @@ setup(name='PyOP2',
                              include_dirs=['pyop2'] + includes, language="c",
                              libraries=["petsc"],
                              extra_link_args=(["-L%s/lib" % d for d in petsc_dirs]
-                                              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs])),
-                   Extension('pyop2.computeind', computeind_sources,
-                             include_dirs=numpy_includes)])
+                                              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]))])

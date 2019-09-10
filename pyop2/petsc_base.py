@@ -33,10 +33,11 @@
 
 from contextlib import contextmanager
 from petsc4py import PETSc
-from functools import partial
+import itertools
 import numpy as np
+import abc
 
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, ScalarType
 from pyop2 import base
 from pyop2 import mpi
 from pyop2 import sparsity
@@ -211,35 +212,11 @@ class MixedDataSet(DataSet, base.MixedDataSet):
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this MixedDataSet."""
         vec = PETSc.Vec().create(comm=self.comm)
-        # Size of flattened vector is product of size and cdim of each dat
-        size = sum(d.size * d.cdim for d in self)
-        vec.setSizes((size, None))
+        # Compute local and global size from sizes of layout vecs
+        lsize, gsize = map(sum, zip(*(d.layout_vec.sizes for d in self)))
+        vec.setSizes((lsize, gsize), bsize=1)
         vec.setUp()
         return vec
-
-    @utils.cached_property
-    def vecscatters(self):
-        """Get the vecscatters from the dof layout of this dataset to a PETSc Vec."""
-        # To be compatible with a MatNest (from a MixedMat) the
-        # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
-        # on P processes is:
-        # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
-        # That is, all the Dats from rank 0, followed by those of
-        # rank 1, ...
-        # Hence the offset into the global Vec is the exclusive
-        # prefix sum of the local size of the mixed dat.
-        size = sum(d.size * d.cdim for d in self)
-        offset = self.comm.exscan(size)
-        if offset is None:
-            offset = 0
-        scatters = []
-        for d in self:
-            size = d.size * d.cdim
-            vscat = PETSc.Scatter().create(d.layout_vec, None, self.layout_vec,
-                                           PETSc.IS().createStride(size, offset, 1, comm=d.comm))
-            offset += size
-            scatters.append(vscat)
-        return tuple(scatters)
 
     @utils.cached_property
     def lgmap(self):
@@ -320,38 +297,14 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         return self.lgmap
 
 
-class Dat(base.Dat):
-
-    @contextmanager
+class VecAccessMixin(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
     def vec_context(self, access):
-        """A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
+        pass
 
-        :param access: Access descriptor: READ, WRITE, or RW."""
-
-        assert self.dtype == PETSc.ScalarType, \
-            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
-        # Getting the Vec needs to ensure we've done all current
-        # necessary computation.
-        self._force_evaluation(read=access is not base.WRITE,
-                               write=access is not base.READ)
-        if not hasattr(self, '_vec'):
-            # Can't duplicate layout_vec of dataset, because we then
-            # carry around extra unnecessary data.
-            # But use getSizes to save an Allreduce in computing the
-            # global size.
-            size = self.dataset.layout_vec.getSizes()
-            data = self._data[:size[0]]
-            self._vec = PETSc.Vec().createWithArray(data, size=size,
-                                                    bsize=self.cdim,
-                                                    comm=self.comm)
-        # PETSc Vecs have a state counter and cache norm computations
-        # to return immediately if the state counter is unchanged.
-        # Since we've updated the data behind their back, we need to
-        # change that state counter.
-        self._vec.stateIncrease()
-        yield self._vec
-        if access is not base.READ:
-            self.halo_valid = False
+    @abc.abstractproperty
+    def _vec(self):
+        pass
 
     @property
     @collective
@@ -379,10 +332,45 @@ class Dat(base.Dat):
         return self.vec_context(access=base.READ)
 
 
-class MixedDat(base.MixedDat):
+class Dat(base.Dat, VecAccessMixin):
+    @utils.cached_property
+    def _vec(self):
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
+        # Can't duplicate layout_vec of dataset, because we then
+        # carry around extra unnecessary data.
+        # But use getSizes to save an Allreduce in computing the
+        # global size.
+        size = self.dataset.layout_vec.getSizes()
+        data = self._data[:size[0]]
+        return PETSc.Vec().createWithArray(data, size=size, bsize=self.cdim, comm=self.comm)
 
     @contextmanager
-    def vecscatter(self, access):
+    def vec_context(self, access):
+        r"""A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
+
+        :param access: Access descriptor: READ, WRITE, or RW."""
+        # PETSc Vecs have a state counter and cache norm computations
+        # to return immediately if the state counter is unchanged.
+        # Since we've updated the data behind their back, we need to
+        # change that state counter.
+        self._vec.stateIncrease()
+        yield self._vec
+        if access is not base.READ:
+            self.halo_valid = False
+
+
+class MixedDat(base.MixedDat, VecAccessMixin):
+    @utils.cached_property
+    def _vec(self):
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
+        # In this case we can just duplicate the layout vec
+        # because we're not placing an array.
+        return self.dataset.layout_vec.duplicate()
+
+    @contextmanager
+    def vec_context(self, access):
         r"""A context manager scattering the arrays of all components of this
         :class:`MixedDat` into a contiguous :class:`PETSc.Vec` and reverse
         scattering to the original arrays when exiting the context.
@@ -395,90 +383,56 @@ class MixedDat(base.MixedDat):
            the correct order to be left multiplied by a compatible
            :class:`MixedMat`.  In parallel it is *not* just a
            concatenation of the underlying :class:`Dat`\s."""
-
-        assert self.dtype == PETSc.ScalarType, \
-            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
-        # Allocate memory for the contiguous vector
-        if not hasattr(self, '_vec'):
-            # In this case we can just duplicate the layout vec
-            # because we're not placing an array.
-            self._vec = self.dataset.layout_vec.duplicate()
-
-        scatters = self.dataset.vecscatters
         # Do the actual forward scatter to fill the full vector with
         # values
         if access is not base.WRITE:
-            for d, vscat in zip(self, scatters):
+            offset = 0
+            array = self._vec.array
+            for d in self:
                 with d.vec_ro as v:
-                    vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
-                    vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
+                    size = v.local_size
+                    array[offset:offset+size] = v.array_r[:]
+                    offset += size
+        self._vec.stateIncrease()
         yield self._vec
         if access is not base.READ:
             # Reverse scatter to get the values back to their original locations
-            for d, vscat in zip(self, scatters):
+            offset = 0
+            array = self._vec.array_r
+            for d in self:
                 with d.vec_wo as v:
-                    vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
-                                       mode=PETSc.ScatterMode.REVERSE)
-                    vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
-                                     mode=PETSc.ScatterMode.REVERSE)
+                    size = v.local_size
+                    v.array[:] = array[offset:offset+size]
+                    offset += size
             self.halo_valid = False
 
-    @property
-    @collective
-    def vec(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
 
-        You're allowed to modify the data you get back from this view."""
-        return self.vecscatter(access=base.RW)
-
-    @property
-    @collective
-    def vec_wo(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
-
-        You're allowed to modify the data you get back from this view,
-        but you cannot read from it."""
-        return self.vecscatter(access=base.WRITE)
-
-    @property
-    @collective
-    def vec_ro(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
-
-        You're not allowed to modify the data you get back from this view."""
-        return self.vecscatter(access=base.READ)
-
-
-class Global(base.Global):
+class Global(base.Global, VecAccessMixin):
+    @utils.cached_property
+    def _vec(self):
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
+        # Can't duplicate layout_vec of dataset, because we then
+        # carry around extra unnecessary data.
+        # But use getSizes to save an Allreduce in computing the
+        # global size.
+        data = self._data
+        size = self.dataset.layout_vec.getSizes()
+        if self.comm.rank == 0:
+            return PETSc.Vec().createWithArray(data, size=size,
+                                               bsize=self.cdim,
+                                               comm=self.comm)
+        else:
+            return PETSc.Vec().createWithArray(np.empty(0, dtype=self.dtype),
+                                               size=size,
+                                               bsize=self.cdim,
+                                               comm=self.comm)
 
     @contextmanager
     def vec_context(self, access):
         """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
-
-        assert self.dtype == PETSc.ScalarType, \
-            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
-        # Getting the Vec needs to ensure we've done all current
-        # necessary computation.
-        self._force_evaluation(read=access is not base.WRITE,
-                               write=access is not base.READ)
-        data = self._data
-        if not hasattr(self, '_vec'):
-            # Can't duplicate layout_vec of dataset, because we then
-            # carry around extra unnecessary data.
-            # But use getSizes to save an Allreduce in computing the
-            # global size.
-            size = self.dataset.layout_vec.getSizes()
-            if self.comm.rank == 0:
-                self._vec = PETSc.Vec().createWithArray(data, size=size,
-                                                        bsize=self.cdim,
-                                                        comm=self.comm)
-            else:
-                self._vec = PETSc.Vec().createWithArray(np.empty(0, dtype=self.dtype),
-                                                        size=size,
-                                                        bsize=self.cdim,
-                                                        comm=self.comm)
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
@@ -486,32 +440,8 @@ class Global(base.Global):
         self._vec.stateIncrease()
         yield self._vec
         if access is not base.READ:
+            data = self._data
             self.comm.Bcast(data, 0)
-
-    @property
-    @collective
-    def vec(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
-
-        You're allowed to modify the data you get back from this view."""
-        return self.vec_context(access=base.RW)
-
-    @property
-    @collective
-    def vec_wo(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
-
-        You're allowed to modify the data you get back from this view,
-        but you cannot read from it."""
-        return self.vec_context(access=base.WRITE)
-
-    @property
-    @collective
-    def vec_ro(self):
-        """Context manager for a PETSc Vec appropriate for this Dat.
-
-        You're not allowed to modify the data you get back from this view."""
-        return self.vec_context(access=base.READ)
 
 
 class SparsityBlock(base.Sparsity):
@@ -594,9 +524,8 @@ class MatBlock(base.Mat):
         return self._parent.assembly_state
 
     @assembly_state.setter
-    def assembly_state(self, state):
-        # Need to update our state and our parent's
-        self._parent.assembly_state = state
+    def assembly_state(self, value):
+        self._parent.assembly_state = value
 
     def __getitem__(self, idx):
         return self
@@ -613,51 +542,40 @@ class MatBlock(base.Mat):
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
-        if len(rows) == 0:
-            # No need to set anything if we didn't get any rows, but
-            # do need to force assembly flush.
-            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
-                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-        vals = np.repeat(diag_val, len(rows))
-        closure = partial(self.handle.setValuesLocalRCV,
-                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        rows = rows.reshape(-1, 1)
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(rows) > 0:
+            values = np.full(rows.shape, diag_val, dtype=ScalarType)
+            self.handle.setValuesLocalRCV(rows, rows, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.ADD_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                               read=True, write=True).enqueue()
+        self.change_assembly_state(Mat.ADD_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.ADD_VALUES)
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     def assemble(self):
         raise RuntimeError("Should never call assemble on MatBlock")
-
-    def _assemble(self):
-        raise RuntimeError("Should never call _assemble on MatBlock")
 
     @property
     def values(self):
         rset, cset = self._parent.sparsity.dsets
         rowis = rset.field_ises[self._i]
         colis = cset.field_ises[self._j]
-        base._trace.evaluate(set([self._parent]), set())
         self._parent.assemble()
         mat = self._parent.handle.createSubMatrix(isrow=rowis,
                                                   iscol=colis)
@@ -864,14 +782,12 @@ class Mat(base.Mat):
 
     def __iter__(self):
         """Iterate over all :class:`Mat` blocks by row and then by column."""
-        for row in self.blocks:
-            for s in row:
-                yield s
+        yield from itertools.chain(*self.blocks)
 
     @collective
     def zero(self):
         """Zero the matrix."""
-        base._trace.evaluate(set(), set([self]))
+        self.assemble()
         self.handle.zeroEntries()
 
     @collective
@@ -881,8 +797,7 @@ class Mat(base.Mat):
         strong boundary conditions.
 
         :param rows: a :class:`Subset` or an iterable"""
-        base._trace.evaluate(set([self]), set([self]))
-        self._assemble()
+        self.assemble()
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
@@ -901,56 +816,48 @@ class Mat(base.Mat):
         """
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
-        if len(rows) == 0:
-            # No need to set anything if we didn't get any rows, but
-            # do need to force assembly flush.
-            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
-                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-        vals = np.repeat(diag_val, len(rows))
-        closure = partial(self.handle.setValuesLocalRCV,
-                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        rows = rows.reshape(-1, 1)
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(rows) > 0:
+            values = np.full(rows.shape, diag_val, dtype=ScalarType)
+            self.handle.setValuesLocalRCV(rows, rows, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
 
     @collective
-    def _assemble(self):
+    def assemble(self):
         # If the matrix is nested, we need to check each subblock to
         # see if it needs assembling.  But if it's monolithic then the
         # subblock assembly doesn't do anything, so we don't do that.
         if self.sparsity.nested:
-            for m in self:
-                if m.assembly_state is not Mat.ASSEMBLED:
-                    m.handle.assemble()
-                m.assembly_state = Mat.ASSEMBLED
-        # Instead, we assemble the full monolithic matrix.
-        if self.assembly_state is not Mat.ASSEMBLED:
             self.handle.assemble()
-            self.assembly_state = Mat.ASSEMBLED
-            # Mark blocks as assembled as well.
+            for m in self:
+                if m.assembly_state != Mat.ASSEMBLED:
+                    m.change_assembly_state(Mat.ASSEMBLED)
+        else:
+            # Instead, we assemble the full monolithic matrix.
+            self.handle.assemble()
             for m in self:
                 m.handle.assemble()
+            self.change_assembly_state(Mat.ASSEMBLED)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.ADD_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                               read=True, write=True).enqueue()
+        self.change_assembly_state(Mat.ADD_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.ADD_VALUES)
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = partial(self.handle.setValuesBlockedLocal,
-                          rows, cols, values,
-                          addv=PETSc.InsertMode.INSERT_VALUES)
-        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                               write=True).enqueue()
+        self.change_assembly_state(Mat.INSERT_VALUES)
+        if len(values) > 0:
+            self.handle.setValuesBlockedLocal(rows, cols, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     @utils.cached_property
     def blocks(self):
@@ -959,7 +866,7 @@ class Mat(base.Mat):
 
     @property
     def values(self):
-        base._trace.evaluate(set([self]), set())
+        self.assemble()
         if self.nrows * self.ncols > 1000000:
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")

@@ -805,7 +805,6 @@ class TestMatrixStateChanges:
 
     def test_after_set_local_state_is_insert(self, mat):
         mat[0, 0].set_local_diagonal_entries([0])
-        mat._force_evaluation()
         assert mat[0, 0].assembly_state is op2.Mat.INSERT_VALUES
         if not mat.sparsity.nested:
             assert mat.assembly_state is op2.Mat.INSERT_VALUES
@@ -814,7 +813,6 @@ class TestMatrixStateChanges:
 
     def test_after_addto_state_is_add(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
-        mat._force_evaluation()
         assert mat[0, 0].assembly_state is op2.Mat.ADD_VALUES
         if not mat.sparsity.nested:
             assert mat.assembly_state is op2.Mat.ADD_VALUES
@@ -826,9 +824,6 @@ class TestMatrixStateChanges:
             return
         with pytest.raises(RuntimeError):
             mat[0, 0].assemble()
-
-        with pytest.raises(RuntimeError):
-            mat[0, 0]._assemble()
 
     def test_mixing_insert_and_add_works(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
@@ -862,13 +857,10 @@ class TestMatrixStateChanges:
                 m._flush_assembly = types.MethodType(make_flush(oflush), m)
 
         mat[0, 0].addto_values(0, 0, [1])
-        mat._force_evaluation()
         assert flush_counter[0] == 0
         mat[0, 0].set_values(1, 0, [2])
-        mat._force_evaluation()
         assert flush_counter[0] == 1
         mat.assemble()
-        mat._force_evaluation()
         assert flush_counter[0] == 1
 
 

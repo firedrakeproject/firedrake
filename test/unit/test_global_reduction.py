@@ -449,17 +449,16 @@ static void k(double* g, double* x)
         assert_allclose(g.data, set.size)
 
     def test_inc_reused_loop(self, set):
-        from pyop2.base import collecting_loops
+        from pyop2.sequential import ParLoop
         g = op2.Global(1, 0, dtype=numpy.uint32)
-        k = """static void k(unsigned int* g) { *g += 1; }"""
-        with collecting_loops(True):
-            loop = op2.par_loop(op2.Kernel(k, "k"),
-                                set,
-                                g(op2.INC))
-        loop()
+        k = """void k(unsigned int* g) { *g += 1; }"""
+        loop = ParLoop(op2.Kernel(k, "k"),
+                       set,
+                       g(op2.INC))
+        loop.compute()
         assert_allclose(g.data, set.size)
-        loop()
+        loop.compute()
         assert_allclose(g.data, 2*set.size)
         g.zero()
-        loop()
+        loop.compute()
         assert_allclose(g.data, set.size)

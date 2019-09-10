@@ -111,7 +111,6 @@ class JITModule(base.JITModule):
 
     @cached_property
     def code_to_compile(self):
-
         from pyop2.codegen.builder import WrapperBuilder
         from pyop2.codegen.rep2loopy import generate
 
@@ -206,9 +205,14 @@ class ParLoop(petsc_base.ParLoop):
                          iterate=self.iteration_region,
                          pass_layer_arg=self._pass_layer_arg)
 
+    @cached_property
+    def _compute_event(self):
+        return timed_region("ParLoop_{0}_{1}".format(self.iterset.name, self._jitmodule._wrapper_name))
+
     @collective
     def _compute(self, part, fun, *arglist):
-        with timed_region("ParLoop_{0}_{1}".format(self.iterset.name, self._jitmodule._wrapper_name)):
+        with self._compute_event:
+            self.log_flops(part.size * self.num_flops)
             fun(part.offset, part.offset + part.size, *arglist)
 
 

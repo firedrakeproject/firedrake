@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 # This file is part of PyOP2
 #
 # PyOP2 is Copyright (c) 2012, Imperial College London and
@@ -290,11 +292,11 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                     # But this means less special casing.
                     for i in range(tmp_rarity):
                         rvals[i] = rmap[set_entry, i % rarity] + \
-                            (layer_start - layer_bottom + i / rarity) * roffset[i % rarity]
+                            (layer_start - layer_bottom + i // rarity) * roffset[i % rarity]
                     # Ditto
                     for i in range(tmp_carity):
                         cvals[i] = cmap[set_entry, i % carity] + \
-                            (layer_start - layer_bottom + i / carity) * coffset[i % carity]
+                            (layer_start - layer_bottom + i // carity) * coffset[i % carity]
                     for layer in range(layer_start, layer_end):
                         CHKERR(MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
                                                         tmp_carity, cvals,

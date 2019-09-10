@@ -123,6 +123,7 @@ def compilation_comm(comm):
     if MPI.VERSION >= 3:
         debug("Creating compilation communicator using MPI_Split_type")
         retcomm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+        debug("Finished creating compilation communicator using MPI_Split_type")
         set_compilation_comm(comm, retcomm)
         return retcomm
     debug("Creating compilation communicator using MPI_Split + filesystem")
@@ -138,13 +139,16 @@ def compilation_comm(comm):
     if tmpname is None:
         raise CompilationError("Cannot determine sharedness of filesystem")
     # Touch file
+    debug("Made tmpdir %s" % tmpname)
     with open(os.path.join(tmpname, str(comm.rank)), "wb"):
         pass
     comm.barrier()
     import glob
     ranks = sorted(int(os.path.basename(name))
                    for name in glob.glob("%s/[0-9]*" % tmpname))
+    debug("Creating compilation communicator using filesystem colors")
     retcomm = comm.Split(color=min(ranks), key=comm.rank)
+    debug("Finished creating compilation communicator using filesystem colors")
     set_compilation_comm(comm, retcomm)
     return retcomm
 
