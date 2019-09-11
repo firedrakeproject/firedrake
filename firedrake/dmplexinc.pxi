@@ -92,7 +92,9 @@ cdef extern from "petscsnes.h" nogil:
 
 cdef extern from "petscpc.h" nogil:
    int PCPatchSetComputeFunction(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
+   int PCPatchSetComputeFunctionInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
    int PCPatchSetComputeOperator(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   int PCPatchSetComputeOperatorInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
 
 cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT

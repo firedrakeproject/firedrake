@@ -594,9 +594,8 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        point2facetnumber = {}
-        for i, f in enumerate(facets):
-            point2facetnumber[f] = i
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
