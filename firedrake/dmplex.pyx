@@ -6,7 +6,7 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
-
+from libc.stdint cimport uintptr_t
 cimport mpi4py.MPI as MPI
 from mpi4py import MPI
 
@@ -2371,3 +2371,25 @@ def clear_adjacency_callback(PETSc.DM dm not None):
         dm.removeLabel("ghost_region")
         CHKERR(DMLabelDestroy(&label))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
+
+
+def set_patch_residual(patch, function, ctx, is_snes=False):
+    if is_snes:
+        CHKERR(SNESPatchSetComputeFunction((<PETSc.SNES?>patch).snes,
+                                           <PetscPCPatchComputeFunction><uintptr_t>function,
+                                           <void *><uintptr_t>ctx))
+    else:
+        CHKERR(PCPatchSetComputeFunction((<PETSc.PC?>patch).pc,
+                                         <PetscPCPatchComputeFunction><uintptr_t>function,
+                                         <void *><uintptr_t>ctx))
+
+
+def set_patch_jacobian(patch, function, ctx, is_snes=False):
+    if is_snes:
+        CHKERR(SNESPatchSetComputeOperator((<PETSc.SNES?>patch).snes,
+                                           <PetscPCPatchComputeOperator><uintptr_t>function,
+                                           <void *><uintptr_t>ctx))
+    else:
+        CHKERR(PCPatchSetComputeOperator((<PETSc.PC?>patch).pc,
+                                         <PetscPCPatchComputeOperator><uintptr_t>function,
+                                         <void *><uintptr_t>ctx))
