@@ -7,7 +7,7 @@ import ufl
 import weakref
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
-
+from .paraview_reodering_bs import vtk_lagrange_tet_reoder, vtk_lagrange_hex_reoder
 __all__ = ("File", )
 
 
@@ -17,18 +17,31 @@ VTK_QUADRILATERAL = 9
 VTK_TETRAHEDRON = 10
 VTK_HEXAHEDRON = 12
 VTK_WEDGE = 13
+#  Lagrange VTK cells:
+VTK_LAGRANGE_CURVE           = 68
+VTK_LAGRANGE_TRIANGLE        = 69
+VTK_LAGRANGE_QUADRILATERAL   = 70
+VTK_LAGRANGE_TETRAHEDRON     = 71
+VTK_LAGRANGE_HEXAHEDRON      = 72
+VTK_LAGRANGE_WEDGE           = 73
+VTK_LAGRANGE_PYRAMID         = 74
 
+ufl_quad = ufl.TensorProductCell(ufl.Cell("interval"),
+                                 ufl.Cell("interval"))
+ufl_wedge = ufl.TensorProductCell(ufl.Cell("triangle"),
+                                  ufl.Cell("interval"))
+ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"),
+                          ufl.Cell("interval"))
 cells = {
-    ufl.Cell("interval"): VTK_INTERVAL,
-    ufl.Cell("triangle"): VTK_TRIANGLE,
-    ufl.Cell("quadrilateral"): VTK_QUADRILATERAL,
-    ufl.TensorProductCell(ufl.Cell("interval"),
-                          ufl.Cell("interval")): VTK_QUADRILATERAL,
-    ufl.Cell("tetrahedron"): VTK_TETRAHEDRON,
-    ufl.TensorProductCell(ufl.Cell("triangle"),
-                          ufl.Cell("interval")): VTK_WEDGE,
-    ufl.TensorProductCell(ufl.Cell("quadrilateral"),
-                          ufl.Cell("interval")): VTK_HEXAHEDRON
+    (ufl.Cell("interval"), False): VTK_INTERVAL,
+    (ufl.Cell("triangle"), False): VTK_TRIANGLE,
+    (ufl.Cell("quadrilateral"), False): VTK_QUADRILATERAL,
+    (ufl_quad, False): VTK_QUADRILATERAL,
+    (ufl.Cell("tetrahedron"), False): VTK_TETRAHEDRON,
+    (ufl_wedge, False): VTK_WEDGE,
+    (ufl_hex, False): VTK_HEXAHEDRON,
+    (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
+    (ufl.Cell("tetrahedron"), True): VTK_LAGRANGE_TETRAHEDRON
 }
 
 
@@ -67,6 +80,83 @@ def is_linear(V):
     return V.finat_element.space_dimension() == nvertex
 
 
+def is_lagrange_element(element):
+    subelems = element.sub_elements()
+    family = element.family()
+
+    if len(subelems) == 0:
+        return family == "Lagrange" or family == "Discontinuous Lagrange" or family == "Q" or family == "DQ"
+    elif family == "TensorProductElement":
+        return all(map(is_lagrange_element, subelems))
+    else:
+        return False
+    
+            
+def is_lagrange(V):
+    """Is the provided space in the Lagrange basis?
+    
+    :arg V: A FunctionSpace
+    """
+    return is_lagrange_element(V.ufl_element())
+
+def continous_elem(elem):
+    if isinstance(elem, ufl.TensorProductElement):
+        return all(map(continous_elem, elem.sub_elements()))
+    elif isinstance(elem, ufl.VectorElement):
+        return continous_elem(elem.sub_elements()[0])
+    elif isinstance(elem, ufl.TensorElement):
+        return continous_elem(elem.sub_elements()[0])
+    elif isinstance(elem, ufl.MixedElement):
+        raise Exception("mixed elements not supported in output.py")
+    elif isinstance(elem, ufl.FiniteElementBase):
+        family = elem.family()
+        return(family in ["CG", "Lagrange", "Q"]) #being conservative..
+
+def get_sup_element(elem1, elem2):
+    cell1 = elem1.cell()
+    cell2 = elem2.cell()
+    if cell1 != cell2:
+        raise Exception("Sup for spaces does not exist!")
+    maxDegree = 0
+    degree1 = elem1.degree()
+    degree2 = elem2.degree()
+    if isinstance(degree1, int):
+        maxDegree = max(degree1, maxDegree)
+    else:
+        maxDegree = max(maxDegree, *degree1)
+    if isinstance(degree2, int):
+        maxDegree = max(degree2, maxDegree)
+    else:
+        maxDegree = max(maxDegree, *degree2)
+    bothContinous = continous_elem(elem1)  and continous_elem(elem2)
+    cont = "CG" if bothContinous else "DG"
+    return(ufl.FiniteElement(cont, cell1, maxDegree))
+
+    
+
+    
+
+# def get_degree_element(element):
+#     subelems = element.sub_elements()
+#     family = element.family()
+#     if len(subelems) == 0:
+#         if (family == "Lagrange" or family == "Discontinuous Lagrange"):
+#             return((degree,))
+#         elif (family == "Q" or family == "DQ"):
+#             return((degree, degree))
+#         else:
+#             raise Exception("Can't find degree of elem:", element)
+#     elif family == "TensorProductElement":
+#         degrees = [None for x in range(len(subelems))]
+#         for (idx, subelem) in enumerate(subelems):
+#             degree = get_degree_element(subelem)
+#             degrees[idx] = degree
+#         return([[d for deg in degrees for d in deg]])
+#def get_degree(element):
+    
+
+
+
 def get_topology(coordinates):
     r"""Get the topology for VTU output.
 
@@ -75,19 +165,24 @@ def get_topology(coordinates):
         :class:`OFunction`\s.
     """
     V = coordinates.function_space()
+
+    use_lag = not(is_linear(V))
     mesh = V.ufl_domain().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
-    # Non-simplex cells need reordering
+    value_shape = values.shape
+    basis_dim = value_shape[1]
+    offsetMap = V.cell_node_map().offset
+    # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
-    if cells[cell] == VTK_QUADRILATERAL:
+    if cells[cell, use_lag] == VTK_QUADRILATERAL:
         # Quad is
         #
         # 1--3    3--2
         # |  | -> |  |
         # 0--2    0--1
         values = values[:, [0, 2, 3, 1]]
-    elif cells[cell] == VTK_WEDGE:
+    elif cells[cell, use_lag] == VTK_WEDGE:
         # Wedge is
         #
         #    5          5
@@ -99,7 +194,7 @@ def get_topology(coordinates):
         # |/  \|     |/  \|
         # 0----2     0----1
         values = values[:, [0, 2, 4, 1, 3, 5]]
-    elif cells[cell] == VTK_HEXAHEDRON:
+    elif cells[cell, use_lag] == VTK_HEXAHEDRON:
         # Hexahedron is
         #
         #   5----7      7----6
@@ -109,14 +204,17 @@ def get_topology(coordinates):
         # |/   |/     |/   |/
         # 0----2      0----1
         values = values[:, [0, 2, 3, 1, 4, 6, 7, 5]]
-    elif cells.get(cell) is None:
+    elif cells[cell, use_lag] == VTK_LAGRANGE_TETRAHEDRON:
+        perm = vtk_lagrange_tet_reoder(V.ufl_element())
+        values = values[:, perm]
+    elif cells[cell, use_lag] == VTK_LAGRANGE_HEXAHEDRON:
+        perm = vtk_lagrange_hex_reoder(V.ufl_element())
+        values = values[:, perm]
+        offsetMap = offsetMap[perm]
+    elif cells.get((cell, use_lag)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
 
-    if is_cg(V):
-        scale = 1
-    else:
-        scale = cell.num_vertices()
 
     # Repeat up the column
     num_cells = mesh.cell_set.size
@@ -124,6 +222,11 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
+        if is_cg(V):
+            scale = 1
+        else:
+            scale = cell.num_vertices()
+            
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
@@ -131,30 +234,45 @@ def get_topology(coordinates):
             def vrange(cell_layers):
                 return numpy.repeat(cell_layers - cell_layers.cumsum(),
                                     cell_layers) + numpy.arange(cell_layers.sum())
-
-            offsets = vrange(cell_layers) * scale
-            offsets = offsets.reshape(-1, 1)
+            print("cell layer:", vrange(cell_layers))
+            offsets = numpy.outer(vrange(cell_layers), offsetMap)
+            print("offset map:", offsets)
             num_cells = cell_layers.sum()
         else:
             cell_layers = mesh.cell_set.layers - 1
-            offsets = numpy.arange(cell_layers, dtype=IntType) * scale
-            offsets = numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
+            offsets = numpy.outer(numpy.arange(cell_layers, dtype=IntType), offsetMap)
+            print("off1:",offsets)
+            offsets = numpy.tile(offsets, (num_cells, 1))
+            print("off2:", offsets)
             num_cells *= cell_layers
-
+    
     connectivity = numpy.repeat(values, cell_layers, axis=0)
-
     # Add offsets going up the column
-    connectivity += offsets
+    con = connectivity + offsets
+    print(connectivity)
+    print("yay:", offsets.shape, connectivity.shape, con.shape)
+    print(len(set(con[0]).intersection(set(con[1]))))
+    ugg = values + offsetMap
+    ugg = ugg.flatten()
+    set(ugg)
+    print(len(set(values.flatten()).intersection(set(ugg))))
+    connectivity = con.flatten()
+    print(connectivity)
 
-    connectivity = connectivity.flatten()
-
-    offsets = numpy.arange(start=cell.num_vertices(),
-                           stop=cell.num_vertices() * (num_cells + 1),
-                           step=cell.num_vertices(),
-                           dtype=IntType)
-    cell_types = numpy.full(num_cells, cells[cell], dtype="uint8")
+    if not(use_lag):
+        offsets_into_con = numpy.arange(start=cell.num_vertices(),
+                                        stop=cell.num_vertices() * (num_cells + 1),
+                                        step=cell.num_vertices(),
+                                        dtype=IntType)
+    else:
+        offsets_into_con = numpy.arange(start=basis_dim,
+                                        stop=basis_dim * (num_cells + 1),
+                                        step=basis_dim,
+                                        dtype=IntType)
+    
+    cell_types = numpy.full(num_cells, cells[cell, use_lag], dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
-            OFunction(offsets, "offsets", None),
+            OFunction(offsets_into_con, "offsets", None),
             OFunction(cell_types, "types", None))
 
 
@@ -337,49 +455,40 @@ class File(object):
         self._output_functions = weakref.WeakKeyDictionary()
         self._mappers = weakref.WeakKeyDictionary()
 
-    def _prepare_output(self, function, cg):
+    def _prepare_output(self, function, max_elem, mesh=False):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
             TensorFunctionSpace, Function, Projector, Interpolator
 
         name = function.name()
-
         # Need to project/interpolate?
-        # If space is linear and continuity of output space matches
-        # continuity of current space, then we can just use the
-        # input function.
-        if is_linear(function.function_space()) and \
-           is_dg(function.function_space()) == (not cg) and \
-           is_cg(function.function_space()) == cg:
+        # If space is not the max element, we can do so.
+        if function.ufl_element == max_elem:
             return OFunction(array=get_array(function),
                              name=name, function=function)
 
-        # OK, let's go and do it.
-        if cg:
-            family = "Lagrange"
-        else:
-            family = "Discontinuous Lagrange"
 
+        #  OK, let's go and do it.
+        shape = function.ufl_shape
         output = self._output_functions.get(function)
         if output is None:
             # Build appropriate space for output function.
             shape = function.ufl_shape
             if len(shape) == 0:
-                V = FunctionSpace(function.ufl_domain(), family, 1)
+                V = FunctionSpace(function.ufl_domain(), max_elem)
             elif len(shape) == 1:
                 if numpy.prod(shape) > 3:
                     raise ValueError("Can't write vectors with more than 3 components")
-                V = VectorFunctionSpace(function.ufl_domain(), family, 1,
+                V = VectorFunctionSpace(function.ufl_domain(), max_elem,
                                         dim=shape[0])
             elif len(shape) == 2:
                 if numpy.prod(shape) > 9:
                     raise ValueError("Can't write tensors with more than 9 components")
-                V = TensorFunctionSpace(function.ufl_domain(), family, 1,
+                V = TensorFunctionSpace(function.ufl_domain(), max_elem,
                                         shape=shape)
             else:
                 raise ValueError("Unsupported shape %s" % (shape, ))
             output = Function(V)
             self._output_functions[function] = output
-
         if self.project:
             projector = self._mappers.get(function)
             if projector is None:
@@ -406,7 +515,7 @@ class File(object):
 
         mesh = meshes[0]
         cell = mesh.topology.ufl_cell()
-        if cell not in cells:
+        if (cell, True) not in cells and (cell, False) not in cells:
             raise ValueError("Unhandled cell type %r" % cell)
 
         if self._fnames is not None:
@@ -418,13 +527,21 @@ class File(object):
         continuous = all(is_cg(f.function_space()) for f in functions) and \
             is_cg(mesh.coordinates.function_space())
 
-        coordinates = self._prepare_output(mesh.coordinates, continuous)
+        maxElem = mesh.coordinates.function_space().ufl_element()
+        for f in functions:
+            newElem = f.function_space().ufl_element()
+            maxElem = get_sup_element(maxElem, newElem)
 
-        functions = tuple(self._prepare_output(f, continuous)
+        # we must interpolate on to highest degree in order to create our points...
+        # and we must still index correctly into them!
+
+        coordinates = self._prepare_output(mesh.coordinates, maxElem)
+
+        functions = tuple(self._prepare_output(f, maxElem)
                           for f in functions)
 
         if self._topology is None:
-            self._topology = get_topology(coordinates.function)
+             self._topology = get_topology(coordinates.function)
 
         basename = "%s_%s" % (self.basename, next(self.counter))
 
