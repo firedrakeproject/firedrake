@@ -7,7 +7,9 @@ import ufl
 import weakref
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
-from .paraview_reodering_bs import vtk_lagrange_tet_reoder, vtk_lagrange_hex_reoder
+from .paraview_reodering_bs import vtk_lagrange_tet_reoder,\
+    vtk_lagrange_hex_reoder, vtk_lagrange_interval_reoder,\
+    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reoder
 __all__ = ("File", )
 
 
@@ -24,7 +26,7 @@ VTK_LAGRANGE_QUADRILATERAL   = 70
 VTK_LAGRANGE_TETRAHEDRON     = 71
 VTK_LAGRANGE_HEXAHEDRON      = 72
 VTK_LAGRANGE_WEDGE           = 73
-VTK_LAGRANGE_PYRAMID         = 74
+#VTK_LAGRANGE_PYRAMID         = 74
 
 ufl_quad = ufl.TensorProductCell(ufl.Cell("interval"),
                                  ufl.Cell("interval"))
@@ -34,8 +36,11 @@ ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"),
                           ufl.Cell("interval"))
 cells = {
     (ufl.Cell("interval"), False): VTK_INTERVAL,
+    (ufl.Cell("interval"), True): VTK_LAGRANGE_CURVE,
     (ufl.Cell("triangle"), False): VTK_TRIANGLE,
+    (ufl.Cell("triangle"), True): VTK_LAGRANGE_TRIANGLE,
     (ufl.Cell("quadrilateral"), False): VTK_QUADRILATERAL,
+    (ufl.Cell("quadrilateral"), True): VTK_LAGRANGE_QUADRILATERAL,
     (ufl_quad, False): VTK_QUADRILATERAL,
     (ufl.Cell("tetrahedron"), False): VTK_TETRAHEDRON,
     (ufl_wedge, False): VTK_WEDGE,
@@ -211,6 +216,15 @@ def get_topology(coordinates):
         perm = vtk_lagrange_hex_reoder(V.ufl_element())
         values = values[:, perm]
         offsetMap = offsetMap[perm]
+    elif cells[cell, use_lag] == VTK_LAGRANGE_CURVE:
+        perm = vtk_lagrange_interval_reoder(V.ufl_element())
+        values = values[:, perm]
+    elif cells[cell, use_lag] == VTK_LAGRANGE_TRIANGLE:
+        perm = vtk_lagrange_triangle_reorder(V.ufl_element())
+        values = values[:, perm]
+    elif cells[cell, use_lag] == VTK_LAGRANGE_QUADRILATERAL:
+        perm = vtk_lagrange_quad_reoder(V.ufl_element())
+        values = values[:, perm]
     elif cells.get((cell, use_lag)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
@@ -222,10 +236,10 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
-        if is_cg(V):
-            scale = 1
-        else:
-            scale = cell.num_vertices()
+        # if is_cg(V):
+        #     scale = 1
+        # else:
+        #     scale = cell.num_vertices()
             
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
@@ -234,31 +248,18 @@ def get_topology(coordinates):
             def vrange(cell_layers):
                 return numpy.repeat(cell_layers - cell_layers.cumsum(),
                                     cell_layers) + numpy.arange(cell_layers.sum())
-            print("cell layer:", vrange(cell_layers))
             offsets = numpy.outer(vrange(cell_layers), offsetMap)
-            print("offset map:", offsets)
             num_cells = cell_layers.sum()
         else:
             cell_layers = mesh.cell_set.layers - 1
             offsets = numpy.outer(numpy.arange(cell_layers, dtype=IntType), offsetMap)
-            print("off1:",offsets)
             offsets = numpy.tile(offsets, (num_cells, 1))
-            print("off2:", offsets)
             num_cells *= cell_layers
     
     connectivity = numpy.repeat(values, cell_layers, axis=0)
     # Add offsets going up the column
     con = connectivity + offsets
-    print(connectivity)
-    print("yay:", offsets.shape, connectivity.shape, con.shape)
-    print(len(set(con[0]).intersection(set(con[1]))))
-    ugg = values + offsetMap
-    ugg = ugg.flatten()
-    set(ugg)
-    print(len(set(values.flatten()).intersection(set(ugg))))
     connectivity = con.flatten()
-    print(connectivity)
-
     if not(use_lag):
         offsets_into_con = numpy.arange(start=cell.num_vertices(),
                                         stop=cell.num_vertices() * (num_cells + 1),
