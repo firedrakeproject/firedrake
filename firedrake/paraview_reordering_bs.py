@@ -1,38 +1,65 @@
 from tsfc.fiatinterface import create_element
 import numpy as np
 
-#is this valid for Tensorproduct
+
 def firedrake_local_to_cart(element):
+    r"""Gets the list of nodes for an element (provided they exist.)
+    :arg element: a ufl element.
+    :returns: a list of arrays of floats where each array is a node.
+    """
     fiat_element = create_element(element, vector_is_mixed=False)
     # TODO: Surely there is an easier way that I've forgotten?
-    carts = [np.array(list(phi.get_point_dict().keys())[0]) for phi in fiat_element.dual_basis()]
+    carts = [np.array(list(phi.get_point_dict().keys())[0])
+             for phi in fiat_element.dual_basis()]
     return carts
 
+
 def invert(list1, list2):
+    r"""Given two maps (lists) from [0..N] to nodes, finds a permutations between them.
+    :arg list1: a list of nodes.
+    :arg list2: a second list of nodes.
+    :returns a list of integers, l, such that list1[x] = list2[l[x]]
+    """
     if len(list1) != len(list2):
-        raise Exception("Find better exception or rule out.")
+        raise Exception("Dimension of Paraview basis and Element basis unequal.")
 
     def find_same(val, lst, tol=0.0000001):
         for (idx, x)in enumerate(lst):
             if np.linalg.norm(val - x) < tol:
                 return idx
-        # not implemented yet -> interpolate
-        raise Exception("Incompatible basises!")
+        raise Exception("Basis of element incompatible with paraview basis: node {0} is not in {1}".format(val, lst))
     # finds map from idx of list 1 to list of list 2.
     perm = [find_same(x, list2) for x in list1]
+    #  check for bijectivity:
+    if len(set(perm)) != len(list1):
+        raise Exception("Unable to establish permutation between Paraview basis and given element basis.")
     return perm
 
-def bar_index(index, order):
+
+"""
+The following functions are translations of funtions in the VTK source;we use them find the order of nodes in the lagrange basises that Paraview uses. We don't document them fully, but link back to the vtk source.
+These come from VTK version 8.2.0.
+We could simplify all of this by depending on VTK's python bindings.
+"""
+
+
+def bar_index_3d(index, order):
+    r"""
+    See vtkLagrangeTetra::BarycentricIndex
+    """
     idxmax = order
     idxmin = 0
     VertexMaxCoords = [3, 0, 1, 2]
-    LinearVertices = [[0,0,0,1], [1,0,0,0], [0,1,0,0], [0,0,1,0]]
-    EdgeVertices = [[0,1], [1,2], [2,0], [0, 3], [1,3], [2,3]]
-    FaceBCoords = [[0,2,3], [2,0,1], [2,1,3], [1,0,3]]
-    FaceMinCoord = [1,3,0,2]
-    bindex = [0,0,0,0]
-    while (index >= 2 * (order*order + 1) and index !=0 and order > 3):
-        index -= 2*(order * order + 1)
+    LinearVertices = [[0, 0, 0, 1], [1, 0, 0, 0],
+                      [0, 1, 0, 0], [0, 0, 1, 0]]
+    EdgeVertices = [[0, 1], [1, 2], [2, 0], [0, 3],
+                    [1, 3], [2, 3]]
+    FaceBCoords = [[0, 2, 3], [2, 0, 1],
+                   [2, 1, 3], [1, 0, 3]]
+    FaceMinCoord = [1, 3, 0, 2]
+    bindex = [0, 0, 0, 0]
+    while (index >= 2 * (order * order + 1) and index != 0 and order > 3):
+        index -= 2 * (order * order + 1)
         idxmax -= 3
         idxmin += 1
         order -= 4
@@ -46,57 +73,53 @@ def bar_index(index, order):
         edgeId = (index - 4) // (order - 1)
         vertexId = (index - 4) % (order - 1)
         for coord in range(4):
-            bindex[coord] = idxmin +\
-                            (LinearVertices[EdgeVertices[edgeId][0]][coord] *
-                             (idxmax - idxmin - 1 - vertexId) +
-                             LinearVertices[EdgeVertices[edgeId][1]][coord] *
-                             (1 + vertexId))
+            temp1 = LinearVertices[EdgeVertices[edgeId][0]][coord]
+            temp2 = (idxmax - idxmin - 1 - vertexId)
+            temp3 = LinearVertices[EdgeVertices[edgeId][1]][coord]
+            temp4 = (1 + vertexId)
+            bindex[coord] = idxmin + (temp1 * temp2 + temp3 * temp4)
+
         return bindex
     else:
-        #we are on a face
-        faceId = (index - 4 - 6*(order - 1)) // ((order - 2)*(order - 1)//2)
-        vertexId = (index -4- 6*(order - 1)) % ((order - 2)*(order - 1)//2)
+        # we are on a face
+        faceId = (index - 4 - 6 * (order - 1)) // ((order - 2) * (order - 1) // 2)
+        vertexId = (index - 4 - 6 * (order - 1)) % ((order - 2) * (order - 1) // 2)
         pbindex = [0, 0, 0]
         if (order != 3):
-            pbindex = bar_index(vertexId, order - 3)
-            
+            pbindex = bar_index_3d(vertexId, order - 3)
         for i in range(3):
             bindex[FaceBCoords[faceId][i]] = (idxmin + 1 + pbindex[i])
         bindex[FaceMinCoord[faceId]] = idxmin
         return bindex
-            
 
-            
-def normed_bar_index(index, order):
-    b = bar_index(index, order)
-    bp = [b[0]/order, b[1]/order, b[2]/order, b[3]/order]
-    return(np.array(bp))
 
-def all_bar_index(order):
-    count = int((order + 1) * (order + 2) * (order + 3) // 6)
-    return([normed_bar_index(i, order) for i in range(count)])
+def normed_bar_index_3d(index, order):
+    r"""
+    Advances on bar_index_3d by producing an actual barancentric coordinate.
+    """
+    b = bar_index_3d(index, order)
+    bp = np.array([b[0], b[1], b[2], b[3]])
+    return bp / order
 
 
 def bar_to_cart_3d(bar):
-    v0 = np.array([0,0,0])
-    v1 = np.array([1,0,0])
-    v2 = np.array([0,1,0])
+    v0 = np.array([0, 0, 0])
+    v1 = np.array([1, 0, 0])
+    v2 = np.array([0, 1, 0])
     v3 = np.array([0, 0, 1])
-    mat = np.array([v1, v2, v3, v0]) # ([v2, v3, v0, v1]) # ([v1, v2, v3, v0])
-    return(np.dot(bar, mat))
+    mat = np.array([v1, v2, v3, v0])
+    return np.dot(bar, mat)
 
 
-def vtk_local_to_cart(order):
-    bars = all_bar_index(order)
+def vtk_tet_local_to_cart(order):
+    r"""Produces a list of nodes for VTK's lagrange tet basis.
+    :arg order: the order of the tet
+    :return a list of arrays of floats
+    """
+    count = int((order + 1) * (order + 2) * (order + 3) // 6)
+    bars = [normed_bar_index_3d(i, order) for i in range(count)]
     carts = [bar_to_cart_3d(b) for b in bars]
-    return(carts)
-
-
-def vtk_lagrange_tet_reoder(ufl_element):
-    degree = ufl_element.degree()
-    vtk_local = vtk_local_to_cart(degree)
-    firedrake_local = firedrake_local_to_cart(ufl_element)
-    return invert(vtk_local, firedrake_local)
+    return carts
 
 
 def qsynatx(test, t, f):
@@ -105,8 +128,11 @@ def qsynatx(test, t, f):
     else:
         return f
 
-def vtk_point_index_from_ijk(i, j, k, order=None):
-    #if len(order) != 3 or i < 0 or j <0 or k
+
+def vtk_hex_point_index_from_ijk(i, j, k, order=None):
+    r"""
+    See vtkLagrangeHexahedron::PointIndexFromIJK
+    """
     ibdy = (i == 0 or i == order[0])
     jbdy = (j == 0 or j == order[1])
     kbdy = (k == 0 or k == order[2])
@@ -120,14 +146,12 @@ def vtk_point_index_from_ijk(i, j, k, order=None):
     if nbdy == 3:
         # return vertex
         # interprets:  (i ? (j ? 2 : 1) : (j ? 3 : 0)) + (k ? 4 : 0);
-        
         ret = 4 if ktrue else 0
         if itrue:
             ret += 2 if jtrue else 1
         else:
             ret += 3 if jtrue else 0
         return ret
-    
     offset = 8
     if nbdy == 2:  # edge
         if not ibdy:  # on the i axis
@@ -140,18 +164,18 @@ def vtk_point_index_from_ijk(i, j, k, order=None):
             temp1 = order[0] - 1 if itrue else 2 * (order[0] - 1) + order[1] - 1
             temp2 = 2 * (order[0] - 1 + order[1] - 1) if ktrue else 0
             return temp0 + temp1 + temp2 + offset
-        else: # on the k axis
+        else:  # on the k axis
             offset += 4 * (order[0] - 1) + 4 * (order[1] - 1)
             temp0 = k - 1
             temp1 = (order[2] - 1) * ((3 if jtrue else 1) if itrue else (2 if jtrue else 0))
             return temp0 + temp1 + offset
     offset += 4 * (order[0] - 1 + order[1] - 1 + order[2] - 1)
     if nbdy == 1:  # face
-        if ibdy: 
+        if ibdy:
             temp1 = j - 1
             temp2 = (order[1] - 1) * (k-1)
             temp3 = qsynatx(itrue, (order[1] - 1) * (order[2] - 1), 0)
-            return temp1 +  temp2 + temp3 + offset
+            return temp1 + temp2 + temp3 + offset
         offset += 2 * (order[1] - 1) * (order[2] - 1)
         if jbdy:
             temp1 = i - 1
@@ -164,37 +188,34 @@ def vtk_point_index_from_ijk(i, j, k, order=None):
             temp2 = ((order[0] - 1) * (j - 1))
             temp3 = qsynatx(ktrue, (order[0] - 1) * (order[1] - 1), 0)
             return temp1 + temp2 + temp3 + offset
-    #nbdy == 0 -> inside the body
-    offset += 2 * ((order[1] - 1) * (order[2] - 1) +
-                   (order[2] - 1) * (order[0] - 1) +
-                   (order[0] - 1) * (order[1] - 1))
+    offset += 2 * ((order[1] - 1) * (order[2] - 1)
+                   + (order[2] - 1) * (order[0] - 1)
+                   + (order[0] - 1) * (order[1] - 1))
     temp1 = (i - 1)
     temp2 = (order[0] - 1) * ((j - 1) + (order[1] - 1) * (k - 1))
     return temp1 + temp2 + offset
 
+
 def vtk_hex_local_to_cart(orders):
+    r"""Produces a list of nodes for VTK's lagrange hex basis.
+    :arg order: the three orders of the hex basis.
+    :return a list of arrays of floats.
+    """
+
     sizes = tuple([o + 1 for o in orders])
     size = np.product(sizes)
     loc_to_cart = np.empty(size, dtype="object")
     for loc in np.ndindex(sizes):
-        idx = vtk_point_index_from_ijk(*loc, order=orders)
+        idx = vtk_hex_point_index_from_ijk(*loc, order=orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
         loc_to_cart[idx] = cart
     return(loc_to_cart)
 
-def vtk_lagrange_hex_reoder(ufl_element):
-    degree = max(ufl_element.degree())
-    if any([d != degree for d in ufl_element.degree()]):
-        raise Exception("Degrees on tensor products must be uniform b/c paraview is stupid.")
-    vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
-    firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    if len(set(inv)) != len(inv):
-        raise Exception("FIX ME")
-    return (inv)
-
 
 def vtk_interval_local_coord(i, order):
+    r"""
+    See vtkLagrangeCurve::PointIndexFromIJK.
+    """
     if i == 0:
         return (0.0)
     elif i == order:
@@ -202,29 +223,19 @@ def vtk_interval_local_coord(i, order):
     else:
         return i / order
 
-def vtk_lagrange_interval_reoder(ufl_element):
-    degree = ufl_element.degree()
-    vtk_local = [vtk_interval_local_coord(x, degree) for x in range(degree + 1)]
-    firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    if len(set(inv)) != len(inv):
-        raise Exception("FIX ME")
-    return inv
 
-    
 def bar_to_cart_2d(bar):
-    v0 = np.array([0,0])
-    v1 = np.array([1,0])
-    v2 = np.array([0,1])
+    v0 = np.array([0, 0])
+    v1 = np.array([1, 0])
+    v2 = np.array([0, 1])
     mat = np.array([v1, v2, v0])
     return(np.dot(bar, mat))
-    
 
 
 def triangle_barycentric_index(index, order):
-    if order < 1:
-        raise Exception("Add me later")
-
+    r"""
+    See vtkLagrangeTriangle::BarycentricIndex
+    """
     idxmax = order
     idxmin = 0
 
@@ -249,23 +260,22 @@ def triangle_barycentric_index(index, order):
         bindex[dim % 3] = (idxmin + 1) + offset
     return bindex
 
+
 def vtk_triangle_index_cart(index, order):
     bindex = triangle_barycentric_index(index, order)
     cart = bar_to_cart_2d(bindex)
     return cart
+
 
 def all_bar_index2d(order):
     count = (order + 1) * (order + 2) // 2
     return [vtk_triangle_index_cart(idx, order) / order for idx in range(count)]
 
 
-def vtk_lagrange_triangle_reorder(ufl_element):
-    degree = ufl_element.degree()
-    vtk_local = all_bar_index2d(degree)
-    firedrake_local = firedrake_local_to_cart(ufl_element)
-    return invert(vtk_local, firedrake_local)
-
-def vtk_point_index_from_ij(i, j, order):
+def vtk_quad_index_from_ij(i, j, order):
+    r"""
+    See vtkLagrangeQuadrilateral::PointIndexFromIJK
+    """
     ibdy = (i == 0 or i == order[0])
     jbdy = (j == 0 or j == order[1])
 
@@ -273,7 +283,6 @@ def vtk_point_index_from_ij(i, j, order):
 
     itrue = i != 0
     jtrue = j != 0
-    
     if (nbdy == 2):
         return qsynatx(itrue, qsynatx(jtrue, 2, 1), qsynatx(jtrue, 3, 0))
 
@@ -289,57 +298,58 @@ def vtk_point_index_from_ij(i, j, order):
             return temp1 + temp2 + offset
 
     offset += 2 * (order[0] - 1 + order[1] - 1)
-    return offset + (i - 1) + (order[0]  - 1) * (j - 1)
+    return offset + (i - 1) + (order[0] - 1) * (j - 1)
 
-    
+
 def vtk_quad_local_to_cart(orders):
+    r"""Produces a list of nodes for VTK's lagrange quad basis.
+    :arg order: the order of the quad basis.
+    :return a list of arrays of floats.
+    """
     sizes = tuple([o + 1 for o in orders])
     size = np.product(sizes)
     loc_to_cart = np.empty(size, dtype="object")
     for loc in np.ndindex(sizes):
-        idx = vtk_point_index_from_ij(*loc, order=orders)
+        idx = vtk_quad_index_from_ij(*loc, order=orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
         loc_to_cart[idx] = cart
     return(loc_to_cart)
 
-def vtk_lagrange_quad_reoder(ufl_element):
-    degree = ufl_element.degree() # better be uniform
-    vtk_local = vtk_quad_local_to_cart((degree, degree))
-    firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    if len(set(inv)) != len(inv):
-        raise Exception("FIX ME")
-    return (inv)
-
 
 def triangle_dof_offset(order, i, j):
+    r"""
+    See vtkLagrangeWedge::PointIndexFromIJK
+    """
     return i + order * (j - 1) - (j * (j + 1)) // 2
 
+
 def wedge_point_index_from_ijk(i, j, k, order):
+    r"""
+    See vtkLagrangeWedge::PointIndexFromIJK
+    """
     rsOrder = order[0]
     rm1 = rsOrder - 1
     tOrder = order[2]
     tm1 = tOrder - 1
     ibdy = i == 0
     jbdy = j == 0
-    ijbdy = i + j == rsOrder
+    ijbdy = (i + j) == rsOrder
     kbdy = (k == 0 or k == tOrder)
     nbdy = int(ibdy) + int(jbdy) + int(ijbdy) + int(kbdy)
-
     ktrue = k != 0
-    jtrue = j != 0
-    itrue = i != 0
-    #skip invalid  stuff
-
+    if (i < 0 or i > rsOrder or j < 0 or j > rsOrder or i+j > rsOrder or k < 0 or k > tOrder):
+        return -1
     if nbdy == 3:
-        return qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2) +\
-                       qsynatx(ktrue, 3, 0))
+        return qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2)) +\
+            qsynatx(ktrue, 3, 0)
 
     offset = 6
     if nbdy == 2:
         if not kbdy:
             offset += rm1 * 6
-            temp1 = qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2) * tm1)
+            temp1 = k - 1
+            temp2 = qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2)) * tm1
+            return offset + temp1 + temp2
         else:
             offset += qsynatx(k == tOrder, 3 * rm1, 0)
             if jbdy:
@@ -366,20 +376,82 @@ def wedge_point_index_from_ijk(i, j, k, order):
         if ijbdy:
             return offset + (rsOrder - i - 1) + rm1 * (k - 1)
         offset += nqfdof
-        return offset + j -1 + rm1 * (k - 1)
+        return offset + j - 1 + rm1 * (k - 1)
 
     offset += 2 * ntfdof + 3 * nqfdof
 
     return offset + triangle_dof_offset(rsOrder, i, j) + ntfdof * (k - 1)
 
-# def vtk_wedge_local_to_cart(orders):
-#     sizes = tuple([o + 1 for o in orders])
-#     size = np.product(sizes)
-#     loc_to_cart = np.empty(size, dtype="object")
-#     for loc in np.ndindex(sizes):
-#         idx = vtk_point_index_from_ijk(*loc, order=orders)
-#         xy = bar_to_cart_2d([cart[0], cart[1]])
-#         z = 
-#         #cart = np.array([c / o for (c, o) in zip(loc, orders)])
-#         loc_to_cart[idx] = cart
-#     return(loc_to_cart)
+
+def vtk_wedge_local_to_cart(ordersp):
+    r"""Produces a list of nodes for VTK's lagrange wedge basis.
+    :arg order: the orders of the wedge (triangle, interval)
+    :return a list of arrays of floats
+    """
+    orders = [ordersp[0], ordersp[0], ordersp[1]]
+    sizes = tuple([o + 1 for o in orders])
+    triSize = (orders[0] + 1) * (orders[0] + 2) // 2
+    totalSize = triSize * (orders[2] + 1)
+    loc_to_cart = np.empty(totalSize, dtype="object")
+    for loc in np.ndindex(sizes):
+        if loc[0] + loc[1] > orders[0]:
+            continue
+        idx = wedge_point_index_from_ijk(loc[0], loc[1], loc[2], orders)
+        cart = np.array([c / o for (c, o) in zip(loc, orders)])
+        loc_to_cart[idx] = cart
+    return(loc_to_cart)
+
+
+"""
+The following functions take a given ufl_element, (indicated by the function name), and
+produce a permutation of the element's basis that turns it into the basis that VTK/Paraview
+uses.
+"""
+
+
+def vtk_lagrange_interval_reoder(ufl_element):
+    degree = ufl_element.degree()
+    vtk_local = [vtk_interval_local_coord(x, degree) for x in range(degree + 1)]
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    inv = invert(vtk_local, firedrake_local)
+    return inv
+
+
+def vtk_lagrange_triangle_reorder(ufl_element):
+    degree = ufl_element.degree()
+    vtk_local = all_bar_index2d(degree)
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    return invert(vtk_local, firedrake_local)
+
+
+def vtk_lagrange_quad_reoder(ufl_element):
+    degree = ufl_element.degree()
+    vtk_local = vtk_quad_local_to_cart((degree, degree))
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    inv = invert(vtk_local, firedrake_local)
+    return (inv)
+
+
+def vtk_lagrange_tet_reoder(ufl_element):
+    degree = ufl_element.degree()
+    vtk_local = vtk_tet_local_to_cart(degree)
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    return invert(vtk_local, firedrake_local)
+
+
+def vtk_lagrange_wedge_reoder(ufl_element):
+    degree = ufl_element.degree()
+    vtk_local = vtk_wedge_local_to_cart(degree)
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    inv = invert(vtk_local, firedrake_local)
+    return inv
+
+
+def vtk_lagrange_hex_reoder(ufl_element):
+    degree = max(ufl_element.degree())
+    if any([d != degree for d in ufl_element.degree()]):
+        raise Exception("Degrees on hex tensor products must be uniform b/c VTK is stupid.")
+    vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
+    firedrake_local = firedrake_local_to_cart(ufl_element)
+    inv = invert(vtk_local, firedrake_local)
+    return inv

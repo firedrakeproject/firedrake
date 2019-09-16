@@ -1,4 +1,3 @@
-
 import collections
 import itertools
 import numpy
@@ -9,7 +8,8 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
 from .paraview_reodering_bs import vtk_lagrange_tet_reoder,\
     vtk_lagrange_hex_reoder, vtk_lagrange_interval_reoder,\
-    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reoder
+    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reoder,\
+    vtk_lagrange_wedge_reoder
 __all__ = ("File", )
 
 
@@ -20,20 +20,20 @@ VTK_TETRAHEDRON = 10
 VTK_HEXAHEDRON = 12
 VTK_WEDGE = 13
 #  Lagrange VTK cells:
-VTK_LAGRANGE_CURVE           = 68
-VTK_LAGRANGE_TRIANGLE        = 69
-VTK_LAGRANGE_QUADRILATERAL   = 70
-VTK_LAGRANGE_TETRAHEDRON     = 71
-VTK_LAGRANGE_HEXAHEDRON      = 72
-VTK_LAGRANGE_WEDGE           = 73
-#VTK_LAGRANGE_PYRAMID         = 74
+VTK_LAGRANGE_CURVE = 68
+VTK_LAGRANGE_TRIANGLE = 69
+VTK_LAGRANGE_QUADRILATERAL = 70
+VTK_LAGRANGE_TETRAHEDRON = 71
+VTK_LAGRANGE_HEXAHEDRON = 72
+VTK_LAGRANGE_WEDGE = 73
+
 
 ufl_quad = ufl.TensorProductCell(ufl.Cell("interval"),
                                  ufl.Cell("interval"))
 ufl_wedge = ufl.TensorProductCell(ufl.Cell("triangle"),
                                   ufl.Cell("interval"))
 ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"),
-                          ufl.Cell("interval"))
+                                ufl.Cell("interval"))
 cells = {
     (ufl.Cell("interval"), False): VTK_INTERVAL,
     (ufl.Cell("interval"), True): VTK_LAGRANGE_CURVE,
@@ -43,10 +43,11 @@ cells = {
     (ufl.Cell("quadrilateral"), True): VTK_LAGRANGE_QUADRILATERAL,
     (ufl_quad, False): VTK_QUADRILATERAL,
     (ufl.Cell("tetrahedron"), False): VTK_TETRAHEDRON,
+    (ufl.Cell("tetrahedron"), True): VTK_LAGRANGE_TETRAHEDRON,
     (ufl_wedge, False): VTK_WEDGE,
+    (ufl_wedge, True): VTK_LAGRANGE_WEDGE,
     (ufl_hex, False): VTK_HEXAHEDRON,
     (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
-    (ufl.Cell("tetrahedron"), True): VTK_LAGRANGE_TETRAHEDRON
 }
 
 
@@ -95,14 +96,14 @@ def is_lagrange_element(element):
         return all(map(is_lagrange_element, subelems))
     else:
         return False
-    
-            
+
+
 def is_lagrange(V):
     """Is the provided space in the Lagrange basis?
-    
     :arg V: A FunctionSpace
     """
     return is_lagrange_element(V.ufl_element())
+
 
 def continous_elem(elem):
     if isinstance(elem, ufl.TensorProductElement):
@@ -112,10 +113,12 @@ def continous_elem(elem):
     elif isinstance(elem, ufl.TensorElement):
         return continous_elem(elem.sub_elements()[0])
     elif isinstance(elem, ufl.MixedElement):
-        raise Exception("mixed elements not supported in output.py")
+        raise Exception("Mixed elements not supported in output.py; use split")
     elif isinstance(elem, ufl.FiniteElementBase):
         family = elem.family()
-        return(family in ["CG", "Lagrange", "Q"]) #being conservative..
+        # being conservative:
+        return(family in ["CG", "Lagrange", "Q"])
+
 
 def get_sup_element(elem1, elem2):
     cell1 = elem1.cell()
@@ -133,33 +136,9 @@ def get_sup_element(elem1, elem2):
         maxDegree = max(degree2, maxDegree)
     else:
         maxDegree = max(maxDegree, *degree2)
-    bothContinous = continous_elem(elem1)  and continous_elem(elem2)
+    bothContinous = continous_elem(elem1) and continous_elem(elem2)
     cont = "CG" if bothContinous else "DG"
     return(ufl.FiniteElement(cont, cell1, maxDegree))
-
-    
-
-    
-
-# def get_degree_element(element):
-#     subelems = element.sub_elements()
-#     family = element.family()
-#     if len(subelems) == 0:
-#         if (family == "Lagrange" or family == "Discontinuous Lagrange"):
-#             return((degree,))
-#         elif (family == "Q" or family == "DQ"):
-#             return((degree, degree))
-#         else:
-#             raise Exception("Can't find degree of elem:", element)
-#     elif family == "TensorProductElement":
-#         degrees = [None for x in range(len(subelems))]
-#         for (idx, subelem) in enumerate(subelems):
-#             degree = get_degree_element(subelem)
-#             degrees[idx] = degree
-#         return([[d for deg in degrees for d in deg]])
-#def get_degree(element):
-    
-
 
 
 def get_topology(coordinates):
@@ -225,10 +204,13 @@ def get_topology(coordinates):
     elif cells[cell, use_lag] == VTK_LAGRANGE_QUADRILATERAL:
         perm = vtk_lagrange_quad_reoder(V.ufl_element())
         values = values[:, perm]
+    elif cells[cell, use_lag] == VTK_LAGRANGE_WEDGE:
+        perm = vtk_lagrange_wedge_reoder(V.ufl_element())
+        values = values[:, perm]
+        offsetMap = offsetMap[perm]
     elif cells.get((cell, use_lag)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
-
 
     # Repeat up the column
     num_cells = mesh.cell_set.size
@@ -236,11 +218,6 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
-        # if is_cg(V):
-        #     scale = 1
-        # else:
-        #     scale = cell.num_vertices()
-            
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
@@ -255,7 +232,6 @@ def get_topology(coordinates):
             offsets = numpy.outer(numpy.arange(cell_layers, dtype=IntType), offsetMap)
             offsets = numpy.tile(offsets, (num_cells, 1))
             num_cells *= cell_layers
-    
     connectivity = numpy.repeat(values, cell_layers, axis=0)
     # Add offsets going up the column
     con = connectivity + offsets
@@ -270,7 +246,6 @@ def get_topology(coordinates):
                                         stop=basis_dim * (num_cells + 1),
                                         step=basis_dim,
                                         dtype=IntType)
-    
     cell_types = numpy.full(num_cells, cells[cell, use_lag], dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
             OFunction(offsets_into_con, "offsets", None),
@@ -466,8 +441,6 @@ class File(object):
         if function.ufl_element == max_elem:
             return OFunction(array=get_array(function),
                              name=name, function=function)
-
-
         #  OK, let's go and do it.
         shape = function.ufl_shape
         output = self._output_functions.get(function)
@@ -542,7 +515,7 @@ class File(object):
                           for f in functions)
 
         if self._topology is None:
-             self._topology = get_topology(coordinates.function)
+            self._topology = get_topology(coordinates.function)
 
         basename = "%s_%s" % (self.basename, next(self.counter))
 
