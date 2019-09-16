@@ -6,7 +6,7 @@ import ufl
 import weakref
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
-from .paraview_reodering_bs import vtk_lagrange_tet_reoder,\
+from .paraview_reordering_bs import vtk_lagrange_tet_reoder,\
     vtk_lagrange_hex_reoder, vtk_lagrange_interval_reoder,\
     vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reoder,\
     vtk_lagrange_wedge_reoder
