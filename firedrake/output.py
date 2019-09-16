@@ -402,7 +402,7 @@ class File(object):
         self._output_functions = weakref.WeakKeyDictionary()
         self._mappers = weakref.WeakKeyDictionary()
 
-    def _prepare_output(self, function, max_elem, mesh=False):
+    def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
             TensorFunctionSpace, Function, Projector, Interpolator
 
@@ -472,13 +472,14 @@ class File(object):
         continuous = all(is_cg(f.function_space()) for f in functions) and \
             is_cg(mesh.coordinates.function_space())
 
+        # Since Points define nodes for both the mesh and function, we must
+        # interpolate/project ALL involved elements onto a single larger
+        # finite element.
         maxElem = mesh.coordinates.function_space().ufl_element()
         for f in functions:
             newElem = f.function_space().ufl_element()
-            maxElem = get_sup_element(maxElem, newElem, both_continous=continuous)
-
-        # we must interpolate on to highest degree in order to create our points...
-        # and we must still index correctly into them!
+            maxElem = get_sup_element(maxElem, newElem,
+                                      both_continous=continuous)
 
         coordinates = self._prepare_output(mesh.coordinates, maxElem)
 

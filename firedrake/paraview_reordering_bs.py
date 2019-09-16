@@ -43,7 +43,36 @@ We could simplify all of this by depending on VTK's python bindings.
 """
 
 
-def bar_index_3d(index, order):
+def triangle_barycentric_index(index, order):
+    r"""
+    See vtkLagrangeTriangle::BarycentricIndex
+    """
+    idxmax = order
+    idxmin = 0
+
+    bindex = [0, 0, 0]
+
+    while (index != 0 and index >= 3 * order):
+        index -= 3 * order
+        idxmax -= 2
+        idxmin += 1
+        order -= 3
+
+    if (index < 3):
+        bindex[index] = idxmin
+        bindex[(index + 1) % 3] = idxmin
+        bindex[(index + 2) % 3] = idxmax
+    else:
+        index -= 3
+        dim = index // (order - 1)
+        offset = (index - dim * (order - 1))
+        bindex[(dim + 1) % 3] = idxmin
+        bindex[(dim + 2) % 3] = (idxmax - 1) - offset
+        bindex[dim] = (idxmin + 1) + offset
+    return bindex
+
+
+def tet_barycentric_index(index, order):
     r"""
     See vtkLagrangeTetra::BarycentricIndex
     """
@@ -58,6 +87,7 @@ def bar_index_3d(index, order):
                    [2, 1, 3], [1, 0, 3]]
     FaceMinCoord = [1, 3, 0, 2]
     bindex = [0, 0, 0, 0]
+    # Can this condition ever fire?
     while (index >= 2 * (order * order + 1) and index != 0 and order > 3):
         index -= 2 * (order * order + 1)
         idxmax -= 3
@@ -86,20 +116,11 @@ def bar_index_3d(index, order):
         vertexId = (index - 4 - 6 * (order - 1)) % ((order - 2) * (order - 1) // 2)
         pbindex = [0, 0, 0]
         if (order != 3):
-            pbindex = bar_index_3d(vertexId, order - 3)
+            pbindex = triangle_barycentric_index(vertexId, order - 3)
         for i in range(3):
             bindex[FaceBCoords[faceId][i]] = (idxmin + 1 + pbindex[i])
         bindex[FaceMinCoord[faceId]] = idxmin
         return bindex
-
-
-def normed_bar_index_3d(index, order):
-    r"""
-    Advances on bar_index_3d by producing an actual barancentric coordinate.
-    """
-    b = bar_index_3d(index, order)
-    bp = np.array([b[0], b[1], b[2], b[3]])
-    return bp / order
 
 
 def bar_to_cart_3d(bar):
@@ -117,7 +138,7 @@ def vtk_tet_local_to_cart(order):
     :return a list of arrays of floats
     """
     count = int((order + 1) * (order + 2) * (order + 3) // 6)
-    bars = [normed_bar_index_3d(i, order) for i in range(count)]
+    bars = [np.array(tet_barycentric_index(i, order))/order for i in range(count)]
     carts = [bar_to_cart_3d(b) for b in bars]
     return carts
 
@@ -230,35 +251,6 @@ def bar_to_cart_2d(bar):
     v2 = np.array([0, 1])
     mat = np.array([v1, v2, v0])
     return(np.dot(bar, mat))
-
-
-def triangle_barycentric_index(index, order):
-    r"""
-    See vtkLagrangeTriangle::BarycentricIndex
-    """
-    idxmax = order
-    idxmin = 0
-
-    bindex = [0, 0, 0]
-
-    while (index != 0 and index >= 3 * order):
-        index -= 3 * order
-        idxmax -= 2
-        idxmin += 1
-        order -= 3
-
-    if (index < 3):
-        bindex[index] = idxmin
-        bindex[(index + 1) % 3] = idxmin
-        bindex[(index + 2) % 3] = idxmax
-    else:
-        index -= 3
-        dim = index // (order - 1)
-        offset = (index - dim * (order - 1))
-        bindex[(dim + 1) % 3] = idxmin
-        bindex[(dim + 2) % 3] = (idxmax - 1) - offset
-        bindex[dim % 3] = (idxmin + 1) + offset
-    return bindex
 
 
 def vtk_triangle_index_cart(index, order):
