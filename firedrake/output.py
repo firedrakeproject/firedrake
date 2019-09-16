@@ -6,10 +6,10 @@ import ufl
 import weakref
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
-from .paraview_reordering_bs import vtk_lagrange_tet_reoder,\
-    vtk_lagrange_hex_reoder, vtk_lagrange_interval_reoder,\
-    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reoder,\
-    vtk_lagrange_wedge_reoder
+from .paraview_reordering_bs import vtk_lagrange_tet_reorder,\
+    vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
+    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reorder,\
+    vtk_lagrange_wedge_reorder
 __all__ = ("File", )
 
 
@@ -160,23 +160,23 @@ def get_topology(coordinates):
         # 0----2      0----1
         values = values[:, [0, 2, 3, 1, 4, 6, 7, 5]]
     elif cells[cell, use_lag] == VTK_LAGRANGE_TETRAHEDRON:
-        perm = vtk_lagrange_tet_reoder(V.ufl_element())
+        perm = vtk_lagrange_tet_reorder(V.ufl_element())
         values = values[:, perm]
     elif cells[cell, use_lag] == VTK_LAGRANGE_HEXAHEDRON:
-        perm = vtk_lagrange_hex_reoder(V.ufl_element())
+        perm = vtk_lagrange_hex_reorder(V.ufl_element())
         values = values[:, perm]
         offsetMap = offsetMap[perm]
     elif cells[cell, use_lag] == VTK_LAGRANGE_CURVE:
-        perm = vtk_lagrange_interval_reoder(V.ufl_element())
+        perm = vtk_lagrange_interval_reorder(V.ufl_element())
         values = values[:, perm]
     elif cells[cell, use_lag] == VTK_LAGRANGE_TRIANGLE:
         perm = vtk_lagrange_triangle_reorder(V.ufl_element())
         values = values[:, perm]
     elif cells[cell, use_lag] == VTK_LAGRANGE_QUADRILATERAL:
-        perm = vtk_lagrange_quad_reoder(V.ufl_element())
+        perm = vtk_lagrange_quad_reorder(V.ufl_element())
         values = values[:, perm]
     elif cells[cell, use_lag] == VTK_LAGRANGE_WEDGE:
-        perm = vtk_lagrange_wedge_reoder(V.ufl_element())
+        perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
         offsetMap = offsetMap[perm]
     elif cells.get((cell, use_lag)) is None:

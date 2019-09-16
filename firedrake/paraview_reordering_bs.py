@@ -401,7 +401,7 @@ uses.
 """
 
 
-def vtk_lagrange_interval_reoder(ufl_element):
+def vtk_lagrange_interval_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = [vtk_interval_local_coord(x, degree) for x in range(degree + 1)]
     firedrake_local = firedrake_local_to_cart(ufl_element)
@@ -416,7 +416,7 @@ def vtk_lagrange_triangle_reorder(ufl_element):
     return invert(vtk_local, firedrake_local)
 
 
-def vtk_lagrange_quad_reoder(ufl_element):
+def vtk_lagrange_quad_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = vtk_quad_local_to_cart((degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
@@ -424,14 +424,14 @@ def vtk_lagrange_quad_reoder(ufl_element):
     return (inv)
 
 
-def vtk_lagrange_tet_reoder(ufl_element):
+def vtk_lagrange_tet_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = vtk_tet_local_to_cart(degree)
     firedrake_local = firedrake_local_to_cart(ufl_element)
     return invert(vtk_local, firedrake_local)
 
 
-def vtk_lagrange_wedge_reoder(ufl_element):
+def vtk_lagrange_wedge_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = vtk_wedge_local_to_cart(degree)
     firedrake_local = firedrake_local_to_cart(ufl_element)
@@ -439,7 +439,7 @@ def vtk_lagrange_wedge_reoder(ufl_element):
     return inv
 
 
-def vtk_lagrange_hex_reoder(ufl_element):
+def vtk_lagrange_hex_reorder(ufl_element):
     degree = max(ufl_element.degree())
     if any([d != degree for d in ufl_element.degree()]):
         raise Exception("Degrees on hex tensor products must be uniform b/c VTK is stupid.")
