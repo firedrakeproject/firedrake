@@ -86,41 +86,14 @@ def is_linear(V):
     return V.finat_element.space_dimension() == nvertex
 
 
-def is_lagrange_element(element):
-    subelems = element.sub_elements()
-    family = element.family()
-
-    if len(subelems) == 0:
-        return family == "Lagrange" or family == "Discontinuous Lagrange" or family == "Q" or family == "DQ"
-    elif family == "TensorProductElement":
-        return all(map(is_lagrange_element, subelems))
-    else:
-        return False
-
-
-def is_lagrange(V):
-    """Is the provided space in the Lagrange basis?
-    :arg V: A FunctionSpace
+def get_sup_element(elem1, elem2, both_continous=False):
+    """Given two ufl elements and a flag for their mutual continuity, return
+    a third ufl element that contains both elements.
+    :arg elem1: A ufl element.
+    :arg elem2: A ufl element.
+    :both_continous: A flag indicating if both elements are continous.
+    :returns: A ufl element containing elem1 and elem2.
     """
-    return is_lagrange_element(V.ufl_element())
-
-
-def continous_elem(elem):
-    if isinstance(elem, ufl.TensorProductElement):
-        return all(map(continous_elem, elem.sub_elements()))
-    elif isinstance(elem, ufl.VectorElement):
-        return continous_elem(elem.sub_elements()[0])
-    elif isinstance(elem, ufl.TensorElement):
-        return continous_elem(elem.sub_elements()[0])
-    elif isinstance(elem, ufl.MixedElement):
-        raise Exception("Mixed elements not supported in output.py; use split")
-    elif isinstance(elem, ufl.FiniteElementBase):
-        family = elem.family()
-        # being conservative:
-        return(family in ["CG", "Lagrange", "Q"])
-
-
-def get_sup_element(elem1, elem2):
     cell1 = elem1.cell()
     cell2 = elem2.cell()
     if cell1 != cell2:
@@ -136,9 +109,7 @@ def get_sup_element(elem1, elem2):
         maxDegree = max(degree2, maxDegree)
     else:
         maxDegree = max(maxDegree, *degree2)
-    bothContinous = continous_elem(elem1) and continous_elem(elem2)
-    cont = "CG" if bothContinous else "DG"
-    return(ufl.FiniteElement(cont, cell1, maxDegree))
+    return(ufl.FiniteElement("CG" if both_continous else "DG", cell1, maxDegree))
 
 
 def get_topology(coordinates):
@@ -504,7 +475,7 @@ class File(object):
         maxElem = mesh.coordinates.function_space().ufl_element()
         for f in functions:
             newElem = f.function_space().ufl_element()
-            maxElem = get_sup_element(maxElem, newElem)
+            maxElem = get_sup_element(maxElem, newElem, both_continous=continuous)
 
         # we must interpolate on to highest degree in order to create our points...
         # and we must still index correctly into them!
