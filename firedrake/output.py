@@ -189,6 +189,7 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
+        # NOTE: This could be made more efficiet in the linear case.
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
