@@ -145,45 +145,45 @@ def vtk_hex_point_index_from_ijk(i, j, k, order=None):
     offset = 8
     if nbdy == 2:  # edge
         if not ibdy:  # on the i axis
-            temp0 = i - 1
-            temp1 = (order[0] - 1 + order[1] - 1 if j != 0 else 0)
-            temp2 = 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
-            return temp0 + temp1 + temp2 + offset
+            offset += i - 1
+            offset += (order[0] - 1 + order[1] - 1 if j != 0 else 0)
+            offset += 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
+            return offset
         elif not jbdy:  # on the j axis
-            temp0 = j - 1
-            temp1 = order[0] - 1 if i != 0 else 2 * (order[0] - 1) + order[1] - 1
-            temp2 = 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
-            return temp0 + temp1 + temp2 + offset
+            offset += j - 1
+            offset += order[0] - 1 if i != 0 else 2 * (order[0] - 1) + order[1] - 1
+            offset += 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
+            return offset
         else:  # on the k axis
             offset += 4 * (order[0] - 1) + 4 * (order[1] - 1)
-            temp0 = k - 1
-            temp1 = (order[2] - 1) * ((3 if j != 0 else 1) if i != 0 else (2 if j != 0 else 0))
-            return temp0 + temp1 + offset
+            offset += k - 1
+            offset += (order[2] - 1) * ((3 if j != 0 else 1) if i != 0 else (2 if j != 0 else 0))
+            return offset
     offset += 4 * (order[0] - 1 + order[1] - 1 + order[2] - 1)
     if nbdy == 1:  # face
         if ibdy:
-            temp1 = j - 1
-            temp2 = (order[1] - 1) * (k-1)
-            temp3 = qsynatx(i != 0, (order[1] - 1) * (order[2] - 1), 0)
-            return temp1 + temp2 + temp3 + offset
+            offset += j - 1
+            offset += (order[1] - 1) * (k-1)
+            offset += qsynatx(i != 0, (order[1] - 1) * (order[2] - 1), 0)
+            return offset
         offset += 2 * (order[1] - 1) * (order[2] - 1)
         if jbdy:
-            temp1 = i - 1
-            temp2 = (order[0] - 1) * (k - 1)
-            temp3 = qsynatx(j != 0, (order[2] - 1) * (order[0] - 1), 0)
-            return temp1 + temp2 + temp3 + offset
+            offset += i - 1
+            offset += (order[0] - 1) * (k - 1)
+            offset += qsynatx(j != 0, (order[2] - 1) * (order[0] - 1), 0)
+            return offset
         else:
             offset += 2 * (order[2] - 1) * (order[0] - 1)
-            temp1 = i - 1
-            temp2 = ((order[0] - 1) * (j - 1))
-            temp3 = qsynatx(k != 0, (order[0] - 1) * (order[1] - 1), 0)
-            return temp1 + temp2 + temp3 + offset
+            offset += i - 1
+            offset += ((order[0] - 1) * (j - 1))
+            offset += qsynatx(k != 0, (order[0] - 1) * (order[1] - 1), 0)
+            return offset
     offset += 2 * ((order[1] - 1) * (order[2] - 1)
                    + (order[2] - 1) * (order[0] - 1)
                    + (order[0] - 1) * (order[1] - 1))
-    temp1 = (i - 1)
-    temp2 = (order[0] - 1) * ((j - 1) + (order[1] - 1) * (k - 1))
-    return temp1 + temp2 + offset
+    offset += (i - 1)
+    offset += (order[0] - 1) * ((j - 1) + (order[1] - 1) * (k - 1))
+    return offset
 
 
 
@@ -214,13 +214,13 @@ def vtk_quad_index_from_ij(i, j, order):
     offset = 4
     if nbdy == 1:
         if not ibdy:
-            temp1 = i - 1
-            temp2 = qsynatx(j != 0, order[0] - 1 + order[1] - 1, 0)
-            return temp1 + temp2 + offset
+            offset += i - 1
+            offset += qsynatx(j != 0, order[0] - 1 + order[1] - 1, 0)
+            return offset
         if not jbdy:
-            temp1 = j - 1
-            temp2 = qsynatx(i != 0, order[0] - 1, 2 * (order[0] - 1) + order[1] - 1)
-            return temp1 + temp2 + offset
+            offset += j - 1
+            offset += qsynatx(i != 0, order[0] - 1, 2 * (order[0] - 1) + order[1] - 1)
+            return offset
 
     offset += 2 * (order[0] - 1 + order[1] - 1)
     return offset + (i - 1) + (order[0] - 1) * (j - 1)    
@@ -255,9 +255,9 @@ def wedge_point_index_from_ijk(i, j, k, order):
     if nbdy == 2:
         if not kbdy:
             offset += rm1 * 6
-            temp1 = k - 1
-            temp2 = qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2)) * tm1
-            return offset + temp1 + temp2
+            offset += k - 1
+            offset += qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2)) * tm1
+            return offset
         else:
             offset += qsynatx(k == tOrder, 3 * rm1, 0)
             if jbdy:
