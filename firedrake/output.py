@@ -89,7 +89,7 @@ def is_linear(V):
     return V.finat_element.space_dimension() == nvertex
 
 
-def get_sup_element(*elements, continous=False):
+def get_sup_element(*elements, continuous=False):
     """Given ufl elements and a continuity flag, return
     a new ufl element that contains all elements.
     :arg elements: ufl elements.
@@ -100,8 +100,10 @@ def get_sup_element(*elements, continous=False):
         cell, = set(e.cell() for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
-    degree = max(itertools.chain(*(as_tuple(e.degree()) for e in elements))
-    return ufl.FiniteElement("CG" if continuous else "DG", cell, degree, variant="equispaced")
+    degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
+    return ufl.FiniteElement("CG" if continuous else "DG",
+                             cell=cell, degree=degree,
+                             variant="equispaced")
 
 
 def get_topology(coordinates):
@@ -469,7 +471,8 @@ class File(object):
         # finite element.
         mesh_elem = mesh.coordinates.ufl_element()
         max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
-                                                for f in functions))
+                                                for f in functions),
+                                   continuous=continuous)
 
         coordinates = self._prepare_output(mesh.coordinates, max_elem)
 

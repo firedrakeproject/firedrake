@@ -30,6 +30,7 @@ def invert(list1, list2):
 
     return np.asarray(o2)[np.argsort(o1)]
 
+
 """
 The following functions are translations of funtions in the VTK source;we use them find the order of nodes in the lagrange bases that Paraview uses. We don't document them fully, but link back to the vtk source.
 These come from VTK version 8.2.0.
@@ -186,7 +187,6 @@ def vtk_hex_point_index_from_ijk(i, j, k, order=None):
     return offset
 
 
-
 def vtk_interval_local_coord(i, order):
     r"""
     See vtkLagrangeCurve::PointIndexFromIJK.
@@ -223,7 +223,8 @@ def vtk_quad_index_from_ij(i, j, order):
             return offset
 
     offset += 2 * (order[0] - 1 + order[1] - 1)
-    return offset + (i - 1) + (order[0] - 1) * (j - 1)    
+    return offset + (i - 1) + (order[0] - 1) * (j - 1)
+
 
 def triangle_dof_offset(order, i, j):
     r"""
@@ -289,6 +290,7 @@ def wedge_point_index_from_ijk(i, j, k, order):
     offset += 2 * ntfdof + 3 * nqfdof
 
     return offset + triangle_dof_offset(rsOrder, i, j) + ntfdof * (k - 1)
+
 
 def bar_to_cart_3d(bar):
     v0 = np.array([0, 0, 0])
