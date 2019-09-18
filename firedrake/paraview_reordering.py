@@ -21,7 +21,7 @@ def invert(list1, list2):
     :returns a list of integers, l, such that list1[x] = list2[l[x]]
     """
     if len(list1) != len(list2):
-        raise Exception("Dimension of Paraview basis and Element basis unequal.")
+        raise ValueError("Dimension of Paraview basis and Element basis unequal.")
 
     def find_same(val, lst, tol=0.0000001):
         for (idx, x)in enumerate(lst):
@@ -442,7 +442,7 @@ def vtk_lagrange_wedge_reorder(ufl_element):
 def vtk_lagrange_hex_reorder(ufl_element):
     degree = max(ufl_element.degree())
     if any([d != degree for d in ufl_element.degree()]):
-        raise Exception("Degrees on hex tensor products must be uniform b/c VTK is stupid.")
+        raise ValueError("Degrees on hex tensor products must be uniform b/c VTK is can't understand otherwise.")
     vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
     inv = invert(vtk_local, firedrake_local)

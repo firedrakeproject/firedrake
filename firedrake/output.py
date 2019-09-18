@@ -467,9 +467,9 @@ class File(object):
         # Since Points define nodes for both the mesh and function, we must
         # interpolate/project ALL involved elements onto a single larger
         # finite element.
-        mesh_elem = mesh.coordinates.function_space().ufl_element()
-        max_elem = get_sup_element(mesh_elem, *[f.function_space().ufl_element()
-                                                for f in functions])
+        mesh_elem = mesh.coordinates.ufl_element()
+        max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
+                                                for f in functions))
 
         coordinates = self._prepare_output(mesh.coordinates, max_elem)
 
