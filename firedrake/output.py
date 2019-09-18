@@ -85,7 +85,7 @@ def is_linear(V):
     nvertex = V.ufl_domain().ufl_cell().num_vertices()
     return V.finat_element.space_dimension() == nvertex
 
-#  When I wrote this function, I desperately wanted to write haskell code.
+
 def get_sup_element(elem1, elem2, both_continous=False):
     """Given two ufl elements and a flag for their mutual continuity, return
     a third ufl element that contains both elements.
