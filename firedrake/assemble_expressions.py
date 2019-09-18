@@ -599,6 +599,23 @@ def loopy_inst_mathfunc(expr, context):
         name = expr._name
     return p.Variable(name)(*children)
 
+@loopy_instructions.register(ufl.algebra.Real)
+def loopy_inst_real(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("real")(*children)
+
+
+@loopy_instructions.register(ufl.algebra.Imag)
+def loopy_inst_imag(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("imag")(*children)
+
+
+@loopy_instructions.register(ufl.algebra.Conj)
+def loopy_inst_conj(expr, context):
+    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
+    return p.Variable("conj")(*children)
+
 
 @loopy_instructions.register(ufl.algebra.Power)
 def loopy_inst_power(expr, context):
