@@ -4,8 +4,11 @@ import numpy
 import os
 import ufl
 import weakref
+from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
+from pyop2.utils import as_tuple
+
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
     vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
     vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reorder,\
@@ -86,30 +89,19 @@ def is_linear(V):
     return V.finat_element.space_dimension() == nvertex
 
 
-def get_sup_element(elem1, elem2, both_continous=False):
-    """Given two ufl elements and a flag for their mutual continuity, return
-    a third ufl element that contains both elements.
-    :arg elem1: A ufl element.
-    :arg elem2: A ufl element.
-    :both_continous: A flag indicating if both elements are continous.
-    :returns: A ufl element containing elem1 and elem2.
+def get_sup_element(*elements, continous=False):
+    """Given ufl elements and a continuity flag, return
+    a new ufl element that contains all elements.
+    :arg elements: ufl elements.
+    :continous: A flag indicating if all elements are continous.
+    :returns: A ufl element containing all elements.
     """
-    cell1 = elem1.cell()
-    cell2 = elem2.cell()
-    if cell1 != cell2:
-        raise Exception("Sup for spaces does not exist!")
-    maxDegree = 0
-    degree1 = elem1.degree()
-    degree2 = elem2.degree()
-    if isinstance(degree1, int):
-        maxDegree = max(degree1, maxDegree)
-    else:
-        maxDegree = max(maxDegree, *degree1)
-    if isinstance(degree2, int):
-        maxDegree = max(degree2, maxDegree)
-    else:
-        maxDegree = max(maxDegree, *degree2)
-    return(ufl.FiniteElement("CG" if both_continous else "DG", cell1, maxDegree))
+    try:
+        cell, = set(e.cell() for e in elements)
+    except ValueError:
+        raise ValueError("All cells must be identical")
+    degree = max(itertools.chain(*(as_tuple(e.degree()) for e in elements))
+    return ufl.FiniteElement("CG" if continuous else "DG", cell, degree)
 
 
 def get_topology(coordinates):
@@ -121,7 +113,7 @@ def get_topology(coordinates):
     """
     V = coordinates.function_space()
 
-    use_lag = not(is_linear(V))
+    nonLinear = not is_linear(V)
     mesh = V.ufl_domain().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
@@ -130,14 +122,14 @@ def get_topology(coordinates):
     offsetMap = V.cell_node_map().offset
     # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
-    if cells[cell, use_lag] == VTK_QUADRILATERAL:
+    if cells[cell, nonLinear] == VTK_QUADRILATERAL:
         # Quad is
         #
         # 1--3    3--2
         # |  | -> |  |
         # 0--2    0--1
         values = values[:, [0, 2, 3, 1]]
-    elif cells[cell, use_lag] == VTK_WEDGE:
+    elif cells[cell, nonLinear] == VTK_WEDGE:
         # Wedge is
         #
         #    5          5
@@ -149,7 +141,7 @@ def get_topology(coordinates):
         # |/  \|     |/  \|
         # 0----2     0----1
         values = values[:, [0, 2, 4, 1, 3, 5]]
-    elif cells[cell, use_lag] == VTK_HEXAHEDRON:
+    elif cells[cell, nonLinear] == VTK_HEXAHEDRON:
         # Hexahedron is
         #
         #   5----7      7----6
@@ -159,27 +151,27 @@ def get_topology(coordinates):
         # |/   |/     |/   |/
         # 0----2      0----1
         values = values[:, [0, 2, 3, 1, 4, 6, 7, 5]]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_TETRAHEDRON:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_TETRAHEDRON:
         perm = vtk_lagrange_tet_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_HEXAHEDRON:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_HEXAHEDRON:
         perm = vtk_lagrange_hex_reorder(V.ufl_element())
         values = values[:, perm]
         offsetMap = offsetMap[perm]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_CURVE:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_CURVE:
         perm = vtk_lagrange_interval_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_TRIANGLE:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_TRIANGLE:
         perm = vtk_lagrange_triangle_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_QUADRILATERAL:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_QUADRILATERAL:
         perm = vtk_lagrange_quad_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, use_lag] == VTK_LAGRANGE_WEDGE:
+    elif cells[cell, nonLinear] == VTK_LAGRANGE_WEDGE:
         perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
         offsetMap = offsetMap[perm]
-    elif cells.get((cell, use_lag)) is None:
+    elif cells.get((cell, nonLinear)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
 
@@ -189,7 +181,6 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
-        # NOTE: This could be made more efficiet in the linear case.
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
@@ -208,7 +199,7 @@ def get_topology(coordinates):
     # Add offsets going up the column
     con = connectivity + offsets
     connectivity = con.flatten()
-    if not(use_lag):
+    if not nonLinear:
         offsets_into_con = numpy.arange(start=cell.num_vertices(),
                                         stop=cell.num_vertices() * (num_cells + 1),
                                         step=cell.num_vertices(),
@@ -218,7 +209,7 @@ def get_topology(coordinates):
                                         stop=basis_dim * (num_cells + 1),
                                         step=basis_dim,
                                         dtype=IntType)
-    cell_types = numpy.full(num_cells, cells[cell, use_lag], dtype="uint8")
+    cell_types = numpy.full(num_cells, cells[cell, nonLinear], dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
             OFunction(offsets_into_con, "offsets", None),
             OFunction(cell_types, "types", None))
