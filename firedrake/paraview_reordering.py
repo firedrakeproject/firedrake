@@ -22,19 +22,13 @@ def invert(list1, list2):
     """
     if len(list1) != len(list2):
         raise ValueError("Dimension of Paraview basis and Element basis unequal.")
+    N = len(list1)
+    pt1, o1 = zip(*sorted(zip(map(tuple, list1), range(N))))
+    pt2, o2 = zip(*sorted(zip(map(tuple, list2), range(N))))
+    if not np.allclose(pt1, pt2):
+        raise ValueError("Unable to establish permutation between Paraview basis and given element's basis.")
 
-    def find_same(val, lst, tol=0.0000001):
-        for (idx, x)in enumerate(lst):
-            if np.linalg.norm(val - x) < tol:
-                return idx
-        raise Exception("Basis of element incompatible with paraview basis: node {0} is not in {1}".format(val, lst))
-    # finds map from idx of list 1 to list of list 2.
-    perm = [find_same(x, list2) for x in list1]
-    #  check for bijectivity:
-    if len(set(perm)) != len(list1):
-        raise Exception("Unable to establish permutation between Paraview basis and given element basis.")
-    return perm
-
+    return np.asarray(o2)[np.argsort(o1)]
 
 """
 The following functions are translations of funtions in the VTK source;we use them find the order of nodes in the lagrange bases that Paraview uses. We don't document them fully, but link back to the vtk source.
