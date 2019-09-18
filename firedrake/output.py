@@ -101,7 +101,7 @@ def get_sup_element(*elements, continous=False):
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(itertools.chain(*(as_tuple(e.degree()) for e in elements))
-    return ufl.FiniteElement("CG" if continuous else "DG", cell, degree)
+    return ufl.FiniteElement("CG" if continuous else "DG", cell, degree, variant="equispaced")
 
 
 def get_topology(coordinates):
