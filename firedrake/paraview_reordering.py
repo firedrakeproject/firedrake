@@ -37,7 +37,7 @@ def invert(list1, list2):
 
 
 """
-The following functions are translations of funtions in the VTK source;we use them find the order of nodes in the lagrange basises that Paraview uses. We don't document them fully, but link back to the vtk source.
+The following functions are translations of funtions in the VTK source;we use them find the order of nodes in the lagrange bases that Paraview uses. We don't document them fully, but link back to the vtk source.
 These come from VTK version 8.2.0.
 We could simplify all of this by depending on VTK's python bindings.
 """
