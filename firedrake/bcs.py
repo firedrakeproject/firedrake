@@ -57,8 +57,6 @@ class BCBase(object):
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
-        if V.extruded and V.component is not None:
-            raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.

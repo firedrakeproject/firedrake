@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 import numpy
 from pyop2.datatypes import IntType, ScalarType
 cimport numpy
@@ -55,7 +57,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         PetscInt cell_A, cell_B, i, gdim, num_dof_A, num_dof_B
         PetscInt num_cell_B, num_cell_A, num_vertices
         PetscInt insert_mode = PETSc.InsertMode.ADD_VALUES
-        const PetscInt *V_A_map, *V_B_map
+        const PetscInt *V_A_map
+        const PetscInt *V_B_map
         numpy.ndarray[PetscReal, ndim=2, mode="c"] simplex_A, simplex_B
         numpy.ndarray[PetscReal, ndim=3, mode="c"] simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
@@ -155,7 +158,10 @@ def intersection_finder(mesh_A, mesh_B):
 
     libsupermesh_tree_intersection_finder_set_input(&nnodes_A, &dim_A, &ncells_A, &loc_A,
                                                     &nnodes_B, &dim_B, &ncells_B, &loc_B,
-                                                    <const double*>vertices_A.data, <const long*>vertex_map_A.data, <const double*>vertices_B.data, <const long*>vertex_map_B.data)
+                                                    <double*>vertices_A.data,
+                                                    <long*>vertex_map_A.data,
+                                                    <double*>vertices_B.data,
+                                                    <long*>vertex_map_B.data)
 
     libsupermesh_tree_intersection_finder_query_output(&nindices)
 

@@ -63,6 +63,7 @@ def solver_params(request):
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
                "snes_view": None
                }
     else:
@@ -111,7 +112,8 @@ def solver_params(request):
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               }
+               "fas_coarse_assembled_mat_mumps_icntl_14": 200
+        }
 
 
 @pytest.mark.parallel

@@ -74,8 +74,10 @@ def run_LDG_H_problem(r, degree, quads=False):
               'pc_python_type': 'firedrake.SCPC',
               'pc_sc_eliminate_fields': '0, 1',
               'condensed_field': {'ksp_type': 'preonly',
-                                  'pc_type': 'lu',
-                                  'pc_factor_mat_solver_type': 'mumps'}}
+                                  'pc_type': 'redundant',
+                                  "redundant_pc_type": "lu",
+                                  "redundant_pc_factor_mat_solver_type": "mumps",
+                                  "redundant_mat_mumps_icntl_14": 200}}
 
     bcs = DirichletBC(W.sub(2), Constant(0.0), "on_boundary")
     problem = NonlinearVariationalProblem(F, s, bcs=bcs)

@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 cimport numpy as np
 import numpy as np
 import ctypes
@@ -89,7 +91,7 @@ def bounding_boxes(SpatialIndex sidx not None, np.ndarray[np.float64_t, ndim=1] 
     :returns: a numpy array of candidate bounding boxes."""
     cdef int dim = x.shape[0]
     cdef int64_t *ids = NULL
-    cdef int i
+    cdef uint64_t i
     cdef np.ndarray[np.int64_t, ndim=1, mode="c"] pyids
     cdef uint64_t nids
 

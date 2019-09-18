@@ -124,7 +124,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("ScalarType_c", ast.Symbol(var, (ndof, )),
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
             # Do we have a component of a mixed function?

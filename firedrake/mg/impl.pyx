@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 # Low-level numbering for multigrid support
 from firedrake.petsc import PETSc
 from firedrake import dmplex

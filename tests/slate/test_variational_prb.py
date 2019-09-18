@@ -49,7 +49,8 @@ def test_lvp_equiv_hdg(degree):
               'pc_sc_eliminate_fields': '0, 1',
               'condensed_field': {'ksp_type': 'preonly',
                                   'pc_type': 'lu',
-                                  'pc_factor_mat_solver_type': 'mumps'}}
+                                  'pc_factor_mat_solver_type': 'mumps',
+                                  'mat_mumps_icntl_14': 200}}
     ref_problem = LinearVariationalProblem(a, L, s)
     ref_solver = LinearVariationalSolver(ref_problem, solver_parameters=params)
     ref_solver.solve()
@@ -77,7 +78,8 @@ def test_lvp_equiv_hdg(degree):
     lvp = LinearVariationalProblem(S, r_lambda, t)
     solver = LinearVariationalSolver(lvp, solver_parameters={'ksp_type': 'preonly',
                                                              'pc_type': 'lu',
-                                                             'pc_factor_mat_solver_type': 'mumps'})
+                                                             'pc_factor_mat_solver_type': 'mumps',
+                                                             'mat_mumps_icntl_14': 200})
     solver.solve()
 
     assert np.allclose(uhat_ref.dat.data, t.dat.data, rtol=1.E-12)

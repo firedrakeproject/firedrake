@@ -506,7 +506,6 @@ class Function(ufl.Coefficient):
         :kwarg tolerance: Tolerance to use when checking for points in cell.
         """
         # Need to ensure data is up-to-date for reading
-        self.dat._force_evaluation(read=True, write=False)
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)
         from mpi4py import MPI
