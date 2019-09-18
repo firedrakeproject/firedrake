@@ -131,57 +131,52 @@ def vtk_hex_point_index_from_ijk(i, j, k, order=None):
     ibdy = (i == 0 or i == order[0])
     jbdy = (j == 0 or j == order[1])
     kbdy = (k == 0 or k == order[2])
-
-    itrue = i != 0
-    jtrue = j != 0
-    ktrue = k != 0
-
     nbdy = int(jbdy) + int(kbdy) + int(ibdy)
 
     if nbdy == 3:
         # return vertex
         # interprets:  (i ? (j ? 2 : 1) : (j ? 3 : 0)) + (k ? 4 : 0);
-        ret = 4 if ktrue else 0
-        if itrue:
-            ret += 2 if jtrue else 1
+        ret = 4 if k != 0 else 0
+        if i != 0:
+            ret += 2 if j != 0 else 1
         else:
-            ret += 3 if jtrue else 0
+            ret += 3 if j != 0 else 0
         return ret
     offset = 8
     if nbdy == 2:  # edge
         if not ibdy:  # on the i axis
             temp0 = i - 1
-            temp1 = (order[0] - 1 + order[1] - 1 if jtrue else 0)
-            temp2 = 2 * (order[0] - 1 + order[1] - 1) if ktrue else 0
+            temp1 = (order[0] - 1 + order[1] - 1 if j != 0 else 0)
+            temp2 = 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
             return temp0 + temp1 + temp2 + offset
         elif not jbdy:  # on the j axis
             temp0 = j - 1
-            temp1 = order[0] - 1 if itrue else 2 * (order[0] - 1) + order[1] - 1
-            temp2 = 2 * (order[0] - 1 + order[1] - 1) if ktrue else 0
+            temp1 = order[0] - 1 if i != 0 else 2 * (order[0] - 1) + order[1] - 1
+            temp2 = 2 * (order[0] - 1 + order[1] - 1) if k != 0 else 0
             return temp0 + temp1 + temp2 + offset
         else:  # on the k axis
             offset += 4 * (order[0] - 1) + 4 * (order[1] - 1)
             temp0 = k - 1
-            temp1 = (order[2] - 1) * ((3 if jtrue else 1) if itrue else (2 if jtrue else 0))
+            temp1 = (order[2] - 1) * ((3 if j != 0 else 1) if i != 0 else (2 if j != 0 else 0))
             return temp0 + temp1 + offset
     offset += 4 * (order[0] - 1 + order[1] - 1 + order[2] - 1)
     if nbdy == 1:  # face
         if ibdy:
             temp1 = j - 1
             temp2 = (order[1] - 1) * (k-1)
-            temp3 = qsynatx(itrue, (order[1] - 1) * (order[2] - 1), 0)
+            temp3 = qsynatx(i != 0, (order[1] - 1) * (order[2] - 1), 0)
             return temp1 + temp2 + temp3 + offset
         offset += 2 * (order[1] - 1) * (order[2] - 1)
         if jbdy:
             temp1 = i - 1
             temp2 = (order[0] - 1) * (k - 1)
-            temp3 = qsynatx(jtrue, (order[2] - 1) * (order[0] - 1), 0)
+            temp3 = qsynatx(j != 0, (order[2] - 1) * (order[0] - 1), 0)
             return temp1 + temp2 + temp3 + offset
         else:
             offset += 2 * (order[2] - 1) * (order[0] - 1)
             temp1 = i - 1
             temp2 = ((order[0] - 1) * (j - 1))
-            temp3 = qsynatx(ktrue, (order[0] - 1) * (order[1] - 1), 0)
+            temp3 = qsynatx(k != 0, (order[0] - 1) * (order[1] - 1), 0)
             return temp1 + temp2 + temp3 + offset
     offset += 2 * ((order[1] - 1) * (order[2] - 1)
                    + (order[2] - 1) * (order[0] - 1)
@@ -213,20 +208,18 @@ def vtk_quad_index_from_ij(i, j, order):
 
     nbdy = int(ibdy) + int(jbdy)
 
-    itrue = i != 0
-    jtrue = j != 0
     if (nbdy == 2):
-        return qsynatx(itrue, qsynatx(jtrue, 2, 1), qsynatx(jtrue, 3, 0))
+        return qsynatx(i != 0, qsynatx(j != 0, 2, 1), qsynatx(j != 0, 3, 0))
 
     offset = 4
     if nbdy == 1:
         if not ibdy:
             temp1 = i - 1
-            temp2 = qsynatx(jtrue, order[0] - 1 + order[1] - 1, 0)
+            temp2 = qsynatx(j != 0, order[0] - 1 + order[1] - 1, 0)
             return temp1 + temp2 + offset
         if not jbdy:
             temp1 = j - 1
-            temp2 = qsynatx(itrue, order[0] - 1, 2 * (order[0] - 1) + order[1] - 1)
+            temp2 = qsynatx(i != 0, order[0] - 1, 2 * (order[0] - 1) + order[1] - 1)
             return temp1 + temp2 + offset
 
     offset += 2 * (order[0] - 1 + order[1] - 1)
@@ -252,12 +245,11 @@ def wedge_point_index_from_ijk(i, j, k, order):
     ijbdy = (i + j) == rsOrder
     kbdy = (k == 0 or k == tOrder)
     nbdy = int(ibdy) + int(jbdy) + int(ijbdy) + int(kbdy)
-    ktrue = k != 0
-    if (i < 0 or i > rsOrder or j < 0 or j > rsOrder or i+j > rsOrder or k < 0 or k > tOrder):
+    if (i < 0 or i > rsOrder or j < 0 or j > rsOrder or i + j > rsOrder or k < 0 or k > tOrder):
         return -1
     if nbdy == 3:
         return qsynatx(ibdy and jbdy, 0, qsynatx(jbdy and ijbdy, 1, 2)) +\
-            qsynatx(ktrue, 3, 0)
+            qsynatx(k != 0, 3, 0)
 
     offset = 6
     if nbdy == 2:
@@ -297,7 +289,6 @@ def wedge_point_index_from_ijk(i, j, k, order):
     offset += 2 * ntfdof + 3 * nqfdof
 
     return offset + triangle_dof_offset(rsOrder, i, j) + ntfdof * (k - 1)
-
 
 def bar_to_cart_3d(bar):
     v0 = np.array([0, 0, 0])
