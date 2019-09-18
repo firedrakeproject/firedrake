@@ -117,26 +117,6 @@ def tet_barycentric_index(index, order):
         return bindex
 
 
-def bar_to_cart_3d(bar):
-    v0 = np.array([0, 0, 0])
-    v1 = np.array([1, 0, 0])
-    v2 = np.array([0, 1, 0])
-    v3 = np.array([0, 0, 1])
-    mat = np.array([v1, v2, v3, v0])
-    return np.dot(bar, mat)
-
-
-def vtk_tet_local_to_cart(order):
-    r"""Produces a list of nodes for VTK's lagrange tet basis.
-    :arg order: the order of the tet
-    :return a list of arrays of floats
-    """
-    count = int((order + 1) * (order + 2) * (order + 3) // 6)
-    bars = [np.array(tet_barycentric_index(i, order))/order for i in range(count)]
-    carts = [bar_to_cart_3d(b) for b in bars]
-    return carts
-
-
 def qsynatx(test, t, f):
     if test:
         return t
@@ -211,21 +191,6 @@ def vtk_hex_point_index_from_ijk(i, j, k, order=None):
     return temp1 + temp2 + offset
 
 
-def vtk_hex_local_to_cart(orders):
-    r"""Produces a list of nodes for VTK's lagrange hex basis.
-    :arg order: the three orders of the hex basis.
-    :return a list of arrays of floats.
-    """
-
-    sizes = tuple([o + 1 for o in orders])
-    size = np.product(sizes)
-    loc_to_cart = np.empty(size, dtype="object")
-    for loc in np.ndindex(sizes):
-        idx = vtk_hex_point_index_from_ijk(*loc, order=orders)
-        cart = np.array([c / o for (c, o) in zip(loc, orders)])
-        loc_to_cart[idx] = cart
-    return(loc_to_cart)
-
 
 def vtk_interval_local_coord(i, order):
     r"""
@@ -237,25 +202,6 @@ def vtk_interval_local_coord(i, order):
         return 1.0
     else:
         return i / order
-
-
-def bar_to_cart_2d(bar):
-    v0 = np.array([0, 0])
-    v1 = np.array([1, 0])
-    v2 = np.array([0, 1])
-    mat = np.array([v1, v2, v0])
-    return(np.dot(bar, mat))
-
-
-def vtk_triangle_index_cart(index, order):
-    bindex = triangle_barycentric_index(index, order)
-    cart = bar_to_cart_2d(bindex)
-    return cart
-
-
-def all_bar_index2d(order):
-    count = (order + 1) * (order + 2) // 2
-    return [vtk_triangle_index_cart(idx, order) / order for idx in range(count)]
 
 
 def vtk_quad_index_from_ij(i, j, order):
@@ -284,23 +230,7 @@ def vtk_quad_index_from_ij(i, j, order):
             return temp1 + temp2 + offset
 
     offset += 2 * (order[0] - 1 + order[1] - 1)
-    return offset + (i - 1) + (order[0] - 1) * (j - 1)
-
-
-def vtk_quad_local_to_cart(orders):
-    r"""Produces a list of nodes for VTK's lagrange quad basis.
-    :arg order: the order of the quad basis.
-    :return a list of arrays of floats.
-    """
-    sizes = tuple([o + 1 for o in orders])
-    size = np.product(sizes)
-    loc_to_cart = np.empty(size, dtype="object")
-    for loc in np.ndindex(sizes):
-        idx = vtk_quad_index_from_ij(*loc, order=orders)
-        cart = np.array([c / o for (c, o) in zip(loc, orders)])
-        loc_to_cart[idx] = cart
-    return(loc_to_cart)
-
+    return offset + (i - 1) + (order[0] - 1) * (j - 1)    
 
 def triangle_dof_offset(order, i, j):
     r"""
@@ -367,6 +297,76 @@ def wedge_point_index_from_ijk(i, j, k, order):
     offset += 2 * ntfdof + 3 * nqfdof
 
     return offset + triangle_dof_offset(rsOrder, i, j) + ntfdof * (k - 1)
+
+
+def bar_to_cart_3d(bar):
+    v0 = np.array([0, 0, 0])
+    v1 = np.array([1, 0, 0])
+    v2 = np.array([0, 1, 0])
+    v3 = np.array([0, 0, 1])
+    mat = np.array([v1, v2, v3, v0])
+    return np.dot(bar, mat)
+
+
+def vtk_tet_local_to_cart(order):
+    r"""Produces a list of nodes for VTK's lagrange tet basis.
+    :arg order: the order of the tet
+    :return a list of arrays of floats
+    """
+    count = int((order + 1) * (order + 2) * (order + 3) // 6)
+    bars = [np.array(tet_barycentric_index(i, order))/order for i in range(count)]
+    carts = [bar_to_cart_3d(b) for b in bars]
+    return carts
+
+
+def vtk_hex_local_to_cart(orders):
+    r"""Produces a list of nodes for VTK's lagrange hex basis.
+    :arg order: the three orders of the hex basis.
+    :return a list of arrays of floats.
+    """
+
+    sizes = tuple([o + 1 for o in orders])
+    size = np.product(sizes)
+    loc_to_cart = np.empty(size, dtype="object")
+    for loc in np.ndindex(sizes):
+        idx = vtk_hex_point_index_from_ijk(*loc, order=orders)
+        cart = np.array([c / o for (c, o) in zip(loc, orders)])
+        loc_to_cart[idx] = cart
+    return(loc_to_cart)
+
+
+def bar_to_cart_2d(bar):
+    v0 = np.array([0, 0])
+    v1 = np.array([1, 0])
+    v2 = np.array([0, 1])
+    mat = np.array([v1, v2, v0])
+    return(np.dot(bar, mat))
+
+
+def vtk_triangle_index_cart(index, order):
+    bindex = triangle_barycentric_index(index, order)
+    cart = bar_to_cart_2d(bindex)
+    return cart
+
+
+def all_bar_index2d(order):
+    count = (order + 1) * (order + 2) // 2
+    return [vtk_triangle_index_cart(idx, order) / order for idx in range(count)]
+
+
+def vtk_quad_local_to_cart(orders):
+    r"""Produces a list of nodes for VTK's lagrange quad basis.
+    :arg order: the order of the quad basis.
+    :return a list of arrays of floats.
+    """
+    sizes = tuple([o + 1 for o in orders])
+    size = np.product(sizes)
+    loc_to_cart = np.empty(size, dtype="object")
+    for loc in np.ndindex(sizes):
+        idx = vtk_quad_index_from_ij(*loc, order=orders)
+        cart = np.array([c / o for (c, o) in zip(loc, orders)])
+        loc_to_cart[idx] = cart
+    return(loc_to_cart)
 
 
 def vtk_wedge_local_to_cart(ordersp):
