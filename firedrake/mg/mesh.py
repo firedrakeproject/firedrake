@@ -181,7 +181,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
     :arg height: the height of the domain to extrude to. This is in contrast
        to the extrusion routines, which take in layer_height, the height of
-       an individual layer. This is because when refining in the extruded 
+       an individual layer. This is because when refining in the extruded
        dimension, the height of an individual layer will vary.
     :arg base_layer: the number of layers to use the extrusion of the coarsest
        grid.
