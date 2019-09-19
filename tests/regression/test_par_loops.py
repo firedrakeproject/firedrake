@@ -192,7 +192,7 @@ def test_cg_max_field(f):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i, 0] = fmax(c[i, 0], d[0, 0])
+        c[i, 0] = fmax(real(c[i, 0]), real(d[0, 0]))
     end
     """
     par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)},
@@ -209,7 +209,7 @@ def test_cg_max_field_extruded(f_extruded):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i, 0] = if(c[i, 0] > d[0, 0], c[i, 0], d[0, 0])
+        c[i, 0] = if(real(c[i, 0]) > real(d[0, 0]), c[i, 0], d[0, 0])
     end
     """
 
