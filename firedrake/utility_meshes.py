@@ -948,14 +948,14 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     x, y, z = ufl.SpatialCoordinate(m)
     # This will DTWT on meshes with more than 26 refinement levels.
     # (log_2 1e8 ~= 26.5)
-    tol = Constant(1.0e-8)
+    tol = ufl.real(Constant(1.0e-8))
     rnew = ufl.Max(1 - abs(z), 0)
     # Avoid division by zero (when rnew is zero, x & y are also zero)
-    x0 = ufl.conditional(ufl.lt(rnew, tol),
+    x0 = ufl.conditional(ufl.lt(ufl.real(rnew), tol),
                          0, x/rnew)
     y0 = ufl.conditional(ufl.lt(rnew, tol),
                          0, y/rnew)
-    theta = ufl.conditional(ufl.ge(y0, 0),
+    theta = ufl.conditional(ufl.ge(ufl.real(y0), 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
     m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
@@ -964,7 +964,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     # push out to a sphere
     phi = ufl.pi*z/2
     # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
-    scale = ufl.conditional(ufl.lt(rnew, tol),
+    scale = ufl.conditional(ufl.lt(ufl.real(rnew), ufl.real(tol)),
                             0, ufl.cos(phi)/rnew)
     znew = ufl.sin(phi)
     # Make a copy of the coordinates so that we can blend two different
@@ -979,7 +979,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
     Xradial = Constant(radius)*Xlow/r
 
-    s = (abs(z) - z0)/(1-z0)
+    s = ufl.real(abs(z) - z0)/(1-z0)
     exp = ufl.exp
     taper = ufl.conditional(ufl.gt(s, 1.0-tol),
                             1.0,
