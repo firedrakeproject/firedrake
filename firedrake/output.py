@@ -44,6 +44,7 @@ cells = {
     (ufl.Cell("triangle"), True): VTK_LAGRANGE_TRIANGLE,
     (ufl.Cell("quadrilateral"), False): VTK_QUADRILATERAL,
     (ufl.Cell("quadrilateral"), True): VTK_LAGRANGE_QUADRILATERAL,
+    (ufl_quad, True): VTK_LAGRANGE_QUADRILATERAL,
     (ufl_quad, False): VTK_QUADRILATERAL,
     (ufl.Cell("tetrahedron"), False): VTK_TETRAHEDRON,
     (ufl.Cell("tetrahedron"), True): VTK_LAGRANGE_TETRAHEDRON,
