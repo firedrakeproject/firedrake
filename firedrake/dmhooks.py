@@ -44,6 +44,8 @@ from functools import partial
 import firedrake
 from firedrake.petsc import PETSc
 
+from pyop2.utils import as_tuple
+
 
 def get_function_space(dm):
     """Get the :class:`~.FunctionSpace` attached to this DM.
@@ -52,14 +54,23 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref, element, indices, (name, names) = info
-    mesh = meshref()
-    if mesh is None:
+    weakref_list, element, indices, (name, names) = info
+    meshes = [r() for r in weakref_list]
+    if any([m is None for m in meshes]):
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
-    V = firedrake.FunctionSpace(mesh, element, name=name)
-    if len(V) > 1:
-        for V_, name in zip(V, names):
-            V_.topological.name = name
+    if len(meshes) == 1:
+        V = firedrake.FunctionSpace(meshes[0], element, name=name)
+        if len(V) > 1:
+            for V_, name in zip(V, names):
+                V_.topological.name = name
+    else:
+        sub_elements = element.sub_elements()
+        if len(meshes) != sub_elements:
+            raise RuntimeError("Number of meshes and elements must match.")
+        spaces = []
+        for i in range(len(meshes)):
+            spaces.append(firedrake.FunctionSpace(meshes[i], sub_elements[i], name=names[i]))
+        V = firedrake.MixedFunctionSpace(spaces, name=name)
     for index in indices:
         V = V.sub(index)
     return V
@@ -92,7 +103,9 @@ def set_function_space(dm, V):
         names = tuple(V_.name for V_ in V)
     element = V.ufl_element()
 
-    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    weakref_list = [weakref.ref(m) for m in as_tuple(mesh)]
+
+    info = (weakref_list, element, tuple(reversed(indices)), (V.name, names))
     dm.setAttr("__fs_info__", info)
 
 
