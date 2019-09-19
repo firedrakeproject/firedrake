@@ -179,6 +179,21 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
+    :arg height: the height of the domain to extrude to. This is in contrast
+       to the extrusion routines, which take in layer_height, the height of
+       an individual layer. This is because when refining in the extruded 
+       dimension, the height of an individual layer will vary.
+    :arg base_layer: the number of layers to use the extrusion of the coarsest
+       grid.
+    :arg refinement_ratio: the ratio by which base_layer should be increased
+       on every refinement. refinement_ratio = 2 means standard uniform
+       refinement. refinement_ratio = 1 means to not refine in the extruded
+       dimension, i.e. the multigrid hierarchy will use semicoarsening.
+    :arg layers: as an alternative to specifying base_layer and refinement_ratio,
+       one may specify directly the number of layers to be used by each level
+       in the extruded hierarchy. This option cannot be combined with base_layer
+       and refinement_ratio. Note that the ratio of successive entries in this
+       iterable must be an integer for the multigrid transfer operators to work.
     :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
        extruded mesh. Used by pyadjoint.
 
