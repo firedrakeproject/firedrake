@@ -121,7 +121,7 @@ If instead we want projection, we use
    This feature requires Paraview version 5.5.0 or better. If you must use an older version of Paraview, you must manually interpolate mesh coordinates and field coordinates to a piecewise linear function space, represented with either Lagrange or discontinuous Lagrange basis functions.
 
 
-Using Paraview on higher order data.
+Using Paraview on higher order data
 ++++++++++++++++++++++++++++++++++++++++++
 
 Paraview's visualisation algorithims are typically exact on piecewise linear data,
