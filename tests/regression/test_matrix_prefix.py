@@ -18,7 +18,7 @@ def test_matrix_prefix_solver(options_prefix):
     v = TestFunction(V)
 
     a = inner(u, v)*dx
-    L = inner(v, dx)
+    L = conj(v) * dx
     uh = Function(V)
 
     problem = LinearVariationalProblem(a, L, uh)
@@ -61,7 +61,7 @@ def test_matrix_prefix_solver_assembled_pc(options_prefix):
     v = TestFunction(V)
 
     a = inner(u, v)*dx
-    L = inner(v, dx)
+    L = conj(v) * dx
     uh = Function(V)
 
     problem = LinearVariationalProblem(a, L, uh)
