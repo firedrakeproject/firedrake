@@ -1,7 +1,9 @@
 from tsfc.fiatinterface import create_element
 import numpy as np
 from pyop2.utils import as_tuple
-import vtk
+from vtk import vtkLagrangeTetra, vtkLagrangeHexahedron,\
+    vtkLagrangeTriangle, vtkLagrangeQuadrilateral,\
+    vtkLagrangeWedge
 
 
 def firedrake_local_to_cart(element):
@@ -80,7 +82,7 @@ def vtk_tet_local_to_cart(order):
     :return a list of arrays of floats
     """
     count = int((order + 1) * (order + 2) * (order + 3) // 6)
-    tet = vtk.vtkLagrangeTetra()
+    tet = vtkLagrangeTetra()
     carts = [tet_barycentric_index(tet, i, order) for i in range(count)]
     return carts
 
@@ -94,7 +96,7 @@ def vtk_hex_local_to_cart(orders):
     sizes = tuple([o + 1 for o in orders])
     size = np.product(sizes)
     loc_to_cart = np.empty(size, dtype="object")
-    hexa = vtk.vtkLagrangeHexahedron()
+    hexa = vtkLagrangeHexahedron()
     for loc in np.ndindex(sizes):
         idx = hexa.PointIndexFromIJK(loc[0], loc[1], loc[2], orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
@@ -122,7 +124,7 @@ def vtk_triangle_index_cart(tri, index, order):
 
 def vtk_triangle_local_to_cart(order):
     count = (order + 1) * (order + 2) // 2
-    tri = vtk.vtkLagrangeTriangle()
+    tri = vtkLagrangeTriangle()
     return [vtk_triangle_index_cart(tri, idx, order) / order
             for idx in range(count)]
 
@@ -135,7 +137,7 @@ def vtk_quad_local_to_cart(orders):
     sizes = tuple([o + 1 for o in orders])
     size = np.product(sizes)
     loc_to_cart = np.empty(size, dtype="object")
-    quad = vtk.vtkLagrangeQuadrilateral()
+    quad = vtkLagrangeQuadrilateral()
     for loc in np.ndindex(sizes):
         idx = quad.PointIndexFromIJK(loc[0], loc[1], orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
@@ -153,7 +155,7 @@ def vtk_wedge_local_to_cart(ordersp):
     triSize = (orders[0] + 1) * (orders[0] + 2) // 2
     totalSize = triSize * (orders[2] + 1)
     loc_to_cart = np.empty(totalSize, dtype="object")
-    wedge = vtk.vtkLagrangeWedge()
+    wedge = vtkLagrangeWedge()
     for loc in np.ndindex(sizes):
         if loc[0] + loc[1] > orders[0]:
             continue
