@@ -405,7 +405,7 @@ def vtk_lagrange_triangle_reorder(ufl_element):
 
 
 def vtk_lagrange_quad_reorder(ufl_element):
-    degree = as_tuple(ufl_element.degree())[1]  # should be uniform
+    degree = as_tuple(ufl_element.degree())[0]  # should be uniform
     vtk_local = vtk_quad_local_to_cart((degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
     inv = invert(vtk_local, firedrake_local)
