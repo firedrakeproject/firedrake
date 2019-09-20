@@ -1,5 +1,6 @@
 from tsfc.fiatinterface import create_element
 import numpy as np
+from pyop2.utils import as_tuple
 
 
 def firedrake_local_to_cart(element):
@@ -352,8 +353,6 @@ def vtk_quad_local_to_cart(orders):
     :arg order: the order of the quad basis.
     :return a list of arrays of floats.
     """
-    if isinstance(orders, int):
-        orders = (orders, orders)
     sizes = tuple([o + 1 for o in orders])
     size = np.product(sizes)
     loc_to_cart = np.empty(size, dtype="object")
@@ -406,8 +405,8 @@ def vtk_lagrange_triangle_reorder(ufl_element):
 
 
 def vtk_lagrange_quad_reorder(ufl_element):
-    degree = ufl_element.degree()
-    vtk_local = vtk_quad_local_to_cart(degree)
+    degree = as_tuple(ufl_element.degree())[1]  # should be uniform
+    vtk_local = vtk_quad_local_to_cart((degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
     inv = invert(vtk_local, firedrake_local)
     return (inv)
