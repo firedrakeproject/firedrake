@@ -6,8 +6,8 @@ Visualising the results of simulations
 ======================================
 
 Having run a simulation, it is likely that we will want to look at the
-results.  To do this, Firedrake supports saving data in VTK_
-format, suitable for visualisation in Paraview_ (among others).
+ results.  To do this, Firedrake supports saving data in VTK_
+-format, suitable for visualisation in Paraview_ (amongst others).
 
 In addition, 1D and 2D function could be plotted and displayed using the python
 library of matplotlib (an optional dependency of firedrake)
