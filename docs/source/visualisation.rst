@@ -88,19 +88,19 @@ Visualising high-order data
 
 The file format Firedrake outputs to currently supports the
 visualisation of scalar-, vector-, or tensor-valued fields
-represented with `arbitrary order (possibly discontinuous) Lagrange basis functions`__.
+represented with an `arbitrary order (possibly discontinuous) Lagrange basis`__.
 Furthermore, the fields must be in an isoparametric function space, meaning
 the :doc:`mesh coordinates <mesh-coordinates>` associated to a field must be represented
 with the same basis as the field. To visualise fields in anything
 other than these spaces we must transform the data to this
-format first.  One option is to do so by hand before outputting.
+format first. One option is to do so by hand before outputting.
 Either by :doc:`interpolating <interpolation>` or else :func:`projecting <project>`
-the coordinates and then the field. Since this is such a common operation,
-the :class:`~.File` object is set up to manage these operations automatically,
-we just need to choose whether we want data to be interpolated or projected.
-The default is to use interpolation.  For example, assume we wish to output a
-vector-valued function that lives in an :math:`H(\operatorname{div})` space.
-If we want it to be interpolated in the output file we can use
+the :doc:`mesh coordinates <mesh-coordinates>` and then the field. Since this is
+such a common operation, the :class:`~.File` object is set up to manage these
+operations automatically, we just need to choose whether we want data to be
+interpolated or projected. The default is to use interpolation.  For example,
+assume we wish to output a vector-valued function that lives in an :math:`H(\operatorname{div})`
+space. If we want it to be interpolated in the output file we can use
 
 .. code-block:: python
 
@@ -118,7 +118,7 @@ If instead we want projection, we use
    projected.write(f)
 
 .. note::
-   This feature requires Paraview version 5.5.0 or better. If you must use an older version of Paraview, you must manually interpolate mesh coordinates and field coordinates to a piecewise linear function space, represented with either Lagrange or discontinuous Lagrange basis functions.
+   This feature requires Paraview version 5.5.0 or better. If you must use an older version of Paraview, you must manually interpolate mesh coordinates and field coordinates to a piecewise linear function space, represented with either a Lagrange or discontinuous Lagrange basis.
 
 
 Using Paraview on higher order data
@@ -145,7 +145,7 @@ This approximation can be controlled by at least two means:
 Besides the two tools listed above, Paraview provides many other tools (filters)
 that might be applied to the original data or composed with the tools listed above.
 Documentation on these interactions is sparse, but tessellation can be used to understand
-this issue: the Tessellate_ filter produces another unstructured grid from its inputs and
+this issue: the Tessellate_ filter produces another unstructured grid from its inputs so
 algorithims can be applied to both the tessellated and input unstructured grid. The tessellated
 data can also be saved for future reference. 
 
