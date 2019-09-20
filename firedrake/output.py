@@ -123,6 +123,7 @@ def get_topology(coordinates):
     value_shape = values.shape
     basis_dim = value_shape[1]
     offsetMap = V.cell_node_map().offset
+    perm = None
     # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
     if cells[cell, nonLinear] == VTK_QUADRILATERAL:
@@ -160,7 +161,6 @@ def get_topology(coordinates):
     elif cells[cell, nonLinear] == VTK_LAGRANGE_HEXAHEDRON:
         perm = vtk_lagrange_hex_reorder(V.ufl_element())
         values = values[:, perm]
-        offsetMap = offsetMap[perm]
     elif cells[cell, nonLinear] == VTK_LAGRANGE_CURVE:
         perm = vtk_lagrange_interval_reorder(V.ufl_element())
         values = values[:, perm]
@@ -173,7 +173,6 @@ def get_topology(coordinates):
     elif cells[cell, nonLinear] == VTK_LAGRANGE_WEDGE:
         perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
-        offsetMap = offsetMap[perm]
     elif cells.get((cell, nonLinear)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
@@ -184,6 +183,8 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
+        if perm is not None:
+            offsetMap = offsetMap[perm]
         if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
