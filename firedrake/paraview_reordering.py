@@ -1,7 +1,7 @@
 from tsfc.fiatinterface import create_element
 import numpy as np
 from pyop2.utils import as_tuple
-from vtk import vtkLagrangeTetra, vtkLagrangeHexahedron,\
+from vtk.vtkCommonKit import vtkLagrangeTetra, vtkLagrangeHexahedron,\
     vtkLagrangeTriangle, vtkLagrangeQuadrilateral,\
     vtkLagrangeWedge
 
