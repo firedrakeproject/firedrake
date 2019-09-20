@@ -36,8 +36,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         assert Vc.extruded == Vf.extruded
         if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
             raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
-            raise ValueError("Coarse and fine meshes must have same number of layers")
+        if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
+            raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
@@ -74,8 +74,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         assert Vc.extruded == Vf.extruded
         if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
             raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
-            raise ValueError("Coarse and fine meshes must have same number of layers")
+        if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
+            raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
