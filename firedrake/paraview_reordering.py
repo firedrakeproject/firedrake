@@ -1,9 +1,25 @@
 from tsfc.fiatinterface import create_element
 import numpy as np
 from pyop2.utils import as_tuple
-from vtk.vtkCommonKit import vtkLagrangeTetra, vtkLagrangeHexahedron,\
-    vtkLagrangeTriangle, vtkLagrangeQuadrilateral,\
-    vtkLagrangeWedge
+import importlib
+"""
+This feels like such a hack; it is some sort of bad practice.
+Basically, vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
+However, we only need vtkCommonKitPython, which, according to ldd, only cares about
+things that we should expect: libc, libdl.so, libstdc++, libm, libgcc_s
+Thus, we hackily import the module that lives in vtkCommonKitPython.so
+In truth, this is not so hacky because we use a well defined mechanism in python
+but it is pretty absurd that I need to do this.
+"""
+vtkSoLoc = importlib.util.find_spec("vtk").submodule_search_locations[0]
+vtkSoLoc += "/vtkCommonKitPython.so"
+loader = importlib.machinery.ExtensionFileLoader("vtkCommonKitPython", vtkSoLoc)
+mod = loader.load_module("vtkCommonKitPython")
+vtkLagrangeTetra = mod.vtkLagrangeTetra
+vtkLagrangeHexahedron = mod.vtkLagrangeHexahedron
+vtkLagrangeTriangle = mod.vtkLagrangeTriangle
+vtkLagrangeQuadrilateral = mod.vtkLagrangeQuadrilateral
+vtkLagrangeWedge = mod.vtkLagrangeWedge
 
 
 def firedrake_local_to_cart(element):
