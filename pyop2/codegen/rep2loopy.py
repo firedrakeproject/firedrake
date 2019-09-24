@@ -467,7 +467,10 @@ def generate(builder, wrapper_name=None):
 
     if isinstance(kernel._code, loopy.LoopKernel):
         knl = kernel._code
-        wrapper = loopy.register_callable_kernel(wrapper, knl)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wrapper = loopy.register_callable_kernel(wrapper, knl)
         from loopy.transform.callable import _match_caller_callee_argument_dimension_
         wrapper = _match_caller_callee_argument_dimension_(wrapper, knl.name)
         wrapper = loopy.inline_callable_kernel(wrapper, knl.name)
