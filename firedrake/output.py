@@ -341,7 +341,7 @@ class File(object):
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
         :kwarg target_degree: override the degree of the output space.
         :kwarg target_continuity: override the continuity of the output space;
-        "CG" for a continuous output and "DG" for a discontinuous output.
+            "CG" for a continuous output and "DG" for a discontinuous output.
 
         .. note::
 
