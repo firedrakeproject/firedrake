@@ -29,16 +29,15 @@ def firedrake_local_to_cart(element):
     """
     fiat_element = create_element(element, vector_is_mixed=False)
     # TODO: Surely there is an easier way that I've forgotten?
-    carts = [np.array(list(phi.get_point_dict().keys())[0])
-             for phi in fiat_element.dual_basis()]
-    return carts
+    return [np.array(list(phi.get_point_dict().keys())[0])
+            for phi in fiat_element.dual_basis()]
 
 
 def invert(list1, list2):
     r"""Given two maps (lists) from [0..N] to nodes, finds a permutations between them.
     :arg list1: a list of nodes.
     :arg list2: a second list of nodes.
-    :returns a list of integers, l, such that list1[x] = list2[l[x]]
+    :returns: a list of integers, l, such that list1[x] = list2[l[x]]
     """
     if len(list1) != len(list2):
         raise ValueError("Dimension of Paraview basis and Element basis unequal.")
