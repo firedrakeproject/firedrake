@@ -90,7 +90,7 @@ def is_linear(V):
     return V.finat_element.space_dimension() == nvertex
 
 
-def get_sup_element(*elements, continuous=False):
+def get_sup_element(*elements, continuous=False, max_degree=None):
     """Given ufl elements and a continuity flag, return
     a new ufl element that contains all elements.
     :arg elements: ufl elements.
@@ -103,7 +103,8 @@ def get_sup_element(*elements, continuous=False):
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
     return ufl.FiniteElement("CG" if continuous else "DG",
-                             cell=cell, degree=degree,
+                             cell=cell,
+                             degree=degree if max_degree is None else max_degree,
                              variant="equispaced")
 
 
@@ -325,7 +326,7 @@ class File(object):
                b'</VTKFile>\n')
 
     def __init__(self, filename, project_output=False, comm=None, mode="w",
-                 target_space=None):
+                 target_degree=None, target_continuity=None):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -335,16 +336,19 @@ class File(object):
         :arg filename: The name of the output file (must end in
             ``.pvd``).
         :kwarg project_output: Should the output be projected to
-            linears?  Default is to use interpolation.
+            a computed output space?  Default is to use interpolation.
         :kwarg comm: The MPI communicator to use.
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
+        :kwarg target_degree: override the degree of the output space.
+        :kwarg target_continuity: override the continuity of the output space;
+        "CG" for a continuous output and "DG" for a discontinuous output.
 
         .. note::
 
-           Visualisation is only possible for linear fields (either
+           Visualisation is only possible for Lagrange fields (either
            continuous or discontinuous).  All other fields are first
-           either projected or interpolated to linear before storing
-           for visualisation purposes.
+           either projected or interpolated to Lagrange elements
+           before storing for visualisation purposes.
         """
         filename = os.path.abspath(filename)
         basename, ext = os.path.splitext(filename)
@@ -371,7 +375,12 @@ class File(object):
         self.filename = filename
         self.basename = basename
         self.project = project_output
-        self.target_space = target_space
+        self.target_degree = target_degree
+        self.target_continuity = target_continuity
+        if target_degree is not None and target_degree < 0:
+            raise ValueError("Invalid target_degree")
+        if target_continuity is not None and target_continuity not in ["CG", "DG"]:
+            raise ValueError("target_continuity must be either \"CG\" or \"DG\".")
         countstart = 0
 
         if self.comm.rank == 0 and mode == "w":
@@ -466,23 +475,18 @@ class File(object):
                 raise ValueError("Writing different set of functions")
         else:
             self._fnames = tuple(f.name() for f in functions)
-
         continuous = all(is_cg(f.function_space()) for f in functions) and \
             is_cg(mesh.coordinates.function_space())
-
+        if self.target_continuity is not None:
+            continuous = self.target_continuity == "CG"
         # Since Points define nodes for both the mesh and function, we must
         # interpolate/project ALL involved elements onto a single larger
         # finite element.
         mesh_elem = mesh.coordinates.ufl_element()
         max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
                                                 for f in functions),
-                                   continuous=continuous)
-        if self.target_space is not None:
-            if mesh == self.target_space.mesh():
-                max_elem = self.target_space.ufl_element()
-            else:
-                raise ValueError("Provided target_space is not on the same mesh as the provided functions.")
-
+                                   continuous=continuous,
+                                   max_degree=self.target_degree)
         coordinates = self._prepare_output(mesh.coordinates, max_elem)
 
         functions = tuple(self._prepare_output(f, max_elem)
