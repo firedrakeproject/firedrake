@@ -67,7 +67,7 @@ def vtk_interval_local_coord(i, order):
     See vtkLagrangeCurve::PointIndexFromIJK.
     """
     if i == 0:
-        return (0.0)
+        return 0.0
     elif i == order:
         return 1.0
     else:
@@ -117,7 +117,7 @@ def vtk_hex_local_to_cart(orders):
         idx = hexa.PointIndexFromIJK(loc[0], loc[1], loc[2], orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
         loc_to_cart[idx] = cart
-    return(loc_to_cart)
+    return loc_to_cart
 
 
 def bar_to_cart_2d(bar):
@@ -125,7 +125,7 @@ def bar_to_cart_2d(bar):
     v1 = np.array([1, 0])
     v2 = np.array([0, 1])
     mat = np.array([v1, v2, v0])
-    return(np.dot(bar, mat))
+    return np.dot(bar, mat)
 
 
 def vtk_triangle_index_cart(tri, index, order):
@@ -158,7 +158,7 @@ def vtk_quad_local_to_cart(orders):
         idx = quad.PointIndexFromIJK(loc[0], loc[1], orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
         loc_to_cart[idx] = cart
-    return(loc_to_cart)
+    return loc_to_cart
 
 
 def vtk_wedge_local_to_cart(ordersp):
@@ -178,7 +178,7 @@ def vtk_wedge_local_to_cart(ordersp):
         idx = wedge.PointIndexFromIJK(loc[0], loc[1], loc[2], orders)
         cart = np.array([c / o for (c, o) in zip(loc, orders)])
         loc_to_cart[idx] = cart
-    return(loc_to_cart)
+    return loc_to_cart
 
 
 """
@@ -192,8 +192,7 @@ def vtk_lagrange_interval_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = [vtk_interval_local_coord(x, degree) for x in range(degree + 1)]
     firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    return inv
+    return invert(vtk_local, firedrake_local)
 
 
 def vtk_lagrange_triangle_reorder(ufl_element):
@@ -207,8 +206,7 @@ def vtk_lagrange_quad_reorder(ufl_element):
     degree = as_tuple(ufl_element.degree())[0]  # should be uniform
     vtk_local = vtk_quad_local_to_cart((degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    return (inv)
+    return invert(vtk_local, firedrake_local)
 
 
 def vtk_lagrange_tet_reorder(ufl_element):
@@ -222,14 +220,13 @@ def vtk_lagrange_wedge_reorder(ufl_element):
     degree = ufl_element.degree()
     vtk_local = vtk_wedge_local_to_cart(degree)
     firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    return inv
+    return invert(vtk_local, firedrake_local)
 
 
 def vtk_lagrange_hex_reorder(ufl_element):
     degree = max(ufl_element.degree())
     if any([d != degree for d in ufl_element.degree()]):
-        raise ValueError("Degrees on hex tensor products must be uniform b/c VTK is can't understand otherwise.")
+        raise ValueError("Degrees on hex tensor products must be uniform because VTK can't understand otherwise.")
     vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
     inv = invert(vtk_local, firedrake_local)
