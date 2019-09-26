@@ -118,7 +118,16 @@ If instead we want projection, we use
    projected.write(f)
 
 .. note::
-   This feature requires Paraview version 5.5.0 or better. If you must use an older version of Paraview, you must manually interpolate mesh coordinates and field coordinates to a piecewise linear function space, represented with either a Lagrange or discontinuous Lagrange basis.
+   This feature requires Paraview version 5.5.0 or better. If you must use an
+   older version of Paraview, you must manually interpolate mesh coordinates
+   and field coordinates to a piecewise linear function space, represented
+   with either a Lagrange or discontinuous Lagrange basis. The :class:`~.File`
+   is also setup to manage this issue. For instance, we can force the output
+   to be discontinuous piecewise liners via
+   .. code-block:: python
+      projected = File("proj_output.pvd", target_degree=1,
+      target_continuity="DG")
+      projected.write(f)
 
 
 Using Paraview on higher order data
@@ -139,7 +148,7 @@ This approximation can be controlled by at least two means:
    order geometry via subdividing cells into smaller linear cells. Chord Error
    is a tessellation error metric, the distance between the midpoint of any
    edge on the tessellated geometry and a corresponding point in the original
-   geometry. Field Error is analgous to Chord Error: the error of the field
+   geometry. Field Error is analogous to Chord Error: the error of the field
    on the tessellated data is compared pointwise to the original data at
    the midpoints of the edges of the tessellated geometry and the corresponding
    points on the original geometry. The Maximum Number of Subdivisions is the
@@ -155,7 +164,7 @@ data can also be saved for future reference.
 .. note::
    Field Error is hidden in the current Paraview UI (5.7) so we include a visual guide wherein the field error is set via the highlighted field directly below Chord Error:
    .. image:: paraview-field-error.png
-   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the View menue). For instance, Field Error can be more clearly specified via an argument to the Tesselate_ filter constructor.
+   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the View menu). For instance, Field Error can be more clearly specified via an argument to the Tessellate_ filter constructor.
    .. code-block:: python
       from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
