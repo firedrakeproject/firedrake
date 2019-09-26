@@ -74,12 +74,9 @@ def vtk_interval_local_coord(i, order):
         return i / order
 
 
-def bar_to_cart_3d(bar):
-    v0 = np.array([0, 0, 0])
-    v1 = np.array([1, 0, 0])
-    v2 = np.array([0, 1, 0])
-    v3 = np.array([0, 0, 1])
-    mat = np.array([v1, v2, v3, v0])
+def bary_to_cart(bar):
+    N = len(bar)
+    mat = np.vstack([np.zeros(N), np.eye(N)])
     return np.dot(bar, mat)
 
 
@@ -89,7 +86,7 @@ def tet_barycentric_index(tet, index, order):
     """
     bindex = [-1, -1, -1, -1]
     tet.BarycentricIndex(index, bindex, order)
-    return bar_to_cart_3d(np.array(bindex) / order)
+    return bary_to_cart(np.array(bindex) / order)
 
 
 def vtk_tet_local_to_cart(order):
@@ -120,22 +117,13 @@ def vtk_hex_local_to_cart(orders):
     return loc_to_cart
 
 
-def bar_to_cart_2d(bar):
-    v0 = np.array([0, 0])
-    v1 = np.array([1, 0])
-    v2 = np.array([0, 1])
-    mat = np.array([v1, v2, v0])
-    return np.dot(bar, mat)
-
-
 def vtk_triangle_index_cart(tri, index, order):
     """
     Wrapper for vtkLagrangeTriangle::BarycentricIndex
     """
     bindex = [-1, -1, -1]
     tri.BarycentricIndex(index, bindex, order)
-    cart = bar_to_cart_2d(bindex)
-    return cart
+    return bary_to_cart(bindex)
 
 
 def vtk_triangle_local_to_cart(order):
