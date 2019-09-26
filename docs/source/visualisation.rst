@@ -134,20 +134,32 @@ This approximation can be controlled by at least two means:
    curved geometry. Further, the Nonlinear Subdivision Level can also be
    changed after applying filters such as Extract Surface.
 2. The Tessellate_ filter can be applied to unstructured grid data
-   and has two parameters: Chord Error and Maximum Number of Subdivisions.
-   Tessellation_ is the process of approximating a higher order geometry
-   via subdividing cells into smaller linear cells. Chord Error is a tessellation
-   error metric, the distance between the midpoint of any edge on the tessellated geometry
-   and a corresponding point in the original geometry. The Maximum Number of
-   Subdivisions is the maximum number of times an edge in the original
-   geometry can be subdivided.
+   and has two parameters: Chord Error, Maximum Number of Subdivisions,
+   and Field Error. Tessellation_ is the process of approximating a higher
+   order geometry via subdividing cells into smaller linear cells. Chord Error
+   is a tessellation error metric, the distance between the midpoint of any
+   edge on the tessellated geometry and a corresponding point in the original
+   geometry. Field Error is analgous to Chord Error: the error of the field
+   on the tessellated data is compared pointwise to the original data at
+   the midpoints of the edges of the tessellated geometry and the corresponding
+   points on the original geometry. The Maximum Number of Subdivisions is the
+   maximum number of times an edge in the original geometry can be subdivided. 
 
 Besides the two tools listed above, Paraview provides many other tools (filters)
 that might be applied to the original data or composed with the tools listed above.
 Documentation on these interactions is sparse, but tessellation can be used to understand
 this issue: the Tessellate_ filter produces another unstructured grid from its inputs so
 algorithims can be applied to both the tessellated and input unstructured grid. The tessellated
-data can also be saved for future reference. 
+data can also be saved for future reference.
+
+.. note::
+   Field Error is hidden in the current Paraview UI (5.7) so we include a visual guide wherein the field error is set via the highlighted field directly below Chord Error:
+   .. image:: paraview-field-error.png
+   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the Views menue). For instance, we can load a PVD file and tessellate it via
+   .. code-block:: python
+      pvd = PVDReader(FileName="Example.pvd")
+      tes = Tessellate(pvd, FieldError=0.001)
+
 
 Saving multiple functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~

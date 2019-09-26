@@ -324,7 +324,8 @@ class File(object):
     _footer = (b'</Collection>\n'
                b'</VTKFile>\n')
 
-    def __init__(self, filename, project_output=False, comm=None, mode="w"):
+    def __init__(self, filename, project_output=False, comm=None, mode="w",
+                 target_space=None):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -370,6 +371,7 @@ class File(object):
         self.filename = filename
         self.basename = basename
         self.project = project_output
+        self.target_space = target_space
         countstart = 0
 
         if self.comm.rank == 0 and mode == "w":
@@ -475,6 +477,11 @@ class File(object):
         max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
                                                 for f in functions),
                                    continuous=continuous)
+        if self.target_space is not None:
+            if mesh == self.target_space.mesh():
+                max_elem = self.target_space.ufl_element()
+            else:
+                raise ValueError("Provided target_space is not on the same mesh as the provided functions.")
 
         coordinates = self._prepare_output(mesh.coordinates, max_elem)
 
