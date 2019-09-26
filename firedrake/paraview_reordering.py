@@ -3,13 +3,11 @@ import numpy as np
 from pyop2.utils import as_tuple
 import importlib
 """
-This feels like such a hack; it is some sort of bad practice.
-Basically, vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
+This requires an explentation.
+Vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
 However, we only need vtkCommonKitPython, which, according to ldd, only cares about
-things that we should expect: libc, libdl.so, libstdc++, libm, libgcc_s
+things that we should expect: libc, libdl.so, libstdc++, libm, libgcc_s.
 Thus, we hackily import the module that lives in vtkCommonKitPython.so
-In truth, this is not so hacky because we use a well defined mechanism in python
-but it is pretty absurd that I need to do this.
 """
 vtkSoLoc = importlib.util.find_spec("vtk").submodule_search_locations[0]
 vtkSoLoc += "/vtkCommonKitPython.so"
