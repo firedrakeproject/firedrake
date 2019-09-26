@@ -74,7 +74,7 @@ def vtk_interval_local_coord(i, order):
 
 
 def bary_to_cart(bar):
-    N = len(bar)
+    N = len(bar) - 1
     mat = np.vstack([np.zeros(N), np.eye(N)])
     return np.dot(bar, mat)
 
