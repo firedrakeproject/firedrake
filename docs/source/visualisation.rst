@@ -155,8 +155,9 @@ data can also be saved for future reference.
 .. note::
    Field Error is hidden in the current Paraview UI (5.7) so we include a visual guide wherein the field error is set via the highlighted field directly below Chord Error:
    .. image:: paraview-field-error.png
-   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the Views menue). For instance, we can load a PVD file and tessellate it via
+   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the Views menue). For instance, Field Error can be more clearly specified via an argument to the Tesselate_ filter constructor. 
    .. code-block:: python
+      from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
       tes = Tessellate(pvd, FieldError=0.001)
 
