@@ -82,15 +82,9 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     boundary condition values.
     """
 
-    if "nest" in kwargs:
-        nest = kwargs.pop("nest")
-        from firedrake.logging import warning, RED
-        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' instead")
-        if nest is not None:
-            mat_type = "nest" if nest else "aij"
-
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
+    bindings = kwargs.pop("bindings", None)
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
@@ -101,7 +95,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                           sub_mat_type=sub_mat_type, appctx=appctx,
                           assemble_now=not collect_loops,
                           allocate_only=allocate_only,
-                          options_prefix=options_prefix)
+                          options_prefix=options_prefix,
+                          bindings=bindings)
         loops = tuple(loops)
         if collect_loops and not allocate_only:
             # Will this be useful?
@@ -170,7 +165,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               options_prefix=None,
               assemble_now=False,
               allocate_only=False,
-              zero_tensor=True):
+              zero_tensor=True,
+              bindings={}):
     r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
@@ -192,6 +188,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          matrix if an implicit matrix is requested (mat_type "matfree").
     :arg options_prefix: An options prefix for the PETSc matrix
         (ignored if not assembling a bilinear form).
+    :arg bindings: dict mapping from coefficients in the form to coefficients with values.
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
@@ -202,6 +199,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if sub_mat_type not in ["aij", "baij"]:
         raise ValueError("Invalid submatrix type, '%s' (not 'aij' or 'baij')", sub_mat_type)
 
+    if bindings is None:
+        bindings = {}
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
     else:
@@ -387,7 +386,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise ValueError("Can't assemble 0-form into existing tensor")
         result = lambda: tensor.data[0]
 
-    coefficients = f.coefficients()
+    coefficients = tuple(bindings.get(c, c) for c in f.coefficients())
     domains = f.ufl_domains()
 
     # These will be used to correctly interpret the "otherwise"
