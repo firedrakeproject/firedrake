@@ -236,6 +236,8 @@ class _SNESContext(object):
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
                                      appctx=self.appctx))
+            splits[-1]._parent = self
+
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
