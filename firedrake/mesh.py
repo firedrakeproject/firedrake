@@ -841,7 +841,7 @@ class MeshTopology(object):
 
     #@utils.cached_property
     def submesh_sub_super_map(self, dim):
-        """Return a map to the parent mesh if self._submesh_parent is not None
+        """Return the child-to-parent map if self._submesh_parent is not None
 
           :arg dim: Dimension of the entities to create mapping for.
 
@@ -853,6 +853,28 @@ class MeshTopology(object):
         return op2.Map(self.cell_set, self.submesh_parent.cell_set, 1,
                        dmplex.submesh_create_sub_super_map(self, dim),
                        "sub_to_super_map")
+
+    #@utils.cached_property
+    def submesh_super_sub_map(self, dim):
+        """Return the parent-to-child map if self._submesh_parent is not None
+
+          :arg dim: Dimension of the entities to create mapping for.
+
+          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
+        """
+        if self.submesh_parent is None:
+            raise RuntimeError("`submesh_super_sub_map` must not be called if submesh_parent is None")
+        pStart, pEnd = self.submesh_parent._plex.getDepthStratum(dim)
+        super_sub_map = np.empty((pEnd - pStart, 1), dtype=IntType)
+        super_sub_map.fill(-1)
+        sub_super_map = dmplex.submesh_create_sub_super_map(self, dim)
+        # Generate the reverse map
+        for i, v in enumerate(np.nditer(sub_super_map)):
+            super_sub_map[v] = i
+        #TODO: generalize for facet_set etc..
+        return op2.Map(self.submesh_parent.cell_set, self.cell_set, 1,
+                       super_sub_map,
+                       "super_to_sub_map")
 
     def submesh_get_entity_map_list(self, other, dim):
         """Return a list of :class:`pyop2.Map`s to map indices from submesh to mesh
@@ -1574,19 +1596,6 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.NONE, 0)
 
     submsh = Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)
-
-    #delete this
-    """
-    import copy
-    _callback_copy = copy.deepcopy(submsh._callback)
-
-    def callback(self):
-        _callback_copy(self)
-        self._topology._submesh_parent = mesh._topology
-        self._submesh_parent = mesh
-
-    submsh._callback = callback
-    """
 
     def wrap_callback(old_callback, mesh):
         def callback(self):

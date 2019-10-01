@@ -318,8 +318,22 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     for j in range(ncol):
                         jmesh = trial.function_space()[j].mesh().topology
                         jdim = jmesh._plex.getDimension()
-                        map_pairs_ij[i][j].append((op2.ComposedMap([test.cell_node_map().split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim)), 
-                                                   op2.ComposedMap([trial.cell_node_map().split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))))
+                        if test.cell_node_map() is None:
+                            rm = None
+                        else:
+                            if test.cell_node_map().split[i] is None:
+                                rm = None
+                            else:
+                                rm = op2.ComposedMap([test.cell_node_map().split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
+                        if trial.cell_node_map() is None:
+                            cm = None
+                        else:
+                            if trial.cell_node_map().split[j] is None:
+                                cm = None
+                            else:
+                                cm = op2.ComposedMap([trial.cell_node_map().split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
+                        map_pairs_ij[i][j].append((rm, cm))
+                map_pairs_ij=None
                 iteration_regions.append(tuple(cell_domains))
             if exterior_facet_domains:
                 map_pairs.append((test.exterior_facet_node_map(), trial.exterior_facet_node_map()))
