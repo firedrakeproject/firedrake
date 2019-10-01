@@ -139,6 +139,8 @@ class _SNESContext(object):
         self._nullspace_T = None
         self._near_nullspace = None
 
+        self._parent = None
+
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
         with self._F.dat.vec_wo as v:
