@@ -118,24 +118,26 @@ If instead we want projection, we use
    projected.write(f)
 
 .. note::
+
    This feature requires Paraview version 5.5.0 or better. If you must use an
    older version of Paraview, you must manually interpolate mesh coordinates
    and field coordinates to a piecewise linear function space, represented
-   with either a Lagrange or discontinuous Lagrange basis. The :class:`~.File`
+   with either a Lagrange (H1) or discontinuous Lagrange (L2) basis. The :class:`~.File`
    is also setup to manage this issue. For instance, we can force the output
-   to be discontinuous piecewise liners via
+   to be discontinuous piecewise linears via
+
    .. code-block:: python
-      projected = File("proj_output.pvd", target_degree=1,
-      target_continuity="DG")
+
+      projected = File("proj_output.pvd", target_degree=1, target_continuity=H1)
       projected.write(f)
 
 
 Using Paraview on higher order data
-++++++++++++++++++++++++++++++++++++++++++
++++++++++++++++++++++++++++++++++++
 
 Paraview's visualisation algorithims are typically exact on piecewise linear data,
 but if you write higher order data, Paraview will produce an approximate visualisation.
-This approximation can be controlled by at least two means:
+This approximation can be controlled in at least two ways:
 
 1. Under the display properties of an unstructured grid,
    the Nonlinear Subdivision Level can be increased; this option controls
@@ -158,14 +160,24 @@ Besides the two tools listed above, Paraview provides many other tools (filters)
 that might be applied to the original data or composed with the tools listed above.
 Documentation on these interactions is sparse, but tessellation can be used to understand
 this issue: the Tessellate_ filter produces another unstructured grid from its inputs so
-algorithims can be applied to both the tessellated and input unstructured grid. The tessellated
+algorithms can be applied to both the tessellated and input unstructured grid. The tessellated
 data can also be saved for future reference.
 
 .. note::
-   Field Error is hidden in the current Paraview UI (5.7) so we include a visual guide wherein the field error is set via the highlighted field directly below Chord Error:
+
+   Field Error is hidden in the current Paraview UI (5.7) so we
+   include a visual guide wherein the field error is set via the
+   highlighted field directly below Chord Error:
+
    .. image:: paraview-field-error.png
-   We also note that the Tessellate_ filter (and other filters) can be more clearly controlled via the Paraview Python shell (under the View menu). For instance, Field Error can be more clearly specified via an argument to the Tessellate_ filter constructor.
+
+   We also note that the Tessellate_ filter (and other filters) can
+   be more clearly controlled via the Paraview Python shell (under
+   the View menu). For instance, Field Error can be more clearly
+   specified via an argument to the Tessellate_ filter constructor.
+
    .. code-block:: python
+
       from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
       tes = Tessellate(pvd, FieldError=0.001)
@@ -223,12 +235,12 @@ All functions, including the mesh coordinates, that are output
 to the same file must be represented in the same space, the rules
 for selecting the output space are as follows. First, all functions
 must be defined via the same cell type otherwise an exception will be
-thrown. Second, if all functions are continuous, the output will be
-selected to use a continuous Lagrange space. If any of the
+thrown. Second, if all functions are continuous (i.e. they live in
+:math:`H^1`), then the output space will be a piecewise continuous space. If any of the
 functions are at least partially discontinuous, again including the
 coordinate field (this occurs when using periodic meshes), then the
-output will use a discontinuous Lagrange space. Third, the degree of
-the Lagrange basis will be the maximum degree used over the spaces
+output will use a piecewise discontinuous space. Third, the degree of
+the basis will be the maximum degree used over the spaces
 of all input functions. For elements where the degree is a tuple
 (this occurs when using tensor product elements), the the maximum
 will be over the elements of the tuple too, meaning a tensor

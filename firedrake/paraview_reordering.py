@@ -51,13 +51,13 @@ def invert(list1, list2):
 # The following functions wrap around functions provided by vtk (pip install vtk).
 # The vtk functions do one of two things:
 #
-# 1. They convert (i,j,k) indecies, locations on a rect or hex, to a dof index.
+# 1. They convert (i,j,k) indices, locations on a rect or hex, to a dof index.
 #
 # 2. They convert an index into a dofs into an index into some sort of indexing
 # of the nodes typically barycentric indecies
 #
 # The follow functions call the two types of VTK functions.
-# They use them to produce maps from dof indicies to node locations.
+# They use them to produce maps from dof indices to node locations.
 # These functions will later be used to figure out reorderings of nodes.
 
 
