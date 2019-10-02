@@ -102,7 +102,14 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
-    return ufl.FiniteElement("CG" if continuous else "DG",
+    if continuous:
+        family = "CG"
+    else:
+        if cell.cellname() in {"interval", "triangle", "tetrahedron"}:
+            family = "DG"
+        else:
+            family = "DQ"
+    return ufl.FiniteElement(family,
                              cell=cell,
                              degree=degree if max_degree is None else max_degree,
                              variant="equispaced")
@@ -341,7 +348,8 @@ class File(object):
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
         :kwarg target_degree: override the degree of the output space.
         :kwarg target_continuity: override the continuity of the output space;
-            "CG" for a continuous output and "DG" for a discontinuous output.
+            A UFL :class:`~.SobolevSpace` object: `H1` for a
+            continuous output and `L2` for a discontinuous output.
 
         .. note::
 
@@ -379,8 +387,8 @@ class File(object):
         self.target_continuity = target_continuity
         if target_degree is not None and target_degree < 0:
             raise ValueError("Invalid target_degree")
-        if target_continuity is not None and target_continuity not in ["CG", "DG"]:
-            raise ValueError("target_continuity must be either \"CG\" or \"DG\".")
+        if target_continuity is not None and target_continuity not in {ufl.H1, ufl.L2}:
+            raise ValueError("target_continuity must be either 'H1' or 'L2'.")
         countstart = 0
 
         if self.comm.rank == 0 and mode == "w":
@@ -478,7 +486,7 @@ class File(object):
         continuous = all(is_cg(f.function_space()) for f in functions) and \
             is_cg(mesh.coordinates.function_space())
         if self.target_continuity is not None:
-            continuous = self.target_continuity == "CG"
+            continuous = self.target_continuity == ufl.H1
         # Since Points define nodes for both the mesh and function, we must
         # interpolate/project ALL involved elements onto a single larger
         # finite element.
