@@ -6,8 +6,8 @@ Visualising the results of simulations
 ======================================
 
 Having run a simulation, it is likely that we will want to look at the
- results.  To do this, Firedrake supports saving data in VTK_
--format, suitable for visualisation in Paraview_ (amongst others).
+results.  To do this, Firedrake supports saving data in VTK_ format,
+suitable for visualisation in Paraview_ (amongst others).
 
 In addition, 1D and 2D function could be plotted and displayed using the python
 library of matplotlib (an optional dependency of firedrake)
@@ -169,7 +169,7 @@ data can also be saved for future reference.
    include a visual guide wherein the field error is set via the
    highlighted field directly below Chord Error:
 
-   .. image:: paraview-field-error.png
+   .. image:: images/paraview-field-error.png
 
    We also note that the Tessellate_ filter (and other filters) can
    be more clearly controlled via the Paraview Python shell (under
