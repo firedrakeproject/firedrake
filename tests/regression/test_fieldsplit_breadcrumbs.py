@@ -1,9 +1,7 @@
-import pytest
 import numpy
 from firedrake import *
 
 
-@pytest.mark.xfail(reason="Setup of inner problems not run (thetisproject/thetis#167)")
 def test_fieldsplit_breadcrumbs():
     mesh = UnitSquareMesh(10, 10)
     V_u = VectorFunctionSpace(mesh, 'DG', 1)

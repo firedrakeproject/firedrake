@@ -222,7 +222,9 @@ class add_hooks(object):
     def __enter__(self):
         if not self.first_time:
             # We've already run setup, so just attach the data to the subdms.
-            self.obj.setup_hooks.setup()
+            hooks = self.obj.setup_hooks
+            push_attr("__setup_hooks__", self.dm, hooks)
+            hooks.setup()
         else:
             # Not yet seen, let's save the relevant information.
             hooks = SetupHooks()
@@ -236,12 +238,11 @@ class add_hooks(object):
                          call_setup=True)
 
     def __exit__(self, typ, value, traceback):
+        hooks = pop_attr("__setup_hooks__", self.dm)
         if self.first_time:
-            # This was the first time round, so pop the hooks stack.
-            hooks = pop_attr("__setup_hooks__", self.dm)
             assert hooks is not None
         else:
-            hooks = self.obj.setup_hooks
+            assert hooks == self.obj.setup_hooks
         hooks.teardown()
 
 
