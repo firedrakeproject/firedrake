@@ -1427,4 +1427,4 @@ if mode == "install":
     log.info("  deactivate\n\n")
     log.info("To upgrade Firedrake activate the venv and run firedrake-update\n")
 else:
-    log.info("\n\nSuccessfully updated Firedrake.\n")
+    log.info("\n\nSuccessfully updated Firedrake. \n")
