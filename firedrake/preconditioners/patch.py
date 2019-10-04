@@ -8,6 +8,7 @@ from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 
 from collections import namedtuple
 import operator
+from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
@@ -268,6 +269,13 @@ def residual_funptr(form, state):
     return cell_kernels, int_facet_kernels
 
 
+# We need to set C function pointer callbacks for PCPatch to work.
+# Although petsc4py provides a high-level Python wrapper for them,
+# this is very costly when going back and forth from C to Python only
+# to extract function pointers and send them straight back to C. Here,
+# since we know what the calling convention of the C function is, we
+# just wrap up everything as a C function pointer and use that
+# directly.
 def make_struct(op_coeffs, op_maps, jacobian=False):
     import ctypes
     coeffs = []
@@ -301,8 +309,9 @@ def make_struct(op_coeffs, op_maps, jacobian=False):
     for m in maps:
         if m != "dofArrayWithAll":
             fields.append((m, ctypes.c_voidp))
-    fields.append(("pyop2_call", ctypes.c_voidp))
     fields.append(("point2facet", ctypes.c_voidp))
+    fields.append(("pyop2_call", ctypes.c_voidp))
+
     class Struct(ctypes.Structure):
         _fields_ = fields
     struct = """
@@ -439,10 +448,10 @@ PetscErrorCode ComputeJacobian(PC pc,
 
 
 def load_c_function(code, name):
-    cppargs = ["-I%s/include" % d for d in get_petsc_dir()] 
-    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()] +
-              ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] +
-              ["-lpetsc", "-lm"])
+    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
+    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
+              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
+              + ["-lpetsc", "-lm"])
     return load(code, "c", name,
                 argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
                           ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
@@ -480,8 +489,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
 
 
 def make_c_struct(data_args, map_args, function, struct, point2facet=None):
-    args = ([d for d in data_args if d is not None] +
-            [m for m in map_args if m is not None])
+    args = [a for a in chain(data_args, map_args) if a is not None]
     if point2facet is None:
         args.append(0)
     else:
