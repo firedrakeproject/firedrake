@@ -53,6 +53,27 @@ Programme
 The workshop programme is `available on Easychair
 <https://easychair.org/smart-program/Firedrake'19/>`_.
 
+Talk slides
+-----------
+
+Slides from the talks have kindly been provided by some of the
+presenters.
+
+* David Acreman: `REXI: breaking the time step constraint
+  <_static/firedrake19-slides/acreman.pdf>`__
+* Mariana Clare: `Where has all my sand gone? Hydro-morphodynamics
+  2D modelling using a discontinuous Galerkin discretisation
+  <_static/firedrake19-slides/clare.pdf>`__
+* Colin Cotter: `Time (integrator) parallel exponential integration
+  and phase-averaging for geophysical fluid dynamics
+  <_static/firedrake19-slides/cotter.pdf>`__
+* Matt Knepley: `Understanding multivariate computation using the
+  Kolmogorov superposition theorem <https://cse.buffalo.edu/~knepley/presentations/PresFiredrake2019.pdf>`_
+* Lawrence Mitchell: `PCPATCH: topological construction of multigrid
+  relaxation methods <_static/firedrake19-slides/mitchell.pdf>`__
+* Joe Wallwork: `Anisotropic goal-oriented mesh adaptation in
+  Firedrake <_static/firedrake19-slides/wallwork.pdf>`__
+
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
