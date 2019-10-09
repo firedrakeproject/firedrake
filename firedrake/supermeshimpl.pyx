@@ -147,8 +147,8 @@ def intersection_finder(mesh_A, mesh_B):
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
-    nnodes_A = mesh_A.num_vertices()
-    nnodes_B = mesh_B.num_vertices()
+    nnodes_A = mesh_A.coordinates.dof_dset.total_size
+    nnodes_B = mesh_B.coordinates.dof_dset.total_size
     dim_A = mesh_A.geometric_dimension()
     dim_B = mesh_B.geometric_dimension()
     ncells_A = mesh_A.num_cells()
