@@ -46,8 +46,12 @@ def test_periodic(shapify, direction, space):
     f_p = Function(V_p)
     f_p.project(f)
 
+    g_p = Function(V_p)
+    g_p.interpolate(get_func(V_p, direction))
 
-    g = Function(V_p)
-    g.interpolate(get_func(V_p, direction))
+    assert errornorm(f_p, g_p) < 1e-8
 
-    assert errornorm(f_p, g) < 1e-8
+    g = Function(V)
+    g.project(g_p)
+
+    assert errornorm(f, g) < 1e-8
