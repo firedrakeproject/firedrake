@@ -13,13 +13,16 @@ def shapify(request):
     else:
         raise RuntimeError
 
+
 @pytest.fixture(params=["x", "both"])
 def direction(request):
     return request.param
 
+
 @pytest.fixture(params=[("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1), ("DG", 2)])
 def space(request):
     return request.param
+
 
 def get_func(fs, d):
     x, y = SpatialCoordinate(fs.mesh())
@@ -32,6 +35,7 @@ def get_func(fs, d):
             return as_matrix([[x*(1-x), y*(1-y)], [-y*(1-y), -x*(1-x)]])
     else:
         return x*(1-x) if d == 'x' else x*(1-x)*y*(1-y)
+
 
 def test_periodic(shapify, direction, space):
     mesh = UnitSquareMesh(3, 4)
