@@ -1585,7 +1585,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     if height > tdim:
         raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
-    subplex = plex.createSubDMPlex(filterName, filterValue, height)
+    subplex = plex.createSubmesh_Closure(filterName, filterValue, height)
 
     # Create "exterior_facets" label
     dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
