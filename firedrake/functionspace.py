@@ -99,7 +99,7 @@ def check_element(element, top=True):
 
 @timed_function("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
-                  vdegree=None, should_reorder=True):
+                  vdegree=None):
     """Create a :class:`.FunctionSpace`.
 
     :arg mesh: The mesh to determine the cell from.
@@ -138,9 +138,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name,
-                real_tensorproduct=real_tensorproduct,
-                should_reorder=should_reorder)
+        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
@@ -148,8 +146,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
 
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None,
-                        should_reorder=True):
+                        name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     :arg mesh: The mesh to determine the cell from.
@@ -181,8 +178,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     dim = dim or mesh.ufl_cell().geometric_dimension()
     element = ufl.VectorElement(sub_element, dim=dim)
-    return FunctionSpace(mesh, element, name=name,
-            should_reorder=should_reorder)
+    return FunctionSpace(mesh, element, name=name)
 
 
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,

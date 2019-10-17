@@ -97,8 +97,7 @@ def get_node_set(mesh, key):
     return node_set
 
 
-def get_cell_node_list(mesh, entity_dofs, global_numbering, offsets,
-        should_reorder=True):
+def get_cell_node_list(mesh, entity_dofs, global_numbering, offsets):
     """Get the cell->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
@@ -109,8 +108,7 @@ def get_cell_node_list(mesh, entity_dofs, global_numbering, offsets,
     :returns: A numpy array mapping mesh cells to function space
         nodes.
     """
-    return mesh.make_cell_node_list(global_numbering, entity_dofs, offsets,
-            should_reorder=should_reorder)
+    return mesh.make_cell_node_list(global_numbering, entity_dofs, offsets)
 
 
 def get_facet_node_list(mesh, kind, cell_node_list, offsets):
@@ -133,8 +131,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
 
 
 @cached
-def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets,
-        should_reorder=True):
+def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
@@ -147,11 +144,7 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets,
         function space nodes.
     """
     # set->node lists are specific to the sorted entity_dofs.
-    if not should_reorder:
-        cell_node_list, old_to_new_ordering = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets, should_reorder)
-    else:
-        cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets, should_reorder)
-
+    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets)
     interior_facet_node_list = partial(get_facet_node_list, mesh, "interior_facets", cell_node_list, offsets)
     exterior_facet_node_list = partial(get_facet_node_list, mesh, "exterior_facets", cell_node_list, offsets)
 
@@ -162,10 +155,7 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets,
                                     mesh.interior_facets.set: interior_facet_node_list,
                                     mesh.exterior_facets.set: exterior_facet_node_list}[key]())
 
-    if not should_reorder:
-        return magic(), old_to_new_ordering
-    else:
-        return magic()
+    return magic()
 
 
 @cached
@@ -400,12 +390,10 @@ class FunctionSpaceData(object):
     """
     __slots__ = ("map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
-                 "old_to_new_ordering",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
-    def __init__(self, mesh, finat_element, real_tensorproduct=False,
-            should_reorder=True):
+    def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
@@ -424,12 +412,7 @@ class FunctionSpaceData(object):
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
-        if not should_reorder:
-            self.entity_node_lists, self.old_to_new_ordering = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset, should_reorder)
-        else:
-            self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset, should_reorder)
-
-
+        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
@@ -560,8 +543,7 @@ class FunctionSpaceData(object):
         return val
 
 
-def get_shared_data(mesh, finat_element, real_tensorproduct=False,
-        should_reorder=True):
+def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
@@ -576,6 +558,4 @@ def get_shared_data(mesh, finat_element, real_tensorproduct=False,
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))
-    return FunctionSpaceData(mesh, finat_element,
-            real_tensorproduct=real_tensorproduct,
-            should_reorder=should_reorder)
+    return FunctionSpaceData(mesh, finat_element, real_tensorproduct=real_tensorproduct)
