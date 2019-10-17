@@ -1,26 +1,21 @@
 # cython: language_level=3
 
 # Utility functions to derive global and local numbering from DMPlex
-from firedrake.petsc import PETSc
-import numpy as np
-cimport numpy as np
 import cython
-cimport petsc4py.PETSc as PETSc
-from libc.stdint cimport uintptr_t
-cimport mpi4py.MPI as MPI
+import numpy as np
+from firedrake.petsc import PETSc
 from mpi4py import MPI
-
 from pyop2.datatypes import IntType
-
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 
+cimport numpy as np
+cimport mpi4py.MPI as MPI
+cimport petsc4py.PETSc as PETSc
+
 np.import_array()
 
-cdef extern from "mpi-compat.h":
-    pass
-
-include "dmplexinc.pxi"
+include "petschdr.pxi"
 
 
 FACE_SETS_LABEL = "Face Sets"
@@ -2371,39 +2366,3 @@ def clear_adjacency_callback(PETSc.DM dm not None):
         dm.removeLabel("ghost_region")
         CHKERR(DMLabelDestroy(&label))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
-
-
-def set_patch_residual(patch, function, ctx, is_snes=False, interior_facets=False):
-    if is_snes:
-        if interior_facets:
-            raise NotImplementedError
-        CHKERR(SNESPatchSetComputeFunction((<PETSc.SNES?>patch).snes,
-                                           <PetscPCPatchComputeFunction><uintptr_t>function,
-                                           <void *><uintptr_t>ctx))
-    else:
-        if interior_facets:
-            CHKERR(PCPatchSetComputeFunctionInteriorFacets((<PETSc.PC?>patch).pc,
-                                                           <PetscPCPatchComputeFunction><uintptr_t>function,
-                                                           <void *><uintptr_t>ctx))
-        else:
-            CHKERR(PCPatchSetComputeFunction((<PETSc.PC?>patch).pc,
-                                             <PetscPCPatchComputeFunction><uintptr_t>function,
-                                             <void *><uintptr_t>ctx))
-
-
-def set_patch_jacobian(patch, function, ctx, is_snes=False, interior_facets=False):
-    if is_snes:
-        if interior_facets:
-            raise NotImplementedError
-        CHKERR(SNESPatchSetComputeOperator((<PETSc.SNES?>patch).snes,
-                                               <PetscPCPatchComputeOperator><uintptr_t>function,
-                                               <void *><uintptr_t>ctx))
-    else:
-        if interior_facets:
-            CHKERR(PCPatchSetComputeOperatorInteriorFacets((<PETSc.PC?>patch).pc,
-                                                           <PetscPCPatchComputeOperator><uintptr_t>function,
-                                                           <void *><uintptr_t>ctx))
-        else:
-            CHKERR(PCPatchSetComputeOperator((<PETSc.PC?>patch).pc,
-                                             <PetscPCPatchComputeOperator><uintptr_t>function,
-                                             <void *><uintptr_t>ctx))

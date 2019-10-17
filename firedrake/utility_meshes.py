@@ -7,8 +7,8 @@ from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ, interpolate
+from firedrake.cython import dmplex
 from firedrake import mesh
-from firedrake import dmplex
 from firedrake import function
 from firedrake import functionspace
 

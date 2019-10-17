@@ -5,7 +5,7 @@ import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 
 
 _MPI_types = {}

@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmplex import set_patch_residual, set_patch_jacobian
+from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext

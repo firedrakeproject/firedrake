@@ -5,7 +5,7 @@ from pyop2.datatypes import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import ufl
 import firedrake
-from . import impl
+from firedrake.cython import mgimpl as impl
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
