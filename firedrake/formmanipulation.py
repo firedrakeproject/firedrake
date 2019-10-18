@@ -117,7 +117,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
-def split_form(form):
+def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 
     Each entry is a :class:`SplitForm` tuple of the indices into the
@@ -149,8 +149,15 @@ def split_form(form):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
+    if diagonal:
+        assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
+            if diagonal:
+                i, j = idx
+                if i != j:
+                    continue
+                idx = (i, )
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)
