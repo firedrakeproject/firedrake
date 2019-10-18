@@ -17,11 +17,11 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 import firedrake.expression as expression
-import firedrake.extrusion_numbering as extnum
+import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.spatialindex as spatialindex
+import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
@@ -594,9 +594,8 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        point2facetnumber = {}
-        for i, f in enumerate(facets):
-            point2facetnumber[f] = i
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
