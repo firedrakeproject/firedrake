@@ -446,6 +446,9 @@ petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 petsc_opts += "--with-fortran-bindings=0 "
 
 petsc_options = {"--with-fortran-bindings=0",
+                 "--with-debugging=0",
+                 "--with-shared-libraries=1",
+                 "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
                  "--download-hdf5",
