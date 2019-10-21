@@ -79,6 +79,7 @@ class Configuration(dict):
         "debug": ("PYOP2_DEBUG", bool, False),
         "cflags": ("PYOP2_CFLAGS", str, ""),
         "ldflags": ("PYOP2_LDFLAGS", str, ""),
+        "compute_kernel_flops": ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
