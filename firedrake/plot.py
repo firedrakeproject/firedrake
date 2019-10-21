@@ -1,10 +1,158 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.tri
 from ufl import Cell
 from tsfc.fiatinterface import create_element
-from firedrake import Function, SpatialCoordinate, FunctionSpace
+from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
+                       FunctionSpace, VectorFunctionSpace)
 from firedrake.mesh import MeshGeometry
 
 __all__ = ["plot"]
+
+
+def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwargs):
+    r"""Plot a mesh with a different color for each boundary segment
+
+    :arg mesh: mesh to be plotted
+    :arg boundary_colors: iterable of colors to be used for each part of the
+       boundary
+    :arg axes: axis object on which to plot mesh
+    """
+    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension()
+    if (gdim != 2) or (tdim != 2):
+        raise NotImplementedError("Plotting meshes only implemented for 2D")
+
+    if mesh.ufl_cell().cellname() == 'quadrilateral':
+        raise NotImplementedError('Plotting meshes only implemented for '
+                                  'triangles')
+
+    axes = axes if axes is not None else plt.gca()
+
+    coordinates = mesh.coordinates
+    ele = coordinates.function_space().ufl_element()
+    if ele.degree() != 1:
+        # Interpolate to piecewise linear.
+        V = VectorFunctionSpace(mesh, ele.family(), 1)
+        coordinates = interpolate(coordinates, V)
+
+    idx = tuple(range(tdim + 1))
+    cell_node_map = coordinates.cell_node_map().values
+    idx = idx + (0,)
+    coords = coordinates.dat.data_ro
+    vertices = coords[cell_node_map[:, idx]]
+    from matplotlib.collections import LineCollection as Lines
+    interior_colors = kwargs.pop('colors', 'k')
+    interior_lines = Lines(vertices, colors=interior_colors, **kwargs)
+    axes.add_collection(interior_lines)
+
+    # Add colored lines for the boundary edges
+    facets = mesh.exterior_facets
+    local_facet_ids = facets.local_facet_dat.data_ro
+    exterior_cell_ids = facets.facet_cell_map.values[:, 0]
+    exterior_cell_node_map = cell_node_map[exterior_cell_ids]
+    indices = np.ones(exterior_cell_node_map.shape, dtype=bool)
+    for k, facet_id in enumerate(local_facet_ids):
+        indices[k, facet_id] = False
+    edges = exterior_cell_node_map[indices].reshape(-1, tdim)
+
+    markers = facets.unique_markers
+    num_markers = len(markers)
+
+    if boundary_colors is None:
+        cmap = matplotlib.cm.get_cmap('Dark2')
+        colors = cmap([k / num_markers for k in range(num_markers)])
+    else:
+        colors = matplotlib.colors.to_rgba_array(boundary_colors)
+
+    kwargs['linewidth'] = boundary_linewidth
+    lines = [interior_lines]
+    for i, marker in enumerate(markers):
+        edge_indices = facets.subset(int(marker)).indices
+        marker_edges = edges[edge_indices, :]
+        vertices = coords[marker_edges]
+        marker_lines = Lines(vertices, colors=colors[i], label=marker, **kwargs)
+        axes.add_collection(marker_lines)
+        lines.append(marker_lines)
+
+    axes.autoscale_view()
+    return lines
+
+
+def _plot_2d_field(method_name, function, *args, **kwargs):
+    axes = kwargs.pop('axes', plt.gca())
+
+    if len(function.ufl_shape) == 1:
+        mesh = function.ufl_domain()
+        element = function.ufl_element().sub_elements()[0]
+        Q = FunctionSpace(mesh, element)
+        function = interpolate(sqrt(inner(function, function)), Q)
+
+    num_sample_points = kwargs.pop('num_sample_points', 10)
+    triangulation, vals = _two_dimension_triangle_func_val(function,
+                                                           num_sample_points)
+
+    method = getattr(axes, method_name)
+    return method(triangulation, vals, *args, **kwargs)
+
+
+def tricontourf(function, *args, **kwargs):
+    r"""Create a filled contour plot of a finite element field
+
+    :arg function: the function to plot
+    :return: matplotlib TriContourSet object
+    """
+    return _plot_2d_field('tricontourf', function, *args, **kwargs)
+
+
+def tricontour(function, *args, **kwargs):
+    r"""Create a contour plot of a finite element field
+
+    :arg function: the function to plot
+    :return: matplotlib TriContourSet object
+    """
+    return _plot_2d_field('tricontour', function, *args, **kwargs)
+
+
+def trisurf(function, *args, **kwargs):
+    r"""Create a 3D surface plot of a finite element field
+
+    :arg function: the function to plot
+    :return:
+    """
+    _kwargs = {'antialiased': False, 'edgecolor': 'none', 'shade': False,
+               'cmap': plt.rcParams['image.cmap']}
+    _kwargs.update(kwargs)
+
+    return _plot_2d_field('plot_trisurf', function, *args, **_kwargs)
+
+
+def tripcolor(function, *args, **kwargs):
+    r"""Create a pseudo-color plot of a finite element field
+
+    :arg function: the function to plot
+    :return: matplotlib Collection object
+    """
+    return _plot_2d_field('tripcolor', function, *args, **kwargs)
+
+
+def quiver(function, *args, **kwargs):
+    r"""Make a quiver plot of a vector field
+
+    :arg function: the vector field to plot
+    :return: matplotlib Quiver object
+    """
+    if function.ufl_shape != (2,):
+        raise ValueError('Quiver plots only defined for 2D vector fields!')
+
+    axes = kwargs.pop('axes', plt.gca())
+
+    coords = function.ufl_domain().coordinates.dat.data_ro
+    X, Y = coords.T
+    vals = np.asarray(function.at(coords, tolerance=1e-10))
+    C = np.linalg.norm(vals, axis=1)
+    U, V = vals.T
+    return axes.quiver(X, Y, U, V, C, *args, **kwargs)
 
 
 def _plot_mult(functions, num_points=10, axes=None, **kwargs):
@@ -125,7 +273,6 @@ def plot_mesh(mesh, axes=None, surface=False, colors=None, **kwargs):
     ele = coordinates.function_space().ufl_element()
     if ele.degree() != 1:
         # Interpolate to piecewise linear.
-        from firedrake import VectorFunctionSpace, interpolate
         V = VectorFunctionSpace(mesh, ele.family(), 1)
         coordinates = interpolate(coordinates, V)
     idx = tuple(range(tdim + 1))
