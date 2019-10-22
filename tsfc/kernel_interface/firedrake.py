@@ -171,12 +171,13 @@ class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
     def __init__(self, integral_type, subdomain_id, domain_number, scalar_type,
-                 dont_split=()):
+                 dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
+        self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
         self.coefficient_args = []
@@ -204,7 +205,8 @@ class KernelBuilder(KernelBuilderBase):
         :returns: GEM expression representing the return variable
         """
         self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
+            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
+            diagonal=self.diagonal)
         return expressions
 
     def set_coordinates(self, domain):
@@ -368,7 +370,7 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
     return funarg, expression
 
 
-def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False):
+def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -376,6 +378,7 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
     :arg arguments: UFL Arguments
     :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
+    :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
     :returns: (funarg, expression)
          funarg      - :class:`coffee.Decl` function argument
          expressions - GEM expressions referring to the argument
@@ -392,6 +395,18 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
+
+    if diagonal:
+        if len(arguments) != 2:
+            raise ValueError("Diagonal only for 2-forms")
+        try:
+            element, = set(elements)
+        except ValueError:
+            raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
+
+        elements = (element, )
+        shapes = tuple(element.index_shape for element in elements)
+        multiindices = multiindices[:1]
 
     def expression(restricted):
         return gem.Indexed(gem.reshape(restricted, *shapes),
