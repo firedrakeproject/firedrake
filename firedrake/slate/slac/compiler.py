@@ -138,6 +138,7 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     # Create auxiliary temporaries/expressions (if necessary)
     statements.extend(auxiliary_expressions(builder, declared_temps))
 
+    #@Sophia: probably replace this by call slate to gem?
     # Generate the kernel information with complete AST
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
@@ -166,6 +167,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
         shape = (1,)
     else:
         shape = slate_expr.shape
+
 
     # Now we create the result statement by declaring its eigen type and
     # using Eigen::Map to move between Eigen and C data structs.
