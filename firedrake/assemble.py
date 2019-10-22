@@ -91,6 +91,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
+    diagonal = kwargs.pop("diagonal", False)
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
@@ -101,6 +102,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                           sub_mat_type=sub_mat_type, appctx=appctx,
                           assemble_now=not collect_loops,
                           allocate_only=allocate_only,
+                          diagonal=diagonal,
                           options_prefix=options_prefix)
         loops = tuple(loops)
         if collect_loops and not allocate_only:
@@ -135,7 +137,8 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
-                             inverse=False, mat_type=None, sub_mat_type=None):
+                             inverse=False, mat_type=None, sub_mat_type=None,
+                             diagonal=False):
     r"""Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
@@ -153,7 +156,8 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
-                      sub_mat_type=sub_mat_type)
+                      sub_mat_type=sub_mat_type,
+                      diagonal=diagonal)
 
     loops = tuple(loops)
 
@@ -170,7 +174,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               options_prefix=None,
               assemble_now=False,
               allocate_only=False,
-              zero_tensor=True):
+              zero_tensor=True,
+              diagonal=False):
     r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
@@ -222,10 +227,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if isinstance(f, slate.TensorBase):
+        if diagonal:
+            raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
-        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse, diagonal=diagonal)
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
         if bcs is not None:
@@ -233,8 +240,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
     rank = len(f.arguments())
-    is_mat = rank == 2
-    is_vec = rank == 1
+    if diagonal:
+        assert rank == 2
+    is_mat = rank == 2 and not diagonal
+    is_vec = rank == 1 or diagonal
 
     if any((coeff.function_space() and coeff.function_space().component is not None)
            for coeff in f.coefficients()):
@@ -256,6 +265,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
+            if diagonal:
+                raise NotImplementedError("Diagonal not implemented with matfree")
             if tensor is None:
                 result_matrix = matrix.ImplicitMatrix(f, bcs,
                                                       fc_params=form_compiler_parameters,
@@ -585,10 +596,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 if assemble_now:
-                    yield functools.partial(bc.apply, result_function)
+                    if diagonal:
+                        yield functools.partial(bc.set, result_function, 1)
+                    else:
+                        yield functools.partial(bc.apply, result_function)
                 else:
                     yield functools.partial(bc.zero, result_function)
             elif isinstance(bc, EquationBCSplit):
+                if diagonal:
+                    raise NotImplementedError("diagonal assembly and EquationBC not supported")
                 yield functools.partial(bc.zero, result_function)
                 yield from _assemble(bc.f, tensor=result_function, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
