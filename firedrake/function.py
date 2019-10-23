@@ -221,7 +221,7 @@ class Function(ufl.Coefficient):
     the :class:`.FunctionSpace`.
     """
 
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType, count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
@@ -252,8 +252,7 @@ class Function(ufl.Coefficient):
                                                 val=val, name=name, dtype=dtype)
 
         self._function_space = V
-        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
-
+        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space(), count=count)
         if cachetools:
             # LRU cache for expressions assembled onto this function
             self._expression_cache = cachetools.LRUCache(maxsize=50)

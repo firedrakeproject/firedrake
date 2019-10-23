@@ -34,6 +34,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subdomain_id",
                                      "domain_number",
                                      "coefficient_map",
+                                     "external_operators",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -113,6 +114,7 @@ class TSFCKernel(Cached):
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
+
         if self._initialized:
             return
 
@@ -125,6 +127,10 @@ class TSFCKernel(Cached):
             opts = default_parameters["coffee"]
             ast = kernel.ast
             ast = ast if not assemble_inverse else _inverse(ast)
+            # Add the additional external operators resulting from form compiling
+            if not kernel.coefficient_numbers <= tuple(number_map.keys()):
+                add_coefficient_numbers = tuple(n for n in kernel.coefficient_numbers if n not in number_map.keys())
+                number_map.update(dict(zip(add_coefficient_numbers, add_coefficient_numbers)))
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
@@ -133,6 +139,7 @@ class TSFCKernel(Cached):
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
+                                      external_operators=kernel.external_operators,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))

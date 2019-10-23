@@ -233,6 +233,24 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
+    new_coefficients = list(f.coefficients())
+    for ki in kernels:
+        for k, v in ki.kinfo.external_operators.items():
+            # Check if we need to reconstruct new ExtOps
+            if not (len(v) == 1 and v[0] == (0,)*len(v[0])):
+                c = f.coefficients()[k]
+                popc = new_coefficients.pop(k)
+                if c.derivatives == (0,)*len(c.ufl_operands):
+                    # ExternalOperators have the particularity of generating other Extops (during the differentiation)
+                    # Therefore, even though the information about wich ExtOps has been created during the form compiling
+                    # is stored in the kernel we still need to construct this dependency when needed.
+                    # That is when the form is already compiled and therefore the differentiation bit of the code is not hitted
+                    mc = popc
+                    mc._add_dependencies(v)
+                    for i, c in enumerate(mc._extop_dependencies):
+                        if c.derivatives in v:
+                            new_coefficients.append(c)
+
     rank = len(f.arguments())
     is_mat = rank == 2
     is_vec = rank == 1
@@ -388,7 +406,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise ValueError("Can't assemble 0-form into existing tensor")
         result = lambda: tensor.data[0]
 
-    coefficients = f.coefficients()
+    coefficients = tuple(new_coefficients)
     domains = f.ufl_domains()
 
     # These will be used to correctly interpret the "otherwise"
@@ -403,7 +421,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # In collecting loops mode, we collect the loops, and assume the
     # boundary conditions provided are the ones we want.  It therefore
     # is only used inside residual and jacobian assembly.
-
 
     # If there are any PointwiseOperators, evaluate them now.
     for c in coefficients:
