@@ -5,6 +5,11 @@ from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
 
+from gem import (Literal, Zero, Identity, Sum, Product, Division,
+                 Power, MathFunction, MinValue, MaxValue, Comparison,
+                 LogicalNot, LogicalAnd, LogicalOr, Conditional,
+                 Index, Indexed, ComponentTensor, IndexSum,
+                 ListTensor,Inverse,Solve,Variable)
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -134,6 +139,87 @@ class Transformer(Visitor):
             return o
 
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
+
+
+
+class SlateTranslator():
+    """Multifunction for translating UFL -> GEM.  """
+
+    def __init__(self, tensor_to_variable):
+        # Need context during translation!
+        self.tensor_to_variable=tensor_to_variable
+
+    def slate_to_gem_translate(self, slate_expression_dag):
+        gem_expression_dag=[]
+        for tensor in slate_expression_dag:#tensor hier is actually TensorBase
+            
+            # Terminal tensors/Assembled Vectors are already defined
+            #just redirect to allocated memory, how??
+            if isinstance(tensor, slate.Tensor):
+                gem_expression_dag.append(tensor_to_variable(tensor))
+            if isinstance(tensor, slate.AssembledVector):
+                gem_expression_dag.append(tensor_to_coefficient(tensor))
+
+            #other tensor types are translated into gem nodes
+            else:
+                gem_expression_dag.append(slate_to_gem(tensor))
+
+        return gem_expression_dag            
+
+    @singledispatch
+    def slate_to_gem(self,tensor):
+        """Translates slate tensors into GEM.
+        :returns: GEM translation of the modified terminal
+        """
+        raise AssertionError("Cannot handle terminal type: %s" % type(tensor))
+
+    @slate_to_gem.register(slate.Mul)
+    def slate_to_gem_mul(self,tensor):
+        A, B = tensor.operands
+        #@TODO: loop over shape rather than implementing hard her
+        #also in all the following statements
+        i,j,k=Index(extent=A.shape[0]),Index(extent=A.shape[1]),Index(extent=B.shape[1])
+        return ComponentTensor(IndexSum(Indexed(tensor_to_variable(A),(i,j)),Indexed(tensor_to_variable(B),(j,k)),j),(i,k))
+
+    @slate_to_gem.register(slate.Add)
+    def slate_to_gem_add(self,tensor):
+        A, B = tensor.operands
+        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
+        return ComponentTensor(Sum(Indexed(tensor_to_variable(A),(i,j)),Indexed(tensor_to_variable(B),(i,j))),(i,j))
+
+    @slate_to_gem.register(slate.Negative)
+    def slate_to_gem_negative(self,tensor):
+        A,=tensor.operands
+        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
+        return ComponentTensor(Product(Literal(-1), Indexed(tensor_to_variable(A),(i,j))),(i,j))
+        
+    @slate_to_gem.register(slate.Transpose)
+    def slate_to_gem_transpose(self,tensor):
+        A, = tensor.operands
+        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
+        return ComponentTensor(Indexed(tensor_to_variable(A), (i,j)),(j,i))
+
+    #@TODO: actually more complicated because used for mixed tensors?
+    @slate_to_gem.register(slate.Block)
+    def slate_to_gem_block(self,tensor,indices):
+        A,=tensor.operands
+        return ComponentTensor(Indexed(tensor_to_variable(A),indices),indices)
+
+    #call gem nodes for inverse and solve
+    #@TODO: see questions on that in gem
+    @slate_to_gem.register(slate.Inverse)
+    def slate_to_gem_inverse(self,tensor,context):
+        return Inverse(tensor_to_variable(A))
+
+    @slate_to_gem.register(slate.Solve)
+    def slate_to_gem_solve(self,tensor,context):
+        raise Solve(tensor_to_variable(A))
+
+
+
+
+
+    
 
 
 def eigen_tensor(expr, temporary, index):

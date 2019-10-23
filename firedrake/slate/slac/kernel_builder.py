@@ -12,7 +12,6 @@ from ufl import MixedElement
 
 import firedrake.slate.slate as slate
 
-
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
@@ -133,7 +132,7 @@ class LocalKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
         self.ref_counter = counter
-        self.expression_dag = expression_dag
+        self.expression_dag = expression_dag 
         self.coefficient_vecs = coeff_vecs
         self._setup()
 
@@ -222,7 +221,6 @@ class LocalKernelBuilder(object):
         This function also collects any information regarding orientations
         and extra include directories.
         """
-        transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
@@ -379,3 +377,136 @@ class LocalKernelBuilder(object):
                             "exterior_facet_top"]
         return any(cxt_k.original_integral_type in mesh_layer_types
                    for cxt_k in self.context_kernels)
+
+
+class LocalGEMKernelBuilder(object):
+
+    def __init__(self, expression, tsfc_parameters=None):
+        """Constructor for the LocalGEMKernelBuilder class.
+
+        :arg expression: a :class:`TensorBase` object.
+        :arg tsfc_parameters: an optional `dict` of parameters to provide to
+            TSFC when constructing subkernels associated with the expression.
+        """
+
+        assert isinstance(expression, slate.TensorBase)
+
+        if expression.ufl_domain().variable_layers:
+            raise NotImplementedError("Variable layers not yet handled in Slate.")
+
+        # Collect terminals, expressions, and reference counts
+        temps = OrderedDict()
+        coeff_vecs = OrderedDict()
+        seen_coeff = set()
+        expression_dag = list(traverse_dags([expression]))
+        counter = Counter([expression])
+
+        for tensor in expression_dag:
+            counter.update(tensor.operands)
+            
+            # Terminal tensors will always require a temporary.
+            if isinstance(tensor, slate.Tensor):
+
+                #should we check that tensors dont get duplicated as well ?
+                temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shapes))
+
+            # 'AssembledVector's will always require a coefficient temporary.
+            if isinstance(tensor, slate.AssembledVector):
+                function = tensor._function
+
+                def dimension(e):
+                    return create_element(e).space_dimension()
+
+                # Ensure coefficient temporaries aren't duplicated
+                if function not in seen_coeff:
+                    if type(function.ufl_element()) == MixedElement:
+                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
+                    else:
+                        shapes = [dimension(function.ufl_element())]
+
+                    # Local temporary
+                    local_temp = gem.Variable("VecTemp%d" % len(seen_coeff),shapes)
+
+                    offset = 0
+                    for i, shape in enumerate(shapes):
+                        cinfo = CoefficientInfo(space_index=i,
+                                                offset_index=offset,
+                                                shape=(sum(shapes), ),
+                                                vector=tensor,
+                                                local_temp=local_temp)
+                        coeff_vecs.setdefault(shape, []).append(cinfo)
+                        offset += shape
+
+                    seen_coeff.add(function)
+
+        self.expression = expression
+        self.tsfc_parameters = tsfc_parameters
+        self.temps = temps
+        self.ref_counter = counter
+        self.expression_dag = expression_dag
+        self.coefficient_vecs = coeff_vecs
+        self._setup()
+
+    @cached_property
+    def context_kernels(self):
+        r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
+        and integral type information.
+        """
+        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
+
+        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+                                          tsfc_parameters=self.tsfc_parameters)
+                    for i, expr in enumerate(self.temps)]
+
+        cxt_kernels = [cxt_k for cxt_tuple in cxt_list
+                       for cxt_k in cxt_tuple]
+        return cxt_kernels
+
+    
+    #this should be second stage?
+    #its how to fill the variables maybe? because it also redirects tensor assembly into lower level
+    #I think this is basically supposed to make a list of local assembly calls
+    def _setup(self):
+        """A setup method to initialize all the local assembly
+        kernels generated by TSFC and INCORPORATION OF LOOPY SUFF.
+        This function also collects any information regarding orientations
+        and extra include directories.
+        """
+        transformer = TransformerToLoopy()
+        include_dirs = []
+        templated_subkernels = []
+        assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
+        subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
+        coords = None
+        oriented = False
+        needs_cell_sizes = False
+
+        Maps integral type to subdomain key
+        subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
+                         "exterior_facet_vert": "subdomains_exterior_facet",
+                         "interior_facet": "subdomains_interior_facet",
+                         "interior_facet_vert": "subdomains_interior_facet"}
+        
+        for cxt_kernel in self.context_kernels:
+            local_coefficients = cxt_kernel.coefficients
+            it_type = cxt_kernel.original_integral_type
+            exp = cxt_kernel.tensor
+
+            if it_type not in self.supported_integral_types:
+                raise ValueError("Integral type '%s' not recognized" % it_type)
+
+            # Explicit checking of coordinates
+            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
+            if coords is not None:
+                assert coordinates == coords, "Mismatching coordinates!"
+            else:
+                coords = coordinates
+
+            for split_kernel in cxt_kernel.tsfc_kernels:
+
+
+                #[......]
+
+                #[......]
+
+                #[......]

@@ -103,6 +103,34 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
         return cache.setdefault(key, kernel)
 
+def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
+    cpu_time = time.time()
+    # TODO: Get PyOP2 to write into mixed dats
+    if slate_expr.is_mixed:
+        raise NotImplementedError("Compiling mixed slate expressions")
+
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
+
+    Citations().register("Gibson2018")
+
+    # Create a builder for the Slate expression
+    # what is happening in its setup method??
+    builder = LocalGEMKernelBuilder(expression=slate_expr,
+                                 tsfc_parameters=tsfc_parameters)
+                                 
+    # Keep track of declared temporaries
+    declared_temps = {}
+    statements = []
+
+    #do all the weird stuff before the actual translation!?
+
+    #call gem to cpp
+
+    #call gem to c
+
+    #build macros kernels
+
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
@@ -138,7 +166,6 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     # Create auxiliary temporaries/expressions (if necessary)
     statements.extend(auxiliary_expressions(builder, declared_temps))
 
-    #@Sophia: probably replace this by call slate to gem?
     # Generate the kernel information with complete AST
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
@@ -531,6 +558,19 @@ def parenthesize(arg, prec=None, parent=None):
         return arg
     return "(%s)" % arg
 
+#converts the slate expression dag of the LocalKernelBuilder
+#into a gem expression dag
+#both dag types are traversed into list
+#tensor and assembled vectors are already run through by now
+#they are acessed by the translator
+def slate_to_gem(slate_expr, declared_temps,prec=None):
+    traversed_gem_dag=SlateTranslator(declared_temps).translate_to_gem(expression_dag)
+    return traversed_gem_dag
+
+#either this or fix loopy kernel composition
+def gem_to_cpp():
+    pass
+
 
 def slate_to_cpp(expr, temps, prec=None):
     """Translates a Slate expression into its equivalent representation in
@@ -620,6 +660,8 @@ def slate_to_cpp(expr, temps, prec=None):
 
     else:
         raise NotImplementedError("Type %s not supported.", type(expr))
+
+
 
 
 def eigen_matrixbase_type(shape):
