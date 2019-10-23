@@ -242,21 +242,22 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     new_coefficients = list(f.coefficients())
     for ki in kernels:
-        for k, v in ki.kinfo.external_operators.items():
-            # Check if we need to reconstruct new ExtOps
-            if not (len(v) == 1 and v[0] == (0,)*len(v[0])):
-                c = f.coefficients()[k]
-                popc = new_coefficients.pop(k)
-                if c.derivatives == (0,)*len(c.ufl_operands):
-                    # ExternalOperators have the particularity of generating other Extops (during the differentiation)
-                    # Therefore, even though the information about wich ExtOps has been created during the form compiling
-                    # is stored in the kernel we still need to construct this dependency when needed.
-                    # That is when the form is already compiled and therefore the differentiation bit of the code is not hitted
-                    mc = popc
-                    mc._add_dependencies(v)
-                    for i, c in enumerate(mc._extop_dependencies):
-                        if c.derivatives in v:
-                            new_coefficients.append(c)
+        if hasattr(ki.kinfo, 'external_operators'):
+            for k, v in ki.kinfo.external_operators.items():
+                # Check if we need to reconstruct new ExtOps
+                if not (len(v) == 1 and v[0] == (0,)*len(v[0])):
+                    c = f.coefficients()[k]
+                    popc = new_coefficients.pop(k)
+                    if c.derivatives == (0,)*len(c.ufl_operands):
+                        # ExternalOperators have the particularity of generating other Extops (during the differentiation)
+                        # Therefore, even though the information about wich ExtOps has been created during the form compiling
+                        # is stored in the kernel we still need to construct this dependency when needed.
+                        # That is when the form is already compiled and therefore the differentiation bit of the code is not hitted
+                        mc = popc
+                        mc._add_dependencies(v)
+                        for i, c in enumerate(mc._extop_dependencies):
+                            if c.derivatives in v:
+                                new_coefficients.append(c)
 
     rank = len(f.arguments())
     if diagonal:
