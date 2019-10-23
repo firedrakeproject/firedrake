@@ -5,7 +5,6 @@ from ufl.core.external_operator import ExternalOperator
 from ufl.core.expr import Expr
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
-from ufl.utils.str import as_native_str
 from firedrake.function import Function
 from firedrake import utils, functionspaceimpl
 from pyop2.datatypes import ScalarType
@@ -94,7 +93,7 @@ class AbstractPointwiseOperator(Function, ExternalOperator, metaclass=ABCMeta):
         "Default repr string construction for PointwiseOperator operators."
         # This should work for most cases
         r = "%s(%s,%s,%s,%s,%s)" % (type(self).__name__, ", ".join(repr(op) for op in self.ufl_operands), repr(self._ufl_function_space), repr(self.derivatives), repr(self.ufl_shape), repr(self.operator_data))
-        return as_native_str(r)
+        return r
 
 
 class PointexprOperator(AbstractPointwiseOperator):
