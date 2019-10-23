@@ -21,7 +21,7 @@ import tsfc
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
+from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import lower_integral_type
 from tsfc.parameters import default_parameters
@@ -29,6 +29,7 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
+from firedrake.utils import ScalarType_c
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -126,13 +127,13 @@ def compile_element(expression, dual_space=None, parameters=None,
         coefficient = False
 
     # Replace coordinates (if any)
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType_c)
     domain = expression.ufl_domain()
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('X', rank=(dim,)))
+    point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -158,11 +159,11 @@ def compile_element(expression, dual_space=None, parameters=None,
     if coefficient:
         if expression.ufl_shape:
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=expression.ufl_shape))
+            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
             result = gem.Indexed(result, tensor_indices)
         else:
             return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-            result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=(1,)))
+            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=(1,)))
 
     else:
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
@@ -172,13 +173,13 @@ def compile_element(expression, dual_space=None, parameters=None,
             if elem.value_shape:
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
-                b_arg = [ast.Decl(SCALAR_TYPE, ast.Symbol("b", rank=elem.value_shape))]
+                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=elem.value_shape))]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
-                b_arg = [ast.Decl(SCALAR_TYPE, ast.Symbol("b", rank=(1, )))]
+                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=(1, )))]
             result = gem.Product(result, var)
 
-        result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=finat_elem.index_shape))
+        result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -190,7 +191,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"])
+    body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
@@ -458,9 +459,9 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     oriented = False
 
-    def __init__(self, num_entities):
+    def __init__(self, scalar_type, num_entities):
         """:arg num_entities: the number of micro-entities to integrate over."""
-        super().__init__()
+        super().__init__(scalar_type)
         self.indices = (gem.Index("entity", extent=num_entities), )
         self.shape = tuple(i.extent for i in self.indices)
         self.unsummed_coefficient_indices = frozenset(self.indices)
@@ -489,7 +490,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
-        funarg = ast.Decl(SCALAR_TYPE, ast.Symbol(name), pointers=[("restrict", )],
+        funarg = ast.Decl(ScalarType_c, ast.Symbol(name), pointers=[("restrict", )],
                           qualifiers=["const"])
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
@@ -500,7 +501,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
-    macro_builder = MacroKernelBuilder(ncell)
+    macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -526,7 +527,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0)
+    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
     coarse_builder.set_coordinates(Vc.mesh())
     argument_multiindices = (Vce.get_indices(), )
     argument_multiindex, = argument_multiindices
@@ -608,11 +609,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, parameters["precision"])
+    body = generate_coffee(impero_c, index_names, parameters["precision"], ScalarType_c)
 
-    retarg = ast.Decl(SCALAR_TYPE, ast.Symbol("R", rank=(Vce.space_dimension(), )))
+    retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor
-    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=SCALAR_TYPE))
+    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType_c))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
                                                    coarse_builder.coordinates_arg]

@@ -60,7 +60,6 @@ class AssembledPC(PCBase):
                                                     form_compiler_parameters=fcp,
                                                     mat_type=mat_type)
         self._assemble_P()
-        self.P.force_evaluation()
 
         # Transfer nullspace over
         Pmat = self.P.petscmat
@@ -94,7 +93,6 @@ class AssembledPC(PCBase):
 
     def update(self, pc):
         self._assemble_P()
-        self.P.force_evaluation()
 
     def form(self, pc, test, trial):
         _, P = pc.getOperators()

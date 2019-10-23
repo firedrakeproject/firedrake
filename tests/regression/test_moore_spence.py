@@ -33,8 +33,8 @@ def test_moore_spence():
     # Want eigenmode phi with minimal eigenvalue r
     B = derivative(residual(th, lm, TestFunction(V)), th, TrialFunction(V))
 
-    petsc_M = assemble(inner(TestFunction(V), TrialFunction(V))*dx, bcs=bcs).M.handle
-    petsc_B = assemble(B, bcs=bcs).M.handle
+    petsc_M = assemble(inner(TestFunction(V), TrialFunction(V))*dx, bcs=bcs).petscmat
+    petsc_B = assemble(B, bcs=bcs).petscmat
 
     num_eigenvalues = 1
 
