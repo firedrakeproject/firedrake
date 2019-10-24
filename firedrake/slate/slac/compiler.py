@@ -23,7 +23,7 @@ import os.path
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort
+from firedrake.slate.slac.utils import topological_sort, SlateTranslator
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -116,20 +116,149 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Create a builder for the Slate expression
     # what is happening in its setup method??
-    builder = LocalGEMKernelBuilder(expression=slate_expr,
+    builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
-                                 
-    # Keep track of declared temporaries
-    declared_temps = {}
-    statements = []
 
-    #do all the weird stuff before the actual translation!?
+    #stage1:....                      
+    gem_expr=slate_to_gem(builder.expressions_dag,builder.temps)
 
-    #call gem to cpp
+   
+    #stage 2: gem to loopy...
+    loopy_expr=slate_to_loopy(gem_expr)
 
-    #call gem to c
+    ############################
+    #####@TODO:TERMINAL TEMPORARIES###
+    ############################
+    instructions = []
+    for gem_temp in builder.temps:
+        #add initialisations of the temporariers in instructions
+        pass
+
+    ############################
+    #####@TODO:ASSEMBLY CALLS#########
+    ############################
+    for expr in builder.subkernels:
+        instructions.extend(expr)
+
+    ############################
+    #####@TODO:COEFF TEMPS############
+    ############################
+    # Create coefficient temporaries if necessary
+    if builder.coefficient_vecs:
+        #add initialisations of the coeffs in instructions
+
+    ############################
+    #####@TODO:ACTUAL CODE############
+    ############################
+    for expr in loopy_expr:
+        instructions.extend(expr)
+
+    ############################
+    #####KERNEL CONSTRUCTION####
+    ############################
+
+    #change the everywhere in the followinf the context to the builder.variables
 
     #build macros kernels
+    slate_expr = builder.expression
+    if slate_expr.rank == 0:
+        # Scalars are treated as 1x1 MatrixBase objects
+        shape = (1,)
+    else:
+        shape = slate_expr.shape
+    ####
+    ## Generate arguments for the macro kernel
+    ###
+
+    #coordinates, orientation and coefficients
+    kernel_data = [(context.mesh.coordinates,
+                    context.coordinates_arg)]
+    if context.needs_cell_orientations:
+        kernel_data.append((context.mesh.cell_orientations(),
+                            context.cell_orientations_arg))
+    kernel_data.extend(coefficients)
+    for c, name in kernel_data:
+        extent = index_extent(c)
+        dtype = c.dat.dtype
+        arguments.append(loopy.GlobalArg(name,
+                                         shape=(extent, ),
+                                         dtype=dtype))
+
+    # Facet information
+    if context.needs_cell_facets:
+        # Compute the number of local facets for preallocation of the
+        # local facet array
+        if mesh.cell_set._extruded:
+            num_facets = mesh._base_mesh.ufl_cell().num_facets()
+        else:
+            num_facets = mesh.ufl_cell().num_facets()
+
+        # Cell-facet map needs to be provided as a global kernel argument
+        arguments.append(loopy.GlobalArg(context.cell_facets_arg,
+                                         shape=(num_facets, 2),
+                                         dtype=np.int8))
+
+        temporary_variables["facet_array"] = loopy.TemporaryVariable(context.local_facet_array_arg,
+                                                                     shape=(num_facets, ),
+                                                                     dtype=np.uint32,
+                                                                     address_space=loopy.AddressSpace.LOCAL,
+                                                                     read_only=True,
+                                                                     initializer=np.arange(num_facets, dtype=np.uint32))
+
+    # Needed for evaluating facet integrals on extruded meshes
+    if context.needs_mesh_layers:
+        arguments.append(loopy.GlobalArg(context.layer_arg,
+                                         shape=(),
+                                         dtype=np.int32))
+
+    # Cell size information
+    if context.needs_cell_sizes:
+        cell_sizes = context.mesh.cell_sizes
+        name = context.cell_size_arg
+        extent = index_extent(cell_sizes)
+        arguments.append(loopy.GlobalArg(name,
+
+
+
+    # Macro kernel
+    knl = loopy.make_kernel(domains,
+                            instructions,
+                            kernel_data=arguments,
+                            temporary_variables=temporary_variables,
+                            target=loopy.CTarget(),
+                            name="slate_kernel",
+                            lang_version=(2018, 2),
+                            # This is safe to do, since we issue instructions using
+                            # topologically sorted Slate nodes
+                            seq_dependencies=True)
+
+    for k in context.callable_kernels:
+        knl = loopy.register_callable_kernel(knl, k)
+
+    # Construct the final ast
+    # Now we wrap up the kernel ast as a PyOP2 kernel and include the
+    # Eigen header files
+    # WORKAROUND: Generate code directly from the loopy kernel here,
+    # then attach code as a c-string to the op2kernel
+    code = loopy.generate_code_v2(knl).device_code()
+    # import ipdb; ipdb.set_trace()
+    code.replace('void slate_kernel', 'static void slate_kernel')
+    loopykernel = op2.Kernel(code, knl.name)
+
+    kinfo = KernelInfo(kernel=loopykernel,
+                       integral_type="cell",
+                       oriented=context.needs_cell_orientations,
+                       subdomain_id="otherwise",
+                       domain_number=0,
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       needs_cell_facets=context.needs_cell_facets,
+                       pass_layer_arg=context.needs_mesh_layers,
+                       needs_cell_sizes=context.needs_cell_sizes)
+
+    # Cache the resulting kernel
+    idx = tuple([0]*slate_expr.rank)
+    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    return (SplitKernel(idx, kinfo),)
 
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
@@ -563,12 +692,12 @@ def parenthesize(arg, prec=None, parent=None):
 #both dag types are traversed into list
 #tensor and assembled vectors are already run through by now
 #they are acessed by the translator
-def slate_to_gem(slate_expr, declared_temps,prec=None):
-    traversed_gem_dag=SlateTranslator(declared_temps).translate_to_gem(expression_dag)
+def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
+    traversed_gem_dag=SlateTranslator(declared_temps).translate_to_gem(traversed_slate_expr_dag)
     return traversed_gem_dag
 
 #either this or fix loopy kernel composition
-def gem_to_cpp():
+def gem_to_loopy(traversed_slate_expr_dag):
     pass
 
 
