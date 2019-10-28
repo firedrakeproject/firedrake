@@ -36,18 +36,18 @@ def V(mesh, degree, space):
 
 
 @pytest.fixture(params=[False, True],
-                ids=["Exact", "Fortin"])
-def use_fortin_interpolation(request):
+                ids=["Exact", "Averaging"])
+def use_averaging(request):
     return request.param
 
 
 @pytest.fixture
-def transfer(use_fortin_interpolation, V):
-    return EmbeddedDGTransfer(V.ufl_element(), use_fortin_interpolation=use_fortin_interpolation)
+def transfer(use_averaging, V):
+    return EmbeddedDGTransfer(use_averaging=use_averaging)
 
 
 @pytest.fixture
-def solver_parameters(use_fortin_interpolation, V):
+def solver_parameters(use_averaging, V):
     element_name = V.ufl_element()._short_name
     solver_parameters = {
         "mat_type": "aij",
@@ -55,7 +55,7 @@ def solver_parameters(use_fortin_interpolation, V):
         # When using mass solves in the prolongation, the V-cycle is
         # no longer a linear operator (because the prolongation uses
         # CG which is a nonlinear operator).
-        "ksp_type": "cg" if use_fortin_interpolation else "fcg",
+        "ksp_type": "cg" if use_averaging else "fcg",
         "ksp_max_it": 20,
         "ksp_rtol": 1e-9,
         "ksp_monitor_true_residual": None,
