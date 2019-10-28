@@ -125,9 +125,7 @@ def test_auxiliary_dm():
 
     # Solve variational form
     nvproblem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    prolongation = EmbeddedDGTransfer()
     solver = NonlinearVariationalSolver(nvproblem, solver_parameters=block_fact)
-    solver.set_transfer_operators(dmhooks.transfer_operators(Z, prolong=prolongation.prolong, inject=prolongation.inject, restrict=prolongation.restrict))
     solver.solve()
 
     # Error in L2 norm

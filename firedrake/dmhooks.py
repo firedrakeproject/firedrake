@@ -265,12 +265,18 @@ pop_transfer_operators = partial(pop_attr, "__transfer__")
 
 def get_transfer_operators(dm):
     prolong, restrict, inject = get_attr("__transfer__", dm, default=(None, None, None))
+    appctx = get_appctx(dm)
+    if appctx is None:
+        # We're not in a solve, so all we can do is use the defaults.
+        transfer = firedrake
+    else:
+        transfer = appctx.transfer_manager
     if prolong is None:
-        prolong = firedrake.prolong
+        prolong = transfer.prolong
     if restrict is None:
-        restrict = firedrake.restrict
+        restrict = transfer.restrict
     if inject is None:
-        inject = firedrake.inject
+        inject = transfer.inject
     return (prolong, restrict, inject)
 
 

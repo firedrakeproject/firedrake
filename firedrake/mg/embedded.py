@@ -6,7 +6,7 @@ from operator import and_
 from firedrake.petsc import PETSc
 
 
-__all__ = ("EmbeddedDGTransfer", )
+__all__ = ("TransferManager", )
 
 
 native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
@@ -24,7 +24,7 @@ def is_native(element):
     return element.family() in native
 
 
-class EmbeddedDGTransfer(object):
+class TransferManager(object):
     class Cache(object):
         """A caching object for work vectors and matrices.
 
@@ -58,7 +58,7 @@ class EmbeddedDGTransfer(object):
     def __init__(self, *, native_transfers=None, use_averaging=True):
         """
         An object for managing transfers between levels in a multigrid
-        hierarchy (possibly via embededdign in DG spaces).
+        hierarchy (possibly via embedding in DG spaces).
 
         :arg native_transfers: dict mapping UFL element
            to "natively supported" transfer operators. This should be
@@ -84,7 +84,7 @@ class EmbeddedDGTransfer(object):
         try:
             return self.caches[element]
         except KeyError:
-            return self.caches.setdefault(element, EmbeddedDGTransfer.Cache(element))
+            return self.caches.setdefault(element, TransferManager.Cache(element))
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.

@@ -276,7 +276,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse = type(context)(problem,
                            mat_type=context.mat_type,
                            pmat_type=context.pmat_type,
-                           appctx=new_appctx)
+                           appctx=new_appctx,
+                           transfer_manager=context.transfer_manager)
     coarse._fine = context
     context._coarse = coarse
 
