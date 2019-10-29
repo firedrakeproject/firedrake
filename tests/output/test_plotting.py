@@ -96,6 +96,15 @@ def test_triplot():
                     boundary_linewidth=2.0, boundary_colors=colors)
 
 
+def test_triplot_quad_mesh():
+    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    fig, axes = plt.subplots()
+    lines = triplot(mesh, axes=axes)
+    assert lines is not None
+    legend = axes.legend(loc='upper right')
+    assert legend is not None
+
+
 def test_3d_surface_plot():
     from mpl_toolkits.mplot3d import Axes3D
     mesh = UnitSquareMesh(10, 10)

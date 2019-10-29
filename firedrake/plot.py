@@ -23,22 +23,22 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
     if (gdim != 2) or (tdim != 2):
         raise NotImplementedError("Plotting meshes only implemented for 2D")
 
-    if mesh.ufl_cell().cellname() == 'quadrilateral':
-        raise NotImplementedError('Plotting meshes only implemented for '
-                                  'triangles')
-
     axes = axes if axes is not None else plt.gca()
 
     coordinates = mesh.coordinates
-    ele = coordinates.function_space().ufl_element()
-    if ele.degree() != 1:
+    element = coordinates.function_space().ufl_element()
+    if element.degree() != 1:
         # Interpolate to piecewise linear.
-        V = VectorFunctionSpace(mesh, ele.family(), 1)
+        V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = interpolate(coordinates, V)
 
-    idx = tuple(range(tdim + 1))
     cell_node_map = coordinates.cell_node_map().values
+    idx = tuple(range(tdim + 1))
+    quad = mesh.ufl_cell().cellname() == "quadrilateral"
+    if tdim == 2 and quad:
+        idx = (0, 1, 3, 2)
     idx = idx + (0,)
+
     coords = coordinates.dat.data_ro
     vertices = coords[cell_node_map[:, idx]]
     from matplotlib.collections import LineCollection as Lines
@@ -49,12 +49,13 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
     # Add colored lines for the boundary edges
     facets = mesh.exterior_facets
     local_facet_ids = facets.local_facet_dat.data_ro
-    exterior_cell_ids = facets.facet_cell_map.values[:, 0]
-    exterior_cell_node_map = cell_node_map[exterior_cell_ids]
-    indices = np.ones(exterior_cell_node_map.shape, dtype=bool)
-    for k, facet_id in enumerate(local_facet_ids):
-        indices[k, facet_id] = False
-    edges = exterior_cell_node_map[indices].reshape(-1, tdim)
+    exterior_facet_node_map = coordinates.exterior_facet_node_map().values
+    topology = coordinates.function_space().finat_element.cell.get_topology()
+
+    mask = np.zeros(exterior_facet_node_map.shape, dtype=bool)
+    for facet_index, local_facet_index in enumerate(local_facet_ids):
+        mask[facet_index, topology[1][local_facet_index]] = True
+    edges = exterior_facet_node_map[mask].reshape(-1, tdim)
 
     markers = facets.unique_markers
     num_markers = len(markers)
