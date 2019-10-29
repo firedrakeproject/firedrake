@@ -29,7 +29,7 @@ particular integral type.
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
+def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None, coffee=True):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
@@ -64,7 +64,7 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
         kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters,
-                               coffee=True)
+                               coffee=coffee)
         cxt_k = ContextKernel(tensor=tensor,
                               coefficients=form.coefficients(),
                               original_integral_type=orig_it_type,
