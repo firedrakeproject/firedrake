@@ -28,8 +28,11 @@ def test_repeated_custom_transfer():
     options = {"ksp_type": "preonly",
                "pc_type": "mg"}
 
-    with dmhooks.transfer_operators(V, prolong=myprolong):
-        solve(a == L, uh, solver_parameters=options)
+    transfer = EmbeddedDGTransfer(native_transfers={V.ufl_element(): (myprolong, restrict, inject)})
+    problem = LinearVariationalProblem(a, L, uh)
+    solver = LinearVariationalSolver(problem, solver_parameters=options)
+    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=transfer.prolong))
+    solver.solve()
 
     assert count == 1
 
@@ -75,10 +78,12 @@ def test_multiple_custom_transfer_split():
                "mat_type": "aij"}
 
     wh = Function(W)
+    transfer = EmbeddedDGTransfer(native_transfers={V.ufl_element(): (prolong_V, restrict, inject),
+                                                    Q.ufl_element(): (prolong_Q, restrict, inject)})
     problem = LinearVariationalProblem(a, L, wh)
     solver = LinearVariationalSolver(problem, solver_parameters=options)
-    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=prolong_V),
-                                  dmhooks.transfer_operators(Q, prolong=prolong_Q))
+    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=transfer.prolong),
+                                  dmhooks.transfer_operators(Q, prolong=transfer.prolong))
 
     solver.solve()
 
@@ -118,10 +123,12 @@ def test_multiple_custom_transfer_monolithc():
                "mat_type": "aij"}
 
     wh = Function(W)
+    transfer = EmbeddedDGTransfer(native_transfers={V.ufl_element(): (prolong_V, restrict, inject),
+                                                    Q.ufl_element(): (prolong_Q, restrict, inject)})
     problem = LinearVariationalProblem(a, L, wh)
     solver = LinearVariationalSolver(problem, solver_parameters=options)
-    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=prolong_V),
-                                  dmhooks.transfer_operators(Q, prolong=prolong_Q))
+    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=transfer.prolong),
+                                  dmhooks.transfer_operators(Q, prolong=transfer.prolong))
 
     solver.solve()
 
@@ -151,14 +158,15 @@ def test_custom_transfer_setting():
     options = {"ksp_type": "preonly",
                "pc_type": "mg"}
 
+    transfer = EmbeddedDGTransfer(native_transfers={V.ufl_element(): (myprolong, restrict, inject)})
     problem = LinearVariationalProblem(a, L, uh)
     solver = LinearVariationalSolver(problem, solver_parameters=options)
-    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=myprolong))
+    solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=transfer.prolong))
 
     solver.solve()
 
     with pytest.raises(RuntimeError):
-        solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=myprolong))
+        solver.set_transfer_operators(dmhooks.transfer_operators(V, prolong=transfer.prolong))
 
     assert count == 1
 

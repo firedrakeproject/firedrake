@@ -1,5 +1,8 @@
 import firedrake
 import ufl
+from functools import reduce
+from enum import IntEnum
+from operator import and_
 from firedrake.petsc import PETSc
 
 
@@ -7,6 +10,18 @@ __all__ = ("EmbeddedDGTransfer", )
 
 
 native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
+
+
+class Op(IntEnum):
+    PROLONG = 0
+    RESTRICT = 1
+    INJECT = 2
+
+
+def is_native(element):
+    if isinstance(element.cell(), ufl.TensorProductCell):
+        return reduce(and_, map(is_native, element.sub_elements()))
+    return element.family() in native
 
 
 class EmbeddedDGTransfer(object):
@@ -17,15 +32,20 @@ class EmbeddedDGTransfer(object):
         def __init__(self, element):
             cell = element.cell()
             degree = element.degree()
-            family = "DG" if cell.is_simplex() else "DQ"
+            family = lambda c: "DG" if c.is_simplex() else "DQ"
+            if isinstance(cell, ufl.TensorProductCell):
+                scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
+                                                            for (c, d) in zip(cell.sub_cells(), degree)))
+            else:
+                scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
             shape = element.value_shape()
             if len(shape) == 0:
-                DG = ufl.FiniteElement(family, cell, degree)
+                DG = scalar_element
             elif len(shape) == 1:
                 shape, = shape
-                DG = ufl.VectorElement(family, cell, degree, dim=shape)
+                DG = ufl.VectorElement(scalar_element, dim=shape)
             else:
-                DG = ufl.TensorElement(family, cell, degree, shape=shape)
+                DG = ufl.TensorElement(scalar_element, shape=shape)
             self.embedding_element = DG
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -40,19 +60,25 @@ class EmbeddedDGTransfer(object):
         An object for managing transfers between levels in a multigrid
         hierarchy (possibly via embededdign in DG spaces).
 
-        :arg native_transfers: dict mapping UFL element family names
+        :arg native_transfers: dict mapping UFL element
            to "natively supported" transfer operators. This should be
            a three-tuple of (prolong, restrict, inject).
         :arg use_averaging: Use averaging to approximate the
            projection out of the embedded DG space? If False, a global
            L2 projection will be performed.
         """
-        defaults = dict((family, (firedrake.prolong, firedrake.restrict, firedrake.inject)) for family in native)
-        if native_transfers is not None:
-            defaults.update(native_transfers)
-        self.native_transfers = defaults
+        self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
+
+    def _native_transfer(self, element, op):
+        try:
+            return self.native_transfers[element][op]
+        except KeyError:
+            if is_native(element):
+                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                return self.native_transfers.setdefault(element, ops)[op]
+        return None
 
     def cache(self, element):
         try:
@@ -194,14 +220,8 @@ class EmbeddedDGTransfer(object):
 
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if source_element.family() in self.native_transfers and target_element.family() in self.native_transfers:
-            if transfer_op == "prolong":
-                op = self.native_transfers[source_element.family()][0]
-            elif transfer_op == "inject":
-                op = self.native_transfers[source_element.family()][2]
-            else:
-                raise ValueError("Unsupport transfer type '%s'" % transfer_op)
-            return op(source, target)
+        if is_native(source_element) and is_native(target_element):
+            return self._native_transfer(source_element, transfer_op)(source, target)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
             for source_, target_ in zip(source.split(), target.split()):
@@ -241,7 +261,7 @@ class EmbeddedDGTransfer(object):
         :arg uc: The source (coarse grid) function.
         :arg uf: The target (fine grid) function.
         """
-        self.op(uc, uf, transfer_op="prolong")
+        self.op(uc, uf, transfer_op=Op.PROLONG)
 
     def inject(self, uf, uc):
         """Inject a function (primal restriction)
@@ -249,7 +269,7 @@ class EmbeddedDGTransfer(object):
         :arg uc: The source (fine grid) function.
         :arg uf: The target (coarse grid) function.
         """
-        self.op(uf, uc, transfer_op="inject")
+        self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, gf, gc):
         """Restrict a dual function.
@@ -262,9 +282,8 @@ class EmbeddedDGTransfer(object):
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
-        if source_element.family() in self.native_transfers and target_element.family() in self.native_transfers:
-            # FIXME: Magic number
-            return self.native_transfers[source_element.family()][1](gf, gc)
+        if is_native(source_element) and is_native(target_element):
+            return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
             for source_, target_ in zip(gf.split(), gc.split()):
