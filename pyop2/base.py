@@ -3371,6 +3371,8 @@ class Kernel(Cached):
 
     @cached_property
     def num_flops(self):
+        if not configuration["compute_kernel_flops"]:
+            return 0
         if isinstance(self.code, Node):
             v = EstimateFlops()
             return v.visit(self.code)
