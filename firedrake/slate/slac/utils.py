@@ -9,7 +9,12 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor,Inverse,Solve,Variable)
+                 ListTensor,Variable)#,Inverse,Solve,)
+
+
+from functools import singledispatch
+import firedrake
+import firedrake.slate.slate as sl
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -155,14 +160,16 @@ class SlateTranslator():
             
             # Terminal tensors/Assembled Vectors are already defined
             #just redirect to allocated memory, how??
-            if isinstance(tensor, slate.Tensor):
-                gem_expression_dag.append(tensor_to_variable(tensor))
-            if isinstance(tensor, slate.AssembledVector):
+            if isinstance(tensor, sl.Tensor):
+                gem_expression_dag.append(self.tensor_to_variable[tensor])
+                print(self.tensor_to_variable[tensor])
+
+            elif isinstance(tensor, sl.AssembledVector):
                 gem_expression_dag.append(tensor_to_coefficient(tensor))
 
             #other tensor types are translated into gem nodes
             else:
-                gem_expression_dag.append(slate_to_gem(tensor))
+                gem_expression_dag.append(self.slate_to_gem_add(tensor))
 
         return gem_expression_dag            
 
@@ -173,47 +180,57 @@ class SlateTranslator():
         """
         raise AssertionError("Cannot handle terminal type: %s" % type(tensor))
 
-    @slate_to_gem.register(slate.Mul)
+    @slate_to_gem.register(firedrake.slate.slate.Mul)
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
         #@TODO: loop over shape rather than implementing hard her
         #also in all the following statements
         i,j,k=Index(extent=A.shape[0]),Index(extent=A.shape[1]),Index(extent=B.shape[1])
-        return ComponentTensor(IndexSum(Indexed(tensor_to_variable(A),(i,j)),Indexed(tensor_to_variable(B),(j,k)),j),(i,k))
+        return ComponentTensor(IndexSum(Indexed(self.tensor_to_variable(A),(i,j)),Indexed(self.tensor_to_variable(B),(j,k)),j),(i,k))
 
-    @slate_to_gem.register(slate.Add)
+    @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self,tensor):
         A, B = tensor.operands
-        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
-        return ComponentTensor(Sum(Indexed(tensor_to_variable(A),(i,j)),Indexed(tensor_to_variable(B),(i,j))),(i,j))
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        B_indices=tuple(Index(extent=A.shape[i]) for i in range(len(B.shape)))
+        print(tuple(A_indices[i].extent for i in range(len(B.shapes))))
+        print(tuple(B_indices[i].extent for i in range(len(B.shapes))))
+        _A=Indexed(self.tensor_to_variable[A],A_indices)
+        _B=Indexed(self.tensor_to_variable[B],A_indices)
+        print(self.tensor_to_variable[A].shape)
 
-    @slate_to_gem.register(slate.Negative)
+        ret=ComponentTensor(Sum(_A,_B),A_indices)
+        print(ret.multiindex)
+        print(ret.free_indices)
+        print(ret.children)
+        return ret
+    @slate_to_gem.register(firedrake.slate.slate.Negative)
     def slate_to_gem_negative(self,tensor):
         A,=tensor.operands
         i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
-        return ComponentTensor(Product(Literal(-1), Indexed(tensor_to_variable(A),(i,j))),(i,j))
+        return ComponentTensor(Product(Literal(-1), Indexed(self.tensor_to_variable(A),(i,j))),(i,j))
         
-    @slate_to_gem.register(slate.Transpose)
+    @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self,tensor):
         A, = tensor.operands
         i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
-        return ComponentTensor(Indexed(tensor_to_variable(A), (i,j)),(j,i))
+        return ComponentTensor(Indexed(self.tensor_to_variable(A), (i,j)),(j,i))
 
     #@TODO: actually more complicated because used for mixed tensors?
-    @slate_to_gem.register(slate.Block)
+    @slate_to_gem.register(firedrake.slate.slate.Block)
     def slate_to_gem_block(self,tensor,indices):
         A,=tensor.operands
-        return ComponentTensor(Indexed(tensor_to_variable(A),indices),indices)
+        return ComponentTensor(Indexed(self.tensor_to_variable(A),indices),indices)
 
     #call gem nodes for inverse and solve
     #@TODO: see questions on that in gem
-    @slate_to_gem.register(slate.Inverse)
+    @slate_to_gem.register(firedrake.slate.slate.Inverse)
     def slate_to_gem_inverse(self,tensor,context):
-        return Inverse(tensor_to_variable(A))
+        return Inverse(self.tensor_to_variable(A))
 
-    @slate_to_gem.register(slate.Solve)
+    @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self,tensor,context):
-        raise Solve(tensor_to_variable(A))
+        raise Solve(self.tensor_to_variable(A))
 
 
 
