@@ -22,7 +22,7 @@ import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
-from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, SlateTranslator
 from firedrake import op2
 from firedrake.logging import logger
@@ -39,7 +39,7 @@ from pyop2.mpi import COMM_WORLD
 
 import firedrake.slate.slate as slate
 import numpy as np
-
+import sys
 
 __all__ = ['compile_expression']
 
@@ -74,7 +74,9 @@ class SlateKernel(TSFCKernel):
     def __init__(self, expr, tsfc_parameters):
         if self._initialized:
             return
-        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+
+        #@TODO: introduce coffe option here
+        self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
 
@@ -116,15 +118,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Create a builder for the Slate expression
     # what is happening in its setup method??
+    #@TODO: introduce coffe option here
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
     #stage1:....                      
-    gem_expr=slate_to_gem(builder.expressions_dag,builder.temps)
+    gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
+    print("program abort")
+    sys.exit()
 
    
     #stage 2: gem to loopy...
-    loopy_expr=slate_to_loopy(gem_expr)
+    loopy_expr=gem_to_loopy(gem_expr)
 
     ############################
     #####@TODO:TERMINAL TEMPORARIES###
@@ -146,6 +151,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # Create coefficient temporaries if necessary
     if builder.coefficient_vecs:
         #add initialisations of the coeffs in instructions
+        pass
 
     ############################
     #####@TODO:ACTUAL CODE############
@@ -166,9 +172,12 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         shape = (1,)
     else:
         shape = slate_expr.shape
+
     ####
     ## Generate arguments for the macro kernel
     ###
+
+    #@TODO: change all the context stuff here to accessing the local loopy kernel builder instead
 
     #coordinates, orientation and coefficients
     kernel_data = [(context.mesh.coordinates,
@@ -212,11 +221,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                          dtype=np.int32))
 
     # Cell size information
-    if context.needs_cell_sizes:
-        cell_sizes = context.mesh.cell_sizes
-        name = context.cell_size_arg
-        extent = index_extent(cell_sizes)
-        arguments.append(loopy.GlobalArg(name,
+    #if context.needs_cell_sizes:
+    #    cell_sizes = context.mesh.cell_sizes
+    #    name = context.cell_size_arg
+    #    extent = index_extent(cell_sizes)
+     #   arguments.append(loopy.GlobalArg(name,
 
 
 
@@ -232,32 +241,32 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                             # topologically sorted Slate nodes
                             seq_dependencies=True)
 
-    for k in context.callable_kernels:
-        knl = loopy.register_callable_kernel(knl, k)
+    #for k in builder.callable_kernels:
+    #    knl = loopy.register_callable_kernel(knl, k)
 
     # Construct the final ast
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
-    code = loopy.generate_code_v2(knl).device_code()
+    ##code = loopy.generate_code_v2(knl).device_code()
     # import ipdb; ipdb.set_trace()
-    code.replace('void slate_kernel', 'static void slate_kernel')
-    loopykernel = op2.Kernel(code, knl.name)
+    ##code.replace('void slate_kernel', 'static void slate_kernel')
+    ##loopykernel = op2.Kernel(code, knl.name)
 
-    kinfo = KernelInfo(kernel=loopykernel,
-                       integral_type="cell",
-                       oriented=context.needs_cell_orientations,
-                       subdomain_id="otherwise",
-                       domain_number=0,
-                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
-                       needs_cell_facets=context.needs_cell_facets,
-                       pass_layer_arg=context.needs_mesh_layers,
-                       needs_cell_sizes=context.needs_cell_sizes)
+    ##kinfo = KernelInfo(kernel=loopykernel,
+    ##                   integral_type="cell",
+    ##                  oriented=context.needs_cell_orientations,
+    ##                  subdomain_id="otherwise",
+    ##                  domain_number=0,
+    ##                  coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+    ##                  needs_cell_facets=context.needs_cell_facets,
+    ##                 pass_layer_arg=context.needs_mesh_layers,
+    ##                 needs_cell_sizes=context.needs_cell_sizes)
 
     # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
-    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    ##idx = tuple([0]*slate_expr.rank)
+    ##logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
 
@@ -275,6 +284,7 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
+    sys.exit()
     # Keep track of declared temporaries
     declared_temps = {}
     statements = []
@@ -693,7 +703,7 @@ def parenthesize(arg, prec=None, parent=None):
 #tensor and assembled vectors are already run through by now
 #they are acessed by the translator
 def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
-    traversed_gem_dag=SlateTranslator(declared_temps).translate_to_gem(traversed_slate_expr_dag)
+    traversed_gem_dag=SlateTranslator(declared_temps).slate_to_gem_translate(traversed_slate_expr_dag)
     return traversed_gem_dag
 
 #either this or fix loopy kernel composition
