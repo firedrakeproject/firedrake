@@ -9,6 +9,11 @@ from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
+import loopy
+import gem
+
+from loopy.symbolic import SubArrayRef
+import pymbolic.primitives as pym
 
 import firedrake.slate.slate as slate
 
@@ -341,7 +346,7 @@ class LocalKernelBuilder(object):
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
-                                          tsfc_parameters=self.tsfc_parameters)
+                                          tsfc_parameters=self.tsfc_parameters,coffee=True)
                     for i, expr in enumerate(self.temps)]
 
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
@@ -391,6 +396,26 @@ class LocalLoopyKernelBuilder(object):
     result_arg = "result"
     cell_orientations_arg = "orientations"
 
+
+    # Supported integral types
+    supported_integral_types = [
+        "cell",
+        "interior_facet",
+        "exterior_facet",
+        # The "interior_facet_horiz" measure is separated into two parts:
+        # "top" and "bottom"
+        "interior_facet_horiz_top",
+        "interior_facet_horiz_bottom",
+        "interior_facet_vert",
+        "exterior_facet_top",
+        "exterior_facet_bottom",
+        "exterior_facet_vert"
+    ]
+
+    # Supported subdomain types
+    supported_subdomain_types = ["subdomains_exterior_facet",
+                                 "subdomains_interior_facet"]
+
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
@@ -418,7 +443,7 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
 
                 #@TODO: actually I think we need loopy stuff here?
-                temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shapes))
+                temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shape))
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
@@ -456,7 +481,7 @@ class LocalLoopyKernelBuilder(object):
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
-        self._setup()
+        #self._setup()
 
     @cached_property
     def context_kernels(self):
@@ -477,6 +502,7 @@ class LocalLoopyKernelBuilder(object):
     #Make a list of local assembly calls
     #Populates templated subkernels with help of tsfc
     #@TODO: change the names lawrence used in their bag into the ones thomas used in his local kernel builder   
+    #@TODO: 
 
     def _setup(self):
         """A setup method to initialize all the local assembly
@@ -484,7 +510,7 @@ class LocalLoopyKernelBuilder(object):
         This function also collects any information regarding orientations
         and extra include directories.
         """
-        transformer = TransformerToLoopy()
+        #transformer = TransformerToLoopy()
         include_dirs = []
         templated_subkernels = []
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
@@ -501,7 +527,6 @@ class LocalLoopyKernelBuilder(object):
                          "exterior_facet_vert": "subdomains_exterior_facet",
                          "interior_facet": "subdomains_interior_facet",
                          "interior_facet_vert": "subdomains_interior_facet"}
-        
         for cxt_kernel in self.context_kernels:
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
@@ -518,7 +543,7 @@ class LocalLoopyKernelBuilder(object):
             else:
                 coords = coordinates
 
-            for inner in cxt_kernels:
+            for inner in cxt_kernel.tsfc_kernels:
                 kinfo = inner.kinfo
                 reads = []
 
@@ -529,21 +554,23 @@ class LocalLoopyKernelBuilder(object):
                 #indiced and output
                 # For the mixed case, the output is a slice of the matrix/vector
                 if tensor.is_mixed:
-                    block_index = inner.indices
-                    slices = []
-                    swept_indices = []
-                    for i, j in enumerate(block_index):
-                        extent = tensor.shapes[i][j]
-                        offset = sum(tensor.shapes[i][:j])
-                        index = create_index(extent)
-                        swept_indices.append(index)
-                        slices.append(pym.Sum((offset, index)))
+                    #block_index = inner.indices
+                    #slices = []
+                    #swept_indices = []
+                    #for i, j in enumerate(block_index):
+                    #    extent = tensor.shapes[i][j]
+                    #    offset = sum(tensor.shapes[i][:j])
+                    #    index = create_index(extent)
+                    #    swept_indices.append(index)
+                    #    slices.append(pym.Sum((offset, index)))
 
-                    output = SubArrayRef(tuple(swept_indices),
-                                        pym.Subscript(output_tensor, tuple(slices)))
+                    #output = SubArrayRef(tuple(swept_indices),
+                    #                    pym.Subscript(output_tensor, tuple(slices)))
+
+                    raise ValueError("For now only non mixed supported")
                 else:
-                    indices = split_kernel.indices#???
-                    output = SubArrayRef(indices, pym.Subscript(output_tensor, indices))
+                    indices = inner.indices#???
+                    output = SubArrayRef(indices, pym.Subscript(tensor, indices))
 
                 #kernel data is equuivalent to the args in the coffee kernel setup
                 kernel_data = [(mesh.coordinates,
@@ -563,55 +590,58 @@ class LocalLoopyKernelBuilder(object):
                                     for c in itertools.chain(*(c.split()
                                                             for c in local_coefficients))])
 
-                for c, name in kernel_data:
-                    extent = index_extent(c)
-                    idx = create_index(extent)
-                    argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
-                    reads.append(argument)
+                #Generation of indices of the extent of the coefficient dimensions/cell size dimension & co
+                #@TODO: is this directly transferable when there is a indermediate gem rep
+                #for c, name in kernel_data:
+                #    extent = index_extent(c)
+                #    idx = create_index(extent)
+                #    argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
+                #    reads.append(argument)
 
 
                 if integral_type == "cell":
                     predicates = None
                     if kinfo.subdomain_id != "otherwise":
                         raise NotImplementedError("No subdomain markers for cells yet")
-                elif integral_type in {"interior_facet",
-                                    "interior_facet_vert",
-                                    "exterior_facet",
-                                    "exterior_facet_vert"}:
+                #@TODO: for now only cell integrals supported
+                #elif integral_type in {"interior_facet",
+                #                    "interior_facet_vert",
+                #                    "exterior_facet",
+                #                    "exterior_facet_vert"}:
 
-                    needs_cell_facets = True
-                    if integral_type.startswith("interior_facet"):
-                        select = 1
-                    else:
-                        select = 0
-                    cell_facets = pym.Variable(cell_facets_arg)
-                    predicates = [pym.Comparison(pym.Subscript(cell_facets, (fidx, 0)), "==", select)]
-                    # TODO, this does the wrong thing for integrals like f*ds + g*ds(1)
-                    # "otherwise" is treated incorrectly as "everywhere"
-                    # However, this replicates an existing slate bug.
-                    if kinfo.subdomain_id != "otherwise":
-                        predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx, 1)), "==", kinfo.subdomain_id))
+                #    needs_cell_facets = True
+                #   if integral_type.startswith("interior_facet"):
+                #        select = 1
+                #    else:
+                #        select = 0
+                #    cell_facets = pym.Variable(cell_facets_arg)
+                #    predicates = [pym.Comparison(pym.Subscript(cell_facets, (fidx, 0)), "==", select)]
+                #    # TODO, this does the wrong thing for integrals like f*ds + g*ds(1)
+                #    # "otherwise" is treated incorrectly as "everywhere"
+                #    # However, this replicates an existing slate bug.
+                #    if kinfo.subdomain_id != "otherwise":
+                #        predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx, 1)), "==", kinfo.subdomain_id))
 
-                    i = create_index(1)
-                    subscript = pym.Subscript(pym.Variable(local_facet_array_arg),
-                                            (pym.Sum((i, fidx))))
-                    reads.append(SubArrayRef((i, ), subscript))
-                elif integral_type in {"interior_facet_horiz_top",
-                                    "interior_facet_horiz_bottom",
-                                    "exterior_facet_top",
-                                    "exterior_facet_bottom"}:
+                #    i = create_index(1)
+                #    subscript = pym.Subscript(pym.Variable(local_facet_array_arg),
+                #                            (pym.Sum((i, fidx))))
+                #    reads.append(SubArrayRef((i, ), subscript))
+                #elif integral_type in {"interior_facet_horiz_top",
+                #                    "interior_facet_horiz_bottom",
+                #                    "exterior_facet_top",
+                #                    "exterior_facet_bottom"}:
 
-                    needs_mesh_layers = True
+                #    needs_mesh_layers = True
 
-                    layer = pym.Variable(layer_arg)
+                #    layer = pym.Variable(layer_arg)
 
-                    # TODO: Variable layers
-                    nlayer = tensor.ufl_domain().layers
-                    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
-                            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
-                            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
-                    predicates = frozenset([which])
+                #    # TODO: Variable layers
+                 #   nlayer = tensor.ufl_domain().layers
+                #    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+                #            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                #            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                #            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+                #    predicates = frozenset([which])
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
 
@@ -625,8 +655,8 @@ class LocalLoopyKernelBuilder(object):
         self.include_dirs = list(set(include_dirs))
         self.needs_cell_orientations = needs_cell_orientations#instead of oriented
         self.needs_cell_sizes = needs_cell_sizes
-        self.needs_cell_facets=needs_cell_facets
-        self.needs_mesh_layers=needs_mesh_layers
+        self.needs_cell_facets= needs_cell_facets
+        self.needs_mesh_layers= needs_mesh_layers
 
 
 #@TODO: what do do with this??
