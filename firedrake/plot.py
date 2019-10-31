@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri
+from matplotlib.collections import LineCollection, PolyCollection
+import mpl_toolkits.mplot3d
+from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from ufl import Cell
 from tsfc.fiatinterface import create_element
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
@@ -8,6 +11,46 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
 from firedrake.mesh import MeshGeometry
 
 __all__ = ["plot"]
+
+
+def _autoscale_view(axes, coords):
+    axes.autoscale_view()
+
+    # Dirty hack; autoscale_view doesn't appear to work for 3D plots.
+    if isinstance(axes, mpl_toolkits.mplot3d.Axes3D):
+        setters = ["set_xlim", "set_ylim", "set_zlim"]
+        for setter, idx in zip(setters, range(coords.shape[1])):
+            try:
+                setter = getattr(axes, setter)
+            except AttributeError:
+                continue
+            amin = coords[:, idx].min()
+            amax = coords[:, idx].max()
+            extra = (amax - amin) / 20
+            if extra == 0.0:
+                # 1D interval
+                extra = 0.5
+            amin -= extra
+            amax += extra
+            setter(amin, amax)
+
+
+def _get_collection_types(gdim, tdim):
+    if gdim == 2:
+        if tdim == 1:
+            # Probably a CircleCollection?
+            raise NotImplementedError("Didn't get to this yet...")
+        elif tdim == 2:
+            return LineCollection, PolyCollection
+    elif gdim == 3:
+        if tdim == 1:
+            raise NotImplementedError("Didn't get to this one yet...")
+        elif tdim == 2:
+            return Line3DCollection, Poly3DCollection
+        elif tdim == 3:
+            return Poly3DCollection, Poly3DCollection
+
+    raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
 def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwargs):
@@ -20,9 +63,10 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
     """
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
-    if (gdim != 2) or (tdim != 2):
-        raise NotImplementedError("Plotting meshes only implemented for 2D")
+    BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
+    quad = mesh.ufl_cell().cellname() == "quadrilateral"
 
+    # Probably want to check that it's an Axes3D if `gdim == 3`
     axes = axes if axes is not None else plt.gca()
 
     coordinates = mesh.coordinates
@@ -32,21 +76,26 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = interpolate(coordinates, V)
 
-    cell_node_map = coordinates.cell_node_map().values
-    idx = tuple(range(tdim + 1))
-    quad = mesh.ufl_cell().cellname() == "quadrilateral"
-    if tdim == 2 and quad:
-        idx = (0, 1, 3, 2)
-    idx = idx + (0,)
-
     coords = coordinates.dat.data_ro
-    vertices = coords[cell_node_map[:, idx]]
-    from matplotlib.collections import LineCollection as Lines
-    interior_colors = kwargs.pop('colors', 'k')
-    interior_lines = Lines(vertices, colors=interior_colors, **kwargs)
-    axes.add_collection(interior_lines)
+    result = []
 
-    # Add colored lines for the boundary edges
+    # If the domain isn't a 3D volume, draw the interior.
+    if tdim <= 2:
+        cell_node_map = coordinates.cell_node_map().values
+        idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
+
+        vertices = coords[cell_node_map[:, idx]]
+        if gdim == 2:
+            interior_kwargs = dict(facecolors=kwargs.pop('facecolors', 'none'), **kwargs)
+        elif gdim == 3:
+            interior_kwargs = dict(edgecolor=kwargs.pop('edgecolor', 'k'),
+                                   linewidth=kwargs.pop('linewidth', 0.5),
+                                   **kwargs)
+        interior_collection = InteriorCollection(vertices, **interior_kwargs)
+        axes.add_collection(interior_collection)
+        result.append(interior_collection)
+
+    # Add colored lines/polygons for the boundary facets
     facets = mesh.exterior_facets
     local_facet_ids = facets.local_facet_dat.data_ro
     exterior_facet_node_map = coordinates.exterior_facet_node_map().values
@@ -54,30 +103,36 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
 
     mask = np.zeros(exterior_facet_node_map.shape, dtype=bool)
     for facet_index, local_facet_index in enumerate(local_facet_ids):
-        mask[facet_index, topology[1][local_facet_index]] = True
-    edges = exterior_facet_node_map[mask].reshape(-1, tdim)
+        mask[facet_index, topology[tdim - 1][local_facet_index]] = True
+    faces = exterior_facet_node_map[mask].reshape(-1, tdim)
 
     markers = facets.unique_markers
-    num_markers = len(markers)
-
     if boundary_colors is None:
         cmap = matplotlib.cm.get_cmap('Dark2')
+        num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:
         colors = matplotlib.colors.to_rgba_array(boundary_colors)
 
-    kwargs['linewidth'] = boundary_linewidth
-    lines = [interior_lines]
-    for i, marker in enumerate(markers):
-        edge_indices = facets.subset(int(marker)).indices
-        marker_edges = edges[edge_indices, :]
-        vertices = coords[marker_edges]
-        marker_lines = Lines(vertices, colors=colors[i], label=marker, **kwargs)
-        axes.add_collection(marker_lines)
-        lines.append(marker_lines)
+    color_key = 'colors' if tdim <= 2 else 'facecolors'
+    for marker, color in zip(markers, colors):
+        face_indices = facets.subset(int(marker)).indices
+        marker_faces = faces[face_indices, :]
+        vertices = coords[marker_faces]
+        boundary_kwargs = dict(**{color_key: color, 'label': marker}, **kwargs)
+        marker_collection = BoundaryCollection(vertices, **boundary_kwargs)
+        axes.add_collection(marker_collection)
+        result.append(marker_collection)
 
-    axes.autoscale_view()
-    return lines
+    # Dirty hack to enable legends for 3D volume plots. See the function
+    # `Poly3DCollection.set_3d_properties`.
+    for collection in result:
+        if isinstance(collection, Poly3DCollection):
+            collection._facecolors2d = PolyCollection.get_facecolor(collection)
+            collection._edgecolors2d = PolyCollection.get_edgecolor(collection)
+
+    _autoscale_view(axes, coords)
+    return result
 
 
 def _plot_2d_field(method_name, function, *args, **kwargs):

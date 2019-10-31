@@ -2,6 +2,7 @@ from firedrake import *
 from firedrake.plot import (triplot, tricontour, tricontourf, tripcolor,
                             trisurf, quiver)
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def test_plotting_scalar_field():
@@ -87,9 +88,9 @@ def test_triplot():
     mesh = UnitSquareMesh(10, 10)
     fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
     lines = triplot(mesh, axes=axes[0])
-    assert lines is not None
+    assert lines
     legend = axes[0].legend(loc='upper right')
-    assert legend is not None
+    assert len(legend.get_texts()) > 0
 
     colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
     lines = triplot(mesh, axes=axes[1], linewidth=0.5,
@@ -100,13 +101,40 @@ def test_triplot_quad_mesh():
     mesh = UnitSquareMesh(10, 10, quadrilateral=True)
     fig, axes = plt.subplots()
     lines = triplot(mesh, axes=axes)
-    assert lines is not None
+    assert lines
     legend = axes.legend(loc='upper right')
-    assert legend is not None
+    assert len(legend.get_texts()) > 0
+
+
+def test_triplot_3d():
+    fig = plt.figure()
+
+    axes = fig.add_subplot(2, 2, 1, projection='3d')
+    mesh = CylinderMesh(nr=32, nl=4)
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend()
+    assert len(legend.get_texts()) == 2
+
+    axes = fig.add_subplot(2, 2, 2, projection='3d')
+    mesh = UnitIcosahedralSphereMesh(3)
+    triplot(mesh, axes=axes)
+    legend = axes.legend()
+    assert len(legend.get_texts()) == 0
+
+    axes = fig.add_subplot(2, 2, 3, projection='3d')
+    mesh = UnitCubedSphereMesh(3)
+    triplot(mesh, axes=axes)
+
+    axes = fig.add_subplot(2, 2, 4, projection='3d')
+    mesh = UnitCubeMesh(3, 3, 3)
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert len(legend.get_texts()) == 6
 
 
 def test_3d_surface_plot():
-    from mpl_toolkits.mplot3d import Axes3D
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
     f = Function(V)
