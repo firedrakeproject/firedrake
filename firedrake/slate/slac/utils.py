@@ -12,7 +12,7 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  ListTensor,Variable)#,Inverse,Solve,)
 
 
-from functools import singledispatch
+from functools import singledispatch,update_wrapper
 import firedrake
 import firedrake.slate.slate as sl
 
@@ -145,7 +145,14 @@ class Transformer(Visitor):
 
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
-
+#singledispatch for second argument
+def classsingledispatch(func):
+    dispatcher = singledispatch(func)
+    def wrapper(*args, **kw):
+        return dispatcher.dispatch(args[1].__class__)(*args, **kw)
+    wrapper.register = dispatcher.register
+    update_wrapper(wrapper, func)
+    return wrapper
 
 class SlateTranslator():
     """Multifunction for translating UFL -> GEM.  """
@@ -169,11 +176,12 @@ class SlateTranslator():
 
             #other tensor types are translated into gem nodes
             else:
-                gem_expression_dag.append(self.slate_to_gem_transpose(tensor))
+                gem_expression_dag.append(self.slate_to_gem(tensor))
 
-        return gem_expression_dag            
+        return gem_expression_dag   
 
-    @singledispatch
+    
+    @classsingledispatch
     def slate_to_gem(self,tensor):
         """Translates slate tensors into GEM.
         :returns: GEM translation of the modified terminal
@@ -253,7 +261,7 @@ class SlateTranslator():
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Negative)
-    def slate_to_gem_negative(self,tensor):
+    def slate_to_gem_negative(tensor,self):
         A,=tensor.operands
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
         ret=ComponentTensor(Product(Literal(-1), Indexed(self.tensor_to_variable[A],A_indices)),A_indices)
@@ -265,7 +273,7 @@ class SlateTranslator():
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
-    def slate_to_gem_transpose(self,tensor):
+    def slate_to_gem_transpose(tensor,self):
         A, = tensor.operands
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
         ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),tuple(reversed(A_indices)))
@@ -274,10 +282,10 @@ class SlateTranslator():
         print("ret children: ",ret.children)
         print("ret: ",ret)
         return ret
-    
+
     #@TODO: actually more complicated because used for mixed tensors?
     @slate_to_gem.register(firedrake.slate.slate.Block)
-    def slate_to_gem_block(self,tensor,slice_indices):
+    def slate_to_gem_block(tensor,self,slice_indices):
         A,=tensor.operands
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
         ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),slice_indices)
@@ -291,18 +299,14 @@ class SlateTranslator():
     #call gem nodes for inverse and solve
     #@TODO: see questions on that in gem
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
-    def slate_to_gem_inverse(self,tensor,context):
+    def slate_to_gem_inverse(tensor,self,context):
         return Inverse(self.tensor_to_variable[A])
 
     @slate_to_gem.register(firedrake.slate.slate.Solve)
-    def slate_to_gem_solve(self,tensor,context):
-        raise Solve(self.tensor_to_variable[A])
+    def slate_to_gem_solve(tensor,self,context):
+        raise Solve(self.tensor_to_variable[A])         
 
 
-
-
-
-    
 
 
 def eigen_tensor(expr, temporary, index):
