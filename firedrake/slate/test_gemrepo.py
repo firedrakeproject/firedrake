@@ -15,9 +15,12 @@ L = f * v * dx
 _A = Tensor(a)
 _F = Tensor(L)
 #assemble(_A)
-#assemble(_A+_A)
+assemble(_A+_A)
 #test=assemble(_A*_F)
 #test=assemble(_A*_A)
 #test=assemble(-_A)
 #test=assemble(Transpose(_A))
+
+#this is getting more interesting if mixed
+#b=assemble(_A.blocks[0,0])
 print(test)
