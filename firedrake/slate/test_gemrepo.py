@@ -16,4 +16,4 @@ L = f * v * dx
 _A = Tensor(a)
 _F = Tensor(L)
 #assemble(_A)
-assemble(_A+_A)
+assemble(_A*_A)

@@ -169,7 +169,7 @@ class SlateTranslator():
 
             #other tensor types are translated into gem nodes
             else:
-                gem_expression_dag.append(self.slate_to_gem_add(tensor))
+                gem_expression_dag.append(self.slate_to_gem_mul(tensor))
 
         return gem_expression_dag            
 
@@ -185,14 +185,20 @@ class SlateTranslator():
         A, B = tensor.operands
         #@TODO: loop over shape rather than implementing hard her
         #also in all the following statements
-        i,j,k=Index(extent=A.shape[0]),Index(extent=A.shape[1]),Index(extent=B.shape[1])
-        return ComponentTensor(IndexSum(Indexed(self.tensor_to_variable(A),(i,j)),Indexed(self.tensor_to_variable(B),(j,k)),j),(i,k))
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
+        ret=ComponentTensor(IndexSum(Indexed(self.tensor_to_variable(A),A_indices),Indexed(self.tensor_to_variable(B),B_indices),A_indices[1]),(A_indices[0],B_indices[1]))
+        ret=ComponentTensor(Sum(_A,_B),A_indices)
+        print(ret.multiindex)
+        print(ret.free_indices)
+        print(ret.children)
+        return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self,tensor):
         A, B = tensor.operands
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        B_indices=tuple(Index(extent=A.shape[i]) for i in range(len(B.shape)))
+        B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
         print(tuple(A_indices[i].extent for i in range(len(B.shapes))))
         print(tuple(B_indices[i].extent for i in range(len(B.shapes))))
         _A=Indexed(self.tensor_to_variable[A],A_indices)
