@@ -165,11 +165,11 @@ class SlateTranslator():
                 print(self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
-                gem_expression_dag.append(tensor_to_coefficient(tensor))
+                gem_expression_dag.append(self.tensor_to_variable(tensor))
 
             #other tensor types are translated into gem nodes
             else:
-                gem_expression_dag.append(self.slate_to_gem_mul(tensor))
+                gem_expression_dag.append(self.slate_to_gem_transpose(tensor))
 
         return gem_expression_dag            
 
@@ -183,15 +183,56 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Mul)
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
-        #@TODO: loop over shape rather than implementing hard her
-        #also in all the following statements
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
         B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
-        ret=ComponentTensor(IndexSum(Indexed(self.tensor_to_variable(A),A_indices),Indexed(self.tensor_to_variable(B),B_indices),A_indices[1]),(A_indices[0],B_indices[1]))
-        ret=ComponentTensor(Sum(_A,_B),A_indices)
-        print(ret.multiindex)
-        print(ret.free_indices)
-        print(ret.children)
+        
+        if not tensor.shape:
+            pass
+            #@TODO: DO WE NEVER HAVE THIS CASE?
+            #try:
+            #    #1x3 dot 3x1
+            #    ret=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
+            #except:
+            #    #1x1 dot 1x1
+            #     Product(self.tensor_to_variable[A],self.tensor_to_variable[B])
+        elif tensor.shape==(A.shape[0],):
+            try:
+                #3x3 dot 3x1
+                prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
+                ret=ComponentTensor(prod,(A_indices[0],))
+            except:
+                #3x1 dot 1x1
+                prod=Product(Indexed(self.tensor_to_variable[A],A_indices),self.tensor_to_variable[B])
+                ret=ComponentTensor(prod,(A_indices[0],))
+        #@TODO: DO WE NEVER HAVE THIS CASE?
+        #    elif tensor.shape==tuple(,B.shape[1]):
+        #        try:
+        #            #1x3 dot 3x3
+        #            prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),A_indices[1])
+        #            ret=ComponentTensor(prod,(A_indices[0],))
+        #        except:
+        #            #1x1 dot 1x3
+        #            prod=Product(self.tensor_to_variable[A],Indexed(self.tensor_to_variable[B],B_indices))
+        #            ret=ComponentTensor(prod,(,B_indices[1]))
+        #3x3 dot 3x3
+        elif tensor.shape==(A.shape[0],B.shape[1]):
+            prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
+            ret=ComponentTensor(prod,(A_indices[0],B_indices[1]))
+        #this all cases?
+        else:
+            raise Exception("Not valid matrix multiplication")
+
+
+        print("A indices: ",A_indices)
+        print("B indices: ",B_indices)
+        print("A shape: ",A.shape)
+        print("B shape: ",B.shape)
+        print("Tensor shape: ",tensor.shape)
+        print("IndexSum multiiindex: ",prod.multiindex)
+        print("IndexSum freeindex: ",prod.free_indices)
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret: ",ret)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
@@ -206,37 +247,56 @@ class SlateTranslator():
         print(self.tensor_to_variable[A].shape)
 
         ret=ComponentTensor(Sum(_A,_B),A_indices)
-        print(ret.multiindex)
-        print(ret.free_indices)
-        print(ret.children)
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret: ",ret)
         return ret
+
     @slate_to_gem.register(firedrake.slate.slate.Negative)
     def slate_to_gem_negative(self,tensor):
         A,=tensor.operands
-        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
-        return ComponentTensor(Product(Literal(-1), Indexed(self.tensor_to_variable(A),(i,j))),(i,j))
-        
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        ret=ComponentTensor(Product(Literal(-1), Indexed(self.tensor_to_variable[A],A_indices)),A_indices)
+
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret children: ",ret.children)
+        print("ret: ",ret)
+        return ret
+
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self,tensor):
         A, = tensor.operands
-        i,j=Index(extent=A.shape[0]),Index(extent=A.shape[1])
-        return ComponentTensor(Indexed(self.tensor_to_variable(A), (i,j)),(j,i))
-
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),tuple(reversed(A_indices)))
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret children: ",ret.children)
+        print("ret: ",ret)
+        return ret
+    
     #@TODO: actually more complicated because used for mixed tensors?
     @slate_to_gem.register(firedrake.slate.slate.Block)
-    def slate_to_gem_block(self,tensor,indices):
+    def slate_to_gem_block(self,tensor,slice_indices):
         A,=tensor.operands
-        return ComponentTensor(Indexed(self.tensor_to_variable(A),indices),indices)
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),slice_indices)
+
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret children: ",ret.children)
+        print("ret: ",ret)
+        return ret
 
     #call gem nodes for inverse and solve
     #@TODO: see questions on that in gem
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
     def slate_to_gem_inverse(self,tensor,context):
-        return Inverse(self.tensor_to_variable(A))
+        return Inverse(self.tensor_to_variable[A])
 
     @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self,tensor,context):
-        raise Solve(self.tensor_to_variable(A))
+        raise Solve(self.tensor_to_variable[A])
 
 
 
