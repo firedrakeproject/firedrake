@@ -122,14 +122,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
+    
     #stage1:....                      
     gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
-    print("program abort")
-    sys.exit()
+    
 
    
     #stage 2: gem to loopy...
     loopy_expr=gem_to_loopy(gem_expr)
+
+
+    print("program abort")
+    sys.exit()
 
     ############################
     #####@TODO:TERMINAL TEMPORARIES###
@@ -706,9 +710,39 @@ def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
     traversed_gem_dag=SlateTranslator(declared_temps).slate_to_gem_translate(traversed_slate_expr_dag)
     return traversed_gem_dag
 
-#either this or fix loopy kernel composition
 def gem_to_loopy(traversed_slate_expr_dag):
-    pass
+    
+    #prepare arguments
+    if len(arguments) == 0:
+        # No arguments
+        funarg = lp.GlobalArg("A", dtype=scalar_type, shape=(1,))
+        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
+
+        return funarg, [expression]
+
+    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    shapes = tuple(element.index_shape for element in elements)
+
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *shapes),
+                           tuple(chain(*multiindices)))
+
+    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
+    if interior_facet:
+        c_shape = tuple(2 * u_shape)
+        slicez = [[slice(r * s, (r + 1) * s)
+                   for r, s in zip(restrictions, u_shape)]
+                  for restrictions in product((0, 1), repeat=len(arguments))]
+    else:
+        c_shape = tuple(u_shape)
+        slicez = [[slice(s) for s in u_shape]]
+
+    funarg = lp.GlobalArg("A", dtype=scalar_type, shape=c_shape)
+    varexp = gem.Variable("A", c_shape)
+    return_variables = [expression(gem.view(varexp, *slices)) for slices in slicez]
+
+
+    impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
 
 
 def slate_to_cpp(expr, temps, prec=None):

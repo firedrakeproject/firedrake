@@ -481,7 +481,7 @@ class LocalLoopyKernelBuilder(object):
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
-        #self._setup()
+        self._setup()
 
     @cached_property
     def context_kernels(self):
@@ -645,6 +645,7 @@ class LocalLoopyKernelBuilder(object):
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
 
+                #reads is used to give the instruction an id
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
