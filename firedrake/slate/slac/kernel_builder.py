@@ -3,6 +3,7 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 from functools import singledispatch
+import itertools
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
@@ -36,6 +37,7 @@ Context information for creating coefficient temporaries.
 :param local_temp: The local temporary for the coefficient vector.
 """
 
+SCALAR_TYPE="double"
 
 class LocalKernelBuilder(object):
     """The primary helper class for constructing cell-local linear
@@ -395,6 +397,7 @@ class LocalLoopyKernelBuilder(object):
     cell_size_arg = "cell_sizes"
     result_arg = "result"
     cell_orientations_arg = "orientations"
+    
 
 
     # Supported integral types
@@ -431,6 +434,7 @@ class LocalLoopyKernelBuilder(object):
 
         # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
+        gem_loopy_dict=OrderedDict()
         coeff_vecs = OrderedDict()
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
@@ -442,12 +446,19 @@ class LocalLoopyKernelBuilder(object):
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
 
-                #@TODO: actually I think we need loopy stuff here?
                 temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shape))
+                gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE,
+                                           address_space=loopy.auto))
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
                 function = tensor._function
+                
+                gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(function,
+                                   shape=shape,
+                                   dtype=SCALAR_TYPE))
 
                 def dimension(e):
                     return create_element(e).space_dimension()
@@ -475,9 +486,11 @@ class LocalLoopyKernelBuilder(object):
 
                     seen_coeff.add(function)
 
+
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
+        self.gem_loopy_dict=gem_loopy_dict
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
@@ -520,6 +533,7 @@ class LocalLoopyKernelBuilder(object):
         needs_cell_sizes = False
         needs_cell_facets=False
         needs_mesh_layers=False
+        self.indices=[]
 
 
         #Maps integral type to subdomain key
@@ -531,6 +545,8 @@ class LocalLoopyKernelBuilder(object):
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
             tensor= cxt_kernel.tensor
+            temp=self.temps[tensor]
+            print(temp)
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -569,34 +585,41 @@ class LocalLoopyKernelBuilder(object):
 
                     raise ValueError("For now only non mixed supported")
                 else:
-                    indices = inner.indices#???
-                    output = SubArrayRef(indices, pym.Subscript(tensor, indices))
+                    indices = inner.indices
+                    print(indices)
+                    #@TODO: is this right???
+                    output = SubArrayRef(pym.Variable(self.gem_loopy_dict[temp].name), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
 
+                print(output)
                 #kernel data is equuivalent to the args in the coffee kernel setup
                 kernel_data = [(mesh.coordinates,
-                                coordinates_arg)]
+                                self.coordinates_arg)]
                 if kinfo.oriented:
                     needs_cell_orientations = True
                     kernel_data.append((mesh.cell_orientations(),
-                                        cell_orientations_arg))
+                                        self.cell_orientations_arg))
 
                 if kinfo.needs_cell_sizes:
                     needs_cell_sizes = True
                     kernel_data.append((mesh.cell_sizes,
-                                        cell_size_arg))
+                                        self.cell_size_arg))
 
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                kernel_data.extend([(c, coeff_vecs[c])
+                kernel_data.extend([(c, self.coefficient_vecs[c])
                                     for c in itertools.chain(*(c.split()
                                                             for c in local_coefficients))])
 
                 #Generation of indices of the extent of the coefficient dimensions/cell size dimension & co
+                #shou
                 #@TODO: is this directly transferable when there is a indermediate gem rep
-                #for c, name in kernel_data:
-                #    extent = index_extent(c)
-                #    idx = create_index(extent)
-                #    argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
-                #    reads.append(argument)
+                print(kernel_data)
+                for c, name in kernel_data:
+                    extent = index_extent(c)
+                    idx = create_index(extent,
+                                   namer=map("i{}".format, itertools.count()),
+                                   context=self)
+                    argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
+                    reads.append(argument)
 
 
                 if integral_type == "cell":
@@ -660,12 +683,17 @@ class LocalLoopyKernelBuilder(object):
         self.needs_mesh_layers= needs_mesh_layers
 
 
-#@TODO: what do do with this??
-#context.create_index = partial(create_index,
-#                                   namer=map("i{}".format, itertools.count()),
-#                                   context=context)
+        print(assembly_calls)
+
 
 def create_index(extent, namer, context):
         name = next(namer)
         context.indices.append((name, int(extent)))
         return pym.Variable(name)
+
+def index_extent(coefficient):
+    element = coefficient.ufl_element()
+    if element.family() == "Real":
+        return coefficient.dat.cdim
+    else:
+        return create_element(element).space_dimension()
