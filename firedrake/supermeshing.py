@@ -2,7 +2,7 @@
 import firedrake
 import ctypes
 import os
-from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
+from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
 from firedrake.mg.kernels import to_reference_coordinates, compile_element
@@ -179,7 +179,6 @@ each supermesh cell.
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
-    M_SS.force_evaluation()
     M_SS = M_SS.M.handle[:, :]
 
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos

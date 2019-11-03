@@ -292,12 +292,10 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
         ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
@@ -333,11 +331,9 @@ class _SNESContext(object):
                     bc.apply(ctx._x)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
     @cached_property
     def _jac(self):

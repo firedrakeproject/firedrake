@@ -11,8 +11,10 @@ import gem
 
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
+from tsfc.coffee import generate as generate_coffee
 from tsfc.parameters import default_parameters
+
+from firedrake import utils
 
 
 def compile_element(expression, coordinates, parameters=None):
@@ -49,7 +51,7 @@ def compile_element(expression, coordinates, parameters=None):
     assert coordinates.ufl_domain() == domain
 
     # Initialise kernel builder
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
     builder.domain_coordinate[domain] = coordinates
     x_arg = builder._coefficient(coordinates, "x")
     f_arg = builder._coefficient(coefficient, "f")
@@ -61,7 +63,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('X', rank=(dim,)))
+    point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
@@ -83,11 +85,11 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=expression.ufl_shape))
+        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=(1,)))
+        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -99,7 +101,7 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"])
+    body = generate_coffee(impero_c, {}, parameters["precision"], utils.ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
@@ -112,6 +114,7 @@ def compile_element(expression, coordinates, parameters=None):
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "IntType": as_cstr(IntType),
+        "scalar_type": utils.ScalarType_c,
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
@@ -122,10 +125,10 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(double* const result, double* const X, int const start, int const end%(layers_arg)s,
-    double const *__restrict__ coords, double const *__restrict__ f, %(wrapper_map_args)s);
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, int const start, int const end%(layers_arg)s,
+    %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
-int evaluate(struct Function *f, double *x, double *result)
+int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)
 {
     struct ReferenceCoords reference_coords;
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);

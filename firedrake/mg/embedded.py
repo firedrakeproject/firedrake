@@ -56,14 +56,15 @@ class SingleTransfer(object):
     def __init__(self, element, use_fortin_interpolation=True):
         degree = element.degree()
         cell = element.cell()
+        family = "DG" if cell.is_simplex() else "DQ"
         shape = element.value_shape()
         if len(shape) == 0:
-            DG = ufl.FiniteElement("DG", cell, degree)
+            DG = ufl.FiniteElement(family, cell, degree)
         elif len(shape) == 1:
             shape, = shape
-            DG = ufl.VectorElement("DG", cell, degree, dim=shape)
+            DG = ufl.VectorElement(family, cell, degree, dim=shape)
         else:
-            DG = ufl.TensorElement("DG", cell, degree, shape=shape)
+            DG = ufl.TensorElement(family, cell, degree, shape=shape)
 
         self.embedding_element = DG
         self.use_fortin_interpolation = use_fortin_interpolation
@@ -112,7 +113,6 @@ class SingleTransfer(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
                                                    firedrake.TrialFunction(V))*firedrake.dx)
-            M.force_evaluation()
             return self._V_DG_mass.setdefault(key, M.petscmat)
 
     def DG_inv_mass(self, DG):
@@ -127,7 +127,6 @@ class SingleTransfer(object):
         except KeyError:
             M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TestFunction(DG),
                                                                     firedrake.TrialFunction(DG))*firedrake.dx).inv)
-            M.force_evaluation()
             return self._DG_inv_mass.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass(self, V, DG):
@@ -146,7 +145,6 @@ class SingleTransfer(object):
             b = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
                                                  firedrake.TrialFunction(DG))*firedrake.dx)
             M = firedrake.assemble(a.inv * b)
-            M.force_evaluation()
             return self._V_approx_inv_mass.setdefault(key, M.petscmat)
 
     def V_inv_mass_ksp(self, V):
@@ -161,7 +159,6 @@ class SingleTransfer(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(V),
                                                    firedrake.TrialFunction(V))*firedrake.dx)
-            M.force_evaluation()
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
