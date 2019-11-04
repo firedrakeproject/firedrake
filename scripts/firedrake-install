@@ -12,7 +12,7 @@ from collections import OrderedDict
 import atexit
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
