@@ -10,7 +10,8 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace)
 from firedrake.mesh import MeshGeometry
 
-__all__ = ["plot"]
+__all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
+           "quiver"]
 
 
 def _autoscale_view(axes, coords):
