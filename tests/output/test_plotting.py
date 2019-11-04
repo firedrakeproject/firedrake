@@ -88,17 +88,19 @@ def test_triplot():
     lines = triplot(mesh, axes=axes[0])
     assert lines
     legend = axes[0].legend(loc='upper right')
-    assert len(legend.get_texts()) > 0
+    assert len(legend.get_texts()) == 4
 
     colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
-    lines = triplot(mesh, axes=axes[1], linewidth=0.5,
-                    boundary_linewidth=2.0, boundary_colors=colors)
+    lines = triplot(mesh, axes=axes[1], interior_kw={'linewidths': 0.5},
+                    boundary_kw={'linewidths': 2.0, 'colors': colors})
+    legend = axes[1].legend(loc='upper right')
+    assert len(legend.get_texts()) == 4
 
 
 def test_triplot_quad_mesh():
     mesh = UnitSquareMesh(10, 10, quadrilateral=True)
     fig, axes = plt.subplots()
-    lines = triplot(mesh, axes=axes)
+    lines = triplot(mesh, axes=axes, interior_kw={'facecolors': 'tab:blue'})
     assert lines
     legend = axes.legend(loc='upper right')
     assert len(legend.get_texts()) > 0
@@ -109,24 +111,27 @@ def test_triplot_3d():
 
     axes = fig.add_subplot(2, 2, 1, projection='3d')
     mesh = CylinderMesh(nr=32, nl=4)
-    collections = triplot(mesh, axes=axes)
+    collections = triplot(mesh, axes=axes, boundary_kw={'colors': ['r', 'g']})
     assert collections
     legend = axes.legend()
     assert len(legend.get_texts()) == 2
 
     axes = fig.add_subplot(2, 2, 2, projection='3d')
     mesh = UnitIcosahedralSphereMesh(3)
-    triplot(mesh, axes=axes)
+    triplot(mesh, axes=axes, interior_kw={'edgecolors': 'white'})
     legend = axes.legend()
     assert len(legend.get_texts()) == 0
 
     axes = fig.add_subplot(2, 2, 3, projection='3d')
     mesh = UnitCubedSphereMesh(3)
-    triplot(mesh, axes=axes)
+    interior_kw = {'facecolors': 'tab:orange', 'alpha': 0.5}
+    triplot(mesh, axes=axes, interior_kw=interior_kw)
 
     axes = fig.add_subplot(2, 2, 4, projection='3d')
     mesh = UnitCubeMesh(3, 3, 3)
-    collections = triplot(mesh, axes=axes)
+    colors = ['red', 'green', 'blue', 'orange', 'yellow', 'purple']
+    boundary_kw={'facecolors': colors, 'alpha': 0.85, 'linewidths': 0.1}
+    collections = triplot(mesh, axes=axes, boundary_kw=boundary_kw)
     assert collections
     legend = axes.legend(loc='upper right')
     assert len(legend.get_texts()) == 6

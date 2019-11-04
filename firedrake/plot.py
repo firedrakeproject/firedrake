@@ -54,13 +54,13 @@ def _get_collection_types(gdim, tdim):
     raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
-def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwargs):
+def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh with a different color for each boundary segment
 
     :arg mesh: mesh to be plotted
-    :arg boundary_colors: iterable of colors to be used for each part of the
-       boundary
     :arg axes: axis object on which to plot mesh
+    :arg interior_kw: keyword arguments to matplotlib collection for mesh interior
+    :arg boundary_kw: keyword arguments to matplotlib collection for mesh boundary
     """
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
@@ -79,20 +79,19 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
 
     coords = coordinates.dat.data_ro
     result = []
-
+    interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
         cell_node_map = coordinates.cell_node_map().values
         idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
-
         vertices = coords[cell_node_map[:, idx]]
+
+        interior_kw['edgecolors'] = interior_kw.get('edgecolors', 'k')
+        interior_kw['linewidths'] = interior_kw.get('linewidths', 1.0)
         if gdim == 2:
-            interior_kwargs = dict(facecolors=kwargs.pop('facecolors', 'none'), **kwargs)
-        elif gdim == 3:
-            interior_kwargs = dict(edgecolor=kwargs.pop('edgecolor', 'k'),
-                                   linewidth=kwargs.pop('linewidth', 0.5),
-                                   **kwargs)
-        interior_collection = InteriorCollection(vertices, **interior_kwargs)
+            interior_kw['facecolors'] = interior_kw.get('facecolors', 'none')
+
+        interior_collection = InteriorCollection(vertices, **interior_kw)
         axes.add_collection(interior_collection)
         result.append(interior_collection)
 
@@ -108,6 +107,8 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
     faces = exterior_facet_node_map[mask].reshape(-1, tdim)
 
     markers = facets.unique_markers
+    color_key = 'colors' if tdim <= 2 else 'facecolors'
+    boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
         cmap = matplotlib.cm.get_cmap('Dark2')
         num_markers = len(markers)
@@ -115,13 +116,16 @@ def triplot(mesh, boundary_colors=None, boundary_linewidth=1.5, axes=None, **kwa
     else:
         colors = matplotlib.colors.to_rgba_array(boundary_colors)
 
-    color_key = 'colors' if tdim <= 2 else 'facecolors'
+    boundary_kw = dict(boundary_kw)
+    if tdim == 3:
+        boundary_kw['edgecolors'] = boundary_kw.get('edgecolors', 'k')
+        boundary_kw['linewidths'] = boundary_kw.get('linewidths', 1.0)
     for marker, color in zip(markers, colors):
         face_indices = facets.subset(int(marker)).indices
         marker_faces = faces[face_indices, :]
         vertices = coords[marker_faces]
-        boundary_kwargs = dict(**{color_key: color, 'label': marker}, **kwargs)
-        marker_collection = BoundaryCollection(vertices, **boundary_kwargs)
+        _boundary_kw = dict(**{color_key: color, 'label': marker}, **boundary_kw)
+        marker_collection = BoundaryCollection(vertices, **_boundary_kw)
         axes.add_collection(marker_collection)
         result.append(marker_collection)
 
