@@ -90,10 +90,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
         vertices = coords[cell_node_map[:, idx]]
 
-        interior_kw['edgecolors'] = interior_kw.get('edgecolors', 'k')
-        interior_kw['linewidths'] = interior_kw.get('linewidths', 1.0)
+        interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
+        interior_kw["linewidths"] = interior_kw.get("linewidths", 1.0)
         if gdim == 2:
-            interior_kw['facecolors'] = interior_kw.get('facecolors', 'none')
+            interior_kw["facecolors"] = interior_kw.get("facecolors", "none")
 
         interior_collection = InteriorCollection(vertices, **interior_kw)
         axes.add_collection(interior_collection)
@@ -111,10 +111,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     faces = exterior_facet_node_map[mask].reshape(-1, tdim)
 
     markers = facets.unique_markers
-    color_key = 'colors' if tdim <= 2 else 'facecolors'
+    color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
-        cmap = matplotlib.cm.get_cmap('Dark2')
+        cmap = matplotlib.cm.get_cmap("Dark2")
         num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:
@@ -122,13 +122,13 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     boundary_kw = dict(boundary_kw)
     if tdim == 3:
-        boundary_kw['edgecolors'] = boundary_kw.get('edgecolors', 'k')
-        boundary_kw['linewidths'] = boundary_kw.get('linewidths', 1.0)
+        boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
+        boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
         face_indices = facets.subset(int(marker)).indices
         marker_faces = faces[face_indices, :]
         vertices = coords[marker_faces]
-        _boundary_kw = dict(**{color_key: color, 'label': marker}, **boundary_kw)
+        _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
         marker_collection = BoundaryCollection(vertices, **_boundary_kw)
         axes.add_collection(marker_collection)
         result.append(marker_collection)
@@ -145,7 +145,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
 
 def _plot_2d_field(method_name, function, *args, **kwargs):
-    axes = kwargs.pop('axes', None)
+    axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot()
@@ -156,7 +156,7 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
 
-    num_sample_points = kwargs.pop('num_sample_points', 10)
+    num_sample_points = kwargs.pop("num_sample_points", 10)
     triangulation, vals = _two_dimension_triangle_func_val(function,
                                                            num_sample_points)
 
@@ -170,7 +170,7 @@ def tricontourf(function, *args, **kwargs):
     :arg function: the function to plot
     :return: matplotlib TriContourSet object
     """
-    return _plot_2d_field('tricontourf', function, *args, **kwargs)
+    return _plot_2d_field("tricontourf", function, *args, **kwargs)
 
 
 def tricontour(function, *args, **kwargs):
@@ -179,7 +179,7 @@ def tricontour(function, *args, **kwargs):
     :arg function: the function to plot
     :return: matplotlib TriContourSet object
     """
-    return _plot_2d_field('tricontour', function, *args, **kwargs)
+    return _plot_2d_field("tricontour", function, *args, **kwargs)
 
 
 def trisurf(function, *args, **kwargs):
@@ -188,7 +188,7 @@ def trisurf(function, *args, **kwargs):
     :arg function: the function to plot
     :return:
     """
-    axes = kwargs.pop('axes', None)
+    axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(projection='3d')
@@ -199,12 +199,12 @@ def trisurf(function, *args, **kwargs):
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
 
-    num_sample_points = kwargs.pop('num_sample_points', 10)
+    num_sample_points = kwargs.pop("num_sample_points", 10)
     triangulation, vals = _two_dimension_triangle_func_val(function,
                                                            num_sample_points)
 
-    _kwargs = {'antialiased': False, 'edgecolor': 'none', 'shade': False,
-               'cmap': plt.rcParams['image.cmap']}
+    _kwargs = {"antialiased": False, "edgecolor": "none", "shade": False,
+               "cmap": plt.rcParams["image.cmap"]}
     _kwargs.update(kwargs)
 
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
@@ -216,7 +216,7 @@ def tripcolor(function, *args, **kwargs):
     :arg function: the function to plot
     :return: matplotlib Collection object
     """
-    return _plot_2d_field('tripcolor', function, *args, **kwargs)
+    return _plot_2d_field("tripcolor", function, *args, **kwargs)
 
 
 def quiver(function, *args, **kwargs):
@@ -226,19 +226,17 @@ def quiver(function, *args, **kwargs):
     :return: matplotlib Quiver object
     """
     if function.ufl_shape != (2,):
-        raise ValueError('Quiver plots only defined for 2D vector fields!')
+        raise ValueError("Quiver plots only defined for 2D vector fields!")
 
-    axes = kwargs.get('axes', None)
+    axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot()
 
     coords = function.ufl_domain().coordinates.dat.data_ro
-    X, Y = coords.T
     vals = np.asarray(function.at(coords, tolerance=1e-10))
     C = np.linalg.norm(vals, axis=1)
-    U, V = vals.T
-    return axes.quiver(X, Y, U, V, C, *args, **kwargs)
+    return axes.quiver(*(coords.T), *(vals.T), C, *args, **kwargs)
 
 
 def _plot_mult(functions, num_points=10, axes=None, **kwargs):
