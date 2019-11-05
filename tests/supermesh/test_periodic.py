@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+import weakref
 
 
 @pytest.fixture(params=["scalar", "vector", "tensor"])
@@ -40,6 +41,41 @@ def get_func(fs, d):
 def test_periodic(shapify, direction, space):
     mesh = UnitSquareMesh(3, 4)
     mesh_p = PeriodicUnitSquareMesh(3, 4, direction=direction)
+    ele = shapify(FiniteElement(space[0], mesh.ufl_cell(), space[1]))
+    V = FunctionSpace(mesh, ele)
+    V_p = FunctionSpace(mesh_p, ele)
+
+    f = Function(V)
+    f.interpolate(get_func(V, direction))
+
+    f_p = Function(V_p)
+    f_p.project(f)
+
+    g_p = Function(V_p)
+    g_p.interpolate(get_func(V_p, direction))
+
+    assert errornorm(f_p, g_p) < 1e-8
+
+    g = Function(V)
+    g.project(g_p)
+
+    assert errornorm(f, g) < 1e-8
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_periodic_parallel(shapify, direction, space):
+    distribution_parameters = {"partition": True,
+                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 10)}
+    mesh = UnitSquareMesh(3, 4,
+                          distribution_parameters=distribution_parameters)
+    mesh_p = PeriodicUnitSquareMesh(3, 4, direction=direction,
+                          distribution_parameters=distribution_parameters)
+
+    # Mark the second mesh as having a compatible parallel layout with the first...
+    mesh_p._parallel_compatible = {weakref.ref(mesh)}
+    # ... and vice versa
+    mesh._parallel_compatible = {weakref.ref(mesh_p)}
+
     ele = shapify(FiniteElement(space[0], mesh.ufl_cell(), space[1]))
     V = FunctionSpace(mesh, ele)
     V_p = FunctionSpace(mesh_p, ele)
