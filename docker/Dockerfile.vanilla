@@ -1,0 +1,13 @@
+# DockerFile for a plain Firedrake suitable for testing Firedrake components and applications
+
+FROM firedrakeproject/firedrake-env:latest
+
+# This DockerFile is looked after by
+MAINTAINER David Ham <david.ham@imperial.ac.uk>
+
+USER firedrake
+WORKDIR /home/firedrake
+
+# Now install Firedrake.
+RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+RUN bash -c "python3 firedrake-install --no-package-manager --disable-ssh"

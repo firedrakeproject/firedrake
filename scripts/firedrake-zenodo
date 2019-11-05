@@ -12,12 +12,12 @@ import time
 import requests
 import base64
 import mimetypes
+import datetime
 
 
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
     ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
-    ("SLOPE", "a library for fusing and tiling irregular loops."),
     ("tsfc", "The Two Stage Form Compiler"),
     ("COFFEE", "A Compiler for Fast Expression Evaluation"),
     ("ufl", "The Unified Form Language"),
@@ -25,13 +25,13 @@ descriptions = OrderedDict([
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("petsc4py", "The Python interface to PETSc"),
+    ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
     ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
     ("slepc4py", "The Python interface to SLEPc")])
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
      ("PyOP2", "OP2"),
-     ("SLOPE", "coneoproject"),
      ("tsfc", "firedrakeproject"),
      ("COFFEE", "coneoproject"),
      ("ufl", "firedrakeproject"),
@@ -39,12 +39,13 @@ projects = dict(
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
      ("petsc4py", "firedrakeproject"),
+     ("loopy", "firedrakeproject"),
      ("slepc", "firedrakeproject"),
      ("slepc4py", "firedrakeproject")])
 
 components = list(descriptions.keys())
 
-optional_components = ("SLOPE", "slepc", "slepc4py")
+optional_components = ("slepc", "slepc4py")
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -105,6 +106,8 @@ parser.add_argument("--title", "-t", action="store", nargs=1,
                     help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
 parser.add_argument("--info-file", action="store", nargs=1,
                     help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code).  Will be uploaded to Zenodo using the provided name.""")
+parser.add_argument("--new-version-of", action="store", nargs=1,
+                    help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
 parser.add_argument("--honour-petsc-dir", action="store_true",
                     help="Does your firedrake use a self-built PETSc?")
 
@@ -123,6 +126,17 @@ parser.add_argument("--log", action='store_true',
                     help="Produce a verbose log of the release process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
 
 args = parser.parse_args()
+
+if args.new_version_of:
+    doi, = args.new_version_of
+    new_version_of = doi[len("10.5281/zenodo."):]
+    record = requests.get("https://zenodo.org/api/records/{}".format(new_version_of))
+    if record.status_code >= 400:
+        raise ValueError("Provided new version DOI, but could not find record {}".format(record.json()))
+    if doi != record.json()["doi"]:
+        raise ValueError("Provided DOI {} does not match DOI of record {}".format(doi, record.json()["doi"]))
+else:
+    new_version_of = None
 
 # Set up logging
 if args.log:
@@ -170,18 +184,31 @@ def check_output(args):
         raise
 
 
+class directory(object):
+    """Context manager that executes body in a given directory"""
+    def __init__(self, d):
+        self.d = os.path.abspath(d)
+
+    def __enter__(self):
+        self.olddir = os.path.abspath(os.getcwd())
+        os.chdir(self.d)
+
+    def __exit__(self, *args):
+        os.chdir(self.olddir)
+
+
 def collect_repo_shas():
     shas = {}
 
     for component in components:
         try:
-            os.chdir(src + "/" + component)
-            try:
-                check_call(["git", "diff-index", "--quiet", "HEAD"])
-            except subprocess.CalledProcessError:
-                log.error("Component %s has uncommitted changes, cannot create release" % component)
-                sys.exit(0)
-            shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
+            with directory(os.path.join(src, component)):
+                try:
+                    check_call(["git", "diff-index", "--quiet", "HEAD"])
+                except subprocess.CalledProcessError:
+                    log.error("Component %s has uncommitted changes, cannot create release" % component)
+                    sys.exit(0)
+                shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
         except (subprocess.CalledProcessError, OSError):
             if component in optional_components:
                 log.warning("Failed to retrieve git hash for optional "
@@ -371,14 +398,17 @@ See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.or
     return data
 
 
-def create_metarecord(tag, title, components, info_file=None):
+def create_metarecord(tag, title, components, info_file=None, update_record=None):
     """Create meta-record.
 
     :arg tag: The tag to create the record for.
     :arg title: The title of the record.
     :arg components: The components to include in the record.
     :arg info_file: optional (filename, contents) pair of any additional
-        (user-provided) information, will be uploaded using the provided filename."""
+        (user-provided) information, will be uploaded using the provided filename.
+
+    :arg update_record: Zenodo record this metarelease updates (use,
+        for example, for version two of a paper with newer components, or similar)."""
     # First check that we don't have a matching tag already.
     response = requests.get("https://zenodo.org/api/records",
                             params={"q": "creators.name:firedrake-zenodo AND version:{}".format(tag)})
@@ -424,13 +454,37 @@ def create_metarecord(tag, title, components, info_file=None):
 variable FIREDRAKE_ZENODO_TOKEN to a Zenodo personal access token
 with deposit:write scope.""")
         sys.exit(1)
-    empty = requests.post(base_url, params=authentication_params, json={})
-    if empty.status_code >= 400:
-        raise ValueError("Unable to create deposition {}".format(empty.json()))
-    empty = empty.json()
-    doi = empty["metadata"]["prereserve_doi"]["doi"]
 
-    depo_id = empty["id"]
+    if update_record is not None:
+        base = requests.get("{url}/{id}".format(url=base_url, id=update_record),
+                            params=authentication_params)
+        if base.status_code >= 400:
+            raise ValueError("Unable to find existing deposition {}\n{}".format(update_record, base.json()))
+        empty = requests.post("{url}/{id}/actions/newversion".format(url=base_url, id=update_record),
+                              params=authentication_params)
+        if empty.status_code >= 400:
+            raise ValueError("Unable to create new version {}".format(empty.json()))
+        # Delete carried-over files, we will replace them below
+        files = requests.get("{url}/files".format(url=empty.json()["links"]["latest_draft"]),
+                             params=authentication_params)
+        if files.status_code >= 400:
+            raise ValueError("Unable to retrieve list of files {}".format(files.json()))
+        for f in files.json():
+            s = requests.delete(f["links"]["self"], params=authentication_params)
+            if s.status_code >= 400:
+                raise ValueError("Unable to remove file {}".format(f))
+    else:
+        empty = requests.post(base_url, params=authentication_params, json={})
+        if empty.status_code >= 400:
+            raise ValueError("Unable to create deposition {}".format(empty.json()))
+    empty = empty.json()
+    depo_url = empty["links"]["latest_draft"]
+
+    info = requests.get(depo_url, params=authentication_params)
+    if info.status_code >= 400:
+        raise ValueError("Unable to get information about newly created deposition")
+    doi = info.json()["metadata"]["prereserve_doi"]["doi"]
+
     metadata = {
         "metadata": {
             "title": "Software used in '{}'".format(title),
@@ -444,13 +498,13 @@ with deposit:write scope.""")
             "description": create_description(matching_records, title, doi),
         }
     }
-    depo = requests.put("{url}/{id}".format(url=base_url, id=depo_id),
+    depo = requests.put("{url}".format(url=depo_url),
                         params=authentication_params, json=metadata)
     if depo.status_code >= 400:
         raise ValueError("Unable to add metadata to deposition {}".format(depo.json()))
 
     components = create_json(matching_records, title)
-    upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo_id),
+    upload = requests.post("{url}/files".format(url=depo_url),
                            files={"file": ("components.json", components, "application/json")},
                            params=authentication_params)
     if upload.status_code >= 400:
@@ -471,7 +525,7 @@ with deposit:write scope.""")
             params = (filename, contents, content_type, {"Content-Encoding": encoding})
         else:
             params = (filename, contents, content_type)
-        upload = requests.post("{url}/{id}/files".format(url=base_url, id=depo_id),
+        upload = requests.post("{url}/files".format(url=depo_url),
                                files={"file": params},
                                params=authentication_params)
         if upload.status_code >= 400:
@@ -480,7 +534,7 @@ with deposit:write scope.""")
         if checksum != upload.json()["checksum"]:
             raise ValueError("User file '{}' failed checksum verification".format(filename))
 
-    publish = requests.post("{url}/{id}/actions/publish".format(url=base_url, id=depo_id),
+    publish = requests.post("{url}/actions/publish".format(url=depo_url),
                             params=authentication_params)
     if publish.status_code >= 400:
         raise ValueError("Unable to publish deposition {}".format(publish.json()))
@@ -570,7 +624,8 @@ if args.meta_release:
     title = data["title"]
     components = data["components"]
     info_file = decode_info_file(data["info_file"])
-    record = create_metarecord(tag, title, components, info_file)
+    new_version_of = data["new_version_of"]
+    record = create_metarecord(tag, title, components, info_file, update_record=new_version_of)
     record = record.json()
     log.info("Created Zenodo meta-release.")
     log.info("DOI is {}".format(record["doi"]))
@@ -599,6 +654,9 @@ if args.title:
 
 if args.info_file:
     shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
+
+if args.new_version_of:
+    shas["new_version_of"] = new_version_of
 
 # Override hashes with any read from the command line.
 for component in components:
@@ -646,9 +704,9 @@ fd = gh.repository("firedrakeproject", "firedrake")
 tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
 index = -1
 
-for r in fd.releases():
-    if r.tag_name.startswith(tag):
-        newindex = int(r.tag_name.split(".")[1])
+for r in fd.tags():
+    if r.name.startswith(tag):
+        newindex = int(r.name.split(".")[1])
         index = max(index, newindex)
 tag += "." + str(index + 1)
 
@@ -665,7 +723,7 @@ for component in components:
         shas[component] = commit.sha
 
     except KeyError:
-        log.warn("No commit specified for %s. No release will be created for this component." % component)
+        log.warning("No commit specified for %s. No release will be created for this component." % component)
 
 # Now create releases.
 message = """This release is specifically created to document the version of
@@ -678,24 +736,42 @@ https://www.firedrakeproject.org/citing.html"""
 for component in (set(shas) & set(components)):
     log.info("Releasing %s" % component)
     repo = gh.repository(projects[component], component)
+    releases = repo.releases()
+    just_tag = False
+    date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+    tagger = {"name": "firedrake-zenodo",
+              "email": "firedrake@imperial.ac.uk",
+              "date": date}
 
-    repo.create_release(
-        tag_name=tag,
-        target_commitish=shas[component],
-        name=descriptions[component],
-        body=message.format(component=component),
-        draft=False,
-        prerelease=True)
+    for release in releases:
+        if release.target_commitish == shas[component]:
+            just_tag = True
+            break
+    if just_tag:
+        repo.create_tag(tag,
+                        message=descriptions[component],
+                        sha=shas[component],
+                        obj_type="tree",
+                        tagger=tagger)
+    else:
+        repo.create_release(
+            tag_name=tag,
+            target_commitish=shas[component],
+            name=descriptions[component],
+            body=message.format(component=component),
+            draft=False,
+            prerelease=True)
 
 meta_file = "firedrake-meta-release.json"
 with open(meta_file, "w") as f:
     data = {"tag": tag,
             "title": shas["title"],
             "components": sorted(set(shas) & set(components)),
-            "info_file": shas.get("metarelease_info_file", None)}
+            "info_file": shas.get("metarelease_info_file", None),
+            "new_version_of": shas.get("new_version_of", None)}
     f.write(json.dumps(data))
 
 log.info("Releases complete. The release tag is %s" % tag)
 log.info("Now, you need to create the meta-release")
-log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % meta_file)
+log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % os.path.abspath(meta_file))
 log.info("It is best to wait a short while to ensure that Zenodo is up to date")

@@ -100,20 +100,17 @@ def disable_performance_optimisations():
 
     check = parameters["pyop2_options"]["type_check"]
     debug = parameters["pyop2_options"]["debug"]
-    lazy = parameters["pyop2_options"]["lazy_evaluation"]
     safe_check = parameters["type_check_safe_par_loops"]
     coffee = parameters["coffee"]
 
     def restore():
         parameters["pyop2_options"]["type_check"] = check
         parameters["pyop2_options"]["debug"] = debug
-        parameters["pyop2_options"]["lazy_evaluation"] = lazy
         parameters["type_check_safe_par_loops"] = safe_check
         parameters["coffee"] = coffee
 
     parameters["pyop2_options"]["type_check"] = True
     parameters["pyop2_options"]["debug"] = True
-    parameters["pyop2_options"]["lazy_evaluation"] = False
     parameters["type_check_safe_par_loops"] = True
     parameters["coffee"] = {}
 

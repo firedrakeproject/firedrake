@@ -5,4 +5,5 @@ pytest-xdist
 ipython
 matplotlib
 pylint
-randomgen
+randomgen==1.16.4
+vtk

@@ -179,29 +179,11 @@ not supply them in solve call):
    b = assemble(L)
    solve(A, x, b)
 
-alternately, we can supply boundary conditions in
-:py:func:`~firedrake.solving.solve` as before:
+.. warning::
 
-.. code-block:: python
-
-  A = assemble(a)
-  b = assemble(L)
-  solve(A, x, b, bcs=[bc1, bc2])
-
-If boundary conditions have been supplied both in the assemble and
-solve calls, then those provided for the solve take precedence, for
-example, in the following, the system is solved only applying ``bc1``:
-
-.. code-block:: python
-
-  A = assemble(a, bcs=[bc1, bc2])
-  b = assemble(L)
-  solve(A, x, b, bcs=[bc1])
-
-Note that after the call to solve, ``A`` will be an assembled system
-with only ``bc1`` applied, hence subsequent calls to ``solve`` that do
-not change the boundary conditions again will not require a further
-re-assembly.
+   It is no longer possible to apply or change boundary
+   conditions after assembling the matrix ``A``; pass any
+   necessary boundary conditions to :py:func:`~.assemble`.
 
 Specifying solution methods
 ---------------------------

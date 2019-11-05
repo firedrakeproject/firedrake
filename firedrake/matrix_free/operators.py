@@ -1,7 +1,13 @@
+from collections import OrderedDict
+from mpi4py import MPI
+import numpy
+import itertools
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.bcs import DirichletBC, EquationBCSplit
 
 from firedrake.petsc import PETSc
+from firedrake.utils import cached_property
 
 
 __all__ = ("ImplicitMatrixContext", )
@@ -21,27 +27,32 @@ def find_sub_block(iset, ises):
         ``ises``.
     """
     found = []
-    sfound = set()
     comm = iset.comm
+    target_indices = iset.indices
+    comm = iset.comm.tompi4py()
+    candidates = OrderedDict(enumerate(ises))
     while True:
         match = False
-        for i, iset_ in enumerate(ises):
-            if i in sfound:
-                continue
-            lsize = iset_.getLocalSize()
-            if lsize > iset.getLocalSize():
-                continue
-            indices = iset.indices
-            tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
-            if tmp.equal(iset_):
+        for i, candidate in list(candidates.items()):
+            candidate_indices = candidate.indices
+            candidate_size, = candidate_indices.shape
+            target_size, = target_indices.shape
+            # Does the local part of the candidate IS match a prefix
+            # of the target indices?
+            lmatch = (candidate_size <= target_size
+                      and numpy.array_equal(target_indices[:candidate_size], candidate_indices))
+            if comm.allreduce(lmatch, op=MPI.LAND):
+                # Yes, this candidate matched, so remove it from the
+                # target indices, and list of candidate
+                target_indices = target_indices[candidate_size:]
                 found.append(i)
-                sfound.add(i)
-                iset = PETSc.IS().createGeneral(indices[lsize:], comm=comm)
+                candidates.pop(i)
+                # And keep looking for the remainder in the remaining candidates.
                 match = True
-                continue
         if not match:
             break
-    if iset.getSize() > 0:
+    if comm.allreduce(len(target_indices), op=MPI.SUM) > 0:
+        # We didn't manage to hoover up all the target indices, not a match
         raise LookupError("Unable to find %s in %s" % (iset, ises))
     return found
 
@@ -77,8 +88,14 @@ class ImplicitMatrixContext(object):
         self.fc_params = fc_params
         self.appctx = appctx
 
-        self.row_bcs = row_bcs
-        self.col_bcs = col_bcs
+        # Collect all DirichletBC instances including
+        # DirichletBCs applied to an EquationBC.
+
+        # all bcs (DirichletBC, EquationBCSplit)
+        self.bcs = row_bcs
+        self.bcs_col = col_bcs
+        self.row_bcs = tuple(bc for bc in itertools.chain(*row_bcs) if isinstance(bc, DirichletBC))
+        self.col_bcs = tuple(bc for bc in itertools.chain(*col_bcs) if isinstance(bc, DirichletBC))
 
         # create functions from test and trial space to help
         # with 1-form assembly
@@ -86,7 +103,6 @@ class ImplicitMatrixContext(object):
             a.arguments()[i].function_space() for i in (0, 1)
         ]
         from firedrake import function
-
         self._y = function.Function(test_space)
         self._x = function.Function(trial_space)
 
@@ -110,11 +126,60 @@ class ImplicitMatrixContext(object):
         self.actionT = action(self.aT, self._y)
 
         from firedrake.assemble import create_assembly_callable
-        self._assemble_action = create_assembly_callable(self.action, tensor=self._y,
+
+        # For assembling action(f, self._x)
+        self.bcs_action = []
+        for bc in self.bcs:
+            if isinstance(bc, DirichletBC):
+                self.bcs_action.append(bc)
+            elif isinstance(bc, EquationBCSplit):
+                self.bcs_action.append(bc.reconstruct(action_x=self._x))
+
+        self._assemble_action = create_assembly_callable(self.action, tensor=self._y, bcs=self.bcs_action,
                                                          form_compiler_parameters=self.fc_params)
 
-        self._assemble_actionT = create_assembly_callable(self.actionT, tensor=self._x,
-                                                          form_compiler_parameters=self.fc_params)
+        # For assembling action(adjoint(f), self._y)
+        # Sorted list of equation bcs
+        self.objs_actionT = []
+        for bc in self.bcs:
+            self.objs_actionT += bc.sorted_equation_bcs()
+        self.objs_actionT.append(self)
+        # Each par_loop is to run with appropriate masks on self._y
+        self._assemble_actionT = []
+        # Deepest EquationBCs first
+        for bc in self.bcs:
+            for ebc in bc.sorted_equation_bcs():
+                self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
+                                              tensor=self._x,
+                                              bcs=None,
+                                              form_compiler_parameters=self.fc_params))
+        # Domain last
+        self._assemble_actionT.append(create_assembly_callable(self.actionT,
+                                                               tensor=self._x,
+                                                               bcs=None,
+                                                               form_compiler_parameters=self.fc_params))
+
+    @cached_property
+    def _diagonal(self):
+        from firedrake import Function
+        assert self.on_diag
+        return Function(self._x.function_space())
+
+    @cached_property
+    def _assemble_diagonal(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.a,
+                                        tensor=self._diagonal,
+                                        form_compiler_parameters=self.fc_params,
+                                        diagonal=True)
+
+    def getDiagonal(self, mat, vec):
+        self._assemble_diagonal()
+        for bc in self.bcs:
+            # Operator is identity on boundary nodes
+            bc.set(self._diagonal, 1)
+        with self._diagonal.dat.vec_ro as v:
+            v.copy(vec)
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
@@ -130,12 +195,9 @@ class ImplicitMatrixContext(object):
         # non-fixed dofs and I is the identity block on the fixed dofs.
 
         # If we are not, then the matrix just has 0s in the rows and columns.
-
         for bc in self.col_bcs:
             bc.zero(self._x)
-
         self._assemble_action()
-
         # This sets the essential boundary condition values on the
         # result.
         if self.on_diag:
@@ -153,27 +215,64 @@ class ImplicitMatrixContext(object):
             v.copy(Y)
 
     def multTranspose(self, mat, Y, X):
-        # As for mult, just everything swapped round.
+        """
+        EquationBC makes multTranspose different from mult.
+
+        Decompose M^T into bundles of columns associated with
+        the rows of M corresponding to cell, facet,
+        edge, and vertice equations (if exist) and add up their
+        contributions.
+
+                           Domain
+            a a a a 0 a a    |
+            a a a a 0 a a    |
+            a a a a 0 a a    |   EBC1
+        M = b b b b b b b    |    |   EBC2 DBC1
+            0 0 0 0 1 0 0    |    |    |    |
+            c c c c 0 c c    |         |
+            c c c c 0 c c    |         |
+                                                     To avoid copys, use same _y, and update it
+                                                     from left (deepest ebc) to right (least deep ebc or domain)
+        Multiplication algorithm:                       _y         update ->     _y        update ->   _y
+
+                 a a a b 0 c c   _y0     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y0          0
+                 a a a b 0 c c   _y1     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y1          0
+                 a a a b 0 c c   _y2     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y2          0
+        M^T _y = a a a b 0 c c   _y3  =  0 0 0 0 c c c   *    + 0 0 0 b b 0 0   _y3  + a a a a a a a    0      +    0
+                 0 0 0 0 1 0 0   _y4     0 0 0 0 c c c   0      0 0 0 b b 0 0    0     a a a a a a a    0          _y4 (replace at the end)
+                 a a a b 0 c c   _y5     0 0 0 0 c c c   _y5    0 0 0 b b 0 0    *     a a a a a a a    0           0
+                 a a a b 0 c c   _y6     0 0 0 0 c c c   _y6    0 0 0 b b 0 0    *     a a a a a a a    0           0
+                                             (uniform on           (uniform          (uniform on domain)
+                                              on facet2)            on facet1)
+
+        * = can be any number
+
+        """
+        # accumulate values in self._xbc for convenience
+        self._xbc.dat.zero()
         with self._y.dat.vec_wo as v:
             Y.copy(v)
 
-        for bc in self.row_bcs:
-            bc.zero(self._y)
-
-        self._assemble_actionT()
+        # Apply actionTs in sorted order
+        for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
+            # zero columns associated with DirichletBCs/EquationBCs
+            for obc in obj.bcs:
+                obc.zero(self._y)
+            aT()
+            self._xbc += self._x
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
-            for bc in self.col_bcs:
-                bc.set(self._x, self._ybc)
+                for bc in self.col_bcs:
+                    bc.set(self._xbc, self._ybc)
         else:
             for bc in self.col_bcs:
-                bc.zero(self._x)
+                bc.zero(self._xbc)
 
-        with self._x.dat.vec_ro as v:
+        with self._xbc.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):
@@ -215,7 +314,6 @@ class ImplicitMatrixContext(object):
             # actually assemble in here.
             target.assemble()
             return target
-        from firedrake import DirichletBC
 
         # These are the sets of ISes of which the the row and column
         # space consist.
@@ -228,32 +326,34 @@ class ImplicitMatrixContext(object):
         else:
             col_inds = find_sub_block(col_is, col_ises)
 
-        asub = ExtractSubBlock().split(self.a,
-                                       argument_indices=(row_inds, col_inds))
+        splitter = ExtractSubBlock()
+        asub = splitter.split(self.a,
+                              argument_indices=(row_inds, col_inds))
         Wrow = asub.arguments()[0].function_space()
         Wcol = asub.arguments()[1].function_space()
 
         row_bcs = []
         col_bcs = []
 
-        for bc in self.row_bcs:
-            for i, r in enumerate(row_inds):
-                if bc.function_space().index == r:
-                    row_bcs.append(DirichletBC(Wrow.split()[i],
-                                               bc.function_arg,
-                                               bc.sub_domain,
-                                               method=bc.method))
+        for bc in self.bcs:
+            if isinstance(bc, DirichletBC):
+                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+            elif isinstance(bc, EquationBCSplit):
+                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, row_field=row_inds, col_field=col_inds, use_split=True)
+            if bc_temp is not None:
+                row_bcs.append(bc_temp)
 
-        if Wrow == Wcol and row_inds == col_inds and self.row_bcs == self.col_bcs:
+        if Wrow == Wcol and row_inds == col_inds and self.bcs == self.bcs_col:
             col_bcs = row_bcs
         else:
-            for bc in self.col_bcs:
-                for i, c in enumerate(col_inds):
-                    if bc.function_space().index == c:
-                        col_bcs.append(DirichletBC(Wcol.split()[i],
-                                                   bc.function_arg,
-                                                   bc.sub_domain,
-                                                   method=bc.method))
+            for bc in self.bcs_col:
+                if isinstance(bc, DirichletBC):
+                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+                elif isinstance(bc, EquationBCSplit):
+                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, row_field=row_inds, col_field=col_inds, use_split=True)
+                if bc_temp is not None:
+                    col_bcs.append(bc_temp)
+
         submat_ctx = ImplicitMatrixContext(asub,
                                            row_bcs=row_bcs,
                                            col_bcs=col_bcs,

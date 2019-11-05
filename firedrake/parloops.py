@@ -8,10 +8,12 @@ from ufl.domain import join_domains
 
 from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
-
+import loopy
 import coffee.base as ast
 
+from firedrake.logging import warning
 from firedrake import constant
+from firedrake.utils import ScalarType_c
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -62,10 +64,9 @@ _maps = {
 r"""Map a measure to the correct maps."""
 
 
-def _form_kernel(kernel, measure, args, **kwargs):
+def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     kargs = []
-    lkernel = kernel
 
     for var, (func, intent) in args.items():
         if isinstance(func, constant.Constant):
@@ -74,7 +75,56 @@ def _form_kernel(kernel, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+        else:
+            # Do we have a component of a mixed function?
+            if isinstance(func, Indexed):
+                c, i = func.ufl_operands
+                idx = i._indices[0]._value
+                ndof = c.function_space()[idx].finat_element.space_dimension()
+                cdim = c.dat[idx].cdim
+                dtype = c.dat[idx].dtype
+            else:
+                if func.function_space().ufl_element().family() == "Real":
+                    ndof = func.function_space().dim()  # == 1
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    continue
+                else:
+                    if len(func.function_space()) > 1:
+                        raise NotImplementedError("Must index mixed function in par_loop.")
+                    ndof = func.function_space().finat_element.space_dimension()
+                    cdim = func.dat.cdim
+                    dtype = func.dat.dtype
+            if measure.integral_type() == 'interior_facet':
+                ndof *= 2
+            # FIXME: shape for facets [2][ndof]?
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+        kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
+
+    if kernel_domains == "":
+        kernel_domains = "[] -> {[]}"
+    kargs.append(...)
+    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
+                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
+
+    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+
+
+def _form_string_kernel(body, measure, args, **kwargs):
+    kargs = []
+    if body.find("][") >= 0:
+        warning("""Your kernel body contains a double indirection.\n"""
+                """You should update it to single indirections.\n"""
+                """\n"""
+                """Mail firedrake@imperial.ac.uk for advice.\n""")
+    for var, (func, intent) in args.items():
+        if isinstance(func, constant.Constant):
+            if intent is not READ:
+                raise RuntimeError("Only READ access is allowed to Constant")
+            # Constants modelled as Globals, so no need for double
+            # indirection
+            ndof = func.dat.cdim
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
             # Do we have a component of a mixed function?
@@ -88,24 +138,27 @@ def _form_kernel(kernel, measure, args, **kwargs):
                 ndof = func.function_space().finat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-            if measure is direct:
-                kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
-            else:
-                kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
-        lkernel = lkernel.replace(var+".dofs", str(ndof))
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
+        body = body.replace(var+".dofs", str(ndof))
 
-    body = ast.FlatBlock(lkernel)
-
-    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
+    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,
+                                    ast.FlatBlock(body),
+                                    pred=["static"]),
                         "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
+def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel: is a string containing the C code to be executed.
+    :arg kernel: a string containing the C code to be executed. Or a
+        2-tuple of (domains, instructions) to create a loopy kernel
+        (must also set ``is_loopy_kernel=True``). If loopy syntax is
+        used, the domains and instructions should be specified in
+        loopy kernel syntax. See the `loopy tutorial
+        <https://documen.tician.de/loopy/tutorial.html>`_ for details.
+
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
@@ -136,8 +189,18 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
+      par_loop('for (int i=0; i<A.dofs; i++) A[i] = fmax(A[i], B[0]);', dx,
           {'A' : (A, RW), 'B': (B, READ)})
+
+    The equivalent using loopy kernel syntax is::
+
+      domain = '{[i]: 0 <= i < A.dofs}'
+      instructions = '''
+      for i
+          A[i] = max(A[i], B[0])
+      end
+      '''
+      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)}, is_loopy_kernel=True)
 
 
     **Argument definitions**
@@ -210,13 +273,15 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     * Pointer operations other than dereferencing arrays are prohibited.
 
     Indirect free variables referencing :class:`.Function`\s are all
-    of type `double**` in which the first index is the local node
-    number, while the second index is the vector (or tensor)
-    component. The latter only applies to :class:`.Function`\s over a
-    :class:`.FunctionSpace` with :attr:`.FunctionSpace.rank` greater
-    than zero (spaces with a VectorElement or TensorElement).  In the
-    case of scalar :class:`FunctionSpace`\s, the second index is
-    always 0.
+    of type `double*`. For spaces with rank greater than zero (Vector
+    or TensorElement), the data are laid out XYZ... XYZ... XYZ....
+    With the vector/tensor component moving fastest.
+
+    In loopy syntax, these may be addressed using 2D indexing::
+
+       A[i, j]
+
+    Where ``i`` runs over nodes, and ``j`` runs over components.
 
     In a direct :func:`par_loop`, the variables will all be of type
     `double*` with the single index being the vector component.
@@ -225,7 +290,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
-
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
@@ -265,7 +329,11 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         domain, = domains
         mesh = domain
 
-    op2args = [_form_kernel(kernel, measure, args, **kernel_kwargs)]
+    if is_loopy_kernel:
+        kernel_domains, instructions = kernel
+        op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
+    else:
+        op2args = [_form_string_kernel(kernel, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 

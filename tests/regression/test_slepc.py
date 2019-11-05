@@ -5,7 +5,6 @@ from firedrake.petsc import PETSc
 
 
 def topetsc(A):
-    A.force_evaluation()
     return A.petscmat
 
 

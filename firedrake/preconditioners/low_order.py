@@ -1,6 +1,7 @@
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import numpy
+from itertools import chain
 
 from ufl.algorithms import MultiFunction, map_integrands
 
@@ -33,9 +34,10 @@ def transfer_kernel(Pk, P1):
     """
     # Mapping of a residual in Pk into a residual in P1
     from coffee import base as coffee
-    from tsfc.coffee import generate as generate_coffee, SCALAR_TYPE
+    from tsfc.coffee import generate as generate_coffee
     from tsfc.parameters import default_parameters
     from gem import gem, impero_utils as imp
+    from firedrake.utils import ScalarType_c
 
     # Pk should be at least the same size as P1
     assert Pk.finat_element.space_dimension() >= P1.finat_element.space_dimension()
@@ -57,7 +59,7 @@ def transfer_kernel(Pk, P1):
 
     shape = (P1e.space_dimension() * Vout.value_size,
              Pke.space_dimension() * Vin.value_size)
-    outarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
+    outarg = coffee.Decl(ScalarType_c, coffee.Symbol("A", rank=shape))
     i = gem.Index()
     j = gem.Index()
     k = gem.Index()
@@ -77,7 +79,8 @@ def transfer_kernel(Pk, P1):
     ir = imp.compile_gem([(outgem, expr)], indices)
 
     index_names = [(i, "i"), (j, "j"), (k, "k")]
-    body = generate_coffee(ir, index_names, default_parameters()["precision"])
+    precision = default_parameters()["precision"]
+    body = generate_coffee(ir, index_names, precision, ScalarType_c)
     function = coffee.FunDecl("void", name, funargs, body,
                               pred=["static", "inline"])
 
@@ -90,19 +93,18 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
                       (P1.cell_node_map(),
                        Pk.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-    matarg = mat(op2.WRITE, (P1.cell_node_map(P1_bcs)[op2.i[0]],
-                             Pk.cell_node_map(Pk_bcs)[op2.i[1]]))
-    # # HACK HACK HACK, this seems like it might be a pyop2 bug
-    # sh = matarg._block_shape
-    # assert len(sh) == 1 and len(sh[0]) == 1 and len(sh[0][0]) == 2
-    # a, b = sh[0][0]
-    # nsh = (((a*self.P1.dof_dset.cdim, b*self.V.dof_dset.cdim), ), )
-    # matarg._block_shape = nsh
+
+    rlgmap, clgmap = mat.local_to_global_maps
+    rlgmap = P1.local_to_global_map(P1_bcs, lgmap=rlgmap)
+    clgmap = Pk.local_to_global_map(Pk_bcs, lgmap=clgmap)
+    unroll = any(bc.function_space().component is not None
+                 for bc in chain(P1_bcs, Pk_bcs) if bc is not None)
+    matarg = mat(op2.WRITE, (P1.cell_node_map(), Pk.cell_node_map()),
+                 lgmaps=(rlgmap, clgmap), unroll_map=unroll)
     mesh = Pk.ufl_domain()
     op2.par_loop(transfer_kernel(Pk, P1), mesh.cell_set,
                  matarg)
     mat.assemble()
-    mat._force_evaluation()
     return mat.handle
 
 
@@ -126,7 +128,7 @@ class P1PC(PCBase):
         mesh = Pk.ufl_domain()
         if len(shape) == 0:
             P1 = firedrake.FunctionSpace(mesh, "CG", 1)
-        elif len(shape) == 2:
+        elif len(shape) == 1:
             P1 = firedrake.VectorFunctionSpace(mesh, "CG", 1, dim=shape[0])
         else:
             P1 = firedrake.TensorFunctionSpace(mesh, "CG", 1, shape=shape,
@@ -152,7 +154,6 @@ class P1PC(PCBase):
                                              firedrake.parameters["default_matrix_type"])
         self.lo_op = firedrake.assemble(self.lo_J, bcs=self.lo_bcs,
                                         mat_type=mat_type)
-        self.lo_op.force_evaluation()
         A, P = pc.getOperators()
         nearnullsp = P.getNearNullSpace()
         if nearnullsp.handle != 0:
@@ -189,7 +190,6 @@ class P1PC(PCBase):
 
     def update(self, pc):
         firedrake.assemble(self.lo_J, bcs=self.lo_bcs, tensor=self.lo_op)
-        self.lo_op.force_evaluation()
 
     def apply(self, pc, x, y):
         work1, work2 = self.work
