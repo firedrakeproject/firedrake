@@ -67,8 +67,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
     quad = mesh.ufl_cell().cellname() == "quadrilateral"
 
-    # Probably want to check that it's an Axes3D if `gdim == 3`
-    axes = axes if axes is not None else plt.gca()
+    if axes is None:
+        figure = plt.figure()
+        if gdim == 3:
+            axes = figure.add_subplot(projection='3d')
+        else:
+            axes = figure.add_subplot()
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
@@ -141,7 +145,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
 
 def _plot_2d_field(method_name, function, *args, **kwargs):
-    axes = kwargs.pop('axes', plt.gca())
+    axes = kwargs.pop('axes', None)
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot()
 
     if len(function.ufl_shape) == 1:
         mesh = function.ufl_domain()
@@ -181,11 +188,26 @@ def trisurf(function, *args, **kwargs):
     :arg function: the function to plot
     :return:
     """
+    axes = kwargs.pop('axes', None)
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot(projection='3d')
+
+    if len(function.ufl_shape) == 1:
+        mesh = function.ufl_domain()
+        element = function.ufl_element().sub_elements()[0]
+        Q = FunctionSpace(mesh, element)
+        function = interpolate(sqrt(inner(function, function)), Q)
+
+    num_sample_points = kwargs.pop('num_sample_points', 10)
+    triangulation, vals = _two_dimension_triangle_func_val(function,
+                                                           num_sample_points)
+
     _kwargs = {'antialiased': False, 'edgecolor': 'none', 'shade': False,
                'cmap': plt.rcParams['image.cmap']}
     _kwargs.update(kwargs)
 
-    return _plot_2d_field('plot_trisurf', function, *args, **_kwargs)
+    return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
 
 
 def tripcolor(function, *args, **kwargs):
@@ -206,7 +228,10 @@ def quiver(function, *args, **kwargs):
     if function.ufl_shape != (2,):
         raise ValueError('Quiver plots only defined for 2D vector fields!')
 
-    axes = kwargs.pop('axes', plt.gca())
+    axes = kwargs.get('axes', None)
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot()
 
     coords = function.ufl_domain().coordinates.dat.data_ro
     X, Y = coords.T
