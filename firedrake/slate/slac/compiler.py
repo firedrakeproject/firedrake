@@ -30,6 +30,7 @@ from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
+from gem import impero_utils
 
 from itertools import chain
 
@@ -40,7 +41,10 @@ from pyop2.mpi import COMM_WORLD
 import firedrake.slate.slate as slate
 import numpy as np
 import sys
-
+import loopy
+import gem
+import pymbolic.primitives as pym
+from tsfc.loopy import generate as generate_loopy
 __all__ = ['compile_expression']
 
 
@@ -117,8 +121,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     Citations().register("Gibson2018")
 
     # Create a builder for the Slate expression
-    # what is happening in its setup method??
-    #@TODO: introduce coffe option here
+    #@TODO: check that the tsfc kernel gets generated right
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
@@ -126,10 +129,10 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     #stage1:....                      
     gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
     
-
+    print("Slate to gem expr:",gem_expr)
    
     #stage 2: gem to loopy...
-    loopy_expr=gem_to_loopy(gem_expr)
+    loopy_expr=gem_to_loopy(gem_expr,builder)
 
 
     print("program abort")
@@ -138,30 +141,30 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     ############################
     #####@TODO:TERMINAL TEMPORARIES###
     ############################
-    instructions = []
-    for gem_temp in builder.temps:
-        #add initialisations of the temporariers in instructions
-        pass
+    #instructions = []
+    #for gem_temp in builder.temps:
+    #    #add initialisations of the temporariers in instructions
+    #    pass
 
     ############################
     #####@TODO:ASSEMBLY CALLS#########
     ############################
-    for expr in builder.subkernels:
-        instructions.extend(expr)
+    #for expr in builder.subkernels:
+    #    instructions.extend(expr)
 
     ############################
     #####@TODO:COEFF TEMPS############
     ############################
     # Create coefficient temporaries if necessary
-    if builder.coefficient_vecs:
-        #add initialisations of the coeffs in instructions
-        pass
+    #if builder.coefficient_vecs:
+    #    #add initialisations of the coeffs in instructions
+    #    pass
 
     ############################
     #####@TODO:ACTUAL CODE############
     ############################
-    for expr in loopy_expr:
-        instructions.extend(expr)
+    #for expr in loopy_expr:
+    #    instructions.extend(expr)
 
     ############################
     #####KERNEL CONSTRUCTION####
@@ -170,80 +173,73 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     #change the everywhere in the followinf the context to the builder.variables
 
     #build macros kernels
-    slate_expr = builder.expression
-    if slate_expr.rank == 0:
-        # Scalars are treated as 1x1 MatrixBase objects
-        shape = (1,)
-    else:
-        shape = slate_expr.shape
+    #slate_expr = builder.expression
+    #if slate_expr.rank == 0:
+    #    # Scalars are treated as 1x1 MatrixBase objects
+    #    shape = (1,)
+    #else:
+    #    shape = slate_expr.shape
 
     ####
     ## Generate arguments for the macro kernel
     ###
 
     #@TODO: change all the context stuff here to accessing the local loopy kernel builder instead
-
-    #coordinates, orientation and coefficients
-    kernel_data = [(context.mesh.coordinates,
-                    context.coordinates_arg)]
-    if context.needs_cell_orientations:
-        kernel_data.append((context.mesh.cell_orientations(),
-                            context.cell_orientations_arg))
-    kernel_data.extend(coefficients)
-    for c, name in kernel_data:
-        extent = index_extent(c)
-        dtype = c.dat.dtype
-        arguments.append(loopy.GlobalArg(name,
-                                         shape=(extent, ),
-                                         dtype=dtype))
+    #for c, name in kernel_data:
+    #    extent = index_extent(c)
+    #    dtype = c.dat.dtype
+    #    arguments.append(loopy.GlobalArg(name,
+    #                                     shape=(extent, ),
+    #                                     dtype=dtype))
 
     # Facet information
-    if context.needs_cell_facets:
-        # Compute the number of local facets for preallocation of the
-        # local facet array
-        if mesh.cell_set._extruded:
-            num_facets = mesh._base_mesh.ufl_cell().num_facets()
-        else:
-            num_facets = mesh.ufl_cell().num_facets()
+    #if builder.needs_cell_facets:
+    #    # Compute the number of local facets for preallocation of the
+    #    # local facet array
+    #    if mesh.cell_set._extruded:
+    #        num_facets = mesh._base_mesh.ufl_cell().num_facets()
+    #    else:
+    #        num_facets = mesh.ufl_cell().num_facets()
 
         # Cell-facet map needs to be provided as a global kernel argument
-        arguments.append(loopy.GlobalArg(context.cell_facets_arg,
-                                         shape=(num_facets, 2),
-                                         dtype=np.int8))
+    #        arguments.append(loopy.GlobalArg(context.cell_facets_arg,
+    #
+    #                                     shape=(num_facets, 2),
+    #                                     dtype=np.int8))
 
-        temporary_variables["facet_array"] = loopy.TemporaryVariable(context.local_facet_array_arg,
-                                                                     shape=(num_facets, ),
-                                                                     dtype=np.uint32,
-                                                                     address_space=loopy.AddressSpace.LOCAL,
-                                                                     read_only=True,
-                                                                     initializer=np.arange(num_facets, dtype=np.uint32))
+    #    temporary_variables["facet_array"] = loopy.TemporaryVariable(context.local_facet_array_arg,
+    #                                                                 shape=(num_facets, ),
+    #                                                                 dtype=np.uint32,
+    #                                                                 address_space=loopy.AddressSpace.LOCAL,
+    #                                                                 read_only=True,
+    #                                                                 initializer=np.arange(num_facets, dtype=np.uint32))
 
     # Needed for evaluating facet integrals on extruded meshes
-    if context.needs_mesh_layers:
-        arguments.append(loopy.GlobalArg(context.layer_arg,
-                                         shape=(),
-                                         dtype=np.int32))
+    #if context.needs_mesh_layers:
+    #    arguments.append(loopy.GlobalArg(context.layer_arg,
+    #                                     shape=(),
+    #                                     dtype=np.int32))
 
     # Cell size information
     #if context.needs_cell_sizes:
     #    cell_sizes = context.mesh.cell_sizes
     #    name = context.cell_size_arg
     #    extent = index_extent(cell_sizes)
-     #   arguments.append(loopy.GlobalArg(name,
+    #   arguments.append(loopy.GlobalArg(name,
 
 
 
     # Macro kernel
-    knl = loopy.make_kernel(domains,
-                            instructions,
-                            kernel_data=arguments,
-                            temporary_variables=temporary_variables,
-                            target=loopy.CTarget(),
-                            name="slate_kernel",
-                            lang_version=(2018, 2),
-                            # This is safe to do, since we issue instructions using
-                            # topologically sorted Slate nodes
-                            seq_dependencies=True)
+    #knl = loopy.make_kernel(domains,
+    #                        instructions,
+    #                        kernel_data=arguments,
+    #                       temporary_variables=temporary_variables,
+    #                        target=loopy.CTarget(),
+    #                        name="slate_kernel",
+    #                        lang_version=(2018, 2),
+    #                        # This is safe to do, since we issue instructions using
+    #                        # topologically sorted Slate nodes
+    #                        seq_dependencies=True)
 
     #for k in builder.callable_kernels:
     #    knl = loopy.register_callable_kernel(knl, k)
@@ -701,6 +697,7 @@ def parenthesize(arg, prec=None, parent=None):
         return arg
     return "(%s)" % arg
 
+#STAGE1
 #converts the slate expression dag of the LocalKernelBuilder
 #into a gem expression dag
 #both dag types are traversed into list
@@ -710,39 +707,32 @@ def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
     traversed_gem_dag=SlateTranslator(declared_temps).slate_to_gem_translate(traversed_slate_expr_dag)
     return traversed_gem_dag
 
-def gem_to_loopy(traversed_slate_expr_dag):
-    
-    #prepare arguments
-    if len(arguments) == 0:
-        # No arguments
-        funarg = lp.GlobalArg("A", dtype=scalar_type, shape=(1,))
-        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
+#STAGE 2
+#converts the gem expression dag into imperoc
+def gem_to_loopy(traversed_gem_expr_dag,builder):
+    print(traversed_gem_expr_dag)
 
-        return funarg, [expression]
+    return_variable1=gem.Variable("output",(3,3))#????
+    return_variable2=gem.Variable("var",(3,3))#????
 
-    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    shapes = tuple(element.index_shape for element in elements)
+    print("not peprocessed",traversed_gem_expr_dag)
+    traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag)
 
-    def expression(restricted):
-        return gem.Indexed(gem.reshape(restricted, *shapes),
-                           tuple(chain(*multiindices)))
+    print("peprocessed",traversed_gem_expr_dag)
 
-    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
-    if interior_facet:
-        c_shape = tuple(2 * u_shape)
-        slicez = [[slice(r * s, (r + 1) * s)
-                   for r, s in zip(restrictions, u_shape)]
-                  for restrictions in product((0, 1), repeat=len(arguments))]
-    else:
-        c_shape = tuple(u_shape)
-        slicez = [[slice(s) for s in u_shape]]
+    assignments=list(zip([return_variable1,return_variable2],traversed_gem_expr_dag))
+    print(assignments)
+    print("Builder indices:", builder.indices)
+    impero_c = impero_utils.compile_traversedgem(assignments, builder.indices, remove_zeros=False)
+    print("IMPERO:",impero_c)
 
-    funarg = lp.GlobalArg("A", dtype=scalar_type, shape=c_shape)
-    varexp = gem.Variable("A", c_shape)
-    return_variables = [expression(gem.view(varexp, *slices)) for slices in slicez]
-
-
-    impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
+    args=[]
+    for k,v in builder.temps.items():
+        args.append(builder.gem_loopy_dict[v])
+    #args=[print("hello",g) for g in builder.temps]
+    print(args)
+    precision=6
+    self.kernel.ast = generate_loopy(impero_c, args, precision,"double","test")
 
 
 def slate_to_cpp(expr, temps, prec=None):
