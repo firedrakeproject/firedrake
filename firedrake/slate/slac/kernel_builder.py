@@ -447,6 +447,7 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
 
                 temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shape))
+                print("!!!!!!",temps[tensor])
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,
@@ -541,12 +542,14 @@ class LocalLoopyKernelBuilder(object):
                          "exterior_facet_vert": "subdomains_exterior_facet",
                          "interior_facet": "subdomains_interior_facet",
                          "interior_facet_vert": "subdomains_interior_facet"}
+
+        #for all terminal tensors
         for cxt_kernel in self.context_kernels:
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
             tensor= cxt_kernel.tensor
             temp=self.temps[tensor]
-            print(temp)
+            print("TENSOR TEMP:",temp)
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -586,11 +589,16 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("For now only non mixed supported")
                 else:
                     indices = inner.indices
-                    print(indices)
+                    print("INDICES:",indices)
                     #@TODO: is this right???
-                    output = SubArrayRef(pym.Variable(self.gem_loopy_dict[temp].name), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
+                    #mapping from all indices to subindices
+                    #what are swept indices?
+                    print(self.gem_loopy_dict[temp].shape)
+                    output = SubArrayRef((create_index(3,namer=map("i{}".format, itertools.count()),
+                                   context=self),create_index(3,namer=map("i{}".format, itertools.count()),
+                                   context=self)), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
 
-                print(output)
+                print("SUB:",output)
                 #kernel data is equuivalent to the args in the coffee kernel setup
                 kernel_data = [(mesh.coordinates,
                                 self.coordinates_arg)]
@@ -612,7 +620,7 @@ class LocalLoopyKernelBuilder(object):
                 #Generation of indices of the extent of the coefficient dimensions/cell size dimension & co
                 #shou
                 #@TODO: is this directly transferable when there is a indermediate gem rep
-                print(kernel_data)
+                print("KERNEL DATA:",kernel_data)
                 for c, name in kernel_data:
                     extent = index_extent(c)
                     idx = create_index(extent,
@@ -620,6 +628,7 @@ class LocalLoopyKernelBuilder(object):
                                    context=self)
                     argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
                     reads.append(argument)
+                    print("READS:", reads)
 
 
                 if integral_type == "cell":
@@ -674,6 +683,8 @@ class LocalLoopyKernelBuilder(object):
                                             predicates=predicates,
                                             within_inames_is_final=True))
 
+                print("ASSEMBLY CALL:", assembly_calls[integral_type])
+
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
@@ -681,8 +692,6 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-
-
         print(assembly_calls)
 
 
