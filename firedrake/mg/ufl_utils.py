@@ -124,8 +124,7 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
-    from firedrake.dmhooks import (get_transfer_operators, get_parent, push_transfer_operators, pop_transfer_operators,
-                                   push_parent, pop_parent, add_hook)
+    from firedrake.dmhooks import get_parent, push_parent, pop_parent, add_hook
     fine = V
     indices = []
     while True:
@@ -156,13 +155,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     # hooks are not attached. Instead we just call (say) inject which
     # coarsens the functionspace.
     cdm = V.dm
-    transfer = get_transfer_operators(fine.dm)
     parent = get_parent(fine.dm)
     try:
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
-                 teardown=partial(pop_transfer_operators, cdm, transfer),
                  call_setup=True)
     except ValueError:
         # Not in an add_hooks context

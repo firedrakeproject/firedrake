@@ -259,25 +259,15 @@ push_appctx = partial(push_attr, "__appctx__")
 pop_appctx = partial(pop_attr, "__appctx__")
 get_appctx = partial(get_attr, "__appctx__")
 
-push_transfer_operators = partial(push_attr, "__transfer__")
-pop_transfer_operators = partial(pop_attr, "__transfer__")
-
 
 def get_transfer_operators(dm):
-    prolong, restrict, inject = get_attr("__transfer__", dm, default=(None, None, None))
     appctx = get_appctx(dm)
     if appctx is None:
         # We're not in a solve, so all we can do is use the defaults.
         transfer = firedrake
     else:
         transfer = appctx.transfer_manager
-    if prolong is None:
-        prolong = transfer.prolong
-    if restrict is None:
-        restrict = transfer.restrict
-    if inject is None:
-        inject = transfer.inject
-    return (prolong, restrict, inject)
+    return (transfer.prolong, transfer.restrict, transfer.inject)
 
 
 push_ctx_coarsener = partial(push_attr, "__ctx_coarsener__")
@@ -287,31 +277,6 @@ pop_ctx_coarsener = partial(pop_attr, "__ctx_coarsener__")
 def get_ctx_coarsener(dm):
     from firedrake.mg.ufl_utils import coarsen
     return get_attr("__ctx_coarsener__", dm, default=coarsen)
-
-
-class transfer_operators(object):
-    """Run a code block with custom grid transfer operators attached.
-
-    :arg V: the functionspace to attach the transfer to.
-
-    :arg prolong: prolongation coarse -> fine.
-    :arg restrict: restriction fine^* -> coarse^*.
-    :arg inject: injection fine -> coarse."""
-    def __init__(self, V, prolong=None, restrict=None, inject=None):
-        self.V = V
-        if prolong is None:
-            prolong = firedrake.prolong
-        if restrict is None:
-            restrict = firedrake.restrict
-        if inject is None:
-            inject = firedrake.inject
-        self.transfer = prolong, restrict, inject
-
-    def __enter__(self):
-        push_transfer_operators(self.V.dm, self.transfer)
-
-    def __exit__(self, typ, value, traceback):
-        pop_transfer_operators(self.V.dm, match=self.transfer)
 
 
 class ctx_coarsener(object):
@@ -411,12 +376,6 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Need to build an MFS for the subspace
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
 
-        # Pass any transfer operators over
-        transfer = get_transfer_operators(dm)
-
-        add_hook(parent, setup=partial(push_transfer_operators, subspace.dm, transfer),
-                 teardown=partial(pop_transfer_operators, subspace.dm, transfer),
-                 call_setup=True)
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
@@ -451,20 +410,12 @@ def coarsen(dm, comm):
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
-    transfer = get_transfer_operators(dm)
     parent = get_parent(dm)
     add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
              call_setup=True)
-    add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
-             teardown=partial(pop_transfer_operators, cdm, transfer),
-             call_setup=True)
     if len(V) > 1:
         for V_, Vc_ in zip(V, Vc):
-            transfer = get_transfer_operators(V_.dm)
             add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_transfer_operators, Vc_.dm, transfer),
-                     teardown=partial(pop_transfer_operators, Vc_.dm, transfer),
                      call_setup=True)
     add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
              teardown=partial(pop_ctx_coarsener, cdm, coarsen),
