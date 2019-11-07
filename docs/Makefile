@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos
+GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos source/element_list.py
 
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
@@ -71,6 +71,9 @@ copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
 	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
+
+source/element_list.csv: source/element_list.py
+	cd source; python element_list.py
 
 source/teamgrid.rst: source/team.py
 	cd source; python team.py teamgrid.rst
