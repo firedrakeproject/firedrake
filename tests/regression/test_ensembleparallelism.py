@@ -23,6 +23,57 @@ def test_ensemble_allreduce():
     assert assemble((u_correct - usum)**2*dx) < 1e-4
 
 
+@pytest.mark.parallel(nprocs=6)
+def test_ensemble_solvers():
+    # this test uses linearity of the equation to solve two problems
+    # with different RHS on different subcommunicators,
+    # and compare the reduction with a problem solved with the sum
+    # of the two RHS
+    manager = Ensemble(COMM_WORLD, 2)
+
+    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
+
+    x, y = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    f_combined = Function(V)
+    f_separate = Function(V)
+
+    f_combined.interpolate(sin(pi*x)*cos(pi*y) + sin(2*pi*x)*cos(2*pi*y) + sin(3*pi*x)*cos(3*pi*y))
+    q = Constant(manager.ensemble_comm.rank + 1)
+    f_separate.interpolate(sin(q*pi*x)*cos(q*pi*y))
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = (u*v + inner(grad(u), grad(v)))*dx
+    Lcombined = v*f_combined*dx
+    Lseparate = v*f_separate*dx
+
+    u_combined = Function(V)
+    u_separate = Function(V)
+    usum = Function(V)
+
+    params = {'ksp_type': 'preonly',
+              'pc_type': 'redundant',
+              "redundant_pc_type": "lu",
+              "redundant_pc_factor_mat_solver_type": "mumps",
+              "redundant_mat_mumps_icntl_14": 200}
+
+    combinedProblem = LinearVariationalProblem(a, Lcombined, u_combined)
+    combinedSolver = LinearVariationalSolver(combinedProblem,
+                                             solver_parameters=params)
+
+    separateProblem = LinearVariationalProblem(a, Lseparate, u_separate)
+    separateSolver = LinearVariationalSolver(separateProblem,
+                                             solver_parameters=params)
+
+    combinedSolver.solve()
+    separateSolver.solve()
+    manager.allreduce(u_separate, usum)
+
+    assert assemble((u_combined - usum)**2*dx) < 1e-4
+
+
 def test_comm_manager():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)

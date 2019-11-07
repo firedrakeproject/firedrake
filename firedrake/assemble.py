@@ -1,10 +1,9 @@
-import numpy
 import ufl
 from collections import defaultdict
 from itertools import chain
+import functools
 
 from pyop2 import op2
-from pyop2.base import collecting_loops
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
 from firedrake import assemble_expressions
@@ -16,6 +15,8 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
+from firedrake.bcs import DirichletBC, EquationBCSplit
+from firedrake.utils import ScalarType
 
 
 __all__ = ["assemble"]
@@ -90,17 +91,28 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
+    diagonal = kwargs.pop("diagonal", False)
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
-        return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
-                         form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, mat_type=mat_type,
-                         sub_mat_type=sub_mat_type, appctx=appctx,
-                         collect_loops=collect_loops,
-                         allocate_only=allocate_only,
-                         options_prefix=options_prefix)
+        loops = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
+                          form_compiler_parameters=form_compiler_parameters,
+                          inverse=inverse, mat_type=mat_type,
+                          sub_mat_type=sub_mat_type, appctx=appctx,
+                          assemble_now=not collect_loops,
+                          allocate_only=allocate_only,
+                          diagonal=diagonal,
+                          options_prefix=options_prefix)
+        loops = tuple(loops)
+        if collect_loops and not allocate_only:
+            # Will this be useful?
+            return loops
+        else:
+            for l in loops:
+                m = l()
+            return m
+
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -116,14 +128,17 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
-                     inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                     appctx=appctx, allocate_only=True,
-                     options_prefix=options_prefix)
+    loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                      appctx=appctx, allocate_only=True,
+                      options_prefix=options_prefix)
+    # has only one entry
+    return next(loops)()
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
-                             inverse=False, mat_type=None, sub_mat_type=None):
+                             inverse=False, mat_type=None, sub_mat_type=None,
+                             diagonal=False):
     r"""Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
@@ -142,7 +157,9 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
-                      collect_loops=True)
+                      diagonal=diagonal)
+
+    loops = tuple(loops)
 
     def thunk():
         for kernel in loops:
@@ -155,14 +172,16 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, mat_type=None, sub_mat_type=None,
               appctx={},
               options_prefix=None,
-              collect_loops=False,
-              allocate_only=False):
+              assemble_now=False,
+              allocate_only=False,
+              zero_tensor=True,
+              diagonal=False):
     r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
-    :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
+    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.EquationBCSplit`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
@@ -208,16 +227,23 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if isinstance(f, slate.TensorBase):
+        if diagonal:
+            raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
-        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse, diagonal=diagonal)
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
-    rank = len(f.arguments())
+        if bcs is not None:
+            for bc in bcs:
+                integral_types += [integral.integral_type() for integral in bc.integrals()]
 
-    is_mat = rank == 2
-    is_vec = rank == 1
+    rank = len(f.arguments())
+    if diagonal:
+        assert rank == 2
+    is_mat = rank == 2 and not diagonal
+    is_vec = rank == 1 or diagonal
 
     if any((coeff.function_space() and coeff.function_space().component is not None)
            for coeff in f.coefficients()):
@@ -226,7 +252,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
 
-    zero_tensor = lambda: None
+    zero_tensor_parloop = lambda: None
 
     if is_mat:
         matfree = mat_type == "matfree"
@@ -235,20 +261,25 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             baij = sub_mat_type == "baij"
         else:
             baij = mat_type == "baij"
-        if matfree:  # intercept matrix-free matrices here
+        # intercept matrix-free matrices here
+        if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
-            if collect_loops:
-                raise NotImplementedError("Can't collect loops with matfree")
+            if diagonal:
+                raise NotImplementedError("Diagonal not implemented with matfree")
             if tensor is None:
-                return matrix.ImplicitMatrix(f, bcs,
-                                             fc_params=form_compiler_parameters,
-                                             appctx=appctx,
-                                             options_prefix=options_prefix)
+                result_matrix = matrix.ImplicitMatrix(f, bcs,
+                                                      fc_params=form_compiler_parameters,
+                                                      appctx=appctx,
+                                                      options_prefix=options_prefix)
+                yield lambda: result_matrix
+                return
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
-            return tensor
+            yield lambda: tensor
+            return
+
         test, trial = f.arguments()
 
         map_pairs = []
@@ -308,19 +339,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, numpy.float64,
+            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, ScalarType,
                                           "%s_%s_matrix" % fs_names,
                                           options_prefix=options_prefix)
-            tensor = result_matrix._M
+            tensor = result_matrix.M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting matfree with implicit matrix")
 
             result_matrix = tensor
-            # Replace any bcs on the tensor we passed in
-            result_matrix.bcs = bcs
-            tensor = tensor._M
-            zero_tensor = tensor.zero
+            tensor = tensor.M
+            zero_tensor_parloop = tensor.zero
 
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
@@ -345,8 +374,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         result = lambda: result_matrix
         if allocate_only:
-            result_matrix._assembly_callback = None
-            return result_matrix
+            yield result
+            return
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
@@ -355,7 +384,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             result_function = tensor
             tensor = result_function.dat
-            zero_tensor = tensor.zero
+            zero_tensor_parloop = tensor.zero
 
         def vec(testmap, i):
             _testmap = testmap(test.function_space()[i])
@@ -381,167 +410,145 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     for k, v in all_integer_subdomain_ids.items():
         all_integer_subdomain_ids[k] = tuple(sorted(v))
 
-    # Since applying boundary conditions to a matrix changes the
-    # initial assembly, to support:
-    #     A = assemble(a)
-    #     bc.apply(A)
-    #     solve(A, ...)
-    # we need to defer actually assembling the matrix until just
-    # before we need it (when we know if there are any bcs to be
-    # applied).  To do so, we build a closure that carries out the
-    # assembly and stash that on the Matrix object.  When we hit a
-    # solve, we funcall the closure with any bcs the Matrix now has to
-    # assemble it.
-
     # In collecting loops mode, we collect the loops, and assume the
     # boundary conditions provided are the ones we want.  It therefore
     # is only used inside residual and jacobian assembly.
-    loops = []
 
-    def thunk(bcs):
-        if collect_loops:
-            loops.append(zero_tensor)
+    if zero_tensor:
+        yield zero_tensor_parloop
+    for indices, kinfo in kernels:
+        kernel = kinfo.kernel
+        integral_type = kinfo.integral_type
+        domain_number = kinfo.domain_number
+        subdomain_id = kinfo.subdomain_id
+        coeff_map = kinfo.coefficient_map
+        pass_layer_arg = kinfo.pass_layer_arg
+        needs_orientations = kinfo.oriented
+        needs_cell_facets = kinfo.needs_cell_facets
+        needs_cell_sizes = kinfo.needs_cell_sizes
+
+        m = domains[domain_number]
+        subdomain_data = f.subdomain_data()[m]
+        # Find argument space indices
+        if is_mat:
+            i, j = indices
+        elif is_vec:
+            i, = indices
         else:
-            zero_tensor()
-        for indices, kinfo in kernels:
-            kernel = kinfo.kernel
-            integral_type = kinfo.integral_type
-            domain_number = kinfo.domain_number
-            subdomain_id = kinfo.subdomain_id
-            coeff_map = kinfo.coefficient_map
-            pass_layer_arg = kinfo.pass_layer_arg
-            needs_orientations = kinfo.oriented
-            needs_cell_facets = kinfo.needs_cell_facets
-            needs_cell_sizes = kinfo.needs_cell_sizes
+            assert len(indices) == 0
 
-            m = domains[domain_number]
-            subdomain_data = f.subdomain_data()[m]
-            # Find argument space indices
-            if is_mat:
-                i, j = indices
-            elif is_vec:
-                i, = indices
+        sdata = subdomain_data.get(integral_type, None)
+        if integral_type != 'cell' and sdata is not None:
+            raise NotImplementedError("subdomain_data only supported with cell integrals.")
+
+        # Extract block from tensor and test/trial spaces
+        # FIXME Ugly variable renaming required because functions are not
+        # lexical closures in Python and we're writing to these variables
+        if is_mat:
+            if bcs is not None:
+                tsbc = list(bc for bc in chain(*bcs))
+                if result_matrix.block_shape > (1, 1):
+                    trbc = [bc for bc in tsbc if bc.function_space_index() == j and isinstance(bc, DirichletBC)]
+                    tsbc = [bc for bc in tsbc if bc.function_space_index() == i]
+                else:
+                    trbc = [bc for bc in tsbc if isinstance(bc, DirichletBC)]
             else:
-                assert len(indices) == 0
-
-            sdata = subdomain_data.get(integral_type, None)
-            if integral_type != 'cell' and sdata is not None:
-                raise NotImplementedError("subdomain_data only supported with cell integrals.")
-
-            # Extract block from tensor and test/trial spaces
-            # FIXME Ugly variable renaming required because functions are not
-            # lexical closures in Python and we're writing to these variables
-            if is_mat and result_matrix.block_shape > (1, 1):
                 tsbc = []
                 trbc = []
-                # Unwind ComponentFunctionSpace to check for matching BCs
-                for bc in bcs:
-                    fs = bc.function_space()
-                    if fs.component is not None:
-                        fs = fs.parent
-                    if fs.index == i:
-                        tsbc.append(bc)
-                    if fs.index == j:
-                        trbc.append(bc)
-            elif is_mat:
-                tsbc, trbc = bcs, bcs
 
-            # Now build arguments for the par_loop
-            kwargs = {}
-            # Some integrals require non-coefficient arguments at the
-            # end (facet number information).
-            extra_args = []
-            # Decoration for applying to matrix maps in extruded case
-            decoration = None
-            itspace = m.measure_set(integral_type, subdomain_id,
-                                    all_integer_subdomain_ids)
-            if integral_type == "cell":
-                itspace = sdata or itspace
+        # Now build arguments for the par_loop
+        kwargs = {}
+        # Some integrals require non-coefficient arguments at the
+        # end (facet number information).
+        extra_args = []
+        # Decoration for applying to matrix maps in extruded case
+        decoration = None
+        itspace = m.measure_set(integral_type, subdomain_id,
+                                all_integer_subdomain_ids)
+        if integral_type == "cell":
+            itspace = sdata or itspace
+            if subdomain_id not in ["otherwise", "everywhere"] and sdata is not None:
+                raise ValueError("Cannot use subdomain data and subdomain_id")
 
-                if subdomain_id not in ["otherwise", "everywhere"] and \
-                   sdata is not None:
-                    raise ValueError("Cannot use subdomain data and subdomain_id")
+            def get_map(x):
+                return x.cell_node_map()
 
-                def get_map(x):
-                    return x.cell_node_map()
+        elif integral_type in ("exterior_facet", "exterior_facet_vert"):
+            extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
-            elif integral_type in ("exterior_facet", "exterior_facet_vert"):
-                extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
+            def get_map(x):
+                return x.exterior_facet_node_map()
 
-                def get_map(x):
-                    return x.exterior_facet_node_map()
+        elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
+            # In the case of extruded meshes with horizontal facet integrals, two
+            # parallel loops will (potentially) get created and called based on the
+            # domain id: interior horizontal, bottom or top.
+            decoration = {"exterior_facet_top": op2.ON_TOP,
+                          "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
+            kwargs["iterate"] = decoration
 
-            elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
-                # In the case of extruded meshes with horizontal facet integrals, two
-                # parallel loops will (potentially) get created and called based on the
-                # domain id: interior horizontal, bottom or top.
-                decoration = {"exterior_facet_top": op2.ON_TOP,
-                              "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
-                kwargs["iterate"] = decoration
+            def get_map(x):
+                return x.cell_node_map()
 
-                def get_map(x):
-                    return x.cell_node_map()
+        elif integral_type in ("interior_facet", "interior_facet_vert"):
+            extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
-            elif integral_type in ("interior_facet", "interior_facet_vert"):
-                extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
+            def get_map(x):
+                return x.interior_facet_node_map()
 
-                def get_map(x):
-                    return x.interior_facet_node_map()
+        elif integral_type == "interior_facet_horiz":
+            decoration = op2.ON_INTERIOR_FACETS
+            kwargs["iterate"] = decoration
 
-            elif integral_type == "interior_facet_horiz":
-                decoration = op2.ON_INTERIOR_FACETS
-                kwargs["iterate"] = decoration
+            def get_map(x):
+                return x.cell_node_map()
 
-                def get_map(x):
-                    return x.cell_node_map()
+        else:
+            raise ValueError("Unknown integral type '%s'" % integral_type)
 
-            else:
-                raise ValueError("Unknown integral type '%s'" % integral_type)
+        # Output argument
+        if is_mat:
+            tensor_arg = mat(lambda s: get_map(s),
+                             lambda s: get_map(s),
+                             tsbc, trbc,
+                             i, j)
+        elif is_vec:
+            tensor_arg = vec(lambda s: get_map(s), i)
+        else:
+            tensor_arg = tensor(op2.INC)
 
-            # Output argument
-            if is_mat:
-                tensor_arg = mat(lambda s: get_map(s),
-                                 lambda s: get_map(s),
-                                 tsbc, trbc,
-                                 i, j)
-            elif is_vec:
-                tensor_arg = vec(lambda s: get_map(s), i)
-            else:
-                tensor_arg = tensor(op2.INC)
+        coords = m.coordinates
+        args = [kernel, itspace, tensor_arg,
+                coords.dat(op2.READ, get_map(coords))]
+        if needs_orientations:
+            o = m.cell_orientations()
+            args.append(o.dat(op2.READ, get_map(o)))
+        if needs_cell_sizes:
+            o = m.cell_sizes
+            args.append(o.dat(op2.READ, get_map(o)))
 
-            coords = m.coordinates
-            args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords))]
-            if needs_orientations:
-                o = m.cell_orientations()
-                args.append(o.dat(op2.READ, get_map(o)))
-            if needs_cell_sizes:
-                o = m.cell_sizes
-                args.append(o.dat(op2.READ, get_map(o)))
+        for n in coeff_map:
+            c = coefficients[n]
+            for c_ in c.split():
+                m_ = get_map(c_)
+                args.append(c_.dat(op2.READ, m_))
+        if needs_cell_facets:
+            assert integral_type == "cell"
+            extra_args.append(m.cell_to_facets(op2.READ))
 
-            for n in coeff_map:
-                c = coefficients[n]
-                for c_ in c.split():
-                    m_ = get_map(c_)
-                    args.append(c_.dat(op2.READ, m_))
-            if needs_cell_facets:
-                assert integral_type == "cell"
-                extra_args.append(m.cell_to_facets(op2.READ))
+        args.extend(extra_args)
+        kwargs["pass_layer_arg"] = pass_layer_arg
+        try:
+            yield op2.ParLoop(*args, **kwargs).compute
+        except MapValueError:
+            raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            args.extend(extra_args)
-            kwargs["pass_layer_arg"] = pass_layer_arg
-
-            try:
-                with collecting_loops(collect_loops):
-                    loops.append(op2.par_loop(*args, **kwargs))
-            except MapValueError:
-                raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
-
-        # Must apply bcs outside loop over kernels because we may wish
-        # to apply bcs to a block which is otherwise zero, and
-        # therefore does not have an associated kernel.
-        if bcs is not None and is_mat:
-            for bc in bcs:
+    # Must apply bcs outside loop over kernels because we may wish
+    # to apply bcs to a block which is otherwise zero, and
+    # therefore does not have an associated kernel.
+    if bcs is not None and is_mat:
+        for bc in bcs:
+            if isinstance(bc, DirichletBC):
                 fs = bc.function_space()
                 # Evaluate this outwith a "collecting_loops" block,
                 # since creation of the bc nodes actually can create a
@@ -550,45 +557,66 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if len(fs) > 1:
                     raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = result_matrix.block_shape
-                with collecting_loops(collect_loops):
-                    for i in range(shape[0]):
-                        for j in range(shape[1]):
-                            # Set diagonal entries on bc nodes to 1 if the current
-                            # block is on the matrix diagonal and its index matches the
-                            # index of the function space the bc is defined on.
-                            if i != j:
-                                continue
-                            if fs.component is None and fs.index is not None:
-                                # Mixed, index (no ComponentFunctionSpace)
-                                if fs.index == i:
-                                    loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
-                            elif fs.component is not None:
-                                # ComponentFunctionSpace, check parent index
-                                if fs.parent.index is not None:
-                                    # Mixed, index doesn't match
-                                    if fs.parent.index != i:
-                                        continue
-                                # Index matches
-                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component))
-                            elif fs.index is None:
-                                loops.append(tensor[i, j].set_local_diagonal_entries(nodes))
-                            else:
-                                raise RuntimeError("Unhandled BC case")
-        if bcs is not None and is_vec:
-            if len(bcs) > 0 and collect_loops:
-                raise NotImplementedError("Loop collection not handled in this case")
-            for bc in bcs:
-                bc.apply(result_function)
+                for i in range(shape[0]):
+                    for j in range(shape[1]):
+                        # Set diagonal entries on bc nodes to 1 if the current
+                        # block is on the matrix diagonal and its index matches the
+                        # index of the function space the bc is defined on.
+                        if i != j:
+                            continue
+                        if fs.component is None and fs.index is not None:
+                            # Mixed, index (no ComponentFunctionSpace)
+                            if fs.index == i:
+                                yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        elif fs.component is not None:
+                            # ComponentFunctionSpace, check parent index
+                            if fs.parent.index is not None:
+                                # Mixed, index doesn't match
+                                if fs.parent.index != i:
+                                    continue
+                            # Index matches
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes, idx=fs.component)
+                        elif fs.index is None:
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        else:
+                            raise RuntimeError("Unhandled BC case")
+            elif isinstance(bc, EquationBCSplit):
+                yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
+                                     form_compiler_parameters=form_compiler_parameters,
+                                     inverse=inverse, mat_type=mat_type,
+                                     sub_mat_type=sub_mat_type,
+                                     appctx=appctx,
+                                     assemble_now=assemble_now,
+                                     allocate_only=False,
+                                     zero_tensor=False)
+            else:
+                raise NotImplementedError("Undefined type of bcs class provided.")
+
+    if bcs is not None and is_vec:
+        for bc in bcs:
+            if isinstance(bc, DirichletBC):
+                if assemble_now:
+                    if diagonal:
+                        yield functools.partial(bc.set, result_function, 1)
+                    else:
+                        yield functools.partial(bc.apply, result_function)
+                else:
+                    yield functools.partial(bc.zero, result_function)
+            elif isinstance(bc, EquationBCSplit):
+                if diagonal:
+                    raise NotImplementedError("diagonal assembly and EquationBC not supported")
+                yield functools.partial(bc.zero, result_function)
+                yield from _assemble(bc.f, tensor=result_function, bcs=bc.bcs,
+                                     form_compiler_parameters=form_compiler_parameters,
+                                     inverse=inverse, mat_type=mat_type,
+                                     sub_mat_type=sub_mat_type,
+                                     appctx=appctx,
+                                     assemble_now=assemble_now,
+                                     allocate_only=False,
+                                     zero_tensor=False)
+    if zero_tensor:
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
-            loops.append(tensor.assemble())
-        return result()
-
-    if collect_loops:
-        thunk(bcs)
-        return loops
-    if is_mat:
-        result_matrix._assembly_callback = thunk
-        return result()
-    else:
-        return thunk(bcs)
+            yield tensor.assemble
+        if assemble_now:
+            yield result

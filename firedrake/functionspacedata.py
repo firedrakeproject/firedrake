@@ -23,8 +23,8 @@ from pyop2 import op2
 from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
-import firedrake.extrusion_numbering as extnum
-from firedrake import dmplex
+from firedrake.cython import extrusion_numbering as extnum
+from firedrake.cython import dmplex
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -471,12 +471,16 @@ class FunctionSpaceData(object):
             bc_key.append(bc._cache_key)
 
         def key(a):
-            (domain, ), *rest = a
-            isstr = isinstance(domain, str)
-            if isstr:
-                return (True, domain, (), tuple(rest))
+            tpl, *rest = a
+            if len(tpl) == 1 and isinstance(tpl[0], str):
+                # tpl = ("some_string", )
+                return (True, tpl[0], (), tuple(rest))
             else:
-                return (False, "", domain, tuple(rest))
+                # Ex:
+                # tpl = ((facet_dim, ((1,), (2,), (3,))),
+                #        (edge_dim, ((1, 3), (1, 4))),
+                #        (vert_dim, ((1, 3, 4), )))
+                return (False, "", tpl, tuple(rest))
 
         bc_key = tuple(sorted(bc_key, key=key))
         node_set = V.node_set

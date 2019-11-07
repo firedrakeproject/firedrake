@@ -116,6 +116,8 @@ sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakepro
 sudo docker push firedrakeproject/firedrake-vanilla:latest
 sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake:latest -f docker/Dockerfile.firedrake .
 sudo docker push firedrakeproject/firedrake:latest
+sudo docker build --no-cache -t firedrakeproject/firedrake-notebooks:latest -f docker/Dockerfile.jupyter .
+sudo docker push firedrakeproject/firedrake-notebooks:latest
 '''
       }
     }

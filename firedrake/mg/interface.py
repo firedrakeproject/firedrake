@@ -71,7 +71,6 @@ def prolong(coarse, fine):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse, coarse_coords]:
-            d.dat._force_evaluation(read=True, write=False)
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
         op2.par_loop(kernel, next.node_set,
@@ -132,7 +131,6 @@ def restrict(fine_dual, coarse_dual):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse_coords]:
-            d.dat._force_evaluation(read=True, write=False)
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
         kernel = kernels.restrict_kernel(Vf, Vc)
@@ -207,7 +205,6 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat._force_evaluation(read=True, write=False)
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, next.node_set,
@@ -223,7 +220,6 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat._force_evaluation(read=True, write=False)
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, Vc.mesh().cell_set,

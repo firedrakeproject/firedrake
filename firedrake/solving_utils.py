@@ -1,12 +1,13 @@
 import numpy
 
+import itertools
+
 from pyop2 import op2
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
-from ufl import VectorElement
 
 
 def _make_reasons(reasons):
@@ -73,6 +74,7 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  options_prefix=None):
         from firedrake.assemble import create_assembly_callable
+        from firedrake.bcs import DirichletBC
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -106,7 +108,10 @@ class _SNESContext(object):
         self.F = problem.F
         self.J = problem.J
 
-        if mat_type != pmat_type or problem.Jp is not None:
+        # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
+        Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
+
+        if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
             if problem.Jp is None:
@@ -114,11 +119,15 @@ class _SNESContext(object):
             else:
                 self.Jp = problem.Jp
         else:
-            # pmat_type == mat_type and Jp is None
+            # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
+        self.bcs_F = [bc if isinstance(bc, DirichletBC) else bc._F for bc in problem.bcs]
+        self.bcs_J = [bc if isinstance(bc, DirichletBC) else bc._J for bc in problem.bcs]
+        self.bcs_Jp = [bc if isinstance(bc, DirichletBC) else bc._Jp for bc in problem.bcs]
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
+                                                           bcs=self.bcs_F,
                                                            form_compiler_parameters=self.fcp)
 
         self._jacobian_assembled = False
@@ -151,6 +160,7 @@ class _SNESContext(object):
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
+        from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))
         if splits is not None:
@@ -215,24 +225,12 @@ class _SNESContext(object):
                 Jp = None
             bcs = []
             for bc in problem.bcs:
-                Vbc = bc.function_space()
-                if Vbc.parent is not None and isinstance(Vbc.parent.ufl_element(), VectorElement):
-                    index = Vbc.parent.index
-                else:
-                    index = Vbc.index
-                cmpt = Vbc.component
-                # TODO: need to test this logic
-                if index in field:
-                    if len(field) == 1:
-                        W = V
-                    else:
-                        W = V.sub(field_renumbering[index])
-                    if cmpt is not None:
-                        W = W.sub(cmpt)
-                    bcs.append(type(bc)(W,
-                                        bc.function_arg,
-                                        bc.sub_domain,
-                                        method=bc.method))
+                if isinstance(bc, DirichletBC):
+                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
+                elif isinstance(bc, EquationBC):
+                    bc_temp = bc.reconstruct(field, V, subu, u)
+                if bc_temp is not None:
+                    bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
@@ -250,7 +248,6 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
-        problem = ctx._problem
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -260,10 +257,6 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
-
-        # no mat_type -- it's a vector!
-        for bc in problem.bcs:
-            bc.zero(ctx._F)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -299,12 +292,10 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
         ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
@@ -319,10 +310,10 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
+        from firedrake.bcs import DirichletBC
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-
         assert J.handle == ctx._jac.petscmat.handle
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
@@ -334,20 +325,21 @@ class _SNESContext(object):
         if fine is not None:
             _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
             inject(fine._x, ctx._x)
-            for bc in ctx._problem.bcs:
-                bc.apply(ctx._x)
+
+            for bc in itertools.chain(*ctx._problem.bcs):
+                if isinstance(bc, DirichletBC):
+                    bc.apply(ctx._x)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
     @cached_property
     def _jac(self):
         from firedrake.assemble import allocate_matrix
-        return allocate_matrix(self.J, bcs=self._problem.bcs,
+        return allocate_matrix(self.J,
+                               bcs=self.bcs_J,
                                form_compiler_parameters=self.fcp,
                                mat_type=self.mat_type,
                                appctx=self.appctx,
@@ -356,7 +348,11 @@ class _SNESContext(object):
     @cached_property
     def _assemble_jac(self):
         from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.J, tensor=self._jac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.mat_type)
+        return create_assembly_callable(self.J,
+                                        tensor=self._jac,
+                                        bcs=self.bcs_J,
+                                        form_compiler_parameters=self.fcp,
+                                        mat_type=self.mat_type)
 
     @cached_property
     def is_mixed(self):
@@ -366,14 +362,23 @@ class _SNESContext(object):
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             from firedrake.assemble import allocate_matrix
-            return allocate_matrix(self.Jp, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, appctx=self.appctx, options_prefix=self.options_prefix)
+            return allocate_matrix(self.Jp,
+                                   bcs=self.bcs_Jp,
+                                   form_compiler_parameters=self.fcp,
+                                   mat_type=self.pmat_type,
+                                   appctx=self.appctx,
+                                   options_prefix=self.options_prefix)
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
         from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.Jp, tensor=self._pjac, bcs=self._problem.bcs, form_compiler_parameters=self.fcp, mat_type=self.pmat_type)
+        return create_assembly_callable(self.Jp,
+                                        tensor=self._pjac,
+                                        bcs=self.bcs_Jp,
+                                        form_compiler_parameters=self.fcp,
+                                        mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):

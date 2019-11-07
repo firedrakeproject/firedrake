@@ -16,6 +16,8 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
+from firedrake.utils import ScalarType_c
+
 from coffee.base import ArrayInit
 
 
@@ -68,6 +70,23 @@ def inside_check(fiat_cell, eps, X="X"):
     return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
 
 
+def compute_celldist(fiat_cell, X="X", celldist="celldist"):
+    dim = fiat_cell.get_spatial_dimension()
+    s = """
+    %(celldist)s = %(X)s[0];
+    for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
+        if (%(celldist)s > %(X)s[celldistdim]) {
+            %(celldist)s = %(X)s[celldistdim];
+        }
+    }
+    %(celldist)s *= -1;
+    """ % {"celldist": celldist,
+           "dim": dim,
+           "X": X}
+
+    return s
+
+
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
@@ -91,7 +110,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr)
     expr = ufl_utils.simplify_abs(expr)
 
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
@@ -124,7 +143,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
     body.open_scope = False
 
     return body

@@ -8,6 +8,7 @@ from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.bcs import DirichletBC
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -15,12 +16,35 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
+def check_pde_args(F, J, Jp):
+    if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
+    if len(F.arguments()) != 1:
+        raise ValueError("Provided residual is not a linear form")
+    if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+    if len(J.arguments()) != 2:
+        raise ValueError("Provided Jacobian is not a bilinear form")
+    if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
+        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and len(Jp.arguments()) != 2:
+        raise ValueError("Provided preconditioner is not a bilinear form")
+
+
+def is_form_consistent(is_linear, bcs):
+    # Check form style consistency
+    if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))
+            or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))):
+        raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
+
+
 class NonlinearVariationalProblem(object):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
-                 form_compiler_parameters=None):
+                 form_compiler_parameters=None,
+                 is_linear=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -31,40 +55,37 @@ class NonlinearVariationalProblem(object):
                  will be used.
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+        :is_linear: internally used to check if all domain/bc forms
+            are given either in 'A == b' style or in 'F == 0' style.
         """
         from firedrake import solving
         from firedrake import function
 
-        # Store input UFL forms and solution Function
+        self.bcs = solving._extract_bcs(bcs)
+        # Check form style consistency
+        self.is_linear = is_linear
+        is_form_consistent(self.is_linear, self.bcs)
+        self.Jp_eq_J = Jp is None
+
+        self.u = u
         self.F = F
         self.Jp = Jp
-        self.u = u
-        self.bcs = solving._extract_bcs(bcs)
-
-        # Argument checking
-        if not isinstance(self.F, (ufl.Form, slate.slate.TensorBase)):
-            raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(self.F).__name__)
-        if len(self.F.arguments()) != 1:
-            raise ValueError("Provided residual is not a linear form")
         if not isinstance(self.u, function.Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
-
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
 
-        if not isinstance(self.J, (ufl.Form, slate.slate.TensorBase)):
-            raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(self.J).__name__)
-        if len(self.J.arguments()) != 2:
-            raise ValueError("Provided Jacobian is not a bilinear form")
-        if self.Jp is not None and not isinstance(self.Jp, (ufl.Form, slate.slate.TensorBase)):
-            raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(self.Jp).__name__)
-        if self.Jp is not None and len(self.Jp.arguments()) != 2:
-            raise ValueError("Provided preconditioner is not a bilinear form")
+        # Argument checking
+        check_pde_args(self.F, self.J, self.Jp)
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
+
+    def dirichlet_bcs(self):
+        for bc in self.bcs:
+            yield from bc.dirichlet_bcs()
 
     @utils.cached_property
     def dm(self):
@@ -193,7 +214,7 @@ class NonlinearVariationalSolver(OptionsManager):
         # DM with an app context in place so that if the DM is active
         # on a subKSP the context is available.
         dm = self.snes.getDM()
-        with dmhooks.appctx(dm, self._ctx):
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
         # Used for custom grid transfer.
@@ -224,9 +245,8 @@ class NonlinearVariationalSolver(OptionsManager):
         """
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
-        # Apply the boundary conditions to the initial guess.
-        for bc in self._problem.bcs:
-            bc.apply(self._problem.u)
+        for dbc in self._problem.dirichlet_bcs():
+            dbc.apply(self._problem.u)
 
         if bounds is not None:
             lower, upper = bounds
@@ -238,7 +258,7 @@ class NonlinearVariationalSolver(OptionsManager):
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(), dmhooks.appctx(dm, self._ctx)),
+                for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
@@ -281,7 +301,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             F = ufl_expr.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
-                                                       form_compiler_parameters=form_compiler_parameters)
+                                                       form_compiler_parameters=form_compiler_parameters,
+                                                       is_linear=True)
         self._constant_jacobian = constant_jacobian
 
 

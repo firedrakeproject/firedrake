@@ -25,14 +25,16 @@ Tutorial
 
 The workshop will start with a half day Firedrake tutorial for
 interested new users and the main science programme will start at
-lunchtime on 26 September. We will finish by 4.30pm on 27 September.
+lunchtime on 26 September. See the programme for detailed timings.
 
 Key Dates
 ---------
 
-* Early registration deadline: 16 August 2019
-* Registration deadline: 6 September 2019
-* Abstract submission deadline: 16 August 2019 (`via Easychair
+* Early registration deadline: 17 August 2019
+* Registration deadline: 6 September 2019 (`via Durham event
+  registration
+  <https://www.dur.ac.uk/conference.booking/details/?id=1266>`_).
+* Abstract submission deadline: 17 August 2019 (`via Easychair
   <https://easychair.org/conferences/?conf=firedrake19>`_).
 * Workshop: 26-27 September 2019
 
@@ -40,18 +42,45 @@ Key Dates
 Abstract submission
 -------------------
 
-Submission is `now open on Easychair
-<https://easychair.org/conferences/?conf=firedrake19>`_.
+Submission for talks is now closed. If you would still like to bring a
+poster, please submit an abstract `on Easychair
+<https://easychair.org/conferences/?conf=firedrake19>`_ (so it appears
+in the programme, and we know how many poster boards we'll need).
 
 Programme
 ---------
 
-To be announced.
+The workshop programme is `available on Easychair
+<https://easychair.org/smart-program/Firedrake'19/>`_.
+
+Talk slides
+-----------
+
+Slides from the talks have kindly been provided by some of the
+presenters.
+
+* David Acreman: `REXI: breaking the time step constraint
+  <_static/firedrake19-slides/acreman.pdf>`__
+* Mariana Clare: `Where has all my sand gone? Hydro-morphodynamics
+  2D modelling using a discontinuous Galerkin discretisation
+  <_static/firedrake19-slides/clare.pdf>`__
+* Colin Cotter: `Time (integrator) parallel exponential integration
+  and phase-averaging for geophysical fluid dynamics
+  <_static/firedrake19-slides/cotter.pdf>`__
+* Matt Knepley: `Understanding multivariate computation using the
+  Kolmogorov superposition theorem <https://cse.buffalo.edu/~knepley/presentations/PresFiredrake2019.pdf>`_
+* Lawrence Mitchell: `PCPATCH: topological construction of multigrid
+  relaxation methods <_static/firedrake19-slides/mitchell.pdf>`__
+* Joe Wallwork: `Anisotropic goal-oriented mesh adaptation in
+  Firedrake <_static/firedrake19-slides/wallwork.pdf>`__
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-To be announced.
+There will be a workshop dinner in the evening of 26 September at `ASK
+Italian <https://www.askitalian.co.uk/restaurant/durham/>`_ on
+Durham's Millenium Square (easily accessible by foot from the
+conference location and town centre).
 
 Location
 ~~~~~~~~
@@ -63,9 +92,10 @@ in the `Department of Computer Science
 Registration
 ------------
 
-Registration will open soon. Early bird registration, before 16 August,
-will cost £50 (£40 for students), rising to £75 thereafter. Registration
-for the tutorial only is free.
+Early bird registration is now closed. Registration (before 6th
+September) costs £80. Please register `via Event Durham
+<https://www.dur.ac.uk/conference.booking/details/?id=1266>`_.
+Registration for the tutorial only is free.
 
 
 Further details
