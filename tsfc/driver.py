@@ -28,20 +28,18 @@ from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 
-import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True):
+def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True, diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
     :arg coffee: compile coffee kernel instead of loopy kernel
+    :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: list of kernels
     """
     cpu_time = time.time()
@@ -63,7 +61,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, coffee=coffee)
+        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, coffee=coffee, diagonal=diagonal)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -72,7 +70,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, coffee):
+def compile_integral(integral_data, form_data, prefix, parameters, interface, coffee, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -80,6 +78,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
     :arg interface: backend module for the kernel interface
+    :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
     if parameters is None:
@@ -90,8 +89,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         parameters = _
     if interface is None:
         if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.KernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
 
     # Remove these here, they're handled below.
@@ -118,9 +120,17 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface(integral_type, integral_data.subdomain_id,
                         domain_numbering[integral_data.domain],
-                        parameters["scalar_type"])
+                        parameters["scalar_type"],
+                        diagonal=diagonal)
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
+    if diagonal:
+        # Error checking occurs in the builder constructor.
+        # Diagonal assembly is obtained by using the test indices for
+        # the trial space as well.
+        a, _ = argument_multiindices
+        argument_multiindices = (a, a)
+
     return_variables = builder.set_arguments(arguments, argument_multiindices)
 
     builder.set_coordinates(mesh)
@@ -293,8 +303,11 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     # Initialise kernel builder
     if interface is None:
         if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.ExpressionKernelBuilder
         else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.ExpressionKernelBuilder
 
     builder = interface(parameters["scalar_type"])

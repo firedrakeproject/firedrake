@@ -19,9 +19,6 @@ from pytools import UniqueNameGenerator
 
 from tsfc.parameters import is_complex
 
-# Satisfy import demands until complex branch is merged in Firedrake
-from tsfc.parameters import SCALAR_TYPE
-
 
 class LoopyContext(object):
     def __init__(self):
@@ -64,7 +61,7 @@ class LoopyContext(object):
         return frozenset([i.name for i in self.active_indices.values()])
 
 
-def generate(impero_c, args, precision, kernel_name="loopy_kernel", index_names=[], scalar_type=None):
+def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel", index_names=[]):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -79,7 +76,7 @@ def generate(impero_c, args, precision, kernel_name="loopy_kernel", index_names=
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
     ctx.precision = precision
-    ctx.scalar_type = scalar_type or SCALAR_TYPE
+    ctx.scalar_type = scalar_type
     ctx.epsilon = 10.0 ** (-precision)
 
     # Create arguments

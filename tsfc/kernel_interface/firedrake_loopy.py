@@ -60,14 +60,11 @@ class Kernel(object):
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type=None, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        if scalar_type is None:
-            from tsfc.parameters import SCALAR_TYPE
-            scalar_type = SCALAR_TYPE
         super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
                                                 interior_facet=interior_facet)
 
@@ -119,8 +116,8 @@ class KernelBuilderBase(_KernelBuilderBase):
 class ExpressionKernelBuilder(KernelBuilderBase):
     """Builds expression kernels for UFL interpolation in Firedrake."""
 
-    def __init__(self, scalar_type=None):
-        super(ExpressionKernelBuilder, self).__init__(scalar_type=None)
+    def __init__(self, scalar_type):
+        super(ExpressionKernelBuilder, self).__init__(scalar_type=scalar_type)
         self.oriented = False
         self.cell_sizes = False
 
@@ -167,19 +164,23 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         for name_, shape in self.tabulations:
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
-        loopy_kernel = generate_loopy(impero_c, args, precision, "expression_kernel", index_names, self.scalar_type)
-        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes, self.coefficients, self.tabulations)
+        loopy_kernel = generate_loopy(impero_c, args, precision, self.scalar_type,
+                                      "expression_kernel", index_names)
+        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
+                                self.coefficients, self.tabulations)
 
 
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None, dont_split=()):
+    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type, dont_split=(),
+                 diagonal=False):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
+        self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
         self.coefficient_args = []
@@ -207,7 +208,8 @@ class KernelBuilder(KernelBuilderBase):
         :returns: GEM expression representing the return variable
         """
         self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
+            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
+            diagonal=self.diagonal)
         return expressions
 
     def set_coordinates(self, domain):
@@ -290,7 +292,8 @@ class KernelBuilder(KernelBuilderBase):
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
         self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.ast = generate_loopy(impero_c, args, precision, name, index_names, self.scalar_type)
+        self.kernel.ast = generate_loopy(impero_c, args, precision,
+                                         self.scalar_type, name, index_names)
         return self.kernel
 
     def construct_empty_kernel(self, name):
@@ -341,7 +344,7 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
     return funarg, expression
 
 
-def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False):
+def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -349,6 +352,7 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
     :arg arguments: UFL Arguments
     :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
+    :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
     :returns: (funarg, expression)
          funarg      - :class:`loopy.GlobalArg` function argument
          expressions - GEM expressions referring to the argument
@@ -366,6 +370,18 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
+
+    if diagonal:
+        if len(arguments) != 2:
+            raise ValueError("Diagonal only for 2-forms")
+        try:
+            element, = set(elements)
+        except ValueError:
+            raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
+
+        elements = (element, )
+        shapes = tuple(element.index_shape for element in elements)
+        multiindices = multiindices[:1]
 
     def expression(restricted):
         return gem.Indexed(gem.reshape(restricted, *shapes),

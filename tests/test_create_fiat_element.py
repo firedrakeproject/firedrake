@@ -29,7 +29,7 @@ def test_triangle_basic(ufl_element):
     assert isinstance(element, supported_elements[ufl_element.family()])
 
 
-@pytest.fixture(params=["CG", "DG"], scope="module")
+@pytest.fixture(params=["CG", "DG", "DG L2"], scope="module")
 def tensor_name(request):
     return request.param
 
@@ -62,7 +62,8 @@ def test_tensor_prod_simple(ufl_A, ufl_B):
 
 @pytest.mark.parametrize(('family', 'expected_cls'),
                          [('P', FIAT.GaussLobattoLegendre),
-                          ('DP', FIAT.GaussLegendre)])
+                          ('DP', FIAT.GaussLegendre),
+                          ('DP L2', FIAT_DiscontinuousLagrange)])
 def test_interval_variant_default(family, expected_cls):
     ufl_element = ufl.FiniteElement(family, ufl.interval, 3)
     assert isinstance(create_element(ufl_element), expected_cls)
@@ -72,7 +73,9 @@ def test_interval_variant_default(family, expected_cls):
                          [('P', 'equispaced', FIAT.Lagrange),
                           ('P', 'spectral', FIAT.GaussLobattoLegendre),
                           ('DP', 'equispaced', FIAT_DiscontinuousLagrange),
-                          ('DP', 'spectral', FIAT.GaussLegendre)])
+                          ('DP', 'spectral', FIAT.GaussLegendre),
+                          ('DP L2', 'equispaced', FIAT_DiscontinuousLagrange),
+                          ('DP L2', 'spectral', FIAT.GaussLegendre)])
 def test_interval_variant(family, variant, expected_cls):
     ufl_element = ufl.FiniteElement(family, ufl.interval, 3, variant=variant)
     assert isinstance(create_element(ufl_element), expected_cls)
@@ -80,6 +83,12 @@ def test_interval_variant(family, variant, expected_cls):
 
 def test_triangle_variant_spectral_fail():
     ufl_element = ufl.FiniteElement('DP', ufl.triangle, 2, variant='spectral')
+    with pytest.raises(ValueError):
+        create_element(ufl_element)
+
+
+def test_triangle_variant_spectral_fail_l2():
+    ufl_element = ufl.FiniteElement('DP L2', ufl.triangle, 2, variant='spectral')
     with pytest.raises(ValueError):
         create_element(ufl_element)
 
@@ -92,6 +101,12 @@ def test_quadrilateral_variant_spectral_q():
 
 def test_quadrilateral_variant_spectral_dq():
     element = create_element(ufl.FiniteElement('DQ', ufl.quadrilateral, 1, variant='spectral'))
+    assert isinstance(element.element.A, FIAT.GaussLegendre)
+    assert isinstance(element.element.B, FIAT.GaussLegendre)
+
+
+def test_quadrilateral_variant_spectral_dq_l2():
+    element = create_element(ufl.FiniteElement('DQ L2', ufl.quadrilateral, 1, variant='spectral'))
     assert isinstance(element.element.A, FIAT.GaussLegendre)
     assert isinstance(element.element.B, FIAT.GaussLegendre)
 
