@@ -450,8 +450,7 @@ class LocalLoopyKernelBuilder(object):
                 print("!!!!!!",temps[tensor])
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].name,
                                            shape=tensor.shape,
-                                           dtype=SCALAR_TYPE,
-                                           address_space=loopy.auto))
+                                           dtype=SCALAR_TYPE))##should this be global arg
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
@@ -527,6 +526,7 @@ class LocalLoopyKernelBuilder(object):
         #transformer = TransformerToLoopy()
         include_dirs = []
         templated_subkernels = []
+
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
         subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
@@ -589,14 +589,16 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("For now only non mixed supported")
                 else:
                     indices = inner.indices
+
                     print("INDICES:",indices)
                     #@TODO: is this right???
                     #mapping from all indices to subindices
                     #what are swept indices?
                     print(self.gem_loopy_dict[temp].shape)
-                    output = SubArrayRef((create_index(3,namer=map("i{}".format, itertools.count()),
+                    idx1,idx2=create_index(3,namer=map("i{}".format, itertools.count()),
                                    context=self),create_index(3,namer=map("i{}".format, itertools.count()),
-                                   context=self)), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
+                                   context=self)
+                    output = SubArrayRef((idx1,idx2), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), (idx1,idx2)))
 
                 print("SUB:",output)
                 #kernel data is equuivalent to the args in the coffee kernel setup
