@@ -618,7 +618,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     #get slate into loopy
     assignments=list(zip(ret_vars,traversed_gem_expr_dag))
-    impero_c = impero_utils.compile_traversedgem(assignments, (), remove_zeros=False)
+    impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
     #print("Slate IMPERO:",impero_c)   
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
