@@ -112,17 +112,26 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
+        if Vc.extruded:
+            ratio = int((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1))
+        else:
+            ratio = 1
+
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cell_set
-        arity = Vf.finat_element.space_dimension() * ncell
+        arity = Vf.finat_element.space_dimension() * ncell * ratio
         coarse_to_fine_nodes = numpy.full((iterset.total_size, arity), -1, dtype=IntType)
-        values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
+        values = numpy.zeros((iterset.size, 0), dtype=IntType)
+        for vrefinement in range(ratio):
+            tmp = (Vf.cell_node_map().values[coarse_to_fine, :] + vrefinement).reshape(iterset.size, arity//ratio)
+            values = numpy.hstack((values, tmp))
+        values = values.reshape(iterset.size, arity)
 
         coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
         offset = Vf.offset
         if offset is not None:
-            offset = numpy.tile(offset, ncell)
+            offset = numpy.tile(offset, ncell * ratio)
         return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
                                              arity=arity, values=coarse_to_fine_nodes,
                                              offset=offset))
