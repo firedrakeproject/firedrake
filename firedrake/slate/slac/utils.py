@@ -177,8 +177,7 @@ class SlateTranslator():
             #other tensor types are translated into gem nodes
             else:
                 gem_expression_dag.append(self.slate_to_gem(tensor))
-
-        return gem_expression_dag   
+        return list(gem_expression_dag)
 
     
     @classsingledispatch
@@ -194,6 +193,9 @@ class SlateTranslator():
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
         B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
         
+
+        #@TODO: No need for all this, because extents have to be set
+
         if not tensor.shape:
             pass
             #@TODO: DO WE NEVER HAVE THIS CASE?
@@ -246,16 +248,17 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self,tensor):
         A, B = tensor.operands
-        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
+        A_indices=tuple(Index() for i in range(len(A.shape)))
+        B_indices=tuple(Index() for i in range(len(B.shape)))
         print(tuple(A_indices[i].extent for i in range(len(B.shapes))))
         print(tuple(B_indices[i].extent for i in range(len(B.shapes))))
+        print("aaa",A_indices)
         _A=Indexed(self.tensor_to_variable[A],A_indices)
         _B=Indexed(self.tensor_to_variable[B],A_indices)
-        print(self.tensor_to_variable[A].shape)
+        print("ttt:",self.tensor_to_variable[A].shape)
 
         ret=ComponentTensor(Sum(_A,_B),A_indices)
-        print("ret multiiindex: ",ret.multiindex)
+        print("A multiiindex: ",_A.multiindex)
         print("ret freeindex: ",ret.free_indices)
         print("ret: ",ret)
         return ret
