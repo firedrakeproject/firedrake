@@ -6,14 +6,14 @@ from firedrake import *
 @pytest.fixture(params=["interval", "triangle",
                         "triangle-nonnested",  # no parameterized fixtures, UGH!
                         "quadrilateral", "tetrahedron",
-                        "prism", "hexahedron"], scope="module")
+                        "prism", "hexahedron", "hexahedron-variable"], scope="module")
 def cell(request):
     return request.param
 
 
 @pytest.fixture(params=["CG", "DG"])
 def space(request, cell):
-    if cell in {"quadrilateral", "prism", "hexahedron"} and request.param == "DG":
+    if cell in {"quadrilateral", "prism", "hexahedron", "hexahedron-variable"} and request.param == "DG":
         return "DQ"
     else:
         return request.param
@@ -31,7 +31,7 @@ def hierarchy(cell, refinements_per_level):
         return MeshHierarchy(mesh, 2)
     elif cell in {"triangle", "triangle-nonnested", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
-    elif cell in {"quadrilateral", "hexahedron"}:
+    elif cell in {"quadrilateral", "hexahedron", "hexahedron-variable"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=True)
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
@@ -41,6 +41,8 @@ def hierarchy(cell, refinements_per_level):
 
     if cell in {"prism", "hexahedron"}:
         hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=[3]*nref, height=1)
+    if cell in {"hexahedron-variable"}:    
+        hierarchy = ExtrudedMeshHierarchy(hierarchy, base_layer=3, height=1)
     if cell == "triangle-nonnested":
         c2f = {}
         for k, v in hierarchy.coarse_to_fine_cells.items():
