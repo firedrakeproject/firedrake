@@ -69,7 +69,7 @@ def test_periodic_parallel(shapify, direction, space):
     mesh = UnitSquareMesh(3, 4,
                           distribution_parameters=distribution_parameters)
     mesh_p = PeriodicUnitSquareMesh(3, 4, direction=direction,
-                          distribution_parameters=distribution_parameters)
+                                    distribution_parameters=distribution_parameters)
 
     # Mark the second mesh as having a compatible parallel layout with the first...
     mesh_p._parallel_compatible = {weakref.ref(mesh)}
