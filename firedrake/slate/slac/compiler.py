@@ -45,7 +45,9 @@ import loopy
 import gem
 import pymbolic.primitives as pym
 from tsfc.loopy import generate as generate_loopy
+from tsfc.loopy import merge as merge_loopy
 __all__ = ['compile_expression']
+
 
 
 try:
@@ -126,146 +128,20 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                  tsfc_parameters=tsfc_parameters)
 
     
-    #stage1:....                      
+    #stage1: slate to gem....                      
     gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
     
     print("Slate to gem expr:",gem_expr)
    
     #stage 2: gem to loopy...
-    loopy_expr=gem_to_loopy(gem_expr,builder)
+    kinfo=gem_to_loopy(gem_expr,builder)
 
 
     print("program abort")
     sys.exit()
 
-    ############################
-    #####@TODO:TERMINAL TEMPORARIES###
-    ############################
-    #instructions = []
-    #for gem_temp in builder.temps:
-    #    #add initialisations of the temporariers in instructions
-    #    pass
-
-    ############################
-    #####@TODO:ASSEMBLY CALLS#########
-    ############################
-    #for expr in builder.subkernels:
-    #    instructions.extend(expr)
-
-    ############################
-    #####@TODO:COEFF TEMPS############
-    ############################
-    # Create coefficient temporaries if necessary
-    #if builder.coefficient_vecs:
-    #    #add initialisations of the coeffs in instructions
-    #    pass
-
-    ############################
-    #####@TODO:ACTUAL CODE############
-    ############################
-    #for expr in loopy_expr:
-    #    instructions.extend(expr)
-
-    ############################
-    #####KERNEL CONSTRUCTION####
-    ############################
-
-    #change the everywhere in the followinf the context to the builder.variables
-
-    #build macros kernels
-    #slate_expr = builder.expression
-    #if slate_expr.rank == 0:
-    #    # Scalars are treated as 1x1 MatrixBase objects
-    #    shape = (1,)
-    #else:
-    #    shape = slate_expr.shape
-
-    ####
-    ## Generate arguments for the macro kernel
-    ###
-
-    #@TODO: change all the context stuff here to accessing the local loopy kernel builder instead
-    #for c, name in kernel_data:
-    #    extent = index_extent(c)
-    #    dtype = c.dat.dtype
-    #    arguments.append(loopy.GlobalArg(name,
-    #                                     shape=(extent, ),
-    #                                     dtype=dtype))
-
-    # Facet information
-    #if builder.needs_cell_facets:
-    #    # Compute the number of local facets for preallocation of the
-    #    # local facet array
-    #    if mesh.cell_set._extruded:
-    #        num_facets = mesh._base_mesh.ufl_cell().num_facets()
-    #    else:
-    #        num_facets = mesh.ufl_cell().num_facets()
-
-        # Cell-facet map needs to be provided as a global kernel argument
-    #        arguments.append(loopy.GlobalArg(context.cell_facets_arg,
-    #
-    #                                     shape=(num_facets, 2),
-    #                                     dtype=np.int8))
-
-    #    temporary_variables["facet_array"] = loopy.TemporaryVariable(context.local_facet_array_arg,
-    #                                                                 shape=(num_facets, ),
-    #                                                                 dtype=np.uint32,
-    #                                                                 address_space=loopy.AddressSpace.LOCAL,
-    #                                                                 read_only=True,
-    #                                                                 initializer=np.arange(num_facets, dtype=np.uint32))
-
-    # Needed for evaluating facet integrals on extruded meshes
-    #if context.needs_mesh_layers:
-    #    arguments.append(loopy.GlobalArg(context.layer_arg,
-    #                                     shape=(),
-    #                                     dtype=np.int32))
-
-    # Cell size information
-    #if context.needs_cell_sizes:
-    #    cell_sizes = context.mesh.cell_sizes
-    #    name = context.cell_size_arg
-    #    extent = index_extent(cell_sizes)
-    #   arguments.append(loopy.GlobalArg(name,
-
-
-
-    # Macro kernel
-    #knl = loopy.make_kernel(domains,
-    #                        instructions,
-    #                        kernel_data=arguments,
-    #                       temporary_variables=temporary_variables,
-    #                        target=loopy.CTarget(),
-    #                        name="slate_kernel",
-    #                        lang_version=(2018, 2),
-    #                        # This is safe to do, since we issue instructions using
-    #                        # topologically sorted Slate nodes
-    #                        seq_dependencies=True)
-
-    #for k in builder.callable_kernels:
-    #    knl = loopy.register_callable_kernel(knl, k)
-
-    # Construct the final ast
-    # Now we wrap up the kernel ast as a PyOP2 kernel and include the
-    # Eigen header files
-    # WORKAROUND: Generate code directly from the loopy kernel here,
-    # then attach code as a c-string to the op2kernel
-    ##code = loopy.generate_code_v2(knl).device_code()
-    # import ipdb; ipdb.set_trace()
-    ##code.replace('void slate_kernel', 'static void slate_kernel')
-    ##loopykernel = op2.Kernel(code, knl.name)
-
-    ##kinfo = KernelInfo(kernel=loopykernel,
-    ##                   integral_type="cell",
-    ##                  oriented=context.needs_cell_orientations,
-    ##                  subdomain_id="otherwise",
-    ##                  domain_number=0,
-    ##                  coefficient_map=tuple(range(len(slate_expr.coefficients()))),
-    ##                  needs_cell_facets=context.needs_cell_facets,
-    ##                 pass_layer_arg=context.needs_mesh_layers,
-    ##                 needs_cell_sizes=context.needs_cell_sizes)
-
     # Cache the resulting kernel
-    ##idx = tuple([0]*slate_expr.rank)
+    idx = tuple([0]*slate_expr.rank)
     ##logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
@@ -710,29 +586,49 @@ def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
 #STAGE 2
 #converts the gem expression dag into imperoc
 def gem_to_loopy(traversed_gem_expr_dag,builder):
-    print(traversed_gem_expr_dag)
+    args=[]    
+    print("gem exprs:",traversed_gem_expr_dag)
 
-    return_variable1=gem.Variable("output",(3,3))#????
-    return_variable2=gem.Variable("var",(3,3))#????
+    
+    #creation of return variables for slate loopy
+    return_variable1=gem.Variable("output",builder.expression.shape)#????
+    arg_variable1=loopy.GlobalArg("output",
+                                           shape=builder.expression.shape,
+                                           dtype="double")
+    args.append(arg_variable1)
 
-    print("not peprocessed",traversed_gem_expr_dag)
-    traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag)
-
-    print("peprocessed",traversed_gem_expr_dag)
-
-    assignments=list(zip([return_variable1,return_variable2],traversed_gem_expr_dag))
-    print(assignments)
-    print("Builder indices:", builder.indices)
-    impero_c = impero_utils.compile_traversedgem(assignments, builder.indices, remove_zeros=False)
-    print("IMPERO:",impero_c)
-
-    args=[]
+    #creation of variable for assigning the temporaries from tsfc into here                    
+    #ret_indices= tuple(gem.Index(extent=s) for s in builder.expression.shape)
+    #return_variable2=gem.Indexed(return_variable1,ret_indices)
+    #arg_variable2=loopy.TemporaryVariable("T0",
+    #                                       shape=builder.expression.shape,
+    #                                       dtype="double")
+    #args.append(arg_variable2)
+    ret_vars=[return_variable1]                
+    
+    #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
         args.append(builder.gem_loopy_dict[v])
-    #args=[print("hello",g) for g in builder.temps]
-    print(args)
+
+    #preprocessing of gem to for removing component tensors
+    #print("not peprocessed",traversed_gem_expr_dag)
+    #traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
+    #print("preprocessed",traversed_gem_expr_dag)
+    #print(traversed_gem_expr_dag[0])
+
+    #get slate into loopy
+    assignments=list(zip(ret_vars,traversed_gem_expr_dag))
+    impero_c = impero_utils.compile_traversedgem(assignments, (), remove_zeros=False)
+    #print("Slate IMPERO:",impero_c)   
     precision=6
-    self.kernel.ast = generate_loopy(impero_c, args, precision,"double","test")
+    loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
+    
+    #merge the slate loopy with the tsfc loopy
+    print(loopy_outer)
+    print(builder.templated_subkernels[0])
+    test= merge_loopy(loopy_outer,builder.templated_subkernels[0])
+    #print(test)
+
 
 
 def slate_to_cpp(expr, temps, prec=None):
