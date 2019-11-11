@@ -130,7 +130,7 @@ def test_triplot_3d():
     axes = fig.add_subplot(2, 2, 4, projection='3d')
     mesh = UnitCubeMesh(3, 3, 3)
     colors = ['red', 'green', 'blue', 'orange', 'yellow', 'purple']
-    boundary_kw={'facecolors': colors, 'alpha': 0.85, 'linewidths': 0.1}
+    boundary_kw = {'facecolors': colors, 'alpha': 0.85, 'linewidths': 0.1}
     collections = triplot(mesh, axes=axes, boundary_kw=boundary_kw)
     assert collections
     legend = axes.legend(loc='upper right')
