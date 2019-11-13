@@ -2,8 +2,8 @@
 from firedrake import *
 
 #FEM problem (Helmholtz equation)
-mesh = UnitSquareMesh(10, 10)
-V = FunctionSpace(mesh, "CG", 2)
+mesh = UnitSquareMesh(5,5)
+V = FunctionSpace(mesh, "CG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
 f = Function(V)
@@ -14,8 +14,8 @@ L = f * v * dx
 
 _A = Tensor(a)
 _F = Tensor(L)
-#assemble(_A)
-assemble(_A+_A)
+assemble(_A)
+#assemble(_A+_A)
 #test=assemble(_A*_F)
 #test=assemble(_A*_A)
 #test=assemble(-_A)
