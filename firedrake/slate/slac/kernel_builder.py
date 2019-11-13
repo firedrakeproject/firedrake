@@ -446,9 +446,8 @@ class LocalLoopyKernelBuilder(object):
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
 
-                temps.setdefault(tensor, gem.Variable("T%d" % len(temps),tensor.shape))
-                print("!!!!!!",temps[tensor])
-                gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].name,
+                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),(gem.Index(extent=3),gem.Index(extent=3))))
+                gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE))##should this be global arg
 
@@ -694,7 +693,8 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-        print(assembly_calls)
+        self.integral_type=integral_type
+        self.oriented =kinfo.oriented
 
 
 def create_index(extent, namer, context):

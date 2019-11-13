@@ -23,7 +23,7 @@ import os.path
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, SlateTranslator
+from firedrake.slate.slac.utils import topological_sort, SlateTranslator,merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -45,7 +45,6 @@ import loopy
 import gem
 import pymbolic.primitives as pym
 from tsfc.loopy import generate as generate_loopy
-from tsfc.loopy import merge as merge_loopy
 __all__ = ['compile_expression']
 
 
@@ -78,9 +77,9 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        if self._initialized:
-            return
-
+        print("SLATE KERNEL")
+        #if self._initialized:
+        #    return
         #@TODO: introduce coffe option here
         self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
@@ -96,6 +95,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    print("compile expression....")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
@@ -105,6 +105,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if tsfc_parameters is None:
         tsfc_parameters = parameters["form_compiler"]
     key = str(sorted(tsfc_parameters.items()))
+    print(cache)
     try:
         return cache[key]
     except KeyError:
@@ -131,22 +132,41 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     #stage1: slate to gem....                      
     gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
     
-    print("Slate to gem expr:",gem_expr)
+    print("SLATE GEM EXPR:",gem_expr)
    
     #stage 2: gem to loopy...
-    kinfo=gem_to_loopy(gem_expr,builder)
+    knl=gem_to_loopy(gem_expr,builder)
+
+    print("GLUED LOOPY KERNEL")
+    print(knl)
+
+     # WORKAROUND: Generate code directly from the loopy kernel here,
+    # then attach code as a c-string to the op2kernel
+    code = loopy.generate_code_v2(knl).device_code()
+    # import ipdb; ipdb.set_trace()
+    code.replace('void slate_kernel', 'static void slate_kernel')
+    loopykernel = op2.Kernel(code, knl.name)
 
 
-    print("program abort")
-    sys.exit()
+    kinfo = KernelInfo(kernel=loopykernel,
+                       integral_type=builder.integral_type,
+                       oriented=builder.oriented,
+                       subdomain_id="otherwise",
+                       domain_number=0,
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),#@TODO: is this right????
+                       needs_cell_facets=builder.needs_cell_facets,
+                       pass_layer_arg=builder.needs_mesh_layers,
+                       needs_cell_sizes=builder.needs_cell_sizes)
+    print("KINFO",kinfo)
 
+   
     # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
-    ##logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
-
 def generate_kernel(slate_expr, tsfc_parameters=None):
+
     cpu_time = time.time()
     # TODO: Get PyOP2 to write into mixed dats
     if slate_expr.is_mixed:
@@ -591,8 +611,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     
     #creation of return variables for slate loopy
-    return_variable1=gem.Variable("output",builder.expression.shape)#????
-    arg_variable1=loopy.GlobalArg("output",
+    arg_variable1=loopy.GlobalArg("T1",
                                            shape=builder.expression.shape,
                                            dtype="double")
     args.append(arg_variable1)
@@ -604,11 +623,14 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #                                       shape=builder.expression.shape,
     #                                       dtype="double")
     #args.append(arg_variable2)
-    ret_vars=[return_variable1]                
+    #ret_vars=[return_variable1]                
     
+    ret_vars=[]
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
         args.append(builder.gem_loopy_dict[v])
+        return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
+        ret_vars.append(return_variable1)
 
     #preprocessing of gem to for removing component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
@@ -626,8 +648,9 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #merge the slate loopy with the tsfc loopy
     print(loopy_outer)
     print(builder.templated_subkernels[0])
-    test= merge_loopy(loopy_outer,builder.templated_subkernels[0])
-    #print(test)
+    knl= merge_loopy(loopy_outer,builder.templated_subkernels[0])
+    
+    return knl
 
 
 
