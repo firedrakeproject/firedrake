@@ -493,12 +493,7 @@ else:
 if options["mpiexec"] is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 
-if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(petsc_options))
-else:
-    all_opts = petsc_options | set(os.environ["PETSC_CONFIGURE_OPTIONS"].split())
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(all_opts))
-
+petsc_options |= set(os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split())
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -761,13 +756,9 @@ def get_petsc_dir():
             raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
-        try:
-            petsc_dir = check_output(python
-                                     + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
+        petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
+        petsc_arch = "default"
 
-            petsc_arch = ""
-        except subprocess.CalledProcessError:
-            raise InstallError("Unable to find installed PETSc")
     return petsc_dir, petsc_arch
 
 
@@ -813,7 +804,12 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
-    run_pip_install(["--ignore-installed", "petsc/"])
+    assert not args.honour_petsc_dir # Belt and braces security before we start clobbering things.
+    with directory("petsc"):
+        petsc_dir, petsc_arch = get_petsc_dir()
+        check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
+        check_call(["./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
 
 
 def build_and_install_h5py():
