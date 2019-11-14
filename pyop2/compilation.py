@@ -218,7 +218,7 @@ class Compiler(object):
                 # Bug also on skylake with the vectoriser in this
                 # combination (disappears without
                 # -fno-tree-loop-vectorize!)
-                return ["-fno-tree-loop-vectorize", "-mnoavx512f"]
+                return ["-fno-tree-loop-vectorize", "-mno-avx512f"]
         return []
 
     @collective
