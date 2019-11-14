@@ -16,6 +16,8 @@ from functools import singledispatch,update_wrapper
 import firedrake
 import firedrake.slate.slate as sl
 import loopy as lp
+from loopy.transform.callable import _inline_call_instruction as inline
+from loopy.kernel.instruction import CallInstruction
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -408,12 +410,12 @@ def traverse_dags(exprs):
                 seen.add(operand)
                 container.append(operand)
 
-def merge_loopy(loopy_outer,loopy_inner):
+def my_merge_loopy(loopy_outer,loopy_inner):
 
     print("MERGE ROUTINE:")
     #create kitting code
-    #kitting_code=lp.make_kernel("{ [v,w]: 0<=v<3 and 0<=w<3}","T0[v,w] =A[v,w] {id=insn}")
-    #kitting_code_knl=kitting_code.callables_table.resolved_functions["loopy_kernel"].subkernel
+    kitting_code=lp.make_kernel("{ [v,w]: 0<=v<3 and 0<=w<3}","T0[v,w] =A[v,w] {id=insn}")
+    kitting_code_knl=kitting_code.callables_table.resolved_functions["loopy_kernel"].subkernel
 
     #kitting arguments
     data = list(loopy_outer.args)#outer can only have args
@@ -426,8 +428,8 @@ def merge_loopy(loopy_outer,loopy_inner):
     #kitting domains
     domains_inner=loopy_inner.domains
     domains_outer= loopy_outer.domains
-    domains=loopy_inner.domains+loopy_outer.domains
-    #domains=loopy_inner.domains+kitting_code_knl.domains+loopy_outer.domains
+    #domains=loopy_inner.domains+loopy_outer.domains
+    domains=loopy_inner.domains+kitting_code_knl.domains+loopy_outer.domains
     print("DOMAIN:",domains)
 
     #kitting the instructions
@@ -437,7 +439,7 @@ def merge_loopy(loopy_outer,loopy_inner):
     T=loopy_outer.temporary_variables["T0"]
     #kitting_code_instr = lp.fix_parameters(kittigng_code_instr ,n=loopy_inner.args[0].shape[0])
     #lp.Assignment(p.Subscript(p.Variable(loopy_outer.temporary_variables["T0"].name), p.Variable(tt)),p.Subscript(p.Variable(loopy_inner.args[0].name), p.Variable(ss)))    
-    #instructions.extend(kitting_code_knl.instructions)   
+    instructions.extend(kitting_code_knl.instructions)   
     instructions.append(loopy_outer.instructions[0])
     print(instructions)
 
@@ -462,3 +464,12 @@ def merge_loopy(loopy_outer,loopy_inner):
     #knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
 
     return knl
+
+
+def merge_loopy(loopy_outer,loopy_inner):
+    repl=loopy_outer.instructions[0]
+    print(repl)
+    assert isinstance(repl, CallInstruction)
+    inline(loopy_outer, loopy_inner,repl)
+    import sys
+    sys.exit()

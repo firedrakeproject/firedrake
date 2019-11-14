@@ -447,7 +447,7 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
 
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),(gem.Index(extent=3),gem.Index(extent=3))))
-                gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
+                gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(temps[tensor].children[0].name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE))##should this be global arg
 

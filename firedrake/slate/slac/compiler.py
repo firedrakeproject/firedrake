@@ -78,6 +78,7 @@ class SlateKernel(TSFCKernel):
 
     def __init__(self, expr, tsfc_parameters):
         print("SLATE KERNEL")
+        #TODO: comment in that initalised slate kernels are considered
         #if self._initialized:
         #    return
         #@TODO: introduce coffe option here
@@ -135,19 +136,20 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     print("SLATE GEM EXPR:",gem_expr)
    
     #stage 2: gem to loopy...
-    knl=gem_to_loopy(gem_expr,builder)
+    knl_outer=gem_to_loopy(gem_expr,builder)
 
-    print("GLUED LOOPY KERNEL")
-    print(knl)
+
+    #stage 3: join loopys...
+    knl_inner=builder.templated_subkernels[0]
+    #print("GLUED LOOPY KERNEL")
+    #print(knl)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
-    code = loopy.generate_code_v2(knl).device_code()
+    code = loopy.generate_code_v2(knl_outer).device_code()
     # import ipdb; ipdb.set_trace()
     code.replace('void slate_kernel', 'static void slate_kernel')
-    loopykernel = op2.Kernel(code, knl.name)
-
-
+    loopykernel = op2.Kernel(code, knl_outer.name)
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type=builder.integral_type,
                        oriented=builder.oriented,
@@ -609,9 +611,13 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     args=[]    
     print("gem exprs:",traversed_gem_expr_dag)
 
-    
+    print("!!!!", builder.temps)
     #creation of return variables for slate loopy
     arg_variable1=loopy.GlobalArg("T1",
+                                           shape=builder.expression.shape,
+                                           dtype="double")
+
+    arg_variable2=loopy.TemporaryVariable("TO",
                                            shape=builder.expression.shape,
                                            dtype="double")
     args.append(arg_variable1)
@@ -624,13 +630,20 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #                                       dtype="double")
     #args.append(arg_variable2)
     #ret_vars=[return_variable1]                
+
+    #@TODO: we need CallInstruction somewhere!!!!
     
     ret_vars=[]
+    ret_vars.append(gem.Variable("T0",builder.expression.shape))
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
         args.append(builder.gem_loopy_dict[v])
         return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
         ret_vars.append(return_variable1)
+
+
+    print(args)
+    print("RETVARS",ret_vars)
 
     #preprocessing of gem to for removing component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
@@ -640,17 +653,19 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     #get slate into loopy
     assignments=list(zip(ret_vars,traversed_gem_expr_dag))
+
+    print("ASSIGNMENTS", assignments)
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
     #print("Slate IMPERO:",impero_c)   
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
     
     #merge the slate loopy with the tsfc loopy
-    print(loopy_outer)
-    print(builder.templated_subkernels[0])
+    #print(loopy_outer)
+    #print(builder.templated_subkernels[0])
     knl= merge_loopy(loopy_outer,builder.templated_subkernels[0])
     
-    return knl
+    return loopy_outer
 
 
 
