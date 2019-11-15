@@ -10,6 +10,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import argparse
 from collections import OrderedDict
 import atexit
+import json
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -410,6 +411,15 @@ else:
 
 if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
+
+# Configuration is now complete, so we dump the config file in order
+# to maximise the chance that firedrake-update can be run on a partial
+# install.
+config_location = os.path.join(firedrake_env, ".configuration.json")
+json_output = json.dumps(config)
+with open(config_location, "w") as f:
+    f.write(json_output)
+log.info("Configuration saved to " + config_location)
 
 
 # venv install
@@ -1393,15 +1403,6 @@ with environment(**compiler_env):
 
     if args.documentation_dependencies:
         install_documentation_dependencies()
-
-try:
-    import firedrake_configuration
-    firedrake_configuration.write_config(config)
-    log.info("Configuration saved to configuration.json")
-except Exception as e:
-    log.warning("Unable to save configuration to a JSON file")
-    log.warning("Error Message:")
-    log.warning(str(e))
 
 if mode == "update":
     try:
