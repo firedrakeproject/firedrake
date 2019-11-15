@@ -1366,8 +1366,11 @@ else:
                 log.info("Depending on your platform, PETSc may take an hour or more to build!")
                 install("petsc/")
             if args.rebuild or petsc_changed or petsc4py_changed:
-                clean("petsc4py/")
-                install("petsc4py/")
+                petsc_dir, petsc_arch = get_petsc_dir()
+                with environment(PETSC_DIR=petsc_dir,
+                                 PETSC_ARCH=petsc_arch):
+                    clean("petsc4py/")
+                    install("petsc4py/")
 
             # Always rebuild h5py.
             build_and_install_h5py()
