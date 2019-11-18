@@ -449,7 +449,8 @@ class LocalLoopyKernelBuilder(object):
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),(gem.Index(extent=3),gem.Index(extent=3))))
                 gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(temps[tensor].children[0].name,
                                            shape=tensor.shape,
-                                           dtype=SCALAR_TYPE))##should this be global arg
+                                           dtype=SCALAR_TYPE))
+                #cannot CallInstruction here, there is no kernel yet?
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):

@@ -611,16 +611,16 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     args=[]    
     print("gem exprs:",traversed_gem_expr_dag)
 
-    print("!!!!", builder.temps)
+    print("builder temps", builder.temps)
     #creation of return variables for slate loopy
-    arg_variable1=loopy.GlobalArg("T1",
-                                           shape=builder.expression.shape,
-                                           dtype="double")
+    #arg_variable1=loopy.GlobalArg("T1",
+    #                                       shape=builder.expression.shape,
+    #                                       dtype="double")
 
-    arg_variable2=loopy.TemporaryVariable("TO",
-                                           shape=builder.expression.shape,
-                                           dtype="double")
-    args.append(arg_variable1)
+    #arg_variable2=loopy.TemporaryVariable("TO",
+    #                                       shape=builder.expression.shape,
+    #                                       dtype="double")
+    #args.append(arg_variable1)
 
     #creation of variable for assigning the temporaries from tsfc into here                    
     #ret_indices= tuple(gem.Index(extent=s) for s in builder.expression.shape)
@@ -632,15 +632,17 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #ret_vars=[return_variable1]                
 
     #@TODO: we need CallInstruction somewhere!!!!
+    #A coming from TSFC
+    #then have Indexed(?) T0 as first ret variable and CallInstruction as instr
+    #I think there is no need of the kitting code instruction then?
+
     
     ret_vars=[]
-    ret_vars.append(gem.Variable("T0",builder.expression.shape))
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
-        args.append(builder.gem_loopy_dict[v])
-        return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
+        args.append(builder.gem_loopy_dict[v])#this should give call instr
+        return_variable1=gem.Indexed(gem.Variable("T0",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
         ret_vars.append(return_variable1)
-
 
     print(args)
     print("RETVARS",ret_vars)
@@ -660,8 +662,10 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
     
+
+
     #merge the slate loopy with the tsfc loopy
-    #print(loopy_outer)
+    print(loopy_outer)
     #print(builder.templated_subkernels[0])
     knl= merge_loopy(loopy_outer,builder.templated_subkernels[0])
     
