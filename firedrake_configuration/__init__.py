@@ -10,7 +10,7 @@ import os
 # Attempt to read configuration from file.
 try:
     try:
-        with open(os.path.join(firedrake_env,
+        with open(os.path.join(os.environ["VIRTUAL_ENV"],
                                ".configuration.json"), "r") as f:
             _config = json.load(f)
 
