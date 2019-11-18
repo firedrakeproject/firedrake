@@ -290,10 +290,17 @@ honoured.""",
 
     config = FiredrakeConfiguration(args)
 else:
-    import firedrake_configuration
-    config = firedrake_configuration.get_config()
-    if config is None:
-        raise InstallError("Failed to find existing Firedrake configuration")
+    # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
+    try:
+        with open(os.path.join(os.environ["VIRTUAL_ENV"],
+                               ".configuration.json"), "r") as f:
+            config = json.load(f)
+
+    except FileNotFoundError:
+        # Fall back to the old location.
+        with open(os.path.join(os.path.dirname(__file__),
+                               "configuration.json"), "r") as f:
+            config = json.load(f)
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -411,16 +418,6 @@ else:
 
 if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
-
-# Configuration is now complete, so we dump the config file in order
-# to maximise the chance that firedrake-update can be run on a partial
-# install.
-config_location = os.path.join(firedrake_env, ".configuration.json")
-json_output = json.dumps(config)
-with open(config_location, "w") as f:
-    f.write(json_output)
-log.info("Configuration saved to " + config_location)
-
 
 # venv install
 python = ["%s/bin/python" % firedrake_env]
@@ -1248,6 +1245,16 @@ compiler_env = dict(MPICC=cc,
                     F90=f90)
 os.chdir(firedrake_env)
 
+# Configuration is now complete, and we have a venv so we dump the
+# config file in order to maximise the chance that firedrake-update
+# can be run on a partial install.
+config_location = os.path.join(firedrake_env, ".configuration.json")
+json_output = json.dumps(config)
+with open(config_location, "w") as f:
+    f.write(json_output)
+log.info("Configuration saved to " + config_location)
+
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1256,6 +1263,10 @@ if mode == "install":
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+
+    # Build the update script as soon as possible so that installation
+    # recovery can be attempted if required.
+    build_update_script()
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1303,8 +1314,6 @@ if mode == "install":
             pass
         packages.remove("petsc4py")
         packages.remove("firedrake")
-
-        build_update_script()
 
 else:
     # Update mode
