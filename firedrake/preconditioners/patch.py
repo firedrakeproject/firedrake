@@ -160,6 +160,11 @@ def matrix_funptr(form, state):
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
+        if kinfo.needs_cell_sizes:
+            c = form.ufl_domain().cell_sizes
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
         for n in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
@@ -244,6 +249,11 @@ def residual_funptr(form, state):
 
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
+        if kinfo.needs_cell_sizes:
+            c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
@@ -464,6 +474,8 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
     coeffs = [form.ufl_domain().coordinates]
     if kernel.kinfo.oriented:
         coeffs.append(form.ufl_domain().cell_orientations())
+    if kernel.kinfo.needs_cell_sizes:
+        coeffs.append(form.ufl_domain().cell_sizes)
     for n in kernel.kinfo.coefficient_map:
         coeffs.append(form.coefficients()[n])
     if require_state:
