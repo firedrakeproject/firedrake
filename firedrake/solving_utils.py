@@ -63,6 +63,8 @@ class _SNESContext(object):
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
     :arg options_prefix: The options prefix of the SNES.
+    :arg transfer_manager: Object that can transfer functions between
+        levels, typically a :class:`~.TransferManager`
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -72,7 +74,8 @@ class _SNESContext(object):
     """
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
-                 options_prefix=None):
+                 options_prefix=None,
+                 transfer_manager=None):
         from firedrake.assemble import create_assembly_callable
         from firedrake.bcs import DirichletBC
         if pmat_type is None:
@@ -138,6 +141,20 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
+        self._transfer_manager = transfer_manager
+
+    @property
+    def transfer_manager(self):
+        if self._transfer_manager is None:
+            from firedrake import TransferManager
+            self._transfer_manager = TransferManager(use_averaging=True)
+        return self._transfer_manager
+
+    @transfer_manager.setter
+    def transfer_manager(self, manager):
+        if self._transfer_manager is not None:
+            raise ValueError("Must set transfer manager before first use.")
+        self._transfer_manager = manager
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -235,7 +252,8 @@ class _SNESContext(object):
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx))
+                                     appctx=self.appctx,
+                                     transfer_manager=self.transfer_manager))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
