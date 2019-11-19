@@ -1303,9 +1303,12 @@ if mode == "install":
             packages.remove("loopy")
 
         with pipargs("--no-deps"):
-            for p in packages:
-                install(p+"/")
-                sys.path.append(os.getcwd() + "/" + p)
+            petsc_dir, petsc_arch = get_petsc_dir()
+            with environment(PETSC_DIR=petsc_dir,
+                             PETSC_ARCH=petsc_arch):
+                for p in packages:
+                    install(p+"/")
+                    sys.path.append(os.getcwd() + "/" + p)
 
         # Work around easy-install.pth bug.
         try:
