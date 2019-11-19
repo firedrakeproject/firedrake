@@ -1007,7 +1007,7 @@ def build_and_install_slepc():
 
 def build_and_install_vtk():
     import glob
-    # 1. Check for non-x86_64 architecture
+    # Check for non-x86_64 architecture
     if platform.machine() != "x86_64":
         log.info("This is not an x86_64 architecture. Building VTK from source.")
 
@@ -1016,67 +1016,68 @@ def build_and_install_vtk():
         os.makedirs("vtk/build")
         os.makedirs("vtk/package/vtk")
         
-        # 2. Download VTK source and switch to 8.2.0 tag
-        os.chdir("vtk/src")
-        url = "git+https://gitlab.kitware.com/vtk/vtk.git"
-        git_clone(url)
-        os.chdir("vtk")
-        check_call(["git", "checkout", "v8.2.0"])
+        # Download VTK source and switch to 8.2.0 tag
+        with directory("vtk/src"):
+            url = "git+https://gitlab.kitware.com/vtk/vtk.git"
+            git_clone(url)
+        with directory("vtk/src/vtk"):
+            check_call(["git", "checkout", "v8.2.0"])
         
-        # 3. Create makefile using cmake
-        os.chdir("../../build")
+        # Create makefile using cmake
+        with directory("vtk/build"):
 
-        # Initial configure
-        cmake_args = []
-        check_call(["cmake", "../src/vtk"])
+            # Initial configure
+            cmake_args = []
+            check_call(["cmake", "../src/vtk"])
 
-        # If we're on a Cray use gcc and g++ instead of cc and CC
-        try:
-            # Is this a Cray?
-            os.stat("/opt/cray")
-            log.info("This is a Cray system. Replacing cc/CC with gcc/g++")
-            # Set full path to gcc and g++ 
-            gcc_with_path=subprocess.run(["which", "gcc"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-            gxx_with_path=subprocess.run(["which", "g++"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-            cmake_args.extend(["-DCMAKE_C_COMPILER:FILEPATH=" + gcc_with_path, "-DCMAKE_CXX_COMPILER:FILEPATH=" + gxx_with_path])
+            # If we're on a Cray use gcc and g++ instead of cc and CC
+            try:
+                # Is this a Cray?
+                os.stat("/opt/cray")
+                log.info("This is a Cray system. Replacing cc/CC with gcc/g++")
+                # Set full path to gcc and g++ 
+                gcc_with_path=subprocess.run(["which", "gcc"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+                gxx_with_path=subprocess.run(["which", "g++"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+                cmake_args.extend(["-DCMAKE_C_COMPILER:FILEPATH=" + gcc_with_path,
+                                   "-DCMAKE_CXX_COMPILER:FILEPATH=" + gxx_with_path])
+                check_call(["cmake"] + cmake_args + ["../src/vtk"])
+                check_call(["cmake"] + cmake_args + ["../src/vtk"])
+            except OSError:
+                pass
+        
+            # Always include these arguments
+            vtk_python_version=platform.python_version_tuple()[0]+'.'+platform.python_version_tuple()[1]
+            python_with_path=subprocess.run(["which", "python3"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+            cmake_args.extend(["-DVTK_WRAP_PYTHON:BOOL=ON", "-DVTK_PYTHON_VERSION:STRING="+vtk_python_version,
+                               "-DPYTHON_EXECUTABLE:FILEPATH="+python_with_path])
             check_call(["cmake"] + cmake_args + ["../src/vtk"])
+            cmake_args.extend(["-DVTK_ENABLE_KITS:BOOL=ON"])
             check_call(["cmake"] + cmake_args + ["../src/vtk"])
-        except OSError:
-            pass
-        
-        # Always include these arguments
-        vtk_python_version=platform.python_version_tuple()[0]+'.'+platform.python_version_tuple()[1]
-        python_with_path=subprocess.run(["which", "python3"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-        cmake_args.extend(["-DVTK_WRAP_PYTHON:BOOL=ON", "-DVTK_PYTHON_VERSION:STRING="+vtk_python_version, "-DPYTHON_EXECUTABLE:FILEPATH="+python_with_path])
-        check_call(["cmake"] + cmake_args + ["../src/vtk"])
-        cmake_args.extend(["-DVTK_ENABLE_KITS:BOOL=ON"])
-        check_call(["cmake"] + cmake_args + ["../src/vtk"])
-        
-        # Disable neon optimisations if this is ARM64
-        machine_type=subprocess.run(["uname", "-m"], stdout=subprocess.PIPE, universal_newlines=True)
-        if machine_type.stdout.rstrip() == "aarch64":
-            log.info("This is an ARM64 machine. Disabling NEON optimisations")
-            cmake_args.extend(["-DCMAKE_C_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'",
-                           "-DCMAKE_CXX_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'" ])
-            check_call(["cmake"] + cmake_args + ["../src/vtk"])
-        
-        # 4. Build VTK
-        check_call(["make", "-j", "16"])
 
-        # 5. Package VTK as a wheel
-        # Update setuptools and wheel
-        check_call(["pip3", "install", "--user", "--upgrade", "setuptools", "wheel"])
-        # Write a minimal README and setup.py
-        os.chdir("../package")
+            # Disable neon optimisations if this is ARM64
+            machine_type=subprocess.run(["uname", "-m"], stdout=subprocess.PIPE, universal_newlines=True)
+            if machine_type.stdout.rstrip() == "aarch64":
+                log.info("This is an ARM64 machine. Disabling NEON optimisations")
+                cmake_args.extend(["-DCMAKE_C_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'",
+                                   "-DCMAKE_CXX_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'" ])
+                check_call(["cmake"] + cmake_args + ["../src/vtk"])
 
-        with open('README', 'w') as f:
-            f.write("""
+            # Build VTK
+            check_call(["make", "-j", "16"])
+                
+            # Package VTK as a wheel
+        with directory("vtk/package"):
+            # Update setuptools and wheel
+            check_call(["pip3", "install", "--user", "--upgrade", "setuptools", "wheel"])
+            
+            # Write a minimal README and setup.py
+            with open('README', 'w') as f:
+                f.write("""
 VTK install for firedrake
 """
-)
-        
-        with open('setup.py', 'w') as f:
-            f.write("""
+)        
+            with open('setup.py', 'w') as f:
+                f.write("""
 import setuptools
 
 setuptools.setup(
@@ -1096,14 +1097,15 @@ setuptools.setup(
 )
 """
 )
-        # Collate files for wheel
-        check_call(["cp", "-r"] + glob.glob("../build/lib/*") + ["vtk"])
-        check_call(["cp", "-r"] + glob.glob("../build/lib/python"+vtk_python_version+"/site-packages/vtkmodules/*") + ["vtk"])
-        # Generate the wheel
-        check_call(["python3", "setup.py", "sdist", "bdist_wheel"])
+            # Collate files for wheel
+            check_call(["cp", "-r"] + glob.glob("../build/lib/*") + ["vtk"])
+            check_call(["cp", "-r"] + glob.glob("../build/lib/python"+vtk_python_version+"/site-packages/vtkmodules/*") + ["vtk"])
+
+            # Generate the wheel
+            check_call(["python3", "setup.py", "sdist", "bdist_wheel"])
         
-        # 6. Install the VTK wheel 
-        check_call(["pip3", "install", "dist/VTK-8.2.0-py3-none-any.whl"])
+            # Install the VTK wheel 
+            check_call(["pip3", "install", "dist/VTK-8.2.0-py3-none-any.whl"])
 
 
 def install_documentation_dependencies():
