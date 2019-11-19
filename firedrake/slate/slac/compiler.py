@@ -634,13 +634,14 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #@TODO: we need CallInstruction somewhere!!!!
     #A coming from TSFC
     #then have Indexed(?) T0 as first ret variable and CallInstruction as instr
-    #I think there is no need of the kitting code instruction then?
+    #Need kitting code instruction for callinstruction.
 
     
     ret_vars=[]
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
-        args.append(builder.gem_loopy_dict[v])#this should give call instr
+        arg=SubArrayRef(indices, pym.Subscript(pym.Variable(builder.temp[v], indices))
+        args.append(lp.CallInstruction(arg)
         return_variable1=gem.Indexed(gem.Variable("T0",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
         ret_vars.append(return_variable1)
 

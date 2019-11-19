@@ -467,9 +467,20 @@ def my_merge_loopy(loopy_outer,loopy_inner):
 
 
 def merge_loopy(loopy_outer,loopy_inner):
+    #@TODO: we need an instruction in outer kernel to call inner kernel
     repl=loopy_outer.instructions[0]
     print(repl)
     assert isinstance(repl, CallInstruction)
-    inline(loopy_outer, loopy_inner,repl)
+
+    from loopy.program import make_program
+    prg=make_program(loopy_outer)
+    knl=loopy_inner._code
+
+    from loopy.callable import inline_callable_kernel
+    inlined_prg=inline_callable_kernel(prg,knl.name)
+
+
     import sys
     sys.exit()
+
+    return inlined_prg
