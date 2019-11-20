@@ -1070,7 +1070,7 @@ def build_and_install_vtk():
             # Update setuptools and wheel
             check_call(["pip3", "install", "--user", "--upgrade", "setuptools", "wheel"])
             
-            # Write a minimal README and setup.py
+            # Write a minimal README, setup.py and MANIFEST.in
             with open('README', 'w') as f:
                 f.write("""
 VTK install for firedrake
@@ -1094,15 +1094,23 @@ setuptools.setup(
         "Operating System :: ARM64",
     ],
     python_requires='>=3.0',
+    include_package_data=True,
 )
 """
 )
+            with open('MANIFEST.in', 'w') as f:
+                f.write("""
+include vtk/*.so*
+"""
+)
+
             # Collate files for wheel
-            check_call(["cp", "-r"] + glob.glob("../build/lib/*") + ["vtk"])
-            check_call(["cp", "-r"] + glob.glob("../build/lib/python"+vtk_python_version+"/site-packages/vtkmodules/*") + ["vtk"])
+            check_call(["cp"] + glob.glob("../build/lib/*.so*") + ["vtk"])
+            check_call(["cp"] + glob.glob("../build/lib/python"+vtk_python_version+"/site-packages/vtkmodules/*.so*") + ["vtk"])
+            check_call(["cp"] + glob.glob("../build/lib/python"+vtk_python_version+"/site-packages/vtkmodules/*.py") + ["vtk"])
 
             # Generate the wheel
-            check_call(["python3", "setup.py", "sdist", "bdist_wheel"])
+            check_call(["python3", "setup.py", "bdist_wheel"])
         
             # Install the VTK wheel 
             check_call(["pip3", "install", "dist/VTK-8.2.0-py3-none-any.whl"])
@@ -1376,7 +1384,7 @@ if mode == "install":
                 install("petsc/")
 
         build_and_install_vtk()
-                
+
         for p in packages:
             pip_requirements(p)
 
