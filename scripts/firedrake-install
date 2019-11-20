@@ -1005,6 +1005,7 @@ def build_and_install_slepc():
     else:
         log.info("No need to rebuild slepc4py")
 
+
 def build_and_install_vtk():
     import glob
     # Check for non-x86_64 architecture
@@ -1015,14 +1016,14 @@ def build_and_install_vtk():
         os.makedirs("vtk/src")
         os.makedirs("vtk/build")
         os.makedirs("vtk/package/vtk")
-        
+
         # Download VTK source and switch to 8.2.0 tag
         with directory("vtk/src"):
             url = "git+https://gitlab.kitware.com/vtk/vtk.git"
             git_clone(url)
         with directory("vtk/src/vtk"):
             check_call(["git", "checkout", "v8.2.0"])
-        
+
         # Create makefile using cmake
         with directory("vtk/build"):
 
@@ -1035,19 +1036,19 @@ def build_and_install_vtk():
                 # Is this a Cray?
                 os.stat("/opt/cray")
                 log.info("This is a Cray system. Replacing cc/CC with gcc/g++")
-                # Set full path to gcc and g++ 
-                gcc_with_path=subprocess.run(["which", "gcc"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-                gxx_with_path=subprocess.run(["which", "g++"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+                # Set full path to gcc and g++
+                gcc_with_path = subprocess.run(["which", "gcc"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+                gxx_with_path = subprocess.run(["which", "g++"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
                 cmake_args.extend(["-DCMAKE_C_COMPILER:FILEPATH=" + gcc_with_path,
                                    "-DCMAKE_CXX_COMPILER:FILEPATH=" + gxx_with_path])
                 check_call(["cmake"] + cmake_args + ["../src/vtk"])
                 check_call(["cmake"] + cmake_args + ["../src/vtk"])
             except OSError:
                 pass
-        
+
             # Always include these arguments
-            vtk_python_version=platform.python_version_tuple()[0]+'.'+platform.python_version_tuple()[1]
-            python_with_path=subprocess.run(["which", "python3"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
+            vtk_python_version = platform.python_version_tuple()[0]+'.'+platform.python_version_tuple()[1]
+            python_with_path = subprocess.run(["which", "python3"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
             cmake_args.extend(["-DVTK_WRAP_PYTHON:BOOL=ON", "-DVTK_PYTHON_VERSION:STRING="+vtk_python_version,
                                "-DPYTHON_EXECUTABLE:FILEPATH="+python_with_path])
             check_call(["cmake"] + cmake_args + ["../src/vtk"])
@@ -1055,33 +1056,32 @@ def build_and_install_vtk():
             check_call(["cmake"] + cmake_args + ["../src/vtk"])
 
             # Disable neon optimisations if this is ARM64
-            machine_type=subprocess.run(["uname", "-m"], stdout=subprocess.PIPE, universal_newlines=True)
+            machine_type = subprocess.run(["uname", "-m"], stdout=subprocess.PIPE, universal_newlines=True)
             if machine_type.stdout.rstrip() == "aarch64":
                 log.info("This is an ARM64 machine. Disabling NEON optimisations")
                 cmake_args.extend(["-DCMAKE_C_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'",
-                                   "-DCMAKE_CXX_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'" ])
+                                   "-DCMAKE_CXX_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'"])
                 check_call(["cmake"] + cmake_args + ["../src/vtk"])
 
             # Build VTK
             check_call(["make", "-j", "16"])
-                
+
             # Package VTK as a wheel
         with directory("vtk/package"):
             # Update setuptools and wheel
             check_call(["pip3", "install", "--user", "--upgrade", "setuptools", "wheel"])
-            
+
             # Write a minimal README, setup.py and MANIFEST.in
             with open('README', 'w') as f:
                 f.write("""
 VTK install for firedrake
-"""
-)        
+""")
             with open('setup.py', 'w') as f:
                 f.write("""
 import setuptools
 
 setuptools.setup(
-    name="VTK", 
+    name="VTK",
     version="8.2.0",
     author="Kitware",
     author_email="kitware@kitware.com",
@@ -1096,13 +1096,11 @@ setuptools.setup(
     python_requires='>=3.0',
     include_package_data=True,
 )
-"""
-)
+""")
             with open('MANIFEST.in', 'w') as f:
                 f.write("""
 include vtk/*.so*
-"""
-)
+""")
 
             # Collate files for wheel
             check_call(["cp"] + glob.glob("../build/lib/*.so*") + ["vtk"])
@@ -1111,8 +1109,8 @@ include vtk/*.so*
 
             # Generate the wheel
             check_call(["python3", "setup.py", "bdist_wheel"])
-        
-            # Install the VTK wheel 
+
+            # Install the VTK wheel
             check_call(["pip3", "install", "dist/VTK-8.2.0-py3-none-any.whl"])
 
 
