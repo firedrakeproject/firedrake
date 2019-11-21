@@ -1110,8 +1110,8 @@ include vtk/*.so*
             # Generate the wheel
             check_call(["python3", "setup.py", "bdist_wheel"])
 
-            # Install the VTK wheel
-            check_call(["pip3", "install", "dist/VTK-8.2.0-py3-none-any.whl"])
+        # Install the VTK wheel
+        run_pip_install(["vtk/package/dist/VTK-8.2.0-py3-none-any.whl"])
 
 
 def install_documentation_dependencies():
