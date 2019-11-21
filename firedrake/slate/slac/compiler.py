@@ -45,6 +45,8 @@ import loopy
 import gem
 import pymbolic.primitives as pym
 from tsfc.loopy import generate as generate_loopy
+
+from loopy.symbolic import SubArrayRef
 __all__ = ['compile_expression']
 
 
@@ -613,7 +615,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     print("builder temps", builder.temps)
     #creation of return variables for slate loopy
-    #arg_variable1=loopy.GlobalArg("T1",
+    #arg_variable1=loopy.GlobalArg("T0",
     #                                       shape=builder.expression.shape,
     #                                       dtype="double")
 
@@ -636,13 +638,17 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #then have Indexed(?) T0 as first ret variable and CallInstruction as instr
     #Need kitting code instruction for callinstruction.
 
+    print(builder.templated_subkernels[0])
     
     ret_vars=[]
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
-        arg=SubArrayRef(indices, pym.Subscript(pym.Variable(builder.temp[v], indices))
-        args.append(lp.CallInstruction(arg)
-        return_variable1=gem.Indexed(gem.Variable("T0",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
+        arg=loopy.TemporaryVariable(builder.temps[v].name,
+                                           shape=builder.expression.shape,
+                                           dtype="double")
+        print(builder.assembly_calls['cell'])
+        args.append(builder.assembly_calls['cell'][0])
+        return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
         ret_vars.append(return_variable1)
 
     print(args)
@@ -659,7 +665,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     print("ASSIGNMENTS", assignments)
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
-    #print("Slate IMPERO:",impero_c)   
+    print("Slate IMPERO:",impero_c)   
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
     
