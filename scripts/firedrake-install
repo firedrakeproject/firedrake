@@ -229,16 +229,16 @@ honoured.""",
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--mpicc", type=str,
                         action="store", default=None,
-                        help="C compiler to use when building with MPI (default is 'mpicc')")
+                        help="C compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpicxx", type=str,
                         action="store", default=None,
-                        help="C++ compiler to use when building with MPI (default is 'mpicxx')")
+                        help="C++ compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpif90", type=str,
                         action="store", default=None,
-                        help="Fortran compiler to use when building with MPI (default is 'mpif90')")
+                        help="Fortran compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
-                        help="MPI launcher (default is 'mpiexec')")
+                        help="MPI launcher. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--venv-name", default="firedrake",
@@ -499,6 +499,9 @@ else:
 
 if options["mpiexec"] is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
+else:
+    # Download mpich if the user does not tell us about an MPI.
+    petsc_options.add("--download-mpich")
 
 petsc_options |= set(os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split())
 
@@ -1045,6 +1048,24 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
+def create_compiler_env(cc, cxx, f90):
+    env = dict()
+    if cc:
+        env["MPICC"] = cc
+        env["MPI_C_COMPILER"] = cc
+        env["CC"] = cc
+    if cxx:
+        env["MPICXX"] = cxx
+        env["MPI_CXX_COMPILER"] = cxx
+        env["CXX"] = cxx
+    if f90:
+        env["MPIF90"] = f90
+        env["MPI_C_COMPILER"] = f90
+        env["F90"] = f90
+
+    return env
+
+
 if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
@@ -1116,7 +1137,6 @@ if mode == "install" or not args.update_script:
             log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
             # Ensure a fortran compiler is available
             brew_install("gcc")
-            brew_install("openmpi")
             brew_install("python3")
             brew_install("autoconf")
             brew_install("automake")
@@ -1144,7 +1164,6 @@ if mode == "install" or not args.update_script:
                             "git",
                             "libblas-dev",
                             "liblapack-dev",
-                            "libmpich-dev",
                             "libtool",
                             "mercurial",
                             "mpich",
@@ -1168,7 +1187,6 @@ if mode == "install" or not args.update_script:
             log.info("If this is not the case, please install the following and try again:")
             log.info("* A C and C++ compiler (for example gcc/g++ or clang), GNU make")
             log.info("* A Fortran compiler (for PETSc)")
-            log.info("* MPI")
             log.info("* Blas and Lapack")
             log.info("* Git, Mercurial")
             log.info("* Python version >=3.5")
@@ -1179,7 +1197,6 @@ if mode == "install" or not args.update_script:
 
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
-
 
 if mode == "install":
     if os.path.exists(firedrake_env):
@@ -1214,6 +1231,9 @@ if mode == "install":
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
+petsc_dir, petsc_arch = get_petsc_dir()
+
+if mode == "install":
     # Set up the MPI wrappers
     for opt in ["mpicc", "mpicxx", "mpif90"]:
         if options.get(opt):
@@ -1224,25 +1244,20 @@ if mode == "install":
             os.symlink(src, dest)
 
     if options.get("mpiexec"):
-        mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-        log.debug("Creating an mpiexec wrapper for %s" % shutil.which(args.mpiexec))
-        with open(mpiexecf, "w") as mpiexec:
-            contents = '#!/bin/bash' + os.linesep + shutil.which(args.mpiexec) + ' "$@"'
-            mpiexec.write(contents)
-        os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+        mpiexec_loc = shutil.which(args.mpiexec)
+    else:
+        mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
+    mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
+    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
+    with open(mpiexecf, "w") as mpiexec:
+        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
+        mpiexec.write(contents)
+    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
-cc = options["mpicc"] or "mpicc"
-cxx = options["mpicxx"] or "mpicxx"
-f90 = options["mpif90"] or "mpif90"
-compiler_env = dict(MPICC=cc,
-                    MPICXX=cxx,
-                    MPIF90=f90,
-                    MPI_C_COMPILER=cc,
-                    MPI_CXX_COMPILER=cxx,
-                    MPI_Fortran_COMPILER=f90,
-                    CC=cc,
-                    CXX=cxx,
-                    F90=f90)
+cc = options["mpicc"]
+cxx = options["mpicxx"]
+f90 = options["mpif90"]
+compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
 # Configuration is now complete, and we have a venv so we dump the
@@ -1290,6 +1305,15 @@ if mode == "install":
                 packages.remove("petsc")
                 install("petsc/")
 
+    # If petsc built mpich then we now need to set the compiler environment variables.
+    if not compiler_env:
+        compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+        cc = os.path.join(compilerbin, "mpicc")
+        cxx = os.path.join(compilerbin, "mpicxx")
+        f90 = os.path.join(compilerbin, "mpif90")
+        compiler_env = create_compiler_env(cc, cxx, f90)
+
+    with environment(**compiler_env):
         for p in packages:
             pip_requirements(p)
 
@@ -1303,7 +1327,6 @@ if mode == "install":
             packages.remove("loopy")
 
         with pipargs("--no-deps"):
-            petsc_dir, petsc_arch = get_petsc_dir()
             with environment(PETSC_DIR=petsc_dir,
                              PETSC_ARCH=petsc_arch):
                 for p in packages:
@@ -1377,8 +1400,17 @@ else:
                 clean("petsc/")
                 log.info("Depending on your platform, PETSc may take an hour or more to build!")
                 install("petsc/")
+
+        # If petsc built mpich then we now need to set the compiler environment variables.
+        if not compiler_env:
+            compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+            cc = os.path.join(compilerbin, "mpicc")
+            cxx = os.path.join(compilerbin, "mpicxx")
+            f90 = os.path.join(compilerbin, "mpif90")
+            compiler_env = create_compiler_env(cc, cxx, f90)
+
+        with environment(**compiler_env):
             if args.rebuild or petsc_changed or petsc4py_changed:
-                petsc_dir, petsc_arch = get_petsc_dir()
                 with environment(PETSC_DIR=petsc_dir,
                                  PETSC_ARCH=petsc_arch):
                     clean("petsc4py/")
