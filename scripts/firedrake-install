@@ -1329,11 +1329,9 @@ if mode == "install":
             packages.remove("loopy")
 
         with pipargs("--no-deps"):
-            with environment(PETSC_DIR=petsc_dir,
-                             PETSC_ARCH=petsc_arch):
-                for p in packages:
-                    install(p+"/")
-                    sys.path.append(os.getcwd() + "/" + p)
+            for p in packages:
+                install(p+"/")
+                sys.path.append(os.getcwd() + "/" + p)
 
         # Work around easy-install.pth bug.
         try:
@@ -1419,10 +1417,8 @@ else:
 
         with pipargs("--no-deps"):
             if args.rebuild or petsc_changed or petsc4py_changed:
-                with environment(PETSC_DIR=petsc_dir,
-                                 PETSC_ARCH=petsc_arch):
-                    clean("petsc4py/")
-                    install("petsc4py/")
+                clean("petsc4py/")
+                install("petsc4py/")
 
             # Always rebuild h5py.
             build_and_install_h5py()
