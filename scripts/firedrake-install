@@ -656,7 +656,7 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 
