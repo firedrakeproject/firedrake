@@ -40,9 +40,9 @@ def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
     if not kwargs:
         fe = FiniteElement(args[0], hex_mesh.ufl_cell(), args[1], variant='equispaced')
     else:
-        cells = hex_mesh.ufl_cell().sub_cells()
-        hfe = FiniteElement(args[0], cells[0], args[1], variant='equispaced')
-        vfe = FiniteElement(kwargs["vfamily"], cells[1], kwargs['vdegree'], variant='equispaced')
+        A, B = hex_mesh.ufl_cell().sub_cells()
+        hfe = FiniteElement(args[0], A, args[1], variant='equispaced')
+        vfe = FiniteElement(kwargs["vfamily"], B, kwargs['vdegree'], variant='equispaced')
         fe = TensorProductElement(hfe, vfe)
     V = FunctionSpace(hex_mesh, fe, **kwargs)
     assert horiz_expected == entity_support_dofs(V.finat_element, (2, 0))

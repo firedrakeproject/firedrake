@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos source/element_list.py
+GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos source/element_list.csv
 
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
