@@ -509,25 +509,19 @@ if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
 
 
-def check_call(arguments, env=None):
+def check_call(arguments):
     try:
         log.debug("Running command '%s'", " ".join(arguments))
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env).decode())
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
         raise
 
 
-def check_output(args, env=None):
+def check_output(args):
     try:
         log.debug("Running command '%s'", " ".join(args))
-        result = subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
-        if isinstance(result, str):
-            # Python 2
-            return result
-        else:
-            # Python 3
-            return result.decode()
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
         raise
@@ -1389,10 +1383,6 @@ else:
             else:
                 raise
 
-    # update dependencies.
-    for p in packages:
-        pip_requirements(p)
-
     with pipargs("--no-deps"):
         with environment(**compiler_env):
             # Only rebuild petsc if it has changed.
@@ -1409,7 +1399,12 @@ else:
             f90 = os.path.join(compilerbin, "mpif90")
             compiler_env = create_compiler_env(cc, cxx, f90)
 
-        with environment(**compiler_env):
+    with environment(**compiler_env):
+        # update dependencies.
+        for p in packages:
+            pip_requirements(p)
+
+        with pipargs("--no-deps"):
             if args.rebuild or petsc_changed or petsc4py_changed:
                 with environment(PETSC_DIR=petsc_dir,
                                  PETSC_ARCH=petsc_arch):
