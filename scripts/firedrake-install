@@ -733,6 +733,7 @@ def pip_uninstall(package):
     # the moon, the order in which they are uninstalled is not the
     # same as the order in which they appear on sys.path!
     again = True
+    uninstalled = False
     i = 0
     while again:
         # List installed packages, "locally".  In a venv,
@@ -742,14 +743,16 @@ def pip_uninstall(package):
         again = False
         for line in lines.split("\n"):
             # Do we have a locally installed package?
-            if line.startswith(package):
+            if line.startswith(package+'=='):
                 # Uninstall it.
                 run_pip(["uninstall", "-y", line.strip()])
+                uninstalled = True
                 # Go round again, because THERE MIGHT BE ANOTHER ONE!
                 again = True
         i += 1
         if i > 10:
             raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
+    return uninstalled
 
 
 def get_petsc_dir():
@@ -1227,15 +1230,18 @@ if mode == "install":
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
-if mode == "install":
+# Set up MPI wrappers if they don't already exist.
+if not os.path.lexists(os.path.join(firedrake_env, "bin", "mpicc")):
     # Set up the MPI wrappers
     for opt in ["mpicc", "mpicxx", "mpif90"]:
         if options.get(opt):
             name = options[opt]
             src = shutil.which(name)
-            dest = os.path.join(firedrake_env, "bin", opt)
-            log.debug("Creating a symlink from %s to %s" % (src, dest))
-            os.symlink(src, dest)
+        else:
+            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+        dest = os.path.join(firedrake_env, "bin", opt)
+        log.debug("Creating a symlink from %s to %s" % (src, dest))
+        os.symlink(src, dest)
 
     if options.get("mpiexec"):
         mpiexec_loc = shutil.which(args.mpiexec)
@@ -1298,6 +1304,8 @@ if mode == "install":
             with pipargs("--no-deps"):
                 packages.remove("petsc")
                 install("petsc/")
+            os.environ["PETSC_DIR"] = petsc_dir
+            os.environ["PETSC_ARCH"] = petsc_arch
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1370,8 +1378,10 @@ else:
         for package in packages:
             pip_uninstall(package)
         if args.rebuild:
-            pip_uninstall("petsc")
             pip_uninstall("petsc4py")
+
+    # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
+    petsc_changed = pip_uninstall("petsc") or petsc_changed
 
     for p in packages:
         try:
@@ -1390,6 +1400,9 @@ else:
                 clean("petsc/")
                 log.info("Depending on your platform, PETSc may take an hour or more to build!")
                 install("petsc/")
+        if not args.honour_petsc_dir:
+            os.environ["PETSC_DIR"] = petsc_dir
+            os.environ["PETSC_ARCH"] = petsc_arch
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:
