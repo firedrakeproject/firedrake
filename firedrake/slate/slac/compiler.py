@@ -638,19 +638,24 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #then have Indexed(?) T0 as first ret variable and CallInstruction as instr
     #Need kitting code instruction for callinstruction.
 
-    print(builder.templated_subkernels[0])
+    loopy_inner=builder.templated_subkernels[0]
     
     ret_vars=[]
     #get loopy args for temporaries (tensors and assembled vectors)
     for k,v in builder.temps.items():
-        arg=loopy.TemporaryVariable(builder.temps[v].name,
+        arg=loopy.GlobalArg("T1",
                                            shape=builder.expression.shape,
                                            dtype="double")
         print(builder.assembly_calls['cell'])
-        args.append(builder.assembly_calls['cell'][0])
+        args.append(arg)
         return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)#maybe this should be gem indexed????
         ret_vars.append(return_variable1)
+        break
 
+    arg=loopy.TemporaryVariable("T0",
+                                    shape=builder.expression.shape,
+                                    dtype="double")
+    args.append(arg)
     print(args)
     print("RETVARS",ret_vars)
 
@@ -669,14 +674,22 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
     
+    #lvalue=SubArrayRef(indices, pym.Subscript(output_tensor, indices))
 
+    insn = loopy.CallInstruction((pym.Variable("T0"), ),pym.Call(pym.Variable("subkernel0_cell_to_00_cell_integral_otherwise"),[]), id='inner_call')
+    print(insn)
+    loopy_outer = loopy_outer.copy(instructions=[insn]+loopy_outer.instructions)
+    #print(kernel)
+    loopy_outer = loopy.add_dependency(loopy_outer, 'id:insn', 'id:inner_call')
 
     #merge the slate loopy with the tsfc loopy
     print(loopy_outer)
     #print(builder.templated_subkernels[0])
-    knl= merge_loopy(loopy_outer,builder.templated_subkernels[0])
+
+    print(loopy_outer.instructions)
+    knl= merge_loopy(loopy_outer,loopy_inner)
     
-    return loopy_outer
+    return knl
 
 
 
