@@ -656,6 +656,13 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
                                     shape=builder.expression.shape,
                                     dtype="double")
     args.append(arg)
+
+    arg=loopy.GlobalArg("coords",
+                                         shape=(6, ),
+                                         dtype="double")
+
+    args.append(arg)
+
     print(args)
     print("RETVARS",ret_vars)
 
@@ -676,12 +683,14 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     
     #lvalue=SubArrayRef(indices, pym.Subscript(output_tensor, indices))
 
-    insn = loopy.CallInstruction((pym.Variable("T0"), ),pym.Call(pym.Variable("subkernel0_cell_to_00_cell_integral_otherwise"),[]), id='inner_call')
+    print("reads: ",builder.reads)
+    insn = builder.assembly_calls["cell"][0]
     print(insn)
     loopy_outer = loopy_outer.copy(instructions=[insn]+loopy_outer.instructions)
-    #print(kernel)
+    print(loopy_outer.instructions)
     loopy_outer = loopy.add_dependency(loopy_outer, 'id:insn', 'id:inner_call')
 
+    print(loopy_inner)
     #merge the slate loopy with the tsfc loopy
     print(loopy_outer)
     #print(builder.templated_subkernels[0])

@@ -477,7 +477,8 @@ def merge_loopy(loopy_outer,loopy_inner):
     from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
 
 
-    wrapper = register_callable_kernel(prg, loopy_inner)
+    prg = register_callable_kernel(prg, loopy_inner)
+    print("registeredprg: ", prg)
     inlined_prg=inline_callable_kernel(prg,"subkernel0_cell_to_00_cell_integral_otherwise")
 
 

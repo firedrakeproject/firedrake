@@ -595,9 +595,8 @@ class LocalLoopyKernelBuilder(object):
                     #mapping from all indices to subindices
                     #what are swept indices?
                     print(self.gem_loopy_dict[temp].shape)
-                    idx1,idx2=create_index(3,namer=map("i{}".format, itertools.count()),
-                                   context=self),create_index(3,namer=map("i{}".format, itertools.count()),
-                                   context=self)
+                    idx1=pym.Variable("i")
+                    idx2=pym.Variable("i0")
                     output = SubArrayRef((idx1,idx2), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), (idx1,idx2)))
 
                 print("SUB:",output)
@@ -683,7 +682,7 @@ class LocalLoopyKernelBuilder(object):
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
-                                            within_inames_is_final=True))
+                                            within_inames_is_final=True,id="inner_call"))
 
                 print("ASSEMBLY CALL:", assembly_calls[integral_type])
 
@@ -696,6 +695,7 @@ class LocalLoopyKernelBuilder(object):
         self.needs_mesh_layers= needs_mesh_layers
         self.integral_type=integral_type
         self.oriented =kinfo.oriented
+        self.reads=reads
 
 
 def create_index(extent, namer, context):
