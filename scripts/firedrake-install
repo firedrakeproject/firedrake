@@ -1298,14 +1298,14 @@ if mode == "install":
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
 
-    with environment(**compiler_env):
-        # Need to install petsc first in order to resolve hdf5 dependency.
-        if not args.honour_petsc_dir:
+    # Need to install petsc first in order to resolve hdf5 dependency.
+    if not args.honour_petsc_dir:
+        with environment(**compiler_env):
             with pipargs("--no-deps"):
                 packages.remove("petsc")
                 install("petsc/")
-            os.environ["PETSC_DIR"] = petsc_dir
-            os.environ["PETSC_ARCH"] = petsc_arch
+        os.environ["PETSC_DIR"] = petsc_dir
+        os.environ["PETSC_ARCH"] = petsc_arch
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
