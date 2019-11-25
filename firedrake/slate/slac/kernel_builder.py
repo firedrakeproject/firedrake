@@ -595,10 +595,14 @@ class LocalLoopyKernelBuilder(object):
                     #mapping from all indices to subindices
                     #what are swept indices?
                     print(self.gem_loopy_dict[temp].shape)
-                    idx1=pym.Variable("i")
-                    idx2=pym.Variable("i0")
-                    output = SubArrayRef((idx1,idx2), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), (idx1,idx2)))
 
+                    idx1=pym.Variable("i_0")# is create_index(3,namer=map("i{}".format, itertools.count()),
+                                 #  context=self)
+                    idx2=pym.Variable("i")#create_index(3,namer=map("i{}".format, itertools.count()),
+                                 #  context=self)
+                    output = SubArrayRef((idx1,idx2), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), (idx1,idx2)))
+                    #output=pym.Variable("T0")
+                        
                 print("SUB:",output)
                 #kernel data is equuivalent to the args in the coffee kernel setup
                 kernel_data = [(mesh.coordinates,
@@ -624,9 +628,9 @@ class LocalLoopyKernelBuilder(object):
                 print("KERNEL DATA:",kernel_data)
                 for c, name in kernel_data:
                     extent = index_extent(c)
-                    idx = create_index(extent,
-                                   namer=map("i{}".format, itertools.count()),
-                                   context=self)
+                    idx = pym.Variable("i")#create_index(extent,
+                                #   namer=map("i{}".format, itertools.count()),
+                                 #  context=self)
                     argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
                     reads.append(argument)
                     print("READS:", reads)
