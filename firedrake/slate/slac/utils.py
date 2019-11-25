@@ -470,6 +470,8 @@ def my_merge_loopy(loopy_outer,loopy_inner):
 def merge_loopy(loopy_outer,loopy_inner,kitting_insn):
 
     #we need a CallInstruction in outer kernel to call inner kernel to call inlining function
+    #@TODO: need to adjust priorities as well?
+    #@TODO: also copy for adding arguments
     loopy_outer = loopy_outer.copy(instructions=[kitting_insn]+loopy_outer.instructions)
     loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call')
     assert isinstance(loopy_outer.instructions[0], CallInstruction)

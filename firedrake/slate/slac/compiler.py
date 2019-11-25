@@ -140,7 +140,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     #stage 2: gem to loopy...
     loopy_outer=gem_to_loopy(gem_expr,builder)
 
-    #stage 3: join loopys...
+    #stage 3: merge loopys...
     loopy_inner=builder.templated_subkernels[0]
     loopy_merged= merge_loopy(loopy_outer,loopy_inner,builder.assembly_calls["cell"][0])#builder owns the callinstruction
     print("GLUED LOOPY KERNEL")
@@ -614,29 +614,39 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     
     ret_vars=[]#gem return variables getting clipped to assignments
     args=[]    #loopy args for temporaries (tensors and assembled vectors) and arguments
+
+    #@TODO:check if this is right for more than one temporary
     for k,v in builder.temps.items():
-        arg=loopy.GlobalArg("T1",
-                                           shape=builder.expression.shape,
-                                           dtype="double")
-        print(builder.assembly_calls['cell'])
+
+        #add all temporaries for the tensors as arguments
+        arg=builder.gem_loopy_dict[v]
         args.append(arg)
 
         #creation of return variables for slate loopy
-        return_variable1=gem.Indexed(gem.Variable("T1",builder.expression.shape),v.multiindex)
+        return_variable1=gem.Indexed(gem.Variable(arg.name,builder.expression.shape),v.multiindex)
         ret_vars.append(return_variable1)
+
         break
 
-    arg=loopy.TemporaryVariable("T0",
-                                    shape=builder.expression.shape,
-                                    dtype="double")
+    #for outputting
+    #create output arg
+    arg=loopy.GlobalArg("output",
+                                           shape=builder.expression.shape,
+                                           dtype="double")
     args.append(arg)
 
+    #creation of return variables for slate loopy
+    return_variable=gem.Indexed(gem.Variable(arg.name,builder.expression.shape),v.multiindex)
+    ret_vars.append(return_variable)
+
+    #arguments of inner kernel
+    #@TODO: these should be added in merge
     arg=loopy.GlobalArg("coords",
                                          shape=(6, ),
                                          dtype="double")
-
     args.append(arg)
 
+    #TODO: the args should come from builder
     print("ARGS",args)
     print("RETVARS",ret_vars)
 
@@ -646,12 +656,14 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #print("preprocessed",traversed_gem_expr_dag)
     #print(traversed_gem_expr_dag[0])
 
-    #get slate into loopy
-    assignments=list(zip(ret_vars,traversed_gem_expr_dag))
 
+    assignments=list(zip(ret_vars,traversed_gem_expr_dag))
     print("ASSIGNMENTS", assignments)
+
+    #slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
+    #impero_c to loopy
     print("Slate IMPERO:",impero_c)   
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
