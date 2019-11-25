@@ -16,8 +16,9 @@ from functools import singledispatch,update_wrapper
 import firedrake
 import firedrake.slate.slate as sl
 import loopy as lp
-from loopy.transform.callable import _inline_call_instruction as inline
 from loopy.kernel.instruction import CallInstruction
+from loopy.program import make_program
+from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -466,20 +467,16 @@ def my_merge_loopy(loopy_outer,loopy_inner):
     return knl
 
 
-def merge_loopy(loopy_outer,loopy_inner):
-    #@TODO: we need an instruction in outer kernel to call inner kernel
-    repl=loopy_outer.instructions[0]
-    print(repl)
-    assert isinstance(repl, CallInstruction)
+def merge_loopy(loopy_outer,loopy_inner,kitting_insn):
 
-    from loopy.program import make_program
+    #we need a CallInstruction in outer kernel to call inner kernel to call inlining function
+    loopy_outer = loopy_outer.copy(instructions=[kitting_insn]+loopy_outer.instructions)
+    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call')
+    assert isinstance(loopy_outer.instructions[0], CallInstruction)
+
+    #generate program from kernel, register inner kernel and inline inner kernel
     prg=make_program(loopy_outer)
-
-    from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
-
     prg = register_callable_kernel(prg, loopy_inner)
-    print("registeredprg: ", prg)
     inlined_prg=inline_callable_kernel(prg,loopy_inner.name)
-    print("inlined prg: ",inlined_prg)
 
     return inlined_prg
