@@ -490,7 +490,7 @@ if options["petsc_int_type"] == "int32":
 else:
     petsc_options.add("--with-64-bit-indices")
 
-if options["mpiexec"] is not None:
+if options.get("mpiexec") is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
