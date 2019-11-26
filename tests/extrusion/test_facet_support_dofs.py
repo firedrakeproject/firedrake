@@ -37,6 +37,13 @@ def hex_mesh():
                             2: [0, 2, 4, 5, 6, 7, 8, 9],
                             3: [1, 3, 4, 5, 6, 7, 10, 11]})])
 def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
-    V = FunctionSpace(hex_mesh, *args, **kwargs)
+    if not kwargs:
+        fe = FiniteElement(args[0], hex_mesh.ufl_cell(), args[1], variant='equispaced')
+    else:
+        A, B = hex_mesh.ufl_cell().sub_cells()
+        hfe = FiniteElement(args[0], A, args[1], variant='equispaced')
+        vfe = FiniteElement(kwargs["vfamily"], B, kwargs['vdegree'], variant='equispaced')
+        fe = TensorProductElement(hfe, vfe)
+    V = FunctionSpace(hex_mesh, fe, **kwargs)
     assert horiz_expected == entity_support_dofs(V.finat_element, (2, 0))
     assert vert_expected == entity_support_dofs(V.finat_element, (1, 1))

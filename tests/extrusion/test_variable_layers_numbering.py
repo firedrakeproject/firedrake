@@ -117,7 +117,8 @@ def test_numbering_one_d_P3():
     extmesh = ExtrudedMesh(mesh, layers=[[0, 2], [2, 2]],
                            layer_height=1)
 
-    V = FunctionSpace(extmesh, "CG", 3)
+    fe = FiniteElement("CG", extmesh.ufl_cell(), 3, variant="equispaced")
+    V = FunctionSpace(extmesh, fe)
 
     assert V.dof_dset.total_size == 55
 
