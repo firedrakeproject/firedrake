@@ -23,5 +23,10 @@ test2=assemble(a)
 
 #this is getting more interesting if mixed
 #b=assemble(_A.blocks[0,0])
-print(test.M)
-print(test2.M)
+
+#Test the output
+print(test2.M.handle.view())
+print(test.M.handle.view())
+
+print((test.M.handle-test2.M.handle).view())
+print((test.M.handle-test2.M.handle).norm())
