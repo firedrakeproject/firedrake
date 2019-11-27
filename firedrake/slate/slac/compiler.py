@@ -22,7 +22,7 @@ import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
-from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, SlateTranslator,merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
@@ -142,15 +142,16 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     #stage 3: merge loopys...
     loopy_inner=builder.templated_subkernels[0]
-    loopy_merged= merge_loopy(loopy_outer,loopy_inner,builder.assembly_calls["cell"][0])#builder owns the callinstruction
+
+    loopy_merged= merge_loopy(loopy_outer,loopy_inner,builder)#builder owns the callinstruction
     print("GLUED LOOPY KERNEL")
-    print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code.replace('void slate_kernel', 'static void slate_kernel')
     loopykernel = op2.Kernel(code, loopy_merged.name)
+
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type=builder.integral_type,
                        oriented=builder.oriented,
@@ -160,7 +161,6 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers,
                        needs_cell_sizes=builder.needs_cell_sizes)
-    print("KINFO",kinfo)
 
    
     # Cache the resulting kernel
@@ -183,7 +183,6 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
-    sys.exit()
     # Keep track of declared temporaries
     declared_temps = {}
     statements = []
@@ -622,10 +621,6 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
 
-        #creation of return variables for slate loopy
-        return_variable1=gem.Indexed(gem.Variable(arg.name,builder.expression.shape),v.multiindex)
-        ret_vars.append(return_variable1)
-
         break
 
     #for outputting
@@ -635,16 +630,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
                                            dtype="double")
     args.append(arg)
 
+    
     #creation of return variables for slate loopy
-    return_variable=gem.Indexed(gem.Variable(arg.name,builder.expression.shape),v.multiindex)
+    indices=(builder.gem_indices[0],builder.gem_indices[1])
+    return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),(builder.gem_indices[0],builder.gem_indices[1]))
     ret_vars.append(return_variable)
 
-    #arguments of inner kernel
-    #@TODO: these should be added in merge
-    arg=loopy.GlobalArg("coords",
-                                         shape=(6, ),
-                                         dtype="double")
-    args.append(arg)
 
     #TODO: the args should come from builder
     print("ARGS",args)
@@ -667,7 +658,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     print("Slate IMPERO:",impero_c)   
     precision=6
     loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
-    
+    print(loopy_outer)
     return loopy_outer
 
 

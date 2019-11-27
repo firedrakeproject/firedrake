@@ -19,6 +19,10 @@ import loopy as lp
 from loopy.kernel.instruction import CallInstruction
 from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
+from islpy import BasicSet
+
+import islpy as isl
+import pymbolic.primitives as pym
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -467,14 +471,45 @@ def my_merge_loopy(loopy_outer,loopy_inner):
     return knl
 
 
-def merge_loopy(loopy_outer,loopy_inner,kitting_insn):
+def merge_loopy(loopy_outer,loopy_inner,builder):
+    #generate initilisation instructions
+    inits=[]
+    c=0
+    for slate_tensor,gem_indexed in builder.temps.items():
+        #add all temporaries for the tensors as arguments
+        loopy_tensor=builder.gem_loopy_dict[gem_indexed]
+        indices=(builder.loopy_indices[2*c],builder.loopy_indices[2*c+1])
+        inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c))
+        c+=1
 
-    #we need a CallInstruction in outer kernel to call inner kernel to call inlining function
-    #@TODO: need to adjust priorities as well?
-    #@TODO: also copy for adding arguments
-    loopy_outer = loopy_outer.copy(instructions=[kitting_insn]+loopy_outer.instructions)
-    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call')
-    assert isinstance(loopy_outer.instructions[0], CallInstruction)
+    #get the CallInstruction from builder and include at beginning of outer kernel
+    kitting_insn=builder.assembly_calls["cell"][0]
+    loopy_outer = loopy_outer.copy(instructions=inits+[kitting_insn]+loopy_outer.instructions)
+
+    #add loop around initilisaition
+    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i0','i1'}) ,"id:init0")
+    #add dep on subkernelcall
+    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call') 
+    #add dep on init
+    loopy_outer = lp.add_dependency(loopy_outer, 'id:inner_call', 'id:init0') 
+    #remove priority generate from tsfc compile call
+    loopy_outer=lp.set_instruction_priority(loopy_outer, "id:insn", None)
+
+    #add arguments of the subkernel
+    #@TODO is the dimtag right
+    #TODO need to make this possible dynamically for all arguments of subkernel
+    arg=lp.GlobalArg("coords",shape=(6,),dtype="double",dim_tags="N0:stride:1")
+    loopy_outer = loopy_outer.copy(args=list(loopy_outer.args)+[arg])
+
+    #fix domains (add additional indices coming from calling the subkernel)
+    def create_domains(gem_indices):
+        for i in gem_indices:
+            name=i.name
+            extent=i.extent
+            vars = isl.make_zero_and_vars([name], [])
+            yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
+    domains = list(create_domains(builder.gem_indices))
+    loopy_outer = loopy_outer.copy(domains=domains+loopy_outer.domains)
 
     #generate program from kernel, register inner kernel and inline inner kernel
     prg=make_program(loopy_outer)

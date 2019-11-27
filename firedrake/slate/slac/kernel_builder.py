@@ -16,6 +16,7 @@ import gem
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
 
+from functools import singledispatch, partial
 import firedrake.slate.slate as slate
 
 CoefficientInfo = namedtuple("CoefficientInfo",
@@ -351,6 +352,7 @@ class LocalKernelBuilder(object):
                                           tsfc_parameters=self.tsfc_parameters,coffee=True)
                     for i, expr in enumerate(self.temps)]
 
+
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
         return cxt_kernels
@@ -440,16 +442,26 @@ class LocalLoopyKernelBuilder(object):
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
 
+        self.loopy_indices=[]
+        self.gem_indices=[]
+        #stole this from lawrence
+        self.create_index=partial(create_index,
+                                   namer=map("i{}".format, itertools.count()),ctx=self)
+
         for tensor in expression_dag:
             counter.update(tensor.operands)
             
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
-
-                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),(gem.Index(extent=3),gem.Index(extent=3))))
+                #the indices stuff is really ugly
+                indices = tuple(map(self.create_index, tensor.shape))
+                #TODO this was probably the worst design decision on earth
+                gem_indices=(self.gem_indices[2*len(temps)],self.gem_indices[2*len(temps)+1])
+                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),gem_indices))
+                #TODO this was probably the worst design decision on earth as well
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
                                            shape=tensor.shape,
-                                           dtype=SCALAR_TYPE))
+                                           dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
@@ -470,7 +482,7 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [dimension(function.ufl_element())]
 
                     # Local temporary
-                    #@TODO: actually I think we need loopy stuff here?
+                    #TODO this was probably the worst design decision on earth
                     local_temp = gem.Variable("VecTemp%d" % len(seen_coeff),shapes)
 
                     offset = 0
@@ -510,11 +522,6 @@ class LocalLoopyKernelBuilder(object):
                        for cxt_k in cxt_tuple]
         return cxt_kernels
 
-    
-    #Make a list of local assembly calls
-    #Populates templated subkernels with help of tsfc
-    #@TODO: change the names lawrence used in their bag into the ones thomas used in his local kernel builder   
-    #@TODO: 
 
     def _setup(self):
         """A setup method to initialize all the local assembly
@@ -533,7 +540,7 @@ class LocalLoopyKernelBuilder(object):
         needs_cell_sizes = False
         needs_cell_facets=False
         needs_mesh_layers=False
-        self.indices=[]
+        subkernel_indices=OrderedDict([(it, []) for it in self.supported_integral_types])
 
 
         #Maps integral type to subdomain key
@@ -567,8 +574,9 @@ class LocalLoopyKernelBuilder(object):
 
                 #populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
+                subkernel_indices=list(*templated_subkernels[0].loop_priority)
                 include_dirs.extend(kinfo.kernel._include_dirs)
-
+                print(templated_subkernels[0])
                 #indiced and output
                 # For the mixed case, the output is a slice of the matrix/vector
                 if tensor.is_mixed:
@@ -587,20 +595,11 @@ class LocalLoopyKernelBuilder(object):
 
                     raise ValueError("For now only non mixed supported")
                 else:
-                    indices = inner.indices
+                    #@TODO
+                    indices=(self.loopy_indices[0],self.loopy_indices[1])
+                    output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
+                    #output = pym.Variable(self.gem_loopy_dict[temp].name)
 
-                    print("INDICES:",indices)
-                    #@TODO: is this right???
-                    #mapping from all indices to subindices
-                    #what are swept indices?
-                    print(self.gem_loopy_dict[temp].shape)
-
-                    idx1=pym.Variable("i_0")# is create_index(3,namer=map("i{}".format, itertools.count()),
-                                 #  context=self)
-                    idx2=pym.Variable("i")#create_index(3,namer=map("i{}".format, itertools.count()),
-                                 #  context=self)
-                    output = SubArrayRef((idx1,idx2), pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), (idx1,idx2)))
-                    #output=pym.Variable("T0")
                         
                 print("SUB:",output)
                 #kernel data is equuivalent to the args in the coffee kernel setup
@@ -627,9 +626,7 @@ class LocalLoopyKernelBuilder(object):
                 print("KERNEL DATA:",kernel_data)
                 for c, name in kernel_data:
                     extent = index_extent(c)
-                    idx = pym.Variable("i")#create_index(extent,
-                                #   namer=map("i{}".format, itertools.count()),
-                                 #  context=self)
+                    idx =self.create_index(extent)
                     argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
                     reads.append(argument)
                     print("READS:", reads)
@@ -701,10 +698,12 @@ class LocalLoopyKernelBuilder(object):
         self.reads=reads
 
 
-def create_index(extent, namer, context):
-        name = next(namer)
-        context.indices.append((name, int(extent)))
-        return pym.Variable(name)
+def create_index(extent, namer,ctx):
+    name = next(namer)
+    ret=pym.Variable(name)
+    ctx.loopy_indices.append(ret)
+    ctx.gem_indices.append(gem.Index(name,int(extent)))
+    return ret
 
 def index_extent(coefficient):
     element = coefficient.ufl_element()
