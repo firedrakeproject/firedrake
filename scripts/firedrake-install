@@ -811,7 +811,7 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
-    assert not args.honour_petsc_dir # Belt and braces security before we start clobbering things.
+    assert not args.honour_petsc_dir  # Belt and braces security before we start clobbering things.
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
@@ -1457,6 +1457,7 @@ with environment(**compiler_env):
 
 if mode == "update":
     try:
+        import firedrake_configuration
         firedrake_configuration.setup_cache_dirs()
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel

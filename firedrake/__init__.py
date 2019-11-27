@@ -3,12 +3,14 @@ import os
 import sys
 config = firedrake_configuration.get_config()
 if "PETSC_DIR" in os.environ and not config["options"]["honour_petsc_dir"]:
-    raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
-                      "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+    if os.environ["PETSC_DIR"] != os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")\
+       or os.environ["PETSC_ARCH"] != "default":
+        raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
+                          "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
 elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
     raise ImportError("Firedrake was installed with --honour-petsc-dir, but PETSC_DIR is not set.\n"
                       "Please set PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
-else: # Using our own PETSC.
+else:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
 del os, sys, config
