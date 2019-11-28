@@ -61,9 +61,9 @@ def test_tensor_prod_simple(ufl_A, ufl_B):
 
 
 @pytest.mark.parametrize(('family', 'expected_cls'),
-                         [('P', FIAT.Lagrange),
-                          ('DP', FIAT_DiscontinuousLagrange),
-                          ('DP L2', FIAT_DiscontinuousLagrange)])
+                         [('P', FIAT.GaussLobattoLegendre),
+                          ('DP', FIAT.GaussLegendre),
+                          ('DP L2', FIAT.GaussLegendre)])
 def test_interval_variant_default(family, expected_cls):
     ufl_element = ufl.FiniteElement(family, ufl.interval, 3)
     assert isinstance(create_element(ufl_element), expected_cls)

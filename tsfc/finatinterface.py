@@ -128,7 +128,7 @@ def convert_finiteelement(element, **kwargs):
 
     kind = element.variant()
     if kind is None:
-        kind = 'equispaced'  # default variant
+        kind = 'spectral' if element.cell().cellname() == 'interval' else 'equispaced'  # default variant
 
     if element.family() == "Lagrange":
         if kind == 'equispaced':
@@ -144,7 +144,6 @@ def convert_finiteelement(element, **kwargs):
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
-        kind = element.variant() or 'equispaced'
         if kind == 'equispaced':
             lmbda = finat.DiscontinuousLagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
