@@ -298,9 +298,12 @@ else:
 
     except FileNotFoundError:
         # Fall back to the old location.
-        with open(os.path.join(os.path.dirname(__file__),
-                               "configuration.json"), "r") as f:
-            config = json.load(f)
+        import firedrake_configuration
+
+        config = firedrake_configuration.get_config()
+        if config is None:
+            raise InstallError("Failed to find existing Firedrake configuration")
+
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
