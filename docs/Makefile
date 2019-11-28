@@ -46,16 +46,14 @@ TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex
 GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos source/element_list.csv
 
 publish: html
-# Note that godaddy don't currently do rsync, unfortunately.
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	scp -r build/html/* 'o3ce6600@146.255.44.1:html/'
+	rsync --rsh=ssh -rv -r build/html/* 'o3ce6600@146.255.44.1:html/'
 
 scp:
-# Note that godaddy don't currently do rsync, unfortunately.
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	scp -r build/html/* 'o3ce6600@146.255.44.1:html/'
+	rsync --rsh=ssh -rv build/html/* 'o3ce6600@146.255.44.1:html/'
 
 livehtml: html
 	python server.py
