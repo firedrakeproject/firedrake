@@ -131,7 +131,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                  tsfc_parameters=tsfc_parameters)
 
-    
+    print("BUILDER DONE")
+
     #stage1: slate to gem....                      
     gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
     
@@ -141,10 +142,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_outer=gem_to_loopy(gem_expr,builder)
 
     #stage 3: merge loopys...
-    loopy_inner=builder.templated_subkernels[0]
+    loopy_inner_list=builder.templated_subkernels
 
-    loopy_merged= merge_loopy(loopy_outer,loopy_inner,builder)#builder owns the callinstruction
+    loopy_merged= merge_loopy(loopy_outer,loopy_inner_list,builder)#builder owns the callinstruction
     print("GLUED LOOPY KERNEL")
+    print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
@@ -603,6 +605,7 @@ def parenthesize(arg, prec=None, parent=None):
 #they are acessed by the translator
 def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
     traversed_gem_dag=SlateTranslator(declared_temps).slate_to_gem_translate(traversed_slate_expr_dag)
+    #TODO maybe I need to collect all the additional indices from the gem expressions
     return traversed_gem_dag
 
 #STAGE 2
@@ -616,12 +619,9 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     #@TODO:check if this is right for more than one temporary
     for k,v in builder.temps.items():
-
         #add all temporaries for the tensors as arguments
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
-
-        break
 
     #for outputting
     #create output arg
@@ -629,23 +629,21 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
                                            shape=builder.expression.shape,
                                            dtype="double")
     args.append(arg)
-
     
     #creation of return variables for slate loopy
     indices=builder.gem_indices[0]
     return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),indices)
     ret_vars.append(return_variable)
 
-
-    #TODO: the args should come from builder
     print("ARGS",args)
     print("RETVARS",ret_vars)
 
-    #@TODO: preprocessing of gem to for removing component tensors
+    #@TODO: preprocessing of gem for removing component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
     #traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
     #print("preprocessed",traversed_gem_expr_dag)
-    #print(traversed_gem_expr_dag[0])
+    #print(traversed_gem_expr_dag[1])
+    #traversed_gem_expr_dag=traversed_gem_expr_dag[1]
 
 
     assignments=list(zip(ret_vars,traversed_gem_expr_dag))

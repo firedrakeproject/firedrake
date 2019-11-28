@@ -270,7 +270,8 @@ class SlateTranslator():
     def slate_to_gem_transpose(self,tensor):
         A, = tensor.operands
         A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),tuple(reversed(A_indices)))
+        print(self.tensor_to_variable[A].multiindex)
+        ret=ComponentTensor(self.tensor_to_variable[A],tuple(reversed(self.tensor_to_variable[A].multiindex)))
         print("ret multiiindex: ",ret.multiindex)
         print("ret freeindex: ",ret.free_indices)
         print("ret children: ",ret.children)

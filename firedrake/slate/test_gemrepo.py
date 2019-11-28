@@ -34,7 +34,7 @@ _F = Tensor(L)
 #comp=assemble(-a)
 
 #TODO: TEST: assemble transpose
-#test=assemble(Transpose(_A))
+test=assemble(Transpose(_A))
 
 #TODO: TEST: assemble contraction
 #test=assemble(_A*_A)
