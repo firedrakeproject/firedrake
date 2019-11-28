@@ -448,6 +448,9 @@ class LocalLoopyKernelBuilder(object):
         self.create_index=partial(create_index,
                                    namer=map("i{}".format, itertools.count()),ctx=self)
 
+
+        #a first compilation is already hapenning here
+        #but only for tensors and assembled vectors
         for tensor in expression_dag:
             counter.update(tensor.operands)
             
@@ -455,9 +458,10 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(tensor, slate.Tensor):
                 #the indices stuff is really ugly
                 indices =self.create_index(tensor.shape)
+                print(len(temps))
                 gem_indices=self.gem_indices[len(temps)]
-                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),gem_indices))
-                #TODO this was probably the worst design decision on earth as well
+                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" %len(temps),tensor.shape),gem_indices))
+                #TODO this was probably a bad design decision. discuss this.
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
@@ -481,7 +485,6 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [dimension(function.ufl_element())]
 
                     # Local temporary
-                    #TODO this was probably the worst design decision on earth
                     local_temp = gem.Variable("VecTemp%d" % len(seen_coeff),shapes)
 
                     offset = 0
@@ -549,7 +552,7 @@ class LocalLoopyKernelBuilder(object):
                          "interior_facet_vert": "subdomains_interior_facet"}
 
         #for all terminal tensors
-        for cxt_kernel in self.context_kernels:
+        for pos,cxt_kernel in enumerate(self.context_kernels):
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
             tensor= cxt_kernel.tensor
@@ -593,8 +596,7 @@ class LocalLoopyKernelBuilder(object):
 
                     raise ValueError("For now only non mixed supported")
                 else:
-                    #@TODO
-                    indices=self.loopy_indices[0]
+                    indices=self.loopy_indices[pos]#TODO is this right?
                     output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
                         
                 #kernel data contains the parameters fed into the subkernel
@@ -624,7 +626,7 @@ class LocalLoopyKernelBuilder(object):
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
 
-
+                #append more arguments to subkernel for different integral types
                 if integral_type == "cell":
                     predicates = None
                     if kinfo.subdomain_id != "otherwise":
