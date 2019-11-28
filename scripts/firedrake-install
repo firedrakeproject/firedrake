@@ -304,7 +304,6 @@ else:
         if config is None:
             raise InstallError("Failed to find existing Firedrake configuration")
 
-
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument("--no-update-script", action="store_false", dest="update_script",
