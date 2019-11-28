@@ -454,9 +454,8 @@ class LocalLoopyKernelBuilder(object):
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
                 #the indices stuff is really ugly
-                indices = tuple(map(self.create_index, tensor.shape))
-                #TODO this was probably the worst design decision on earth
-                gem_indices=(self.gem_indices[2*len(temps)],self.gem_indices[2*len(temps)+1])
+                indices =self.create_index(tensor.shape)
+                gem_indices=self.gem_indices[len(temps)]
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps),tensor.shape),gem_indices))
                 #TODO this was probably the worst design decision on earth as well
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
@@ -555,7 +554,6 @@ class LocalLoopyKernelBuilder(object):
             integral_type = cxt_kernel.original_integral_type
             tensor= cxt_kernel.tensor
             temp=self.temps[tensor]
-            print("TENSOR TEMP:",temp)
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -574,12 +572,12 @@ class LocalLoopyKernelBuilder(object):
 
                 #populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
-                subkernel_indices=list(*templated_subkernels[0].loop_priority)
+                subkernel_indices=list(*templated_subkernels[0].loop_priority)#do I ever need these?
                 include_dirs.extend(kinfo.kernel._include_dirs)
-                print(templated_subkernels[0])
-                #indiced and output
-                # For the mixed case, the output is a slice of the matrix/vector
+
+                #generation of output variable of loopy kernel
                 if tensor.is_mixed:
+                    # For the mixed case, the output is a slice of the matrix/vector
                     #block_index = inner.indices
                     #slices = []
                     #swept_indices = []
@@ -596,13 +594,10 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("For now only non mixed supported")
                 else:
                     #@TODO
-                    indices=(self.loopy_indices[0],self.loopy_indices[1])
+                    indices=self.loopy_indices[0]
                     output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
-                    #output = pym.Variable(self.gem_loopy_dict[temp].name)
-
                         
-                print("SUB:",output)
-                #kernel data is equuivalent to the args in the coffee kernel setup
+                #kernel data contains the parameters fed into the subkernel
                 kernel_data = [(mesh.coordinates,
                                 self.coordinates_arg)]
                 if kinfo.oriented:
@@ -620,16 +615,14 @@ class LocalLoopyKernelBuilder(object):
                                     for c in itertools.chain(*(c.split()
                                                             for c in local_coefficients))])
 
-                #Generation of indices of the extent of the coefficient dimensions/cell size dimension & co
-                #shou
-                #@TODO: is this directly transferable when there is a indermediate gem rep
-                print("KERNEL DATA:",kernel_data)
+                #the kernel data eas variables which are vectors (e.g. coords)
+                #in order to feed them into the scalar languages
+                #they have to be subarrayrefed (fed element by element)
                 for c, name in kernel_data:
                     extent = index_extent(c)
                     idx =self.create_index(extent)
-                    argument = SubArrayRef((idx, ), pym.Subscript(pym.Variable(name), (idx, )))
+                    argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
-                    print("READS:", reads)
 
 
                 if integral_type == "cell":
@@ -675,16 +668,19 @@ class LocalLoopyKernelBuilder(object):
                 #            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
                 #            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
                 #    predicates = frozenset([which])
+                #else:
+                #    raise ValueError("Unhandled integral type {}".format(integral_type))
                 else:
-                    raise ValueError("Unhandled integral type {}".format(integral_type))
+                    raise NotImplementedError("Only cell integrals are implemente for slateloopy yet.")
 
-                #reads is used to give the instruction an id
+                #reads are the variables being fed into the subkernel
+                #later on assemby calls will be needed for the kitting instruction 
+                #when merging the outer (slate) kernel with the inner (ufl) kernel
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
                                             within_inames_is_final=True,id="inner_call"))
 
-                print("ASSEMBLY CALL:", assembly_calls[integral_type])
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
@@ -697,14 +693,23 @@ class LocalLoopyKernelBuilder(object):
         self.oriented =kinfo.oriented
         self.reads=reads
 
-
+#every time an index is created it is saved in a list (gem as well as loopy)
+#saved as tuples
 def create_index(extent, namer,ctx):
-    name = next(namer)
-    ret=pym.Variable(name)
-    ctx.loopy_indices.append(ret)
-    ctx.gem_indices.append(gem.Index(name,int(extent)))
-    return ret
+    if isinstance(extent,tuple):
+        name1,name2 = next(namer),next(namer)
+        ret1,ret2=pym.Variable(name1),pym.Variable(name2)
+        ctx.loopy_indices.append((ret1,ret2))
+        ctx.gem_indices.append((gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
+        return (ret1,ret2)
+    else:
+        name = next(namer)
+        ret=pym.Variable(name)
+        ctx.loopy_indices.append((ret,))
+        ctx.gem_indices.append((gem.Index(name,int(extent)),))
+        return (ret,)
 
+#calculation of the range on an index
 def index_extent(coefficient):
     element = coefficient.ufl_element()
     if element.family() == "Real":

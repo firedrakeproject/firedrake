@@ -632,8 +632,8 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
 
     
     #creation of return variables for slate loopy
-    indices=(builder.gem_indices[0],builder.gem_indices[1])
-    return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),(builder.gem_indices[0],builder.gem_indices[1]))
+    indices=builder.gem_indices[0]
+    return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),indices)
     ret_vars.append(return_variable)
 
 

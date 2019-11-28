@@ -415,61 +415,6 @@ def traverse_dags(exprs):
                 seen.add(operand)
                 container.append(operand)
 
-def my_merge_loopy(loopy_outer,loopy_inner):
-
-    print("MERGE ROUTINE:")
-    #create kitting code
-    kitting_code=lp.make_kernel("{ [v,w]: 0<=v<3 and 0<=w<3}","T0[v,w] =A[v,w] {id=insn}")
-    kitting_code_knl=kitting_code.callables_table.resolved_functions["loopy_kernel"].subkernel
-
-    #kitting arguments
-    data = list(loopy_outer.args)#outer can only have args
-    #@TODO: I think you need to convert args into temporary variables
-    data.extend(loopy_inner.args)#inner can have args or temps
-    data.extend(list(loopy_inner.temporary_variables.values()))    
-    data.extend(list(loopy_outer.temporary_variables.values()))    
-    print("DATA:",data)
-
-    #kitting domains
-    domains_inner=loopy_inner.domains
-    domains_outer= loopy_outer.domains
-    #domains=loopy_inner.domains+loopy_outer.domains
-    domains=loopy_inner.domains+kitting_code_knl.domains+loopy_outer.domains
-    print("DOMAIN:",domains)
-
-    #kitting the instructions
-    instructions=[]
-    instructions.extend(loopy_inner.instructions)
-    A=loopy_inner.args[0]
-    T=loopy_outer.temporary_variables["T0"]
-    #kitting_code_instr = lp.fix_parameters(kittigng_code_instr ,n=loopy_inner.args[0].shape[0])
-    #lp.Assignment(p.Subscript(p.Variable(loopy_outer.temporary_variables["T0"].name), p.Variable(tt)),p.Subscript(p.Variable(loopy_inner.args[0].name), p.Variable(ss)))    
-    instructions.extend(kitting_code_knl.instructions)   
-    instructions.append(loopy_outer.instructions[0])
-    print(instructions)
-
-    #fix the ids/prios of instrutions for right scheduling
-    #@TODO: am I messing up my dependencies with this?
-    #@TODO: maybe sth like a substitution would be better?
-    insn_new = []
-    for i, insn in enumerate(instructions):
-        if i==0:
-            insn_new.append(insn.copy(id="insn",priority=len(instructions) - i))
-        else:
-            insn_new.append(insn.copy(id="insn_"+str(i-1),priority=len(instructions) - i))
-    print(insn_new)
-    
-    print("\n data\n:",data)
-
-    # Create loopy kernel
-    knl = lp.make_function(domains,insn_new, data, name="glueloopy", target=lp.CTarget(),
-                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-
-    # Prevent loopy interchange by loopy
-    #knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
-
-    return knl
-
 
 def merge_loopy(loopy_outer,loopy_inner,builder):
     #generate initilisation instructions
@@ -478,7 +423,7 @@ def merge_loopy(loopy_outer,loopy_inner,builder):
     for slate_tensor,gem_indexed in builder.temps.items():
         #add all temporaries for the tensors as arguments
         loopy_tensor=builder.gem_loopy_dict[gem_indexed]
-        indices=(builder.loopy_indices[2*c],builder.loopy_indices[2*c+1])
+        indices=builder.loopy_indices[c]
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c))
         c+=1
 
@@ -503,11 +448,12 @@ def merge_loopy(loopy_outer,loopy_inner,builder):
 
     #fix domains (add additional indices coming from calling the subkernel)
     def create_domains(gem_indices):
-        for i in gem_indices:
-            name=i.name
-            extent=i.extent
-            vars = isl.make_zero_and_vars([name], [])
-            yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
+        for tuple_index in gem_indices:
+            for i in tuple_index:
+                name=i.name
+                extent=i.extent
+                vars = isl.make_zero_and_vars([name], [])
+                yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
     domains = list(create_domains(builder.gem_indices))
     loopy_outer = loopy_outer.copy(domains=domains+loopy_outer.domains)
 
