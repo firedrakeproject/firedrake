@@ -1,12 +1,14 @@
 # cython: language_level=3
 
 import numpy
-from pyop2.datatypes import IntType, ScalarType
-cimport numpy
-from libc.stdint cimport uintptr_t
-cimport petsc4py.PETSc as PETSc
 from firedrake.petsc import PETSc
-include "dmplexinc.pxi"
+from pyop2.datatypes import IntType, ScalarType
+
+cimport numpy
+cimport petsc4py.PETSc as PETSc
+from libc.stdint cimport uintptr_t
+
+include "petschdr.pxi"
 
 
 MAGIC = {2: (22, 3, 2),
@@ -17,13 +19,6 @@ ctypedef int (*compiled_call)(const double *, const double *, const double *,
                                const double *, const double *,
                                const double *, double *)
 
-
-cdef extern from "petscmat.h" nogil:
-    int MatSetValuesLocal(PETSc.PetscMat, PetscInt, const PetscInt[], PetscInt, const PetscInt[],
-                          const PetscScalar[], PetscInt)
-    int MatAssemblyBegin(PETSc.PetscMat, PetscInt)
-    int MatAssemblyEnd(PETSc.PetscMat, PetscInt)
-    PetscInt MAT_FINAL_ASSEMBLY = 0
 
 cdef extern from "libsupermesh-c.h" nogil:
     void libsupermesh_tree_intersection_finder_set_input(long* nnodes_a, int* dim_a, long* nelements_a, int* loc_a, long* nnodes_b, int* dim_b, long* nelements_b, int* loc_b, double* positions_a, long* enlist_a, double* positions_b, long* enlist_b);
@@ -147,8 +142,8 @@ def intersection_finder(mesh_A, mesh_B):
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
-    nnodes_A = mesh_A.num_vertices()
-    nnodes_B = mesh_B.num_vertices()
+    nnodes_A = mesh_A.coordinates.dof_dset.total_size
+    nnodes_B = mesh_B.coordinates.dof_dset.total_size
     dim_A = mesh_A.geometric_dimension()
     dim_B = mesh_B.geometric_dimension()
     ncells_A = mesh_A.num_cells()

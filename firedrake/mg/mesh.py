@@ -4,7 +4,7 @@ from collections import defaultdict
 
 import firedrake
 from firedrake.utils import cached_property
-from . import impl
+from firedrake.cython import mgimpl as impl
 from .utils import set_level
 
 

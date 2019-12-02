@@ -183,27 +183,24 @@ the nodes on that facet on the bottom cell and walk up the column.
 This is guaranteed to pick up all the nodes in the closure of the
 facet column.
 """
-
-cimport mpi4py.MPI as MPI
-from mpi4py.libmpi cimport MPI_Op_create, MPI_Op_free, MPI_User_function, MPI_OP_NULL
-from mpi4py import MPI
-from firedrake.petsc import PETSc
-import numpy
-cimport numpy
 import cython
-cimport petsc4py.PETSc as PETSc
-from pyop2.datatypes import IntType
+import firedrake.extrusion_utils as eutils
+import numpy
+from firedrake.petsc import PETSc
+from mpi4py import MPI
+from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
+                            MPI_User_function)
 from pyop2 import op2
+from pyop2.datatypes import IntType
 from tsfc.fiatinterface import as_fiat_cell
 
-import firedrake.extrusion_utils as eutils
+cimport numpy
+cimport mpi4py.MPI as MPI
+cimport petsc4py.PETSc as PETSc
+
 numpy.import_array()
 
-include "dmplexinc.pxi"
-
-cdef extern from "mpi-compat.h":
-    pass
-
+include "petschdr.pxi"
 
 cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Datatype *datatype) nogil:
     cdef:

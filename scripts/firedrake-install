@@ -10,9 +10,10 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import argparse
 from collections import OrderedDict
 import atexit
+import json
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -228,16 +229,16 @@ honoured.""",
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--mpicc", type=str,
                         action="store", default=None,
-                        help="C compiler to use when building with MPI (default is 'mpicc')")
+                        help="C compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpicxx", type=str,
                         action="store", default=None,
-                        help="C++ compiler to use when building with MPI (default is 'mpicxx')")
+                        help="C++ compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpif90", type=str,
                         action="store", default=None,
-                        help="Fortran compiler to use when building with MPI (default is 'mpif90')")
+                        help="Fortran compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
-                        help="MPI launcher (default is 'mpiexec')")
+                        help="MPI launcher. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--venv-name", default="firedrake",
@@ -289,10 +290,19 @@ honoured.""",
 
     config = FiredrakeConfiguration(args)
 else:
-    import firedrake_configuration
-    config = firedrake_configuration.get_config()
-    if config is None:
-        raise InstallError("Failed to find existing Firedrake configuration")
+    # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
+    try:
+        with open(os.path.join(os.environ["VIRTUAL_ENV"],
+                               ".configuration.json"), "r") as f:
+            config = json.load(f)
+
+    except FileNotFoundError:
+        # Fall back to the old location.
+        import firedrake_configuration
+
+        config = firedrake_configuration.get_config()
+        if config is None:
+            raise InstallError("Failed to find existing Firedrake configuration")
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -411,7 +421,6 @@ else:
 if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
 
-
 # venv install
 python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the venv
@@ -446,6 +455,9 @@ petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 petsc_opts += "--with-fortran-bindings=0 "
 
 petsc_options = {"--with-fortran-bindings=0",
+                 "--with-debugging=0",
+                 "--with-shared-libraries=1",
+                 "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
                  "--download-hdf5",
@@ -487,37 +499,31 @@ if options["petsc_int_type"] == "int32":
 else:
     petsc_options.add("--with-64-bit-indices")
 
-
-if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(petsc_options))
+if options["mpiexec"] is not None:
+    petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 else:
-    all_opts = petsc_options | set(os.environ["PETSC_CONFIGURE_OPTIONS"].split())
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(all_opts))
+    # Download mpich if the user does not tell us about an MPI.
+    petsc_options.add("--download-mpich")
 
+petsc_options |= set(os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split())
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
 
 
-def check_call(arguments, env=None):
+def check_call(arguments):
     try:
         log.debug("Running command '%s'", " ".join(arguments))
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env).decode())
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
         raise
 
 
-def check_output(args, env=None):
+def check_output(args):
     try:
         log.debug("Running command '%s'", " ".join(args))
-        result = subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
-        if isinstance(result, str):
-            # Python 2
-            return result
-        else:
-            # Python 3
-            return result.decode()
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
         raise
@@ -729,6 +735,7 @@ def pip_uninstall(package):
     # the moon, the order in which they are uninstalled is not the
     # same as the order in which they appear on sys.path!
     again = True
+    uninstalled = False
     i = 0
     while again:
         # List installed packages, "locally".  In a venv,
@@ -738,14 +745,16 @@ def pip_uninstall(package):
         again = False
         for line in lines.split("\n"):
             # Do we have a locally installed package?
-            if line.startswith(package):
+            if line.startswith(package+'=='):
                 # Uninstall it.
                 run_pip(["uninstall", "-y", line.strip()])
+                uninstalled = True
                 # Go round again, because THERE MIGHT BE ANOTHER ONE!
                 again = True
         i += 1
         if i > 10:
             raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
+    return uninstalled
 
 
 def get_petsc_dir():
@@ -756,13 +765,9 @@ def get_petsc_dir():
             raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
-        try:
-            petsc_dir = check_output(python
-                                     + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
+        petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
+        petsc_arch = "default"
 
-            petsc_arch = ""
-        except subprocess.CalledProcessError:
-            raise InstallError("Unable to find installed PETSc")
     return petsc_dir, petsc_arch
 
 
@@ -808,7 +813,12 @@ def build_and_install_petsc():
     else:
         log.info("Eigen tarball hash valid")
     log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
-    run_pip_install(["--ignore-installed", "petsc/"])
+    assert not args.honour_petsc_dir  # Belt and braces security before we start clobbering things.
+    with directory("petsc"):
+        petsc_dir, petsc_arch = get_petsc_dir()
+        check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
+        check_call(["./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
 
 
 def build_and_install_h5py():
@@ -1037,6 +1047,24 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
+def create_compiler_env(cc, cxx, f90):
+    env = dict()
+    if cc:
+        env["MPICC"] = cc
+        env["MPI_C_COMPILER"] = cc
+        env["CC"] = cc
+    if cxx:
+        env["MPICXX"] = cxx
+        env["MPI_CXX_COMPILER"] = cxx
+        env["CXX"] = cxx
+    if f90:
+        env["MPIF90"] = f90
+        env["MPI_C_COMPILER"] = f90
+        env["F90"] = f90
+
+    return env
+
+
 if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
@@ -1108,7 +1136,6 @@ if mode == "install" or not args.update_script:
             log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
             # Ensure a fortran compiler is available
             brew_install("gcc")
-            brew_install("openmpi")
             brew_install("python3")
             brew_install("autoconf")
             brew_install("automake")
@@ -1136,7 +1163,6 @@ if mode == "install" or not args.update_script:
                             "git",
                             "libblas-dev",
                             "liblapack-dev",
-                            "libmpich-dev",
                             "libtool",
                             "mercurial",
                             "mpich",
@@ -1160,7 +1186,6 @@ if mode == "install" or not args.update_script:
             log.info("If this is not the case, please install the following and try again:")
             log.info("* A C and C++ compiler (for example gcc/g++ or clang), GNU make")
             log.info("* A Fortran compiler (for PETSc)")
-            log.info("* MPI")
             log.info("* Blas and Lapack")
             log.info("* Git, Mercurial")
             log.info("* Python version >=3.5")
@@ -1171,7 +1196,6 @@ if mode == "install" or not args.update_script:
 
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
-
 
 if mode == "install":
     if os.path.exists(firedrake_env):
@@ -1206,36 +1230,47 @@ if mode == "install":
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
+petsc_dir, petsc_arch = get_petsc_dir()
+
+# Set up MPI wrappers if they don't already exist.
+if not os.path.lexists(os.path.join(firedrake_env, "bin", "mpicc")):
     # Set up the MPI wrappers
     for opt in ["mpicc", "mpicxx", "mpif90"]:
         if options.get(opt):
             name = options[opt]
             src = shutil.which(name)
-            dest = os.path.join(firedrake_env, "bin", opt)
-            log.debug("Creating a symlink from %s to %s" % (src, dest))
-            os.symlink(src, dest)
+        else:
+            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+        dest = os.path.join(firedrake_env, "bin", opt)
+        log.debug("Creating a symlink from %s to %s" % (src, dest))
+        os.symlink(src, dest)
 
     if options.get("mpiexec"):
-        mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-        log.debug("Creating an mpiexec wrapper for %s" % shutil.which(args.mpiexec))
-        with open(mpiexecf, "w") as mpiexec:
-            contents = '#!/bin/bash' + os.linesep + shutil.which(args.mpiexec) + ' "$@"'
-            mpiexec.write(contents)
-        os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+        mpiexec_loc = shutil.which(args.mpiexec)
+    else:
+        mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
+    mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
+    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
+    with open(mpiexecf, "w") as mpiexec:
+        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
+        mpiexec.write(contents)
+    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
-cc = options["mpicc"] or "mpicc"
-cxx = options["mpicxx"] or "mpicxx"
-f90 = options["mpif90"] or "mpif90"
-compiler_env = dict(MPICC=cc,
-                    MPICXX=cxx,
-                    MPIF90=f90,
-                    MPI_C_COMPILER=cc,
-                    MPI_CXX_COMPILER=cxx,
-                    MPI_Fortran_COMPILER=f90,
-                    CC=cc,
-                    CXX=cxx,
-                    F90=f90)
+cc = options["mpicc"]
+cxx = options["mpicxx"]
+f90 = options["mpif90"]
+compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
+
+# Configuration is now complete, and we have a venv so we dump the
+# config file in order to maximise the chance that firedrake-update
+# can be run on a partial install.
+config_location = os.path.join(firedrake_env, ".configuration.json")
+json_output = json.dumps(config)
+with open(config_location, "w") as f:
+    f.write(json_output)
+log.info("Configuration saved to " + config_location)
+
 
 if mode == "install":
     os.mkdir("src")
@@ -1245,6 +1280,10 @@ if mode == "install":
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+
+    # Build the update script as soon as possible so that installation
+    # recovery can be attempted if required.
+    build_update_script()
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1261,13 +1300,24 @@ if mode == "install":
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
 
-    with environment(**compiler_env):
-        # Need to install petsc first in order to resolve hdf5 dependency.
-        if not args.honour_petsc_dir:
+    # Need to install petsc first in order to resolve hdf5 dependency.
+    if not args.honour_petsc_dir:
+        with environment(**compiler_env):
             with pipargs("--no-deps"):
                 packages.remove("petsc")
                 install("petsc/")
+        os.environ["PETSC_DIR"] = petsc_dir
+        os.environ["PETSC_ARCH"] = petsc_arch
 
+    # If petsc built mpich then we now need to set the compiler environment variables.
+    if not compiler_env:
+        compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+        cc = os.path.join(compilerbin, "mpicc")
+        cxx = os.path.join(compilerbin, "mpicxx")
+        f90 = os.path.join(compilerbin, "mpif90")
+        compiler_env = create_compiler_env(cc, cxx, f90)
+
+    with environment(**compiler_env):
         for p in packages:
             pip_requirements(p)
 
@@ -1292,8 +1342,6 @@ if mode == "install":
             pass
         packages.remove("petsc4py")
         packages.remove("firedrake")
-
-        build_update_script()
 
 else:
     # Update mode
@@ -1330,8 +1378,10 @@ else:
         for package in packages:
             pip_uninstall(package)
         if args.rebuild:
-            pip_uninstall("petsc")
             pip_uninstall("petsc4py")
+
+    # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
+    petsc_changed = pip_uninstall("petsc") or petsc_changed
 
     for p in packages:
         try:
@@ -1343,10 +1393,6 @@ else:
             else:
                 raise
 
-    # update dependencies.
-    for p in packages:
-        pip_requirements(p)
-
     with pipargs("--no-deps"):
         with environment(**compiler_env):
             # Only rebuild petsc if it has changed.
@@ -1354,6 +1400,24 @@ else:
                 clean("petsc/")
                 log.info("Depending on your platform, PETSc may take an hour or more to build!")
                 install("petsc/")
+        if not args.honour_petsc_dir:
+            os.environ["PETSC_DIR"] = petsc_dir
+            os.environ["PETSC_ARCH"] = petsc_arch
+
+        # If petsc built mpich then we now need to set the compiler environment variables.
+        if not compiler_env:
+            compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+            cc = os.path.join(compilerbin, "mpicc")
+            cxx = os.path.join(compilerbin, "mpicxx")
+            f90 = os.path.join(compilerbin, "mpif90")
+            compiler_env = create_compiler_env(cc, cxx, f90)
+
+    with environment(**compiler_env):
+        # update dependencies.
+        for p in packages:
+            pip_requirements(p)
+
+        with pipargs("--no-deps"):
             if args.rebuild or petsc_changed or petsc4py_changed:
                 clean("petsc4py/")
                 install("petsc4py/")
@@ -1393,17 +1457,9 @@ with environment(**compiler_env):
     if args.documentation_dependencies:
         install_documentation_dependencies()
 
-try:
-    import firedrake_configuration
-    firedrake_configuration.write_config(config)
-    log.info("Configuration saved to configuration.json")
-except Exception as e:
-    log.warning("Unable to save configuration to a JSON file")
-    log.warning("Error Message:")
-    log.warning(str(e))
-
 if mode == "update":
     try:
+        import firedrake_configuration
         firedrake_configuration.setup_cache_dirs()
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
