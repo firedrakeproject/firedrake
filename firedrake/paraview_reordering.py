@@ -2,6 +2,7 @@ from tsfc.fiatinterface import create_element
 import numpy as np
 from pyop2.utils import as_tuple
 import importlib
+import functools
 """
 This requires an explentation.
 Vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
@@ -39,13 +40,13 @@ def invert(list1, list2):
     """
     if len(list1) != len(list2):
         raise ValueError("Dimension of Paraview basis and Element basis unequal.")
-    N = len(list1)
-    pt1, o1 = zip(*sorted(zip(map(tuple, list1), range(N))))
-    pt2, o2 = zip(*sorted(zip(map(tuple, list2), range(N))))
-    if not np.allclose(pt1, pt2):
+    def find_same(val, lst, tol=0.00000001):
+        for (idx, x) in enumerate(lst):
+            if np.linalg.norm(val - x) < tol:
+                return idx
         raise ValueError("Unable to establish permutation between Paraview basis and given element's basis.")
-
-    return np.asarray(o2)[np.argsort(o1)]
+    perm = [find_same(x, list2) for x in list1]
+    return perm
 
 
 # The following functions wrap around functions provided by vtk (pip install vtk).
