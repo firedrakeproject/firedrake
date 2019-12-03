@@ -151,3 +151,12 @@ is to download a binary from the `paraview website <Paraview_>`_.
 .. _homebrew: https://brew.sh/
 .. _anaconda: https://www.continuum.io/downloads
 .. _PETSc: https://www.mcs.anl.gov/petsc/
+
+Removing firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the firedrake 
+install directory. This is usually the ``firedrake`` subdirectory 
+created after having run ``firedrake-install``. Note that this will not 
+undo the installation of any system packages which are firedrake 
+dependencies: removing these might affect subsequently installed 
+packages for which these are also dependencies.
