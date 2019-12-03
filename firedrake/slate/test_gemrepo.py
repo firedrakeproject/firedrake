@@ -50,7 +50,7 @@ test=assemble(Transpose(_A))
 print(test.M.handle.view())
 print(comp.M.handle.view())
 
-#print((test.M.handle-test2.M.handle).view())
+print((test.M.handle-comp.M.handle).view())
 #print((test.M.handle-test3.M.handle).norm())
 #print((test.M.handle-test2.M.handle).norm())
 print((test.M.handle-comp.M.handle).norm())
