@@ -46,6 +46,8 @@ def invert(list1, list2):
                 return idx
         raise ValueError("Unable to establish permutation between Paraview basis and given element's basis.")
     perm = [find_same(x, list2) for x in list1]
+    if len(set(perm)) != len(perm):
+        raise ValueError("Unable to establish permutation between Paraview basis and given element's basis.")
     return perm
 
 
