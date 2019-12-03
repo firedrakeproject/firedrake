@@ -2,7 +2,6 @@ from tsfc.fiatinterface import create_element
 import numpy as np
 from pyop2.utils import as_tuple
 import importlib
-import functools
 """
 This requires an explentation.
 Vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
@@ -40,6 +39,7 @@ def invert(list1, list2):
     """
     if len(list1) != len(list2):
         raise ValueError("Dimension of Paraview basis and Element basis unequal.")
+
     def find_same(val, lst, tol=0.00000001):
         for (idx, x) in enumerate(lst):
             if np.linalg.norm(val - x) < tol:
