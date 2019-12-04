@@ -165,13 +165,15 @@ def classsingledispatch(func):
 class SlateTranslator():
     """Multifunction for translating UFL -> GEM.  """
 
-    def __init__(self, tensor_to_variable):
+    def __init__(self,builder):
         # Need context during translation!
-        self.tensor_to_variable=tensor_to_variable
+        self.tensor_to_variable=builder.temps
+        self.traversed_slate_expr_dag=builder.expression_dag
+        self.builder=builder
 
-    def slate_to_gem_translate(self, slate_expression_dag):
+    def slate_to_gem_translate(self):
         gem_expression_dag=[]
-        for tensor in slate_expression_dag:#tensor hier is actually TensorBase
+        for tensor in self.traversed_slate_expr_dag:#tensor hier is actually TensorBase
             print(tensor)
             # Terminal tensors/Assembled Vectors are already defined
             #just redirect to allocated memory, how??
@@ -269,13 +271,9 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self,tensor):
         A, = tensor.operands
-        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        print(self.tensor_to_variable[A].multiindex)
-        ret=ComponentTensor(self.tensor_to_variable[A],tuple(reversed(self.tensor_to_variable[A].multiindex)))
-        print("ret multiiindex: ",ret.multiindex)
-        print("ret freeindex: ",ret.free_indices)
-        print("ret children: ",ret.children)
-        print("ret: ",ret)
+        indices =self.builder.create_index(A.shape)
+        A_indices=self.builder.gem_indices[-1]
+        ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
         return ret
 
     #@TODO: actually more complicated because used for mixed tensors?
@@ -419,12 +417,18 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     #TODO get indices dynamically
     #add loop around initilisaition
     loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i0','i1'}) ,"id:init0")
+    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i','i_0'}) ,"id:insn_0")
+    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i3','i4'}) ,"id:insn")
+
+    #loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'h0','h1'}) ,"id:insn")
     #add dep on subkernelcall
+    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn_0', 'id:insn') 
     loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call') 
-    #add dep on init
-    loopy_outer = lp.add_dependency(loopy_outer, 'id:inner_call', 'id:init0') 
+    loopy_outer = lp.add_dependency(loopy_outer, 'id:inner_call', 'id:init0')
+
     #remove priority generate from tsfc compile call
     loopy_outer=lp.set_instruction_priority(loopy_outer, "id:insn", None)
+    loopy_outer=lp.set_instruction_priority(loopy_outer, "id:insn_0", None)
 
     #add arguments of the subkernel
     #@TODO is the dimtag right

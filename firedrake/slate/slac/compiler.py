@@ -134,7 +134,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     print("BUILDER DONE")
 
     #stage1: slate to gem....                      
-    gem_expr=slate_to_gem(builder.expression_dag,builder.temps)
+    gem_expr=slate_to_gem(builder)
     
     print("SLATE GEM EXPR:",gem_expr)
    
@@ -603,8 +603,8 @@ def parenthesize(arg, prec=None, parent=None):
 #both dag types are traversed into list
 #tensor and assembled vectors are already run through by now
 #they are acessed by the translator
-def slate_to_gem(traversed_slate_expr_dag, declared_temps,prec=None):
-    traversed_gem_dag=SlateTranslator(declared_temps).slate_to_gem_translate(traversed_slate_expr_dag)
+def slate_to_gem(builder,prec=None):
+    traversed_gem_dag=SlateTranslator(builder).slate_to_gem_translate()
     #TODO maybe I need to collect all the additional indices from the gem expressions
     return traversed_gem_dag
 
@@ -631,7 +631,8 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     args.append(arg)
     
     #creation of return variables for slate loopy
-    indices=builder.gem_indices[0]
+    indices=builder.gem_indices[-1]#TODO
+    print("ouptindc",indices)
     return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),indices)
     ret_vars.append(return_variable)
 
