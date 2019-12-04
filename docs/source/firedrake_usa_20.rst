@@ -1,10 +1,10 @@
 .. title:: Firedrake USA
 
-.. image:: images/durham_cathedral.jpg
+.. image:: images/rainier-vista.jpg
    :width: 45%
-   :alt: Durham Cathedral
+   :alt: Rainier Vista
    :align: right
-   :target: https://commons.wikimedia.org/wiki/File:Durham_MMB_02_Cathedral.jpg
+   :target: https://uwartsci.files.wordpress.com/2011/04/rainier-vista.jpg
                
 Firedrake USA '20
 -----------------
@@ -61,7 +61,7 @@ Location
 Registration
 ------------
 
-Registration will open very soon and costs $???, rising to $??? after
+Registration will open very soon and costs $50, rising to $100 after
 15 January. Registration for the tutorial only is free.
 
 
