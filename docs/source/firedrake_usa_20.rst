@@ -56,6 +56,9 @@ details will follow soon.
 Location
 ~~~~~~~~
 
+The workshop will be held in the `Data Science Studio
+<https://escience.washington.edu/wrf-data-science-studio/>`_ on the
+6th floor of the UW Physics and Astronomy Building.
 
 
 Registration
