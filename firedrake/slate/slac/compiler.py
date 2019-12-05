@@ -643,7 +643,6 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #impero_c to loopy
     precision=6#TODO
     loopy_outer= generate_loopy(impero_c, args, precision,"double","loopy_outer")
-    print(loopy_outer)
     return loopy_outer
 
 

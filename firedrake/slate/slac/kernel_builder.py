@@ -456,7 +456,8 @@ class LocalLoopyKernelBuilder(object):
             
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
-                #the indices stuff is really ugly
+
+                print(tensor.shape)
                 indices =self.create_index(tensor.shape)
                 print(len(temps))
                 gem_indices=self.gem_indices[len(temps)]
@@ -468,11 +469,13 @@ class LocalLoopyKernelBuilder(object):
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
+
                 function = tensor._function
-                
-                gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(function,
-                                   shape=shape,
-                                   dtype=SCALAR_TYPE))
+                print(function)
+
+                #gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(function,
+                #                   shape=shape,
+                #                   dtype=SCALAR_TYPE))
 
                 def dimension(e):
                     return create_element(e).space_dimension()
@@ -485,7 +488,10 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [dimension(function.ufl_element())]
 
                     # Local temporary
-                    local_temp = gem.Variable("VecTemp%d" % len(seen_coeff),shapes)
+                    #indices =self.create_index(tensor.shape)
+                    #gem_indices=self.gem_indices[len(seen_coeff)]
+                    #temps.setdefault(tensor, gem.Indexed(gem.Variable("VecTemp%d" %len(seen_coeff),tensor.shape),gem_indices))
+                    local_temp = loopy.TemporaryVariable("VecTemp%d" % len(seen_coeff),shape=tensor.shape,dtype=SCALAR_TYPE)
 
                     offset = 0
                     for i, shape in enumerate(shapes):
@@ -682,6 +688,8 @@ class LocalLoopyKernelBuilder(object):
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
                                             within_inames_is_final=True,id="inner_call"))
+                
+       # self.integral_type=integral_type
 
 
         self.assembly_calls = assembly_calls
@@ -691,20 +699,21 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-        self.integral_type=integral_type
-        self.oriented =kinfo.oriented
-        self.reads=reads
+      #  self.oriented =kinfo.oriented
+      #  self.reads=reads
 
 #every time an index is created it is saved in a list (gem as well as loopy)
 #saved as tuples
 def create_index(extent, namer,ctx):
-    if isinstance(extent,tuple):
+    if isinstance(extent,tuple) and len(extent)==2:
         name1,name2 = next(namer),next(namer)
         ret1,ret2=pym.Variable(name1),pym.Variable(name2)
         ctx.loopy_indices.append((ret1,ret2))
         ctx.gem_indices.append((gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
         return (ret1,ret2)
     else:
+        if isinstance(extent,tuple):
+            extent=extent[0]
         name = next(namer)
         ret=pym.Variable(name)
         ctx.loopy_indices.append((ret,))

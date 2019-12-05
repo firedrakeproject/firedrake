@@ -168,6 +168,7 @@ class SlateTranslator():
     def __init__(self,builder):
         # Need context during translation!
         self.tensor_to_variable=builder.temps
+        self.coeff_vecs=builder.coefficient_vecs
         self.traversed_slate_expr_dag=builder.expression_dag
         self.builder=builder
 
@@ -182,7 +183,8 @@ class SlateTranslator():
                 print(self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
-                gem_expression_dag.append(self.tensor_to_variable(tensor))
+                print(self.coeff_vecs)
+                gem_expression_dag.append(self.coeff_vecs[3])
 
             #other tensor types are translated into gem nodes
             else:
