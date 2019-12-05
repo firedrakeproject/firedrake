@@ -44,7 +44,7 @@ Abstract submission
 
 If you are using or developing Firedrake, we'd absolutely love to see
 a presentation on your work at the workshop. Please submit a short abstract `on Easychair
-<https://easychair.org/conferences/?conf=FiredrakeUSA20>`_.
+<https://easychair.org/conferences/?conf=firedrakeusa20>`_.
 
 
 Workshop dinner
