@@ -605,58 +605,44 @@ def parenthesize(arg, prec=None, parent=None):
 #they are acessed by the translator
 def slate_to_gem(builder,prec=None):
     traversed_gem_dag=SlateTranslator(builder).slate_to_gem_translate()
-    #TODO maybe I need to collect all the additional indices from the gem expressions
     return traversed_gem_dag
 
 #STAGE 2
 #converts the gem expression dag into imperoc
-def gem_to_loopy(traversed_gem_expr_dag,builder):
-    print("gem exprs:",traversed_gem_expr_dag)
-    print("builder temps", builder.temps)
+def gem_to_loopy(traversed_gem_expr_dag,builder):    
+    #STAGE 2A: 
+    #slate to impero_c
     
-    ret_vars=[]#gem return variables getting clipped to assignments
-    args=[]    #loopy args for temporaries (tensors and assembled vectors) and arguments
-
+    #add all tensor temporaries as arguments
     #@TODO:check if this is right for more than one temporary
+    args=[]    #loopy args for temporaries (tensors and assembled vectors) and arguments
     for k,v in builder.temps.items():
-        #add all temporaries for the tensors as arguments
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
 
-    #for outputting
     #create output arg
-    arg=loopy.GlobalArg("output",
-                                           shape=builder.expression.shape,
-                                           dtype="double")
+    arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
     
     #creation of return variables for slate loopy
     indices=builder.gem_indices[-1]#TODO
-    print("ouptindc",indices)
-    return_variable=gem.Indexed(gem.Variable("output",builder.expression.shape),indices)
-    ret_vars.append(return_variable)
+    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),indices)]
 
-    print("ARGS",args)
-    print("RETVARS",ret_vars)
-
-    #@TODO: preprocessing of gem for removing component tensors
+    #@TODO: preprocessing of gem for removing unneccesary component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
     #traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
     #print("preprocessed",traversed_gem_expr_dag)
     #print(traversed_gem_expr_dag[1])
     #traversed_gem_expr_dag=traversed_gem_expr_dag[1]
 
-
+    #glue assignments to return variable
     assignments=list(zip(ret_vars,traversed_gem_expr_dag))
-    print("ASSIGNMENTS", assignments)
-
-    #slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
+    #STAGE 2B:
     #impero_c to loopy
-    print("Slate IMPERO:",impero_c)   
-    precision=6
-    loopy_outer= generate_loopy(impero_c, args, precision,"double","test")
+    precision=6#TODO
+    loopy_outer= generate_loopy(impero_c, args, precision,"double","loopy_outer")
     print(loopy_outer)
     return loopy_outer
 
