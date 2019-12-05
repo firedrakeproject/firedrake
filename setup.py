@@ -11,24 +11,20 @@ import versioneer
 
 
 def get_petsc_dir():
-    try:
-        petsc_arch = env.get('PETSC_ARCH', '')
-        petsc_dir = env['PETSC_DIR']
-        if petsc_arch:
-            return (petsc_dir, path.join(petsc_dir, petsc_arch))
-        return (petsc_dir,)
-    except KeyError:
+    if args.honour_petsc_dir:
         try:
-            import petsc
-            return (petsc.get_petsc_dir(), )
-        except ImportError:
-            sys.exit("""Error: Could not find PETSc library.
+            petsc_dir = os.environ["PETSC_DIR"]
+        except KeyError:
+            raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
+        petsc_arch = os.environ.get("PETSC_ARCH", "")
+    else:
+        try:
+            petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
+            petsc_arch = "default"
+        except KeyError:
+            sys.exit("""Error: Firedrake venv not active.""")
 
-Set the environment variable PETSC_DIR to your local PETSc base
-directory or install PETSc from PyPI as described in the manual:
-
-http://firedrakeproject.org/obtaining_pyop2.html#petsc
-""")
+    return petsc_dir, petsc_arch
 
 
 cmdclass = versioneer.get_cmdclass()
