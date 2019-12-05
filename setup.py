@@ -11,13 +11,10 @@ import versioneer
 
 
 def get_petsc_dir():
-    if args.honour_petsc_dir:
-        try:
-            petsc_dir = os.environ["PETSC_DIR"]
-        except KeyError:
-            raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
+    try:
+        petsc_dir = os.environ["PETSC_DIR"]
         petsc_arch = os.environ.get("PETSC_ARCH", "")
-    else:
+    except KeyError:
         try:
             petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
             petsc_arch = "default"
