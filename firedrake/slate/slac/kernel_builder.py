@@ -469,10 +469,6 @@ class LocalLoopyKernelBuilder(object):
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
                 function = tensor._function
-                
-                gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(function,
-                                   shape=shape,
-                                   dtype=SCALAR_TYPE))
 
                 def dimension(e):
                     return create_element(e).space_dimension()
@@ -484,8 +480,15 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
+                    indices =self.create_index(tensor.shape)
+                    print(len(temps))
+                    gem_indices=self.gem_indices[len(temps)]
+
                     # Local temporary
-                    local_temp = gem.Variable("VecTemp%d" % len(seen_coeff),shapes)
+                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)
+                    gem_loopy_dict.setdefault(local_temp,loopy.GlobalArg(local_temp.children[0].name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE))
 
                     offset = 0
                     for i, shape in enumerate(shapes):
@@ -691,20 +694,22 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-        self.integral_type=integral_type
-        self.oriented =kinfo.oriented
-        self.reads=reads
+        #self.integral_type=integral_type
+        #self.oriented =kinfo.oriented
+        #self.reads=reads
 
 #every time an index is created it is saved in a list (gem as well as loopy)
 #saved as tuples
 def create_index(extent, namer,ctx):
-    if isinstance(extent,tuple):
+    if isinstance(extent,tuple) and len(extent)==2:
         name1,name2 = next(namer),next(namer)
         ret1,ret2=pym.Variable(name1),pym.Variable(name2)
         ctx.loopy_indices.append((ret1,ret2))
         ctx.gem_indices.append((gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
         return (ret1,ret2)
     else:
+        if isinstance(extent, tuple):
+            extent=extent[0]
         name = next(namer)
         ret=pym.Variable(name)
         ctx.loopy_indices.append((ret,))

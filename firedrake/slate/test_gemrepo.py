@@ -14,7 +14,7 @@ L = f * v * dx
 
 _A = Tensor(a)
 _A2 = Tensor(a)
-_F = Tensor(L)
+_F = AssembledVector(assemble(L))
 
 #TEST: assemble tensor
 #test=assemble(_A)
@@ -22,8 +22,8 @@ _F = Tensor(L)
 #comp=assemble(a)
 
 #TODO: TEST: assemble coefficients
-#test=assemble(_F)
-#comp=assemble(_L)
+test=assemble(_F)
+comp=assemble(L)
 
 #TEST: assemble addition
 #test=assemble(_A+_A2)
@@ -34,7 +34,7 @@ _F = Tensor(L)
 #comp=assemble(-a)
 
 #TODO: TEST: assemble transpose
-test=assemble(Transpose(_A))
+#test=assemble(Transpose(_A))
 
 #TODO: TEST: assemble contraction
 #test=assemble(_A*_A)
@@ -47,7 +47,10 @@ test=assemble(Transpose(_A))
 #b=assemble(_A.blocks[0,0])
 
 #Test the output
-print(test.M.handle.view())
+print(test.dat.data)
+
+print(test.dat.data)
+print(comp.dat.data)
 print(comp.M.handle.view())
 
 print((test.M.handle-comp.M.handle).view())

@@ -168,6 +168,7 @@ class SlateTranslator():
     def __init__(self,builder):
         # Need context during translation!
         self.tensor_to_variable=builder.temps
+        self.coeff_vecs=builder.coefficient_vecs
         self.traversed_slate_expr_dag=builder.expression_dag
         self.builder=builder
 
@@ -182,7 +183,8 @@ class SlateTranslator():
                 print(self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
-                gem_expression_dag.append(self.tensor_to_variable(tensor))
+                print(self.coeff_vecs)
+                gem_expression_dag.append(self.coeff_vecs[3][0].local_temp)
 
             #other tensor types are translated into gem nodes
             else:
@@ -198,6 +200,38 @@ class SlateTranslator():
         """
         raise AssertionError("Cannot handle terminal type: %s" % type(tensor))
 
+    @slate_to_gem.register(firedrake.slate.slate.Add)
+    def slate_to_gem_add(self,tensor):
+        A, B = tensor.operands #slate tensors
+        _A,_B=self.tensor_to_variable[A],self.tensor_to_variable[B]#gem representations
+        return Sum(_A,_B)
+
+    @slate_to_gem.register(firedrake.slate.slate.Negative)
+    def slate_to_gem_negative(self,tensor):
+        A,=tensor.operands
+        return Product(Literal(-1), self.tensor_to_variable[A])
+
+    @slate_to_gem.register(firedrake.slate.slate.Transpose)
+    def slate_to_gem_transpose(self,tensor):
+        A, = tensor.operands
+        indices =self.builder.create_index(A.shape)
+        A_indices=self.builder.gem_indices[-1]
+        ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
+        return ret
+
+    #@TODO: actually more complicated because used for mixed tensors?
+    @slate_to_gem.register(firedrake.slate.slate.Block)
+    def slate_to_gem_block(self,tensor,slice_indices):
+        A,=tensor.operands
+        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
+        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),slice_indices)
+
+        print("ret multiiindex: ",ret.multiindex)
+        print("ret freeindex: ",ret.free_indices)
+        print("ret children: ",ret.children)
+        print("ret: ",ret)
+        return ret
+    
     @slate_to_gem.register(firedrake.slate.slate.Mul)
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
@@ -253,39 +287,6 @@ class SlateTranslator():
         print("IndexSum freeindex: ",prod.free_indices)
         print("ret multiiindex: ",ret.multiindex)
         print("ret freeindex: ",ret.free_indices)
-        print("ret: ",ret)
-        return ret
-
-    @slate_to_gem.register(firedrake.slate.slate.Add)
-    def slate_to_gem_add(self,tensor):
-        A, B = tensor.operands #slate tensors
-        _A,_B=self.tensor_to_variable[A],self.tensor_to_variable[B]#gem representations
-        return Sum(_A,_B)
-
-    @slate_to_gem.register(firedrake.slate.slate.Negative)
-    def slate_to_gem_negative(self,tensor):
-        A,=tensor.operands
-        ret=Product(Literal(-1), self.tensor_to_variable[A])
-        return ret
-
-    @slate_to_gem.register(firedrake.slate.slate.Transpose)
-    def slate_to_gem_transpose(self,tensor):
-        A, = tensor.operands
-        indices =self.builder.create_index(A.shape)
-        A_indices=self.builder.gem_indices[-1]
-        ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
-        return ret
-
-    #@TODO: actually more complicated because used for mixed tensors?
-    @slate_to_gem.register(firedrake.slate.slate.Block)
-    def slate_to_gem_block(self,tensor,slice_indices):
-        A,=tensor.operands
-        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),slice_indices)
-
-        print("ret multiiindex: ",ret.multiindex)
-        print("ret freeindex: ",ret.free_indices)
-        print("ret children: ",ret.children)
         print("ret: ",ret)
         return ret
 
@@ -399,42 +400,40 @@ def traverse_dags(exprs):
 
 
 def merge_loopy(loopy_outer,loopy_inner_list,builder):
-    #generate initilisation instructions
+
+    #generate initilisation instructions for all tensor temporaries
     inits=[]
     c=0
     for slate_tensor,gem_indexed in builder.temps.items():
-        #add all temporaries for the tensors as arguments
         loopy_tensor=builder.gem_loopy_dict[gem_indexed]
-        indices=builder.loopy_indices[c]
-        inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c))
+        indices=builder.loopy_indices[c]#this might not be robust later on
+        inames={var.name for var in indices}
+        inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
 
     #get the CallInstruction from builder and include at beginning of outer kernel
     kitting_insn=builder.assembly_calls["cell"]
-    print(kitting_insn)
-    loopy_outer = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
+    loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
+    
+    #add dependencies dynamically
+    #add dep from first instruction of outer kernel to last instr of inner kernel
+    #add dep from last instruction of inner kernel to first instr of inner kernel
+    if len(loopy_merged.instructions)>1:
+        noi_outer=len(loopy_outer.instructions)
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
 
-    #TODO get indices dynamically
-    #add loop around initilisaition
-    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i0','i1'}) ,"id:init0")
-    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i','i_0'}) ,"id:insn_0")
-    loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'i3','i4'}) ,"id:insn")
-
-    #loopy_outer=lp.add_inames_to_insn(loopy_outer,frozenset({'h0','h1'}) ,"id:insn")
-    #add dep on subkernelcall
-    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn_0', 'id:insn') 
-    loopy_outer = lp.add_dependency(loopy_outer, 'id:insn', 'id:inner_call') 
-    loopy_outer = lp.add_dependency(loopy_outer, 'id:inner_call', 'id:init0')
-
-    #remove priority generate from tsfc compile call
-    loopy_outer=lp.set_instruction_priority(loopy_outer, "id:insn", None)
-    loopy_outer=lp.set_instruction_priority(loopy_outer, "id:insn_0", None)
+        #remove priority generate from tsfc compile call
+        for insn in loopy_merged.instructions[-noi_outer:-1]:
+            loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
 
     #add arguments of the subkernel
-    #@TODO is the dimtag right
-    #TODO need to make this possible dynamically for all arguments of subkernel
-    arg=lp.GlobalArg("coords",shape=(6,),dtype="double",dim_tags="N0:stride:1")
-    loopy_outer = loopy_outer.copy(args=list(loopy_outer.args)+[arg])
+    #TODO check if is the dimtag right
+    #TODO maybe we need to run over subkernels
+    print(loopy_merged)
+    if len(builder.templated_subkernels)>0:
+        inner_args=builder.templated_subkernels[0].args
+        loopy_merged = loopy_merged.copy(args=list(loopy_merged.args)+inner_args[1:]) #first variable is A which gets replaced by slate name of tensor anyways
 
     #fix domains (add additional indices coming from calling the subkernel)
     def create_domains(gem_indices):
@@ -445,10 +444,10 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
                 vars = isl.make_zero_and_vars([name], [])
                 yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
     domains = list(create_domains(builder.gem_indices))
-    loopy_outer = loopy_outer.copy(domains=domains+loopy_outer.domains)
+    loopy_merged= loopy_merged.copy(domains=domains+loopy_merged.domains)
 
     #generate program from kernel, register inner kernel and inline inner kernel
-    prg=make_program(loopy_outer)
+    prg=make_program(loopy_merged)
     for loopy_inner in loopy_inner_list:
         prg = register_callable_kernel(prg, loopy_inner)
         prg=inline_callable_kernel(prg,loopy_inner.name)
