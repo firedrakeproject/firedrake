@@ -39,8 +39,10 @@ def test_solve(a,L,V):
     solve(a==L, u_comp, solver_parameters={'ksp_type': 'cg'})
     print((u.dat.data-u_comp.dat.data).norm())
 
+#TODO test fails!
 def test_assembledvector(L):
-    _coeff_F = AssembledVector(assemble(L))
+    b=Function(assemble(L))
+    _coeff_F = AssembledVector(b)
 
     print(_coeff_F._function.dat.data)
     coeff_F=assemble(_coeff_F)
@@ -72,14 +74,14 @@ def test_transpose(a):
 def test_mul(a,L):
     pass
 
+###########
+#run tests
+###########
 
-#run test
 #test_assemble2form(a)
 test_assembledvector(L)
 #TODO
 #test_mul(L)
-
-
 #test_solve(a,L,V)
 
 
