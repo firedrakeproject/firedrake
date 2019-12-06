@@ -295,7 +295,7 @@ The ``TensorProductElement`` operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To create an element compatible with an extruded mesh, one should use
-the :py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
+the :py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
 operator. For example,
 
 .. code-block:: python

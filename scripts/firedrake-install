@@ -499,7 +499,7 @@ if options["petsc_int_type"] == "int32":
 else:
     petsc_options.add("--with-64-bit-indices")
 
-if options["mpiexec"] is not None:
+if options.get("mpiexec") is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 else:
     # Download mpich if the user does not tell us about an MPI.
@@ -657,7 +657,7 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 

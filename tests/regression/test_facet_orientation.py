@@ -21,8 +21,10 @@ def test_consistent_facet_orientation(mesh_thunk):
     mesh = mesh_thunk()
     x = SpatialCoordinate(mesh)
     degree = 3
-    V = FunctionSpace(mesh, "CG", degree)  # continuous space
-    W = FunctionSpace(mesh, "DG", degree)  # discontinuous space
+    fe_cg = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
+    V = FunctionSpace(mesh, fe_cg)  # continuous space
+    fe_dg = FiniteElement("DG", mesh.ufl_cell(), degree, variant="equispaced")
+    W = FunctionSpace(mesh, fe_dg)  # discontinuous space
 
     Q = FunctionSpace(mesh, "DG", 0)  # result space
 
