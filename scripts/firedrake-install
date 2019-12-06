@@ -793,7 +793,9 @@ def build_and_install_petsc():
     tarball = "eigen-3.3.3.tgz"
     url = "https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz"
     sha = hashlib.sha256()
-    expect = "df6082711532336354466bab70f66c16ff88e616ac3884eba555b6f0b4860e65"
+    # Accept eigen either from github or the previous bitbucket location.
+    expect = ("df6082711532336354466bab70f66c16ff88e616ac3884eba555b6f0b4860e65",
+              "94878cbfa27b0d0fbc64c00d4aafa137f678d5315ae62ba4aecddbd4269ae75f")
     if not os.path.exists(tarball):
         log.info("Downloading Eigen from '%s' to '%s'" % (url, tarball))
         urllib.request.urlretrieve(url, filename=tarball)
@@ -807,7 +809,7 @@ def build_and_install_petsc():
                 break
             sha.update(data)
     actual = sha.hexdigest()
-    if actual != expect:
+    if actual not in expect:
         raise InstallError("Downloaded Eigen tarball has incorrect sha256sum, expected '%s', was '%s'",
                            expect, actual)
     else:
