@@ -12,30 +12,41 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-def test_assembletensorandsolve(a,L,V):
+def test_assemble2form(a):
     _A = Tensor(a)
-    _F = Tensor(L)
+    A=assemble(_A)
+    A_comp=assemble(a)
+    print((A.M.handle-A_comp.M.handle).norm())
+
+#def test_assemble1form(L):
+#    _F = Tensor(L)
+#    F=assemble(_F)
+#    F_comp=assemble(F)
+#    print((F.M.handle-F_comp.M.handle).norm())
+
+#in order to be able to do solve I need to do mul first
+def test_solve(a,L,V):
+    #assemble
+    _A = Tensor(a)
+    _F = AssembledVector(assemble(L))
     A=assemble(_A)
     F=assemble(_F)
-    A_comp=assemble(a)
-    F_comp=assemble(F)
 
-    #TEST1: compare slate and non-slate assembled tensors
-    print((A.M.handle-A_comp.M.handle).norm())
-    print((F.M.handle-F_comp.M.handle).norm())
-
-    #TEST2: solve
+    #solve
     u=Function(V)
     u_comp=Function(V)
-    solve(test1, u, test2, solver_parameters={'ksp_type': 'cg'})
+    solve(assemble(_A), u, assemble(_F))
     solve(a==L, u_comp, solver_parameters={'ksp_type': 'cg'})
     print((u.dat.data-u_comp.dat.data).norm())
 
 def test_assembledvector(L):
     _coeff_F = AssembledVector(assemble(L))
+
+    print(_coeff_F._function.dat.data)
     coeff_F=assemble(_coeff_F)
     coeff_F_comp = assemble(L)
-    print((coeff_F.dat.data-coeff_F_comp.dat.data).norm())
+    print(coeff_F.dat.data)
+    print(coeff_F_comp.dat.data)
 
 def test_add(a):
     _A = Tensor(a)
@@ -57,9 +68,19 @@ def test_transpose(a):
     trans_A=assemble(Transpose(_A))
     print((trans_A.M.handle-A_comp.M.handle).norm())#should be 0 here because of symmetry
 
+#TODO 
+def test_mul(a,L):
+    pass
+
 
 #run test
-test_assembletensorandsolve(a,L,V)
+#test_assemble2form(a)
+test_assembledvector(L)
+#TODO
+#test_mul(L)
+
+
+#test_solve(a,L,V)
 
 
 
