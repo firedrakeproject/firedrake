@@ -10,9 +10,16 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
                       "Please set PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
 del os, sys, config
 
+# Ensure pycuda context is inited
+try:
+    import pycuda.autoinit  # noqa: F401
+except ImportError:
+    pass
+
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
+
 
 # UFL Exprs come with a custom __del__ method, but we hold references
 # to them /everywhere/, some of which are circular (the Mesh object
