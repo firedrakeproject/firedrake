@@ -21,7 +21,7 @@ def get_petsc_dir():
         except KeyError:
             sys.exit("""Error: Firedrake venv not active.""")
 
-    return petsc_dir, petsc_arch
+    return (petsc_dir, path.join(petsc_dir, petsc_arch))
 
 
 cmdclass = versioneer.get_cmdclass()
