@@ -6,7 +6,7 @@ Firedrake is installed using its install script::
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python3 firedrake-install
 
-Running ``firedrake-install`` with no arguments will install firedrake in
+Running ``firedrake-install`` with no arguments will install Firedrake in
 a python venv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
