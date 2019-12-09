@@ -18,11 +18,11 @@ struct Function {
 	int n_layers;
 
 	/* Coordinate values and node mapping */
-	double *coords;
+	PetscScalar *coords;
 	PetscInt *coords_map;
 
 	/* Field values and node mapping */
-	double *f;
+	PetscScalar *f;
 	PetscInt *f_map;
 
 	/* Spatial index */
@@ -37,7 +37,7 @@ struct Function {
 typedef int (*inside_predicate)(void *data_,
 				struct Function *f,
 				int cell,
-				double *x);
+				PetscScalar *x);
 
 typedef int (*inside_predicate_xtr)(void *data_,
 				struct Function *f,
@@ -46,15 +46,15 @@ typedef int (*inside_predicate_xtr)(void *data_,
 				double *x);
 
 extern int locate_cell(struct Function *f,
-		       double *x,
+		       PetscScalar *x,
 		       int dim,
 		       inside_predicate try_candidate,
 		       inside_predicate_xtr try_candidate_xtr,
 		       void *data_);
 
 extern int evaluate(struct Function *f,
-		    double *x,
-		    double *result);
+		    PetscScalar *x,
+		    PetscScalar *result);
 
 #ifdef __cplusplus
 }

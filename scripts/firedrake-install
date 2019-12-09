@@ -12,7 +12,7 @@ from collections import OrderedDict
 import atexit
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -446,6 +446,9 @@ petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 petsc_opts += "--with-fortran-bindings=0 "
 
 petsc_options = {"--with-fortran-bindings=0",
+                 "--with-debugging=0",
+                 "--with-shared-libraries=1",
+                 "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
                  "--download-hdf5",
@@ -487,6 +490,8 @@ if options["petsc_int_type"] == "int32":
 else:
     petsc_options.add("--with-64-bit-indices")
 
+if options.get("mpiexec") is not None:
+    petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(petsc_options))
@@ -651,7 +656,7 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 
@@ -1037,6 +1042,15 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
+if mode == "install" and args.show_petsc_configure_options:
+    log.info("*********************************************")
+    log.info("Would build PETSc with the following options:")
+    log.info("*********************************************\n")
+    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
+    log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
+    sys.exit(0)
+
+
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1062,13 +1076,6 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
     quit("""Sorry, automatically installing opencascade on OSX hasn't been
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
-
-if mode == "install" and args.show_petsc_configure_options and not args.honour_petsc_dir:
-    log.info("*********************************************")
-    log.info("Would build PETSc with the following options:")
-    log.info("*********************************************\n")
-    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
-    sys.exit(0)
 
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
@@ -1143,8 +1150,11 @@ if mode == "install" or not args.update_script:
                             "python3-tk",
                             "python3-venv",
                             "zlib1g-dev",
-                            "liboce-ocaf-dev",  # for mesh hierarchies built from CAD data
                             "libboost-dev"]  # For ROL in pyadjoint
+
+            if args.opencascade:
+                apt_packages.append("liboce-ocaf-dev")
+                apt_packages.append("swig")
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:

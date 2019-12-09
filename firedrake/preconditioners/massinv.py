@@ -49,7 +49,6 @@ class MassInvPC(PCBase):
 
         A = assemble(a, form_compiler_parameters=context.fc_params,
                      mat_type=mat_type, options_prefix=options_prefix)
-        A.force_evaluation()
 
         Pmat = A.petscmat
         Pmat.setNullSpace(P.getNullSpace())

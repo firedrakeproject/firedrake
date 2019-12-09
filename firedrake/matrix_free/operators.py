@@ -7,6 +7,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
 
 from firedrake.petsc import PETSc
+from firedrake.utils import cached_property
 
 
 __all__ = ("ImplicitMatrixContext", )
@@ -157,6 +158,28 @@ class ImplicitMatrixContext(object):
                                                                tensor=self._x,
                                                                bcs=None,
                                                                form_compiler_parameters=self.fc_params))
+
+    @cached_property
+    def _diagonal(self):
+        from firedrake import Function
+        assert self.on_diag
+        return Function(self._x.function_space())
+
+    @cached_property
+    def _assemble_diagonal(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.a,
+                                        tensor=self._diagonal,
+                                        form_compiler_parameters=self.fc_params,
+                                        diagonal=True)
+
+    def getDiagonal(self, mat, vec):
+        self._assemble_diagonal()
+        for bc in self.bcs:
+            # Operator is identity on boundary nodes
+            bc.set(self._diagonal, 1)
+        with self._diagonal.dat.vec_ro as v:
+            v.copy(vec)
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:

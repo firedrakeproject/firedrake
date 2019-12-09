@@ -46,17 +46,14 @@ def run_box_1d_2form():
     v = TestFunction(V)
 
     whole = assemble(u*v*dx)
-    whole.force_evaluation()
     whole = whole.petscmat
 
     sd = SubDomainData(x[0] < 0.5)
     half_1 = assemble(u*v*dx(subdomain_data=sd))
-    half_1.force_evaluation()
     half_1 = half_1.petscmat
 
     sd = SubDomainData(x[0] > 0.5)
     half_2 = assemble(u*v*dx(subdomain_data=sd))
-    half_2.force_evaluation()
     half_2 = half_2.petscmat
 
     assert whole.equal(half_1 + half_2)

@@ -221,15 +221,15 @@ class NonlinearVariationalSolver(OptionsManager):
         self._transfer_operators = ()
         self._setup = False
 
-    def set_transfer_operators(self, *contextmanagers):
-        r"""Set context managers which manages which grid transfer operators should be used.
+    def set_transfer_manager(self, manager):
+        r"""Set the object that manages transfer between grid levels.
+        Typically a :class:`~.TransferManager` object.
 
-        :arg contextmanagers: instances of :class:`~.dmhooks.transfer_operators`.
-        :raises RuntimeError: if called after calling solve.
+        :arg manager: Transfer manager, should conform to the
+            TransferManager interface.
+        :raises ValueError: if called after the transfer manager is setup.
         """
-        if self._setup:
-            raise RuntimeError("Cannot set transfer operators after solve")
-        self._transfer_operators = tuple(contextmanagers)
+        self._ctx.transfer_manager = manager
 
     def solve(self, bounds=None):
         r"""Solve the variational problem.

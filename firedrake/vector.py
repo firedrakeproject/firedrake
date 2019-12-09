@@ -26,7 +26,6 @@ class MatrixShim(object):
         self._mat = mat
 
     def mat(self):
-        self._mat.force_evaluation()
         return self._mat.petscmat
 
 
