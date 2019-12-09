@@ -257,7 +257,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     return builder.construct_kernel(kernel_name, impero_c, parameters["precision"], index_names, quad_rule)
 
 
-def compile_expression_at_points(expression, points, to_element, coordinates, interface=None,
+def compile_expression_at_points(expression, points, coordinates, interface=None,
                                  parameters=None, coffee=True):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
@@ -265,7 +265,6 @@ def compile_expression_at_points(expression, points, to_element, coordinates, in
 
     :arg expression: UFL expression
     :arg points: reference coordinates of the evaluation points
-    :arg to_element: UFL element to interpolate onto
     :arg coordinates: the coordinate function
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
