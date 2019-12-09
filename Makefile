@@ -15,30 +15,30 @@ lint:
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
-	@echo "    RM firedrake/dmplex.*.so"
-	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
-	@echo "    RM firedrake/dmplex.c"
-	-@rm -f firedrake/dmplex.c > /dev/null 2>&1
-	@echo "    RM firedrake/extrusion_numbering.*.so"
-	-@rm -f firedrake/extrusion_numbering.so > /dev/null 2>&1
-	@echo "    RM firedrake/extrusion_numbering.c"
-	-@rm -f firedrake/extrusion_numbering.c > /dev/null 2>&1
-	@echo "    RM firedrake/hdf5interface.*.so"
-	-@rm -f firedrake/hdf5interface.so > /dev/null 2>&1
-	@echo "    RM firedrake/hdf5interface.c"
-	-@rm -f firedrake/hdf5interface.c > /dev/null 2>&1
-	@echo "    RM firedrake/spatialindex.*.so"
-	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
-	@echo "    RM firedrake/spatialindex.c"
-	-@rm -f firedrake/spatialindex.c > /dev/null 2>&1
-	@echo "    RM firedrake/supermeshimpl.*.so"
-	-@rm -f firedrake/supermeshimpl.so > /dev/null 2>&1
-	@echo "    RM firedrake/supermeshimpl.c"
-	-@rm -f firedrake/supermeshimpl.c > /dev/null 2>&1
-	@echo "    RM firedrake/mg/impl.*.so"
-	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
-	@echo "    RM firedrake/mg/impl.c"
-	-@rm -f firedrake/mg/impl.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmplex.*.so"
+	-@rm -f firedrake/cython/dmplex.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmplex.c"
+	-@rm -f firedrake/cython/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/extrusion_numbering.*.so"
+	-@rm -f firedrake/cython/extrusion_numbering.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/extrusion_numbering.c"
+	-@rm -f firedrake/cython/extrusion_numbering.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/hdf5interface.*.so"
+	-@rm -f firedrake/cython/hdf5interface.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/hdf5interface.c"
+	-@rm -f firedrake/cython/hdf5interface.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/spatialindex.*.so"
+	-@rm -f firedrake/cython/spatialindex.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/spatialindex.c"
+	-@rm -f firedrake/cython/spatialindex.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/supermeshimpl.*.so"
+	-@rm -f firedrake/cython/supermeshimpl.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/supermeshimpl.c"
+	-@rm -f firedrake/cython/supermeshimpl.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/mg/impl.*.so"
+	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/mg/impl.c"
+	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
 
 
 THREADS=1

@@ -471,11 +471,6 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(tensor, slate.AssembledVector):
 
                 function = tensor._function
-                print(function)
-
-                #gem_loopy_dict.setdefault(temps[tensor],loopy.GlobalArg(function,
-                #                   shape=shape,
-                #                   dtype=SCALAR_TYPE))
 
                 def dimension(e):
                     return create_element(e).space_dimension()
@@ -487,17 +482,22 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
+                    indices =self.create_index(tensor.shape)
+                    gem_indices=self.gem_indices[len(temps)]
+
                     # Local temporary
-                    #indices =self.create_index(tensor.shape)
-                    #gem_indices=self.gem_indices[len(seen_coeff)]
-                    #temps.setdefault(tensor, gem.Indexed(gem.Variable("VecTemp%d" %len(seen_coeff),tensor.shape),gem_indices))
-                    local_temp = loopy.TemporaryVariable("VecTemp%d" % len(seen_coeff),shape=tensor.shape,dtype=SCALAR_TYPE)
+                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)
+                    
+                    
+                    gem_loopy_dict.setdefault(local_temp,loopy.TemporaryVariable(local_temp.children[0].name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
 
                     offset = 0
                     for i, shape in enumerate(shapes):
                         cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=(sum(shapes), ),
+                                                shape=tensor.shape,
                                                 vector=tensor,
                                                 local_temp=local_temp)
                         coeff_vecs.setdefault(shape, []).append(cinfo)
@@ -699,8 +699,9 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-      #  self.oriented =kinfo.oriented
-      #  self.reads=reads
+        #self.integral_type=integral_type
+        #self.oriented =kinfo.oriented
+        #self.reads=reads
 
 #every time an index is created it is saved in a list (gem as well as loopy)
 #saved as tuples
@@ -712,7 +713,7 @@ def create_index(extent, namer,ctx):
         ctx.gem_indices.append((gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
         return (ret1,ret2)
     else:
-        if isinstance(extent,tuple):
+        if isinstance(extent, tuple):
             extent=extent[0]
         name = next(namer)
         ret=pym.Variable(name)

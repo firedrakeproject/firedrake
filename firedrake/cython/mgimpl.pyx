@@ -1,18 +1,17 @@
 # cython: language_level=3
 
 # Low-level numbering for multigrid support
-from firedrake.petsc import PETSc
-from firedrake import dmplex
-from pyop2.datatypes import IntType
-import numpy as np
-cimport numpy as np
 import cython
-cimport petsc4py.PETSc as PETSc
+import numpy as np
+from firedrake.cython import dmplex
+from firedrake.petsc import PETSc
+from pyop2.datatypes import IntType
 
+cimport numpy as np
+cimport petsc4py.PETSc as PETSc
 np.import_array()
 
-include "../dmplexinc.pxi"
-include "firedrakeimpl.pxi"
+include "petschdr.pxi"
 
 
 @cython.boundscheck(False)

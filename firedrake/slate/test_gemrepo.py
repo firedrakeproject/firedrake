@@ -12,30 +12,88 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-_A = Tensor(a)
-_A2 = Tensor(a)
-_F = AssembledVector(assemble(L))
+def test_assemble2form(a):
+    _A = Tensor(a)
+    A=assemble(_A)
+    A_comp=assemble(a)
+    print((A.M.handle-A_comp.M.handle).norm())
 
-#TEST: assemble tensor
-#test=assemble(_A)
-#test1=assemble(_A2)
-#comp=assemble(a)
+#def test_assemble1form(L):
+#    _F = Tensor(L)
+#    F=assemble(_F)
+#    F_comp=assemble(F)
+#    print((F.M.handle-F_comp.M.handle).norm())
 
-#TODO: TEST: assemble coefficients
-test=assemble(_F)
-#comp=assemble(_L)
+#in order to be able to do solve I need to do mul first
+def test_solve(a,L,V):
+    #assemble
+    _A = Tensor(a)
+    _F = AssembledVector(assemble(L))
+    A=assemble(_A)
+    F=assemble(_F)
 
-#TEST: assemble addition
-#test=assemble(_A+_A2)
-#comp=assemble(a+a)
+    #solve
+    u=Function(V)
+    u_comp=Function(V)
+    solve(assemble(_A), u, assemble(_F))
+    solve(a==L, u_comp, solver_parameters={'ksp_type': 'cg'})
+    print((u.dat.data-u_comp.dat.data).norm())
 
-#TEST: assemble negative
-#test=assemble(-_A)
-#comp=assemble(-a)
+#TODO test fails!
+def test_assembledvector(L):
+    b=Function(assemble(L))
+    _coeff_F = AssembledVector(b)
 
-#TODO: TEST: assemble transpose
-#test=assemble(Transpose(_A))
+    print(_coeff_F._function.dat.data)
+    coeff_F=assemble(_coeff_F)
+    coeff_F_comp = assemble(L)
+    print(coeff_F.dat.data)
+    print(coeff_F_comp.dat.data)
 
+def test_add(a):
+    _A = Tensor(a)
+    add_A=assemble(_A+_A)
+    add_A_comp=assemble(a+a)
+    print((add_A.M.handle-add_A_comp.M.handle).norm())
+
+
+def test_negative(a):
+    _A = Tensor(a)
+    neg_A=assemble(-_A)
+    neg_A_comp=assemble(-a)
+    print((neg_A.M.handle-neg_A_comp.M.handle).norm())
+
+#TODO we need advection problem rather than hemlholtz to have non symmetric tensors
+def test_transpose(a):
+    _A = Tensor(a)
+    A = assemble(_A)
+    trans_A=assemble(Transpose(_A))
+    print((trans_A.M.handle-A_comp.M.handle).norm())#should be 0 here because of symmetry
+
+#TODO 
+def test_mul(A,L):
+    _A = Tensor(a)
+    print("assembled A")
+    _F = AssembledVector(assemble(L))
+    print("Test Multiplication")
+    mul_A=assemble(_A*_A)
+    print(assemble(a).M.handle.view())
+    print(mul_A.M.handle.view())
+    
+###########
+#run tests
+###########
+
+#test_assemble2form(a)
+#test_assembledvector(L)
+#TODO
+test_mul(a,L)
+#test_solve(a,L,V)
+
+
+
+
+###############################################
 #TODO: TEST: assemble contraction
 #test=assemble(_A*_A)
 
@@ -45,12 +103,3 @@ test=assemble(_F)
 #TODO: TEST: assemble blocks
 #this is getting more interesting if mixed
 #b=assemble(_A.blocks[0,0])
-
-#Test the output
-print(test.M.handle.view())
-print(comp.M.handle.view())
-
-print((test.M.handle-comp.M.handle).view())
-#print((test.M.handle-test3.M.handle).norm())
-#print((test.M.handle-test2.M.handle).norm())
-print((test.M.handle-comp.M.handle).norm())

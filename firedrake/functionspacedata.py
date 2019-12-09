@@ -23,8 +23,8 @@ from pyop2 import op2
 from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
-import firedrake.extrusion_numbering as extnum
-from firedrake import dmplex
+from firedrake.cython import extrusion_numbering as extnum
+from firedrake.cython import dmplex
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils

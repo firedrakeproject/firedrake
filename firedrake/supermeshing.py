@@ -2,7 +2,7 @@
 import firedrake
 import ctypes
 import os
-from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
+from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
 from firedrake.mg.kernels import to_reference_coordinates, compile_element
