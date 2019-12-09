@@ -146,17 +146,18 @@ Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
+
+Removing Firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the Firedrake
+install directory. This is usually the ``firedrake`` subdirectory 
+created after having run ``firedrake-install``. Note that this will not 
+undo the installation of any system packages which are Firedrake
+dependencies: removing these might affect subsequently installed 
+packages for which these are also dependencies.
+
 .. _Paraview: http://www.paraview.org
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _anaconda: https://www.continuum.io/downloads
 .. _PETSc: https://www.mcs.anl.gov/petsc/
-
-Removing firedrake
-------------------
-Firedrake and its dependencies can be removed by deleting the firedrake 
-install directory. This is usually the ``firedrake`` subdirectory 
-created after having run ``firedrake-install``. Note that this will not 
-undo the installation of any system packages which are firedrake 
-dependencies: removing these might affect subsequently installed 
-packages for which these are also dependencies.
