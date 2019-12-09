@@ -481,20 +481,21 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [dimension(function.ufl_element())]
 
                     indices =self.create_index(tensor.shape)
-                    print(len(temps))
                     gem_indices=self.gem_indices[len(temps)]
 
                     # Local temporary
                     local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)
-                    gem_loopy_dict.setdefault(local_temp,loopy.GlobalArg(local_temp.children[0].name,
+                    
+                    
+                    gem_loopy_dict.setdefault(local_temp,loopy.TemporaryVariable(local_temp.children[0].name,
                                            shape=tensor.shape,
-                                           dtype=SCALAR_TYPE))
+                                           dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
 
                     offset = 0
                     for i, shape in enumerate(shapes):
                         cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=(sum(shapes), ),
+                                                shape=tensor.shape,
                                                 vector=tensor,
                                                 local_temp=local_temp)
                         coeff_vecs.setdefault(shape, []).append(cinfo)

@@ -71,17 +71,23 @@ def test_transpose(a):
     print((trans_A.M.handle-A_comp.M.handle).norm())#should be 0 here because of symmetry
 
 #TODO 
-def test_mul(a,L):
-    pass
-
+def test_mul(A,L):
+    _A = Tensor(a)
+    print("assembled A")
+    _F = AssembledVector(assemble(L))
+    print("Test Multiplication")
+    mul_A=assemble(_A*_A)
+    print(assemble(a).M.handle.view())
+    print(mul_A.M.handle.view())
+    
 ###########
 #run tests
 ###########
 
 #test_assemble2form(a)
-test_assembledvector(L)
+#test_assembledvector(L)
 #TODO
-#test_mul(L)
+test_mul(a,L)
 #test_solve(a,L,V)
 
 

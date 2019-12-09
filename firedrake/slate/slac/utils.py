@@ -235,59 +235,20 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Mul)
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
-        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        B_indices=tuple(Index(extent=B.shape[i]) for i in range(len(B.shape)))
+
+        indices =self.builder.create_index(A.shape)
+        A_indices=self.builder.gem_indices[-1]
+
+        indices =self.builder.create_index(B.shape)
+        B_indices=self.builder.gem_indices[-1]
+
+        indices =self.builder.create_index(A.shape)
+        new_indices=self.builder.gem_indices[-1]
+
+        prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[A].children[0],A_indices))
+        sum=IndexSum(prod,A_indices)
+        ret=Indexed(ComponentTensor(prod,A_indices),new_indices)
         
-
-        #@TODO: No need for all this, because extents have to be set
-
-        if not tensor.shape:
-            pass
-            #@TODO: DO WE NEVER HAVE THIS CASE?
-            #try:
-            #    #1x3 dot 3x1
-            #    ret=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
-            #except:
-            #    #1x1 dot 1x1
-            #     Product(self.tensor_to_variable[A],self.tensor_to_variable[B])
-        elif tensor.shape==(A.shape[0],):
-            try:
-                #3x3 dot 3x1
-                prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
-                ret=ComponentTensor(prod,(A_indices[0],))
-            except:
-                #3x1 dot 1x1
-                prod=Product(Indexed(self.tensor_to_variable[A],A_indices),self.tensor_to_variable[B])
-                ret=ComponentTensor(prod,(A_indices[0],))
-        #@TODO: DO WE NEVER HAVE THIS CASE?
-        #    elif tensor.shape==tuple(,B.shape[1]):
-        #        try:
-        #            #1x3 dot 3x3
-        #            prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),A_indices[1])
-        #            ret=ComponentTensor(prod,(A_indices[0],))
-        #        except:
-        #            #1x1 dot 1x3
-        #            prod=Product(self.tensor_to_variable[A],Indexed(self.tensor_to_variable[B],B_indices))
-        #            ret=ComponentTensor(prod,(,B_indices[1]))
-        #3x3 dot 3x3
-        elif tensor.shape==(A.shape[0],B.shape[1]):
-            prod=IndexSum(Product(Indexed(self.tensor_to_variable[A],A_indices),Indexed(self.tensor_to_variable[B],B_indices)),(A_indices[1],))
-            ret=ComponentTensor(prod,(A_indices[0],B_indices[1]))
-        #this all cases?
-        else:
-            raise Exception("Not valid matrix multiplication")
-
-
-        print("A indices: ",A_indices)
-        print("B indices: ",B_indices)
-        print("A shape: ",A.shape)
-        print("B shape: ",B.shape)
-        print("Tensor shape: ",tensor.shape)
-        print("IndexSum multiiindex: ",prod.multiindex)
-        print("IndexSum freeindex: ",prod.free_indices)
-        print("ret multiiindex: ",ret.multiindex)
-        print("ret freeindex: ",ret.free_indices)
-        print("ret: ",ret)
         return ret
 
     #call gem nodes for inverse and solve
@@ -410,32 +371,45 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
         inames={var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
+    
+  
+
+    #create output arg
+    for k,v in builder.coefficient_vecs.items():
+        loopy_tensor=builder.gem_loopy_dict[v[0].local_temp]
+        loopy_outer.temporary_variables[temps.name]=loopy_tensor
+        indices=builder.loopy_indices[c]#this might not be robust later on
+        inames={var.name for var in indices}
+        inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
+        c+=1
 
     #get the CallInstruction from builder and include at beginning of outer kernel
     kitting_insn=builder.assembly_calls["cell"]
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
-    
+    print(loopy_merged.temporary_variables)
+
+    print(loopy_merged)
     #add dependencies dynamically
     #add dep from first instruction of outer kernel to last instr of inner kernel
     #add dep from last instruction of inner kernel to first instr of inner kernel
     if len(loopy_merged.instructions)>1:
         noi_outer=len(loopy_outer.instructions)
         loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
+    #    loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
 
         #remove priority generate from tsfc compile call
-        for insn in loopy_merged.instructions[-noi_outer:-1]:
+        for insn in loopy_merged.instructions[-noi_outer:]:
             loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
 
     #add arguments of the subkernel
     #TODO check if is the dimtag right
     #TODO maybe we need to run over subkernels
-    print(loopy_merged)
-    if len(builder.templated_subkernels)>0:
-        inner_args=builder.templated_subkernels[0].args
-        loopy_merged = loopy_merged.copy(args=list(loopy_merged.args)+inner_args[1:]) #first variable is A which gets replaced by slate name of tensor anyways
+    #    inner_args=builder.templated_subkernels[0].args
+    #if len(builder.templated_subkernels)>0:
+    #    loopy_merged = loopy_merged.copy(args=list(loopy_merged.args)+inner_args[1:]) #first variable is A which gets replaced by slate name of tensor anyways
 
     #fix domains (add additional indices coming from calling the subkernel)
+    print(builder.gem_indices)
     def create_domains(gem_indices):
         for tuple_index in gem_indices:
             for i in tuple_index:

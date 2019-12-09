@@ -80,6 +80,7 @@ class SlateKernel(TSFCKernel):
 
     def __init__(self, expr, tsfc_parameters):
         print("SLATE KERNEL")
+        print(self._initialized)
         #TODO: comment in that initalised slate kernels are considered
         #if self._initialized:
         #    return
@@ -98,7 +99,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
-    print("compile expression....")
+    print("compile expression....",slate_expr)
+    print(type(slate_expr))
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
@@ -113,6 +115,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         return cache[key]
     except KeyError:
         kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        print("KEY",key)
         return cache.setdefault(key, kernel)
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
@@ -156,15 +159,16 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     code.replace('void slate_kernel', 'static void slate_kernel')
     loopykernel = op2.Kernel(code, loopy_merged.name)
 
+    print("slat coeff",slate_expr.coefficients())
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",
                        oriented=False,
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),#@TODO: is this right????
-                       needs_cell_facets=False,
+                       needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=False,
-                       needs_cell_sizes=False)
+                       needs_cell_sizes=builder.needs_cell_sizes)
 
     print(kinfo)
     # Cache the resulting kernel
@@ -623,24 +627,23 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         args.append(arg)
 
 
-
-
-
-    #create output arg
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
-    arg=loopy.GlobalArg("coords",shape=builder.expression.shape,dtype="double")
+    arg=loopy.GlobalArg("coords",shape=(6,),dtype="double")
     args.append(arg)
+    print(builder.expression.shape)
 
-    for k,v in builder.coefficient_vecs.items():
-        arg=builder.gem_loopy_dict[v[0].local_temp]
-        args.append(arg)
-    
+    #arg=loopy.GlobalArg("coeff",shape=(3,),dtype="double")
+    #args.append(arg)
+    #print(builder.expression.shape)
 
-    print(args)
+
+    print("coeff",builder.coefficient_vecs,args)
+
     
     #creation of return variables for slate loopy
+    print(builder.gem_indices)
     indices=builder.gem_indices[-1]#TODO
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),indices)]
 
