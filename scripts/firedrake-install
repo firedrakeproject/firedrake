@@ -1237,29 +1237,31 @@ if mode == "install":
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
-# Set up MPI wrappers if they don't already exist.
-if not os.path.lexists(os.path.join(firedrake_env, "bin", "mpicc")):
-    # Set up the MPI wrappers
-    for opt in ["mpicc", "mpicxx", "mpif90"]:
-        if options.get(opt):
-            name = options[opt]
-            src = shutil.which(name)
-        else:
-            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
-        dest = os.path.join(firedrake_env, "bin", opt)
-        log.debug("Creating a symlink from %s to %s" % (src, dest))
-        os.symlink(src, dest)
-
-    if options.get("mpiexec"):
-        mpiexec_loc = shutil.which(args.mpiexec)
+# Set up the MPI wrappers
+for opt in ["mpicc", "mpicxx", "mpif90"]:
+    if options.get(opt):
+        name = options[opt]
+        src = shutil.which(name)
     else:
-        mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
-    mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
-    with open(mpiexecf, "w") as mpiexec:
-        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
-        mpiexec.write(contents)
-    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+        src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+    dest = os.path.join(firedrake_env, "bin", opt)
+    log.debug("Creating a symlink from %s to %s" % (src, dest))
+    if os.path.exists(dest):
+        os.remove(dest)
+    os.symlink(src, dest)
+
+if options.get("mpiexec"):
+    mpiexec_loc = shutil.which(args.mpiexec)
+else:
+    mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
+mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
+log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
+if os.path.exists(mpiexecf):
+    os.remove(mpiexecf)
+with open(mpiexecf, "w") as mpiexec:
+    contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
+    mpiexec.write(contents)
+os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
