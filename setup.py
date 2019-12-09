@@ -32,7 +32,8 @@ if "clean" in sys.argv[1:]:
     for dirname, dirs, files in os.walk("firedrake"):
         for f in files:
             base, ext = os.path.splitext(f)
-            if ext in (".c", ".cpp", ".so") and base + ".pyx" in files:
+            if (ext in (".c", ".cpp") and base + ".pyx" in files
+                or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
 cythonfiles = [("dmplex", ["petsc"]),
