@@ -69,24 +69,30 @@ def deep_update(this, that):
     return this
 
 
-invocation_directory = os.path.abspath(os.getcwd())
-
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
+    logfile_directory = os.path.abspath(os.getcwd())
+    logfile_mode = "w"
+
 elif os.path.basename(__file__) == "firedrake-update":
     mode = "update"
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + "/../..")
+    try:
+        logfile_directory = os.environ["VIRTUAL_ENV"]
+    except KeyError:
+        quit("Unable to retrieve venv name from the environment.\n Please ensure the venv is active before running firedrake-update.")
+    logfile_mode = "a" if "--no-update-script" in sys.argv else "w"
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
 
 # Set up logging
 # Log to file at DEBUG level
-logfile = os.path.join(invocation_directory, 'firedrake-%s.log' % mode)
+logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)-6s %(message)s',
                     filename=logfile,
-                    filemode='w')
+                    filemode=logfile_mode)
 # Log to console at INFO level
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
@@ -413,10 +419,7 @@ old_git_packages = ["dolfin-adjoint", "libadjoint"]
 if mode == "install":
     firedrake_env = os.path.abspath(args.venv_name)
 else:
-    try:
-        firedrake_env = os.environ["VIRTUAL_ENV"]
-    except KeyError:
-        quit("Unable to retrieve venv name from the environment.\n Please ensure the venv is active before running firedrake-update.")
+    firedrake_env = os.environ["VIRTUAL_ENV"]
 
 if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
