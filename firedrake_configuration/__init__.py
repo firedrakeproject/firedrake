@@ -17,7 +17,7 @@ except IOError:
     # Fall back to old location.
     try:
         with open(os.path.join(os.path.dirname(__file__),
-                               ".configuration.json"), "r") as f:
+                               "configuration.json"), "r") as f:
             _config = json.load(f)
 
     except IOError:
