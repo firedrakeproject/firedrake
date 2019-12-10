@@ -255,15 +255,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
 
     parloop = op2.ParLoop(*args).compute
     if isinstance(tensor, op2.Mat):
-<<<<<<< HEAD
-        return partial(op2.par_loop, *arguments), tensor.assemble()
-    else:
-        return copyin + (partial(op2.par_loop, *arguments), ) + copyout
-=======
         return parloop, tensor.assemble()
     else:
         return copyin + (parloop, ) + copyout
->>>>>>> 9b0d37be9bfd21b3c8b6bbd326b0d25c5f0b8d83
 
 
 class GlobalWrapper(object):

@@ -24,7 +24,7 @@ interpolation is:
 .. warning::
 
    Interpolation currently only works if all nodes of the target
-   finite element are point evaluation nodes.
+   finite element are point evaluation nodes
 
 The recommended way to specify the source expression is UFL.  UFL_
 produces clear error messages in case of syntax or type errors, yet
@@ -50,9 +50,39 @@ Here is an example demonstrating some of these features:
    # g is a vector-valued Function, e.g. on an H(div) function space
    f = interpolate(sqrt(3.2 * div(g)), V)
 
+This also works as expected when interpolating into a a space defined on the facets
+of the mesh:
+
+.. code-block:: python
+
+   # where trace is a trace space on the current mesh:
+   f = interpolate(expression, trace)
+
+
 
 Interpolator objects
 --------------------
+
+Firedrake is also able to generate reusable :py:class:`Interpolator` objects which
+provide the general interpolation matrix of an expression of one function space into another target function space.
+``interpolate`` can then be called as a method of this object, and options can be specified
+such as instead applying the transpose of the interpolator.
+
+.. code-block:: python
+
+   # returns the appropriate matrix for interpolating the given expression into the space V
+   interpolator = Interpolator(expression, V)
+
+   # to then perform the interpolation
+   interpolator.interpolate(expression)
+
+   # to find the transpose interpolation, where expression is in the target space of interpolator:
+   interpolator.interpolate(expression, transpose = True)
+
+
+
+This may be useful if you find yourself interpolating multiple functions between the same two function spaces,
+or wish to use the transpose operator.
 
 
 Interpolation from external data
