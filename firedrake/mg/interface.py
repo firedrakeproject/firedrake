@@ -33,14 +33,14 @@ def prolong(coarse, fine):
         for in_, out in zip(coarse.split(), fine.split()):
             myprolong, _, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
             myprolong(in_, out)
-        return
+        return fine
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
         with fine.dat.vec_wo as dest, coarse.dat.vec_ro as src:
             src.copy(dest)
-        return
+        return fine
 
     hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
     _, fine_level = utils.get_level(fine.ufl_domain())
@@ -71,7 +71,6 @@ def prolong(coarse, fine):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse, coarse_coords]:
-            d.dat._force_evaluation(read=True, write=False)
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
         op2.par_loop(kernel, next.node_set,
@@ -94,14 +93,14 @@ def restrict(fine_dual, coarse_dual):
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
             _, myrestrict, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
             myrestrict(in_, out)
-        return
+        return coarse_dual
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
         with coarse_dual.dat.vec_wo as dest, fine_dual.dat.vec_ro as src:
             src.copy(dest)
-        return
+        return coarse_dual
 
     hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
     _, fine_level = utils.get_level(fine_dual.ufl_domain())
@@ -132,7 +131,6 @@ def restrict(fine_dual, coarse_dual):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse_coords]:
-            d.dat._force_evaluation(read=True, write=False)
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
         kernel = kernels.restrict_kernel(Vf, Vc)
@@ -207,7 +205,6 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat._force_evaluation(read=True, write=False)
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, next.node_set,
@@ -223,7 +220,6 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat._force_evaluation(read=True, write=False)
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, Vc.mesh().cell_set,

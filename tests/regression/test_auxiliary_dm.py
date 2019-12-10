@@ -120,13 +120,12 @@ def test_auxiliary_dm():
                  "fieldsplit_1_aux_mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
                  "fieldsplit_1_aux_mg_coarse_pc_type": "lu",
                  "fieldsplit_1_aux_mg_coarse_pc_factor_mat_solver_type": "mumps",
+                 "fieldsplit_1_aux_mg_coarse_mat_mumps_icntl_14": 200,
                  }
 
     # Solve variational form
     nvproblem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    prolongation = EmbeddedDGTransfer(Z.ufl_element())
     solver = NonlinearVariationalSolver(nvproblem, solver_parameters=block_fact)
-    solver.set_transfer_operators(dmhooks.transfer_operators(Z, prolong=prolongation.prolong, inject=prolongation.inject, restrict=prolongation.restrict))
     solver.solve()
 
     # Error in L2 norm

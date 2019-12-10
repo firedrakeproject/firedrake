@@ -1,9 +1,12 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
+from pyop2.datatypes import ScalarType, as_cstr
 
 
 _current_uid = 0
+
+ScalarType_c = as_cstr(ScalarType)
 
 
 def _new_uid():

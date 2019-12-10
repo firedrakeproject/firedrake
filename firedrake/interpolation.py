@@ -57,7 +57,6 @@ class Interpolator(object):
         self.freeze_expr = freeze_expr
         self.V = V
 
-    @utils.known_pyop2_safe
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
         :arg function: If the expression being interpolated contains an
@@ -175,6 +174,7 @@ def make_interpolator(expr, V, subset, access):
     return partial(callable, loops, f), arguments
 
 
+@utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
@@ -208,7 +208,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_ufl_kernel(expr, to_pts, V.ufl_element(), coords, coffee=False)
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_ufl_kernel(expr, to_pts, coords, coffee=False)
         kernel = op2.Kernel(ast, ast.name)
     elif hasattr(expr, "eval"):
         kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
@@ -253,10 +253,17 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         if domain is not None and domain.topology != mesh.topology:
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
+    parloop = op2.ParLoop(*args).compute
     if isinstance(tensor, op2.Mat):
+<<<<<<< HEAD
         return partial(op2.par_loop, *arguments), tensor.assemble()
     else:
         return copyin + (partial(op2.par_loop, *arguments), ) + copyout
+=======
+        return parloop, tensor.assemble()
+    else:
+        return copyin + (parloop, ) + copyout
+>>>>>>> 9b0d37be9bfd21b3c8b6bbd326b0d25c5f0b8d83
 
 
 class GlobalWrapper(object):

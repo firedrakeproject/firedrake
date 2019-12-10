@@ -9,6 +9,7 @@ from ufl.classes import ReferenceGrad
 import enum
 import numbers
 
+from mpi4py import MPI
 from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
@@ -16,11 +17,11 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 import firedrake.expression as expression
-import firedrake.extrusion_numbering as extnum
+import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.spatialindex as spatialindex
+import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
@@ -405,8 +406,14 @@ class MeshTopology(object):
             # it, we grow the halo.
             partitioner = plex.getPartitioner()
             if IntType.itemsize == 8:
-                # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
-                partitioner.setType(partitioner.Type.PARMETIS)
+                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
+                from firedrake_configuration import get_config
+                if get_config().get("options", {}).get("with_parmetis", False):
+                    partitioner.setType(partitioner.Type.PARMETIS)
+                else:
+                    partitioner.setType(partitioner.Type.PTSCOTCH)
+            else:
+                partitioner.setType(partitioner.Type.CHACO)
             try:
                 sizes, points = distribute
                 partitioner.setType(partitioner.Type.SHELL)
@@ -418,13 +425,18 @@ class MeshTopology(object):
 
         dim = plex.getDimension()
 
+        # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
-            raise RuntimeError("Mesh must have at least one cell on every process")
-        cell_nfacets = plex.getConeSize(cStart)
+            nfacets = -1
+        else:
+            nfacets = plex.getConeSize(cStart)
+
+        # TODO: this needs to be updated for mixed-cell meshes.
+        nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
+        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -517,16 +529,13 @@ class MeshTopology(object):
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
+        assert dim == cell.topological_dimension()
         if cell.is_simplex():
-            # Simplex mesh
-            cStart, cEnd = plex.getHeightStratum(0)
-            a_closure = plex.getTransitiveClosure(cStart)[0]
-
-            entity_per_cell = np.zeros(dim + 1, dtype=IntType)
-            for dim in range(dim + 1):
-                start, end = plex.getDepthStratum(dim)
-                entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
-                                               a_closure))
+            import FIAT
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
 
             return dmplex.closure_ordering(plex, vertex_numbering,
                                            cell_numbering, entity_per_cell)
@@ -585,9 +594,8 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        point2facetnumber = {}
-        for i, f in enumerate(facets):
-            point2facetnumber[f] = i
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
@@ -1128,7 +1136,7 @@ values from f.)"""
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-        x = np.asarray(x, dtype=np.float)
+        x = np.asarray(x, dtype=utils.ScalarType)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
@@ -1465,16 +1473,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
+    helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
-        hfamily = "DG"
-    else:
-        hfamily = mesh._coordinates.ufl_element().family()
-    hdegree = mesh._coordinates.ufl_element().degree()
+        helement = helement.reconstruct(family="DG", variant="equispaced")
+    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, hfamily, hdegree, dim=gdim,
-                                                       vfamily="Lagrange", vdegree=1)
+    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
 
@@ -1485,8 +1492,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        fs = functionspace.VectorFunctionSpace(self, "CG", hdegree, dim=gdim,
-                                               vfamily="CG", vdegree=1)
+        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        element = ufl.TensorProductElement(helement, velement)
+        fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs)
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)

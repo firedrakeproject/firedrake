@@ -51,6 +51,10 @@ Here is an example demonstrating some of these features:
    f = interpolate(sqrt(3.2 * div(g)), V)
 
 
+Interpolator objects
+--------------------
+
+
 Interpolation from external data
 --------------------------------
 
@@ -102,7 +106,7 @@ C string expressions
    now been removed. Users should use UFL expressions instead. This
    section only remains to assist in the transition of existing code.
 
-Here are a couple of old-style C string expressions, and their modern replacements.   
+Here are a couple of old-style C string expressions, and their modern replacements.
 
 .. code-block:: python
 
@@ -180,7 +184,7 @@ Generating Functions with randomised values
 The :py:mod:`~.randomfunctiongen` module wraps  the external package `randomgen <https://pypi.org/project/randomgen/>`__,
 which gives Firedrake users an easy access to many stochastically sound random number generators,
 including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
-All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__ 
+All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
 to generate a randomised :class:`.Function`.
 

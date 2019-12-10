@@ -13,6 +13,7 @@ import coffee.base as ast
 
 from firedrake.logging import warning
 from firedrake import constant
+from firedrake.utils import ScalarType_c
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -123,7 +124,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
             # Do we have a component of a mixed function?
@@ -137,7 +138,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
                 ndof = func.function_space().finat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, ))))
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
         body = body.replace(var+".dofs", str(ndof))
 
     return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,

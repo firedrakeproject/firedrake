@@ -260,7 +260,7 @@ def test_interpolator_tets():
 
 
 def test_interpolator_extruded():
-    mesh = ExtrudedMesh(UnitSquareMesh(10,10), 10, 0.1)
+    mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
     x = SpatialCoordinate(mesh)
     P1 = FunctionSpace(mesh, "CG", 1)
     P2 = FunctionSpace(mesh, "CG", 2)
@@ -290,7 +290,7 @@ def test_trace():
 
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_adjoint_Pk(degree):
-    mesh = UnitSquareMesh(10,10)
+    mesh = UnitSquareMesh(10, 10)
     Pkp1 = FunctionSpace(mesh, "CG", degree+1)
     Pk = FunctionSpace(mesh, "CG", degree)
 
@@ -303,7 +303,7 @@ def test_adjoint_Pk(degree):
 
 
 def test_adjoint_quads():
-    mesh = UnitSquareMesh(10,10)
+    mesh = UnitSquareMesh(10, 10)
     fe1 = FiniteElement("CG", mesh.ufl_cell(), 1, variant="equispaced")
     P1 = FunctionSpace(mesh, fe1)
     P2 = FunctionSpace(mesh, "CG", 2)
@@ -317,7 +317,7 @@ def test_adjoint_quads():
 
 
 def test_adjoint_dg():
-    mesh = UnitSquareMesh(10,10)
+    mesh = UnitSquareMesh(10, 10)
     cg1 = FunctionSpace(mesh, "CG", 1)
     dg1 = FunctionSpace(mesh, "DG", 1)
 

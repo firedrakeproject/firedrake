@@ -5,7 +5,7 @@ import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 
 
 _MPI_types = {}
@@ -54,6 +54,8 @@ def _get_dtype(datatype):
         return _numpy_types[datatype.py2f()]
     except KeyError:
         base, combiner, _ = datatype.decode()
+        while combiner == "DUP":
+            base, combiner, _ = base.decode()
         if combiner != "CONTIGUOUS":
             raise RuntimeError("Can only handle contiguous types")
         try:

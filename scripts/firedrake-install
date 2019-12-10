@@ -12,7 +12,7 @@ from collections import OrderedDict
 import atexit
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -52,9 +52,9 @@ class FiredrakeConfiguration(dict):
 
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
-                           "honour_petsc_dir",
-                           "show_petsc_configure_options",
+                           "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
+                           "opencascade",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -195,12 +195,17 @@ honoured.""",
 
     parser.add_argument("--slepc", action="store_true",
                         help="Install SLEPc along with PETSc.")
+    parser.add_argument("--opencascade", action="store_true",
+                        help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
-    parser.add_argument("--minimal-petsc", action="store_true",
-                        help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--minimal-petsc", action="store_true",
+                       help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
+    group.add_argument("--with-parmetis", action="store_true",
+                       help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -234,7 +239,7 @@ honoured.""",
                         action="store", default=None,
                         help="MPI launcher (default is 'mpiexec')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
-                        help="Print out the configure options passed to PETSc")
+                        help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
                         help="Name of the venv to create (default is 'firedrake')")
@@ -299,6 +304,8 @@ else:
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
                         help="Install SLEPc along with PETSc")
+    parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
+                        help="Install OpenCASCADE for CAD integration.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        default=config["options"].get("honour_petsc_dir", False),
@@ -438,24 +445,60 @@ petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
 petsc_opts += "--with-fortran-bindings=0 "
 
-if options["minimal_petsc"]:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
-else:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --with-zlib --download-netcdf --download-pnetcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --with-zlib --download-netcdf --download-hdf5 --download-pnetcdf --download-exodusii"""
+petsc_options = {"--with-fortran-bindings=0",
+                 "--with-debugging=0",
+                 "--with-shared-libraries=1",
+                 "--with-c2html=0",
+                 "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
+                 # File format
+                 "--download-hdf5",
+                 # AMG
+                 "--download-hypre",
+                 # Sparse direct solver
+                 "--download-superlu_dist",
+                 # Parallel mesh partitioner
+                 "--download-ptscotch",
+                 # For superlu_dist amongst others.
+                 "--with-cxx-dialect=C++11"}
 
+if not options["minimal_petsc"]:
+    petsc_options.add("--with-zlib")
+    # File formats
+    petsc_options.add("--download-netcdf")
+    petsc_options.add("--download-pnetcdf")
+    petsc_options.add("--download-exodusii")
+    # Sparse direct solvers
+    petsc_options.add("--download-suitesparse")
+    petsc_options.add("--download-pastix")
+    # Serial mesh partitioner
+    petsc_options.add("--download-metis")
+    if options.get("with_parmetis", None):
+        # Non-free license.
+        petsc_options.add("--download-parmetis")
+
+if options["petsc_int_type"] == "int32":
+    # Sparse direct solver
+    petsc_options.add("--download-scalapack")  # Needed for mumps
+    petsc_options.add("--download-mumps")
+    # Serial mesh partitioner
+    petsc_options.add("--download-chaco")
+    if not options["minimal_petsc"]:
+        # AMG
+        petsc_options.add("--download-ml")
+        # Mesh adaptivity (needs metis, but not parmetis)
+        petsc_options.add("--download-pragmatic")
+else:
+    petsc_options.add("--with-64-bit-indices")
+
+if options.get("mpiexec") is not None:
+    petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(petsc_options))
 else:
-    for opt in petsc_opts.split():
-        if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
-            os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
+    all_opts = petsc_options | set(os.environ["PETSC_CONFIGURE_OPTIONS"].split())
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(all_opts))
+
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -613,7 +656,7 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 
@@ -853,6 +896,27 @@ def build_and_install_libsupermesh():
         log.info("No need to rebuild libsupermesh")
 
 
+def build_and_install_pythonocc():
+    log.info("Installing pythonocc-core")
+    url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
+    if not os.path.exists("pythonocc-core"):
+        git_clone(url)
+        with directory("pythonocc-core"):
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            check_call(["mkdir", "-p", "build"])
+            with directory("build"):
+                check_call(["cmake", "..",
+                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                            "-DPYTHON_EXECUTABLE=" + python[0],
+                            "-DMPI_C_COMPILER=" + cc,
+                            "-DMPI_CXX_COMPILER=" + cxx,
+                            "-DMPI_Fortran_COMPILER=" + f90])
+                check_call(["make", "install"])
+    else:
+        log.info("No need to rebuild pythonocc-core")
+
+
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -978,20 +1042,12 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if options["show_petsc_configure_options"]:
-    log.info("******************************************\n")
-    log.info("Building PETSc with the following options:\n")
-    log.info("******************************************\n")
-    log.info("%s\n\n" % os.environ["PETSC_CONFIGURE_OPTIONS"])
-
-if args.rebuild_script:
-    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
-
-    build_update_script()
-
-    log.info("Successfully rebuilt firedrake-update.\n")
-
-    log.info("To upgrade firedrake, run firedrake-update")
+if mode == "install" and args.show_petsc_configure_options:
+    log.info("*********************************************")
+    log.info("Would build PETSc with the following options:")
+    log.info("*********************************************\n")
+    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
+    log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
     sys.exit(0)
 
 
@@ -1015,6 +1071,22 @@ if "SLEPC_DIR" in os.environ and not args.honour_petsc_dir and options["slepc"]:
     quit("""The SLEPC_DIR environment variable is set.  If you want to use
 your own SLEPc version, you must also build your own PETSc and run
 with --honour-petsc-dir.""")
+
+if platform.uname()[0] == "Darwin" and args.opencascade:
+    quit("""Sorry, automatically installing opencascade on OSX hasn't been
+implemented yet. (It's not a supported package in brew.)
+Please contact us to get this working.""")
+
+if args.rebuild_script:
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
+
+    build_update_script()
+
+    log.info("Successfully rebuilt firedrake-update.\n")
+
+    log.info("To upgrade firedrake, run firedrake-update")
+    sys.exit(0)
+
 
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
@@ -1062,6 +1134,8 @@ if mode == "install" or not args.update_script:
             apt_packages = ["build-essential",
                             "autoconf",
                             "automake",
+                            "bison",  # for ptscotch
+                            "flex",   # for ptscotch
                             "cmake",
                             "gfortran",
                             "git",
@@ -1077,6 +1151,10 @@ if mode == "install" or not args.update_script:
                             "python3-venv",
                             "zlib1g-dev",
                             "libboost-dev"]  # For ROL in pyadjoint
+
+            if args.opencascade:
+                apt_packages.append("liboce-ocaf-dev")
+                apt_packages.append("swig")
 
             missing_packages = [p for p in apt_packages if not apt_check(p)]
             if missing_packages:
@@ -1313,6 +1391,10 @@ with environment(**compiler_env):
     with pipargs("--no-deps"):
         if options["slepc"]:
             build_and_install_slepc()
+
+        if options["opencascade"]:
+            build_and_install_pythonocc()
+
     if args.documentation_dependencies:
         install_documentation_dependencies()
 
