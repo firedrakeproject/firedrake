@@ -138,9 +138,6 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     #stage1: slate to gem....                      
     gem_expr=slate_to_gem(builder)
-    print(gem_expr)
-    
-    print("SLATE GEM EXPR:",gem_expr)
    
     #stage 2: gem to loopy...
     loopy_outer=gem_to_loopy(gem_expr,builder)
@@ -626,25 +623,25 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
 
-
+    #TODO shape is wrong for contractions
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
     arg=loopy.GlobalArg("coords",shape=(6,),dtype="double")
     args.append(arg)
-    print(builder.expression.shape)
 
-    #arg=loopy.GlobalArg("coeff",shape=(3,),dtype="double")
-    #args.append(arg)
-    #print(builder.expression.shape)
+    if len(builder.coefficient_vecs)!=0:
+        arg=loopy.GlobalArg("coeff",shape=(3,),dtype="double")
+        args.append(arg)
 
-
-    print("coeff",builder.coefficient_vecs,args)
 
     
     #creation of return variables for slate loopy
-    print(builder.gem_indices)
-    indices=builder.gem_indices[-1]#TODO
+    if len(builder.gem_indices)>1:
+       # indices=builder.create_index(builder.expression.shape)
+        indices=builder.gem_indices[-1]
+    else:
+        indices=builder.gem_indices[0]
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),indices)]
 
     #@TODO: preprocessing of gem for removing unneccesary component tensors

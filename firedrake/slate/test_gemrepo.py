@@ -73,19 +73,28 @@ def test_transpose(a):
 #TODO 
 def test_mul(A,L):
     _A = Tensor(a)
-    print("assembled A")
-    _F = AssembledVector(assemble(L))
-    print("Test Multiplication")
-    mul_A=assemble(_A*_A)
-    print(assemble(a).M.handle.view())
-    print(mul_A.M.handle.view())
-    
+    #mul_matmat=assemble(_A*_A)
+    #print(assemble(a).M.handle.view())
+    #print(mul_matmat.M.handle.view())
+
+    print("TEST MATVEC\n")
+    mat_comp=assemble(a)
+    b=Function(assemble(L))
+    _coeff_F = AssembledVector(b)
+    test=assemble(_coeff_F)
+    mul_matvec=assemble(_A*_coeff_F)
+    print("assembled UFL right hand side\n",b.dat.data,"\n")
+    print("assembled Slate right hand side\n",test.dat.data,"\n")
+    print("assembled UFL mat\n",mat_comp.M.handle.view(),"\n")
+    print("assembled slate mat mult mat\n",mul_matvec.dat.data,"\n")
+
+
 ###########
 #run tests
 ###########
 
 #test_assemble2form(a)
-#test_assembledvector(L)
+test_assembledvector(L)
 #TODO
 test_mul(a,L)
 #test_solve(a,L,V)

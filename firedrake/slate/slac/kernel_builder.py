@@ -453,13 +453,14 @@ class LocalLoopyKernelBuilder(object):
         #but only for tensors and assembled vectors
         for tensor in expression_dag:
             counter.update(tensor.operands)
+            print(tensor)
             
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
                 #the indices stuff is really ugly
                 indices =self.create_index(tensor.shape)
-                print(len(temps))
-                gem_indices=self.gem_indices[len(temps)]
+                print(len(temps)+len(coeff_vecs))
+                gem_indices=self.gem_indices[len(temps)+len(coeff_vecs)]
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" %len(temps),tensor.shape),gem_indices))
                 #TODO this was probably a bad design decision. discuss this.
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
@@ -481,7 +482,7 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [dimension(function.ufl_element())]
 
                     indices =self.create_index(tensor.shape)
-                    gem_indices=self.gem_indices[len(temps)]
+                    gem_indices=self.gem_indices[len(temps)+len(coeff_vecs)]
 
                     # Local temporary
                     local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)

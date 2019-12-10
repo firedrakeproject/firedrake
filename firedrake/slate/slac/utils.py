@@ -9,7 +9,7 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor,Variable)#,Inverse,Solve,)
+                 ListTensor,Variable,index_sum)#,Inverse,Solve,)
 
 
 from functools import singledispatch,update_wrapper
@@ -242,13 +242,29 @@ class SlateTranslator():
         indices =self.builder.create_index(B.shape)
         B_indices=self.builder.gem_indices[-1]
 
-        indices =self.builder.create_index(A.shape)
-        new_indices=self.builder.gem_indices[-1]
 
-        prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[A].children[0],A_indices))
-        sum=IndexSum(prod,A_indices)
-        ret=Indexed(ComponentTensor(prod,A_indices),new_indices)
-        
+        if A.shape==B.shape:
+
+            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[B].children[0],B_indices))
+            sum_indices=(A_indices[0],B_indices[1])
+            print(sum_indices)
+            sum=IndexSum(prod,(A_indices[0],))
+            return ComponentTensor(sum,sum_indices)
+
+        else:#TODO treat all cases
+            sum_indices=(A_indices[0],)
+            vec_gem=self.coeff_vecs[3][0].local_temp
+
+            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(vec_gem.children[0],(A_indices[1],)))
+
+
+            new_indices =self.builder.create_index((A.shape[0],))
+            new_indices=self.builder.gem_indices[-1]
+
+            sum=IndexSum(prod,(A_indices[1],))
+            return Indexed(ComponentTensor(sum,sum_indices),new_indices)
+
+        print(ret)
         return ret
 
     #call gem nodes for inverse and solve
@@ -367,19 +383,19 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     c=0
     for slate_tensor,gem_indexed in builder.temps.items():
         loopy_tensor=builder.gem_loopy_dict[gem_indexed]
-        indices=builder.loopy_indices[c]#this might not be robust later on
+        indices=builder.loopy_indices[1]
         inames={var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
     
-  
-
+    
     #create output arg
     for k,v in builder.coefficient_vecs.items():
         loopy_tensor=builder.gem_loopy_dict[v[0].local_temp]
-        loopy_outer.temporary_variables[temps.name]=loopy_tensor
-        indices=builder.loopy_indices[c]#this might not be robust later on
+        loopy_outer.temporary_variables[loopy_tensor.name]=loopy_tensor
+        indices=builder.loopy_indices[0]
         inames={var.name for var in indices}
+        print(inames)
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
 
@@ -395,11 +411,16 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     if len(loopy_merged.instructions)>1:
         noi_outer=len(loopy_outer.instructions)
         loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
-    #    loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
 
         #remove priority generate from tsfc compile call
         for insn in loopy_merged.instructions[-noi_outer:]:
             loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
+
+    
+    if len(loopy_merged.instructions)>2:
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
+
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+1].id,  "id:"+loopy_merged.instructions[1].id)
 
     #add arguments of the subkernel
     #TODO check if is the dimtag right
