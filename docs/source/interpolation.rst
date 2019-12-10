@@ -63,7 +63,7 @@ of the mesh:
 Interpolator objects
 --------------------
 
-Firedrake is also able to generate reusable :py:class:`Interpolator` objects which
+Firedrake is also able to generate reusable :py:class:`~.Interpolator` objects which
 provide the general interpolation matrix of an expression of one function space into another target function space.
 ``interpolate`` can then be called as a method of this object, and options can be specified
 such as instead applying the transpose of the interpolator.
@@ -74,10 +74,10 @@ such as instead applying the transpose of the interpolator.
    interpolator = Interpolator(expression, V)
 
    # to then perform the interpolation
-   interpolator.interpolate(expression)
+   f = interpolator.interpolate(expression)
 
    # to find the transpose interpolation, where expression is in the target space of interpolator:
-   interpolator.interpolate(expression, transpose = True)
+   g = interpolator.interpolate(expression, transpose = True)
 
 
 
