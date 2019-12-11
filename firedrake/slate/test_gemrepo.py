@@ -1,17 +1,6 @@
 
 from firedrake import *
 
-#FEM problem (Helmholtz equation)
-mesh = UnitSquareMesh(5,5)
-V = FunctionSpace(mesh, "CG", 1)
-u = TrialFunction(V)
-v = TestFunction(V)
-f = Function(V)
-x, y = SpatialCoordinate(mesh)
-f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
-a = (dot(grad(v), grad(u)) + v * u) * dx
-L = f * v * dx
-
 def test_assemble2form(a):
     _A = Tensor(a)
     A=assemble(_A)
@@ -39,7 +28,7 @@ def test_solve(a,L,V):
     solve(a==L, u_comp, solver_parameters={'ksp_type': 'cg'})
     print((u.dat.data-u_comp.dat.data).norm())
 
-#TODO test fails!
+#test only works for discontinuous function spaces
 def test_assembledvector(L):
     b=Function(assemble(L))
     _coeff_F = AssembledVector(b)
@@ -86,28 +75,41 @@ def test_mul(A,L):
     print("assembled UFL right hand side\n",b.dat.data,"\n")
     print("assembled Slate right hand side\n",test.dat.data,"\n")
     print("assembled UFL mat\n",mat_comp.M.handle.view(),"\n")
-    print("assembled slate mat mult mat\n",mul_matvec.dat.data,"\n")
+    print("assembled slate mat mult vec\n",mul_matvec.dat.data,"\n")
 
 
 ###########
 #run tests
 ###########
 
-#test_assemble2form(a)
+#discontinuous FEM problem (Helmholtz equation)
+mesh = UnitSquareMesh(5,5)
+V = FunctionSpace(mesh, "DG", 1)
+u = TrialFunction(V)
+v = TestFunction(V)
+f = Function(V)
+x, y = SpatialCoordinate(mesh)
+f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
+a = (dot(grad(v), grad(u)) + v * u) * dx
+L = f * v * dx
+
 test_assembledvector(L)
+
 #TODO
 test_mul(a,L)
+
+
+
 #test_solve(a,L,V)
 
+
+#test_assemble2form(a)
 
 
 
 ###############################################
 #TODO: TEST: assemble contraction
 #test=assemble(_A*_A)
-
-#TODO: TEST: assemble contraction
-#test=assemble(_A*_F)
 
 #TODO: TEST: assemble blocks
 #this is getting more interesting if mixed
