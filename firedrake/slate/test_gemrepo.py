@@ -25,14 +25,14 @@ def test_solve(a,L,V):
     u_comp = Function(V)
     solve(assemble(_A), u, assemble(_F))
     solve(a == L, u_comp, solver_parameters={'ksp_type': 'cg'})
-    assert u.dat.data == u_comp.dat.data, "Test for solved on assembled forms failed"
+    assert u.dat.data.all()  == u_comp.dat.data.all() , "Test for solved on assembled forms failed"
 
 #Note: this test only works for discontinuous function spaces
 def test_assembledvector(L):
     _coeff_F = AssembledVector(Function(assemble(L)))
     coeff_F = assemble(_coeff_F)
     coeff_F_comp = assemble(L)
-    assert coeff_F.dat.data == coeff_F_comp.dat.data, "Test for assembled vectors failed"
+    assert coeff_F.dat.data.all() == coeff_F_comp.dat.data.all(), "Test for assembled vectors failed"
 
 def test_add(a):
     _A = Tensor(a)
@@ -62,13 +62,12 @@ def test_mul(A,L,V):
     _coeff_F = AssembledVector(b)
     mul_matvec = assemble(_A*_coeff_F)
     mul_matvec_comp = assemble(action(a,b))
-    assert mul_matvec.dat.data == mul_matvec_comp.dat.data, "Test for contraction (mat-vec-mul) failed"
+    assert mul_matvec.dat.data.all()  == mul_matvec_comp.dat.data.all() , "Test for contraction (mat-vec-mul) failed"
 
 
 
 ###########
-#run tests
-###########
+print("Run test for slate to loopy compilation.")
 
 #discontinuous Helmholtz equation
 mesh = UnitSquareMesh(5,5)
@@ -81,7 +80,7 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-test_assembledvector(L)
+#test_assembledvector(L)
 #test_mul(a,L,V)
 #test_solve(a,L,V)
 
@@ -96,7 +95,7 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-#test_assemble2form(a)
+test_assemble2form(a)
 #test_assemble1form(a)
 #test_negative(a)
 #test_add(a)
@@ -112,3 +111,5 @@ L = f * v * dx
 #TODO: TEST: assemble mul of two 2-froms
 #test=assemble(_A*_A)
 #TODO: TEST: assemble blocks
+
+print("All tests passed.")
