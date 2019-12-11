@@ -457,7 +457,8 @@ class LocalLoopyKernelBuilder(object):
             
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
-                #the indices stuff is really ugly
+
+                print(tensor.shape)
                 indices =self.create_index(tensor.shape)
                 print(len(temps)+len(coeff_vecs))
                 gem_indices=self.gem_indices[len(temps)+len(coeff_vecs)]
@@ -469,6 +470,7 @@ class LocalLoopyKernelBuilder(object):
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
+
                 function = tensor._function
 
                 def dimension(e):
@@ -687,6 +689,8 @@ class LocalLoopyKernelBuilder(object):
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
                                             within_inames_is_final=True,id="inner_call"))
+                
+       # self.integral_type=integral_type
 
 
         self.assembly_calls = assembly_calls
