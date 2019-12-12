@@ -237,7 +237,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         arguments.append(tensor(op2.WRITE, (V.cell_node_map(),
-                                       arguments[0].function_space().cell_node_map())))
+                                            arguments[0].function_space().cell_node_map())))
     if oriented:
         co = mesh.cell_orientations()
         arguments.append(co.dat(op2.READ, co.cell_node_map()))
@@ -253,7 +253,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         if domain is not None and domain.topology != mesh.topology:
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
-    parloop = op2.ParLoop(*args).compute
+    parloop = op2.ParLoop(*arguments).compute
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble()
     else:
