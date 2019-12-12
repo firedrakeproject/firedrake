@@ -59,30 +59,48 @@ of the mesh:
    f = interpolate(expression, trace)
 
 
-
 Interpolator objects
 --------------------
 
-Firedrake is also able to generate reusable :py:class:`~.Interpolator` objects which
-provide the general interpolation matrix of an expression of one function space into another target function space.
-``interpolate`` can then be called as a method of this object, and options can be specified
-such as instead applying the transpose of the interpolator.
+Firedrake is also able to generate reusable :py:class:`~.Interpolator`
+objects which provide caching of the interpolation operation. The
+following line creates an interpolator which will interpolate the
+current value of `expression` into the space `V`:
 
 .. code-block:: python
-
-   # returns the appropriate matrix for interpolating the given expression into the space V
    interpolator = Interpolator(expression, V)
 
-   # to then perform the interpolation
-   f = interpolator.interpolate(expression)
+If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+the interpolation can be performed with:
 
-   # to find the transpose interpolation, where expression is in the target space of interpolator:
-   g = interpolator.interpolate(expression, transpose = True)
+.. code-block:: python
+   f = interpolator.interpolate()
 
+Alternatively, one can use the interpolator to set the value of an existing :py:class:`~.Function`:
 
+.. code-block:: python
+   f = Function(V)
+   interpolator.interpolate(output=f)
 
-This may be useful if you find yourself interpolating multiple functions between the same two function spaces,
-or wish to use the transpose operator.
+If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+the interpolator acts to interpolate :py:class:`~.Function`\s in the
+test space to those in the target space. For example:
+
+.. code-bloc:: python
+   w = TestFunction(W)
+   interpolator = Interpolator(w, V)
+
+Here, `interpolator` acts as the interpolation matrix from the
+:py:func:`~.FunctionSpace` W into the
+:py:func:`~.FunctionSpace` V. Such that if `f` is a
+:py:class:`~.Function` in `W` then `interpolator(f)` is its
+interpolation into `g`. As before, the `output` parameter can be used
+to write into an existing :py:class:`~.Function`. Passing the
+`transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
+cause the transpose interpolation to occur. This is equivalent to the
+multigrid restriction operation which interpolates assembled 1-forms
+in the dual space to `V` to assembled 1-forms in the dual space to
+`W`.
 
 
 Interpolation from external data
