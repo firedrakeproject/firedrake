@@ -96,8 +96,8 @@ to a file::
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
-We could use the built in plot function of firedrake by calling 
-:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
+We could use the built in plot function of firedrake by calling
+:func:`plot <firedrake.plot.tripcolor>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
   try:
@@ -106,15 +106,19 @@ matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
-    plot(u)
+    fig, axes = plt.subplots()
+    colors = tripcolor(u, axes=axes)
+    fig.colorbar(colors)
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 
-For a contour plot, it could be plotted by adding an additional key word
-argument::
+The plotting functions in Firedrake mimic those of matplotlib; to produce a
+contour plot instead of a pseudocolor plot, we can call tricontour instead::
 
   try:
-    plot(u, contour=True)
+    fig, axes = plt.subplots()
+    contours = tricontour(u, axes=axes)
+    fig.colorbar(contours)
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 

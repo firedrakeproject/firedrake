@@ -145,8 +145,8 @@ visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
   File("poisson_mixed.pvd").write(u)
 
-We could use the built in plot function of firedrake by calling 
-:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
+We could use the built in plot function of firedrake by calling
+:func:`plot <firedrake.plot.tripcolor>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
   try:
@@ -155,7 +155,9 @@ matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
-    plot(u)
+    fig, axes = plt.subplots()
+    colors = tripcolor(u, axes=axes)
+    fig.colorbar(colors)
   except Exception as e:
     warning("Cannot plot figure. Error msg '%s'" % e)
 
