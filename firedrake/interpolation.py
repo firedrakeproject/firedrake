@@ -87,7 +87,6 @@ class Interpolator(object):
                     self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
         if self.nargs:
-            assembled_interpolator._force_evaluation()
             function, = function
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
@@ -219,7 +218,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if subset is not None:
         assert subset.superset == cell_set
         cell_set = subset
-    arguments = [kernel, cell_set]
+    parloop_args = [kernel, cell_set]
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -232,30 +231,32 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     else:
         copyin = ()
         copyout = ()
-    if isinstance(tensor, op2.Dat):
-        arguments.append(tensor(access, V.cell_node_map()))
+    if isinstance(tensor, op2.Global):
+        parloop_args.append(tensor(access))
+    elif isinstance(tensor, op2.Dat):
+        parloop_args.append(tensor(access, V.cell_node_map()))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
-        arguments.append(tensor(op2.WRITE, (V.cell_node_map(),
+        parloop_args.append(tensor(op2.WRITE, (V.cell_node_map(),
                                             arguments[0].function_space().cell_node_map())))
     if oriented:
         co = mesh.cell_orientations()
-        arguments.append(co.dat(op2.READ, co.cell_node_map()))
+        parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
     if needs_cell_sizes:
         cs = mesh.cell_sizes
-        arguments.append(cs.dat(op2.READ, cs.cell_node_map()))
+        parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         m_ = coefficient.cell_node_map()
-        arguments.append(coefficient.dat(op2.READ, m_))
+        parloop_args.append(coefficient.dat(op2.READ, m_))
 
     for o in coefficients:
         domain = o.ufl_domain()
         if domain is not None and domain.topology != mesh.topology:
             raise NotImplementedError("Interpolation onto another mesh not supported.")
 
-    parloop = op2.ParLoop(*arguments).compute
+    parloop = op2.ParLoop(*parloop_args).compute
     if isinstance(tensor, op2.Mat):
-        return parloop, tensor.assemble()
+        return parloop, tensor.assemble
     else:
         return copyin + (parloop, ) + copyout
 
