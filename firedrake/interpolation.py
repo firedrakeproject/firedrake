@@ -238,7 +238,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         parloop_args.append(tensor(op2.WRITE, (V.cell_node_map(),
-                                            arguments[0].function_space().cell_node_map())))
+                                               arguments[0].function_space().cell_node_map())))
     if oriented:
         co = mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
