@@ -215,10 +215,11 @@ peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
 
 At last, we call the :func:`plot(all_us) <firedrake.plot.plot>` to plot the
-image::
+image of the final result::
 
   try:
-    plot(all_us)
+    fig, axes = plt.subplots()
+    plot(all_us[-1], axes=axes)
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 
@@ -228,9 +229,6 @@ And finally show the figure::
     plt.show()
   except Exception as e:
     warning("Cannot show figure. Error msg: '%s'" % e)
-
-Alternatively, if running in Jupyter Notebook, an interactive interface will be
-displayed by adding the key word argument `interactive=True`
 
 Images of the solution at shown below.
 
