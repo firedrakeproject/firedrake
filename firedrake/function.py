@@ -352,6 +352,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset)
 
+    @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of

@@ -35,7 +35,6 @@ class FunctionMixin(FloatingType):
             
             with stop_annotating():
                 output = project(self, b, *args, **kwargs)
-            #output = create_overloaded_object(output)
 
             if annotate:
                 from fenics_adjoint.projection import ProjectBlock
@@ -68,8 +67,7 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
-            c = copy(self, *args, **kwargs)
-            func = create_overloaded_object(c)
+            func = copy(self, *args, **kwargs)
 
             if annotate:
                 from fenics_adjoint.types.function import AssignBlock
@@ -177,7 +175,7 @@ class FunctionMixin(FloatingType):
     def _ad_mul(self, other):
         from firedrake import Function
 
-        r = get_overloaded_class(Function)(self.function_space())
+        r = Function(self.function_space())
         Function.assign(r, self * other)
         return r
 
@@ -185,7 +183,7 @@ class FunctionMixin(FloatingType):
     def _ad_add(self, other):
         from firedrake import Function
 
-        r = get_overloaded_class(Function)(self.function_space())
+        r = Function(self.function_space())
         Function.assign(r, self + other)
         return r
 
@@ -194,7 +192,7 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
         if riesz_representation == "l2":
-            return self.vector().firedrake.inner(other.vector())
+            return self.vector().inner(other.vector())
         elif riesz_representation == "L2":
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":
@@ -226,7 +224,7 @@ class FunctionMixin(FloatingType):
     def _ad_copy(self):
         from firedrake import Function
 
-        r = get_overloaded_class(Function)(self.function_space())
+        r = Function(self.function_space())
         Function.assign(r, self)
         return r
 
