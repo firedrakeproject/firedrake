@@ -3,6 +3,7 @@ from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object, 
 from pyadjoint.block import Block
 from pyadjoint.reduced_functional_numpy import gather
 from pyadjoint.adjfloat import AdjFloat
+from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
 
@@ -37,7 +38,7 @@ class ConstantMixin(OverloadedType):
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
-                    other = create_overloaded_object(AdjFloat(other))
+                    other = create_overloaded_object(ndarray(other))
 
                 block = AssignBlock(self, other)
                 tape = get_working_tape()
