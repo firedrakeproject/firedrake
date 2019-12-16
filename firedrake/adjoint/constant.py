@@ -13,8 +13,8 @@ class ConstantMixin(OverloadedType):
     def _ad_annotate_assign(assign):
 
         def wrapper(self, *args, **kwargs):
-            annotate_tape = annotate_tape(kwargs)
-            if annotate_tape:
+            annotate = annotate_tape(kwargs)
+            if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
                     other = create_overloaded_object(other)
@@ -25,7 +25,7 @@ class ConstantMixin(OverloadedType):
 
             ret = assign(self, *args, **kwargs)
 
-            if annotate_tape:
+            if annotate:
                 block.add_output(self.create_block_variable())
 
             return ret
@@ -148,4 +148,4 @@ class AssignBlock(Block):
         return hessian_inputs[0]
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        return Constant._constant_from_values(block_variable.output, inputs[0])
+        return type(self)._constant_from_values(block_variable.output, inputs[0])
