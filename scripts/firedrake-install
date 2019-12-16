@@ -1246,7 +1246,7 @@ for opt in ["mpicc", "mpicxx", "mpif90"]:
         src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
     dest = os.path.join(firedrake_env, "bin", opt)
     log.debug("Creating a symlink from %s to %s" % (src, dest))
-    if os.path.exists(dest):
+    if os.path.lexists(dest):
         os.remove(dest)
     os.symlink(src, dest)
 
