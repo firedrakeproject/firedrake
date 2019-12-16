@@ -2,12 +2,12 @@ from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object, register_overloaded_type
 from pyadjoint.block import Block
 from pyadjoint.reduced_functional_numpy import gather
+from pyadjoint.adjfloat import AdjFloat
 
 from firedrake.functionspace import FunctionSpace
 
 import numpy
 
-#@register_overloaded_type
 class ConstantMixin(OverloadedType):
 
     @staticmethod
@@ -38,7 +38,7 @@ class ConstantMixin(OverloadedType):
                 other = args[0]
                 if not isinstance(other, OverloadedType):
                     print("\n not OverloadedType")
-                    other = create_overloaded_object(other)
+                    other = create_overloaded_object(AdjFloat(other))
 
                 print(type(self)," other:", type(other))
                 block = AssignBlock(self, other)
