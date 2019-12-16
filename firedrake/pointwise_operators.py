@@ -15,7 +15,7 @@ from scipy import optimize
 
 
 class AbstractPointwiseOperator(Function, ExternalOperator, metaclass=ABCMeta):
-    r"""Asbtract base class from wich stem from all the firedrake practical implementation of the
+    r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
     This class inherits from firedrake.function.Function and ufl.core.external_operator.ExternalOperator
@@ -38,8 +38,8 @@ class AbstractPointwiseOperator(Function, ExternalOperator, metaclass=ABCMeta):
         self._original_function_space = fs
         self.operator_data = operator_data
 
-        if extop_id is not None:
-            self.extop_id = extop_id
+        #if extop_id is not None:
+        #    self.extop_id = extop_id
 
     @abstractmethod
     def compute_derivatives(self):
@@ -444,6 +444,115 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
 # Neural Net bit : Here !
 
+class PointnetOperator(AbstractPointwiseOperator):
+    r"""A :class:`PointnetOperator` ... TODO :
+     """
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):#framework, model, ncontrols=None, extop_id=None):
+        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+
+        # Checks
+        if not 'ncontrols' in self.operator_data.keys():
+            self.operator_data['ncontrols'] = 1
+        if not isinstance(operator_data['ncontrols'], int) or operator_data['ncontrols'] > len(self.ufl_operands):
+            error("Expecting for the number of controls an int type smaller or equal \
+                  than the number of operands and not %s" % ncontrols)
+
+        self._controls = tuple(range(0,self.ncontrols))
+
+    @property
+    def framework(self):
+        return self.operator_data['framework']
+
+    @property
+    def model(self):
+        return self.operator_data['model']
+
+    @property
+    def ncontrols(self):
+        return self.operator_data['ncontrols']
+
+    @property
+    def controls(self):
+        return dict(zip(self._controls, tuple(self.ufl_operands[i] for i in self._controls)))
+
+    #    "Compute the gradient of the neural net output with respect to the inputs."
+    #    raise NotImplementedError(self.__class__.compute_grad_inputs)
+
+
+class PytorchOperator(PointnetOperator):
+    r"""A :class:`PyTorchOperator` ... TODO :
+     """
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+
+        # Check
+        #try:
+        #    import torch
+        #except ImportError:
+        #    raise ImportError("Error when trying to import PyTorch")
+
+    def compute_derivatives(self):
+        """Compute the gradient of the network wrt inputs"""
+        op = self.interpolate(self.ufl_operands[0])
+        torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
+        model_output = self.evaluate().data.data
+        res = []
+        for i, e in enumerate(torch_op):
+            xi = torch.unsqueeze(e, 0)
+            yi = model_output[i]
+            res.append(torch.autograd.grad(yi, xi)[0])
+        return res
+
+    def evaluate(self):
+        import torch
+        model = self.model.eval()
+        op = self.interpolate(self.ufl_operands[0])
+        torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
+        #import ipdb;ipdb.set_trace()
+        model_input = torch.unsqueeze(torch_op, 0)
+       # model_input = model_input.reshape(1,*torch_op.shape)
+        #import ipdb;ipdb.set_trace()
+        result = Function(self.ufl_function_space())
+        val = model(model_input).detach().numpy()#.squeeze(0)
+        #import ipdb;ipdb.set_trace()
+        result.dat.data[:] = val.squeeze(0)
+        #import ipdb;ipdb.set_trace()
+        return self.assign(result)
+        # for i, e in enumerate(torch_op):
+        #     model_input = torch.unsqueeze(e, 0)
+        #     result.dat.data[i] = model(model_input).detach().numpy()
+        # return self.assign(result)
+
+
+class TensorFlowOperator(PointnetOperator):
+    r"""A :class:`TensorFlowOperator` ... TODO :
+     """
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+
+        # Check
+        #try:
+        #    import tensorflow
+        #except ImportError:
+        #    raise ImportError("Error when trying to import TensorFlow")
+
+
+class KerasOperator(PointnetOperator):
+    r"""A :class:`KerasOperator` ... TODO :
+     """
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+
+        # Check
+        #try:
+        #    from tensorflow import keras
+        #except ImportError:
+        #    raise ImportError("Error when trying to import tensorflow.keras")
+
 
 def point_expr(point_expr, function_space):
     r"""The point_expr function returns the `PointexprOperator` class initialised with :
@@ -469,6 +578,44 @@ def point_solve(point_solve, function_space, solver_name='newton', solver_params
     return partial(PointsolveOperator, operator_data=operator_data, function_space=function_space, disp=disp)
 
 # Neural Net bit 2 : Here !
+
+
+def neuralnet(model, function_space, ncontrols=1):
+
+    torch_module = type(None)
+    tensorflow_module = type(None)
+    keras_module = type(None)
+
+    # Checks
+    try:
+        import torch
+        torch_module = torch.nn.modules.module.Module
+    except ImportError:
+        pass
+
+    try:
+        import tensorflow
+        #tensorflow_module =
+    except ImportError:
+        pass
+
+    try:
+        from tensorflow import keras
+        #keras_module =
+    except ImportError:
+        pass
+
+    if isinstance(model, torch_module):
+        operator_data = {'framework': 'PyTorch', 'model': model, 'ncontrols': ncontrols}
+        return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
+    elif isinstance(model, tensorflow_module):
+        operator_data = {'framework': 'TensorFlow', 'model': model, 'ncontrols': ncontrols}
+        return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
+    elif isinstance(model, keras_module):
+        operator_data = {'framework': 'Keras', 'model': model, 'ncontrols': ncontrols}
+        return partial(KerasOperator, function_space=function_space, operator_data=operator_data)
+    else:
+        error("Expecting one of the following library : PyTorch, TensorFlow or Keras and that the library has been installed")
 
 
 def create_symbols(xshape, i):
