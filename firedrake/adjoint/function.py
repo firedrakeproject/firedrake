@@ -1,15 +1,14 @@
 import ufl
-from pyadjoint import OverloadedType
-from pyadjoint.overloaded_type import create_overloaded_object
+from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 import firedrake
 
-class FunctionMixin(OverloadedType):
+class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_init(init):
         def wrapper(self, *args, **kwargs):
-            OverloadedType.__init__(self, *args,
+            FloatingType.__init__(self, *args,
                                            block_class=kwargs.pop("block_class",
                                                                   None),
                                            _ad_floating_active=kwargs.pop(
