@@ -1,6 +1,10 @@
+import ufl
 from pyadjoint import OverloadedType
 from pyadjoint.overloaded_type import create_overloaded_object
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
+from firedrake import TrialFunction, TestFunction, assemble, solve,
+                      dx, grad, inner
+
 
 class FunctionMixin(OverloadedType):
 
@@ -17,6 +21,7 @@ class FunctionMixin(OverloadedType):
 
             if annotate:
                 from fenics_adjoint.projection import ProjectBlock
+
                 bcs = kwargs.pop("bcs", [])
                 block = ProjectBlock(b, self.function_space(), output, bcs)
 
@@ -27,3 +32,247 @@ class FunctionMixin(OverloadedType):
 
             return output
         return wrapper
+
+
+    @staticmethod
+    def _ad_annotate_split(split):
+
+        def wrapper(self, *args, **kwargs):
+            annotate = annotate_tape(kwargs)
+            if annotate:
+                raise NotImplementedError("Function.split has no adjoint implementation yet")
+            return split(self, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_copy(copy):
+
+        def wrapper(self, *args, **kwargs):
+            annotate = annotate_tape(kwargs)
+            c = copy(self, *args, **kwargs)
+            func = create_overloaded_object(c)
+
+            if annotate:
+                from fenics_adjoint.types.function import AssignBlock
+
+                if kwargs.pop("deepcopy", False):
+                    block = AssignBlock(func, self)
+                    tape = get_working_tape()
+                    tape.add_block(block)
+                    block.add_output(func.create_block_variable())
+                else:
+                    # TODO: Implement. Here we would need to use floating types.
+                    pass
+
+            return func
+
+        return wrapper
+
+
+    @staticmethod
+    def _ad_annotate_assign(assign):
+
+        def wrapper(self, other, *args, **kwargs):
+            """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+            Dolfin assign call."""
+
+            # do not annotate in case of self assignment
+            annotate = annotate_tape(kwargs) and self != other
+
+            if annotate:
+                from fenics_adjoint.types.function import AssignBlock
+
+                if not isinstance(other, ufl.core.operator.Operator):
+                    other = create_overloaded_object(other)
+                block = AssignBlock(self, other)
+                tape = get_working_tape()
+                tape.add_block(block)
+
+            with stop_annotating():
+                ret = assign(self, other, *args, **kwargs)
+
+            if annotate:
+                block.add_output(self.create_block_variable())
+
+            return ret
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_call(__call__):
+
+        def wrapper(self, *args, **kwargs):
+            annotate = False
+            if len(args) == 1 and isinstance(args[0], (numpy.ndarray,)):
+                annotate = annotate_tape(kwargs)
+
+            if annotate:
+                from fenics_adjoint.types.function import EvalBlock
+
+                block = EvalBlock(self, args[0])
+                tape = get_working_tape()
+                tape.add_block(block)
+
+            with stop_annotating():
+                out = __call__(self, *args, **kwargs)
+
+            if annotate:
+                out = create_overloaded_object(out)
+                block.add_output(out.create_block_variable())
+
+            return out
+        return wrapper
+
+
+    def _ad_create_checkpoint(self):
+        return self.copy(deepcopy=True)
+
+    @no_annotations
+    def _ad_convert_type(self, value, options=None):
+        from firedrake import Function
+
+        options = {} if options is None else options
+        riesz_representation = options.get("riesz_representation", "l2")
+
+        if riesz_representation == "l2":
+            return Function(self.function_space(), val=value)
+
+        elif riesz_representation == "L2":
+            ret = Function(self.function_space())
+            u = TrialFunction(self.function_space())
+            v = TestFunction(self.function_space())
+            M = assemble(inner(u, v)*dx)
+            solve(M, ret, value)
+            return ret
+
+        elif riesz_representation == "H1":
+            ret = Function(self.function_space())
+            u = TrialFunction(self.function_space())
+            v = TestFunction(self.function_space())
+            M = assemble(inner(u, v)*dx
+                         + inner(grad(u), grad(v))*dx)
+            solve(M, ret, value)
+            return ret
+
+        elif callable(riesz_representation):
+            return riesz_representation(value)
+
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_representation)
+
+    def _ad_create_checkpoint(self):
+        from firedrake import Function
+
+        if self.block is None:
+            # TODO: This might crash if annotate=False, but still using a sub-function.
+            #       Because subfunction.copy(deepcopy=True) raises the can't access vector error.
+            return self.copy(deepcopy=True)
+
+        dep = self.block.get_dependencies()[0]
+        return Function.sub(dep.saved_output, self.block.idx,
+                                    deepcopy=False)
+
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        return checkpoint
+
+    @no_annotations
+    def adj_update_value(self, value):
+        self.original_block_variable.checkpoint = value._ad_create_checkpoint()
+
+    @no_annotations
+    def _ad_mul(self, other):
+        from firedrake import Function
+
+        r = get_overloaded_class(Function)(self.function_space())
+        Function.assign(r, self * other)
+        return r
+
+    @no_annotations
+    def _ad_add(self, other):
+        from firedrake import Function
+
+        r = get_overloaded_class(Function)(self.function_space())
+        Function.assign(r, self + other)
+        return r
+
+    def _ad_dot(self, other, options=None):
+
+        options = {} if options is None else options
+        riesz_representation = options.get("riesz_representation", "l2")
+        if riesz_representation == "l2":
+            return self.vector().inner(other.vector())
+        elif riesz_representation == "L2":
+            return assemble(inner(self, other)*dx)
+        elif riesz_representation == "H1":
+            return assemble((inner(self, other)
+                            + inner(grad(self), other))*dx)
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_representation)
+
+    @staticmethod
+    def _ad_assign_numpy(dst, src, offset):
+        range_begin, range_end = dst.vector().local_range()
+        m_a_local = src[offset + range_begin:offset + range_end]
+        dst.vector().set_local(m_a_local)
+        dst.vector().apply('insert')
+        offset += dst.vector().size()
+        return dst, offset
+
+    @staticmethod
+    def _ad_to_list(m):
+        if not hasattr(m, "gather"):
+            m_v = m.vector()
+        else:
+            m_v = m
+        m_a = gather(m_v)
+
+        return m_a.tolist()
+
+    def _ad_copy(self):
+        from firedrake import Function
+
+        r = get_overloaded_class(Function)(self.function_space())
+        Function.assign(r, self)
+        return r
+
+    def _ad_dim(self):
+        return self.function_space().dim()
+
+    def _ad_imul(self, other):
+        vec = self.vector()
+        vec *= other
+
+    def _ad_iadd(self, other):
+        vec = self.vector()
+        # FIXME: PETSc complains when we add the same vector to itself.
+        # So we make a copy.
+        vec += other.vector().copy()
+
+    def _reduce(self, r, r0):
+        vec = self.vector().get_local()
+        for i in range(len(vec)):
+            r0 = r(vec[i], r0)
+        return r0
+
+    def _applyUnary(self, f):
+        vec = self.vector()
+        npdata = vec.get_local()
+        for i in range(len(npdata)):
+            npdata[i] = f(npdata[i])
+        vec.set_local(npdata)
+        vec.apply("insert")
+
+    def _applyBinary(self, f, y):
+        vec = self.vector()
+        npdata = vec.get_local()
+        npdatay = y.vector().get_local()
+        for i in range(len(npdata)):
+            npdata[i] = f(npdata[i], npdatay[i])
+        vec.set_local(npdata)
+        vec.apply("insert")
+
+    def __deepcopy__(self, memodict={}):
+        return self.copy(deepcopy=True)
