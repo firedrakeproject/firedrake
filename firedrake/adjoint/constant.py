@@ -37,10 +37,8 @@ class ConstantMixin(OverloadedType):
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
-                    print("\n not OverloadedType")
                     other = create_overloaded_object(AdjFloat(other))
 
-                print(type(self)," other:", type(other))
                 block = AssignBlock(self, other)
                 tape = get_working_tape()
                 tape.add_block(block)
