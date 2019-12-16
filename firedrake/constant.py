@@ -51,6 +51,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
        :func:`~.Mesh` as the domain argument.
     """
 
+    @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()

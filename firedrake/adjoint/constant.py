@@ -7,18 +7,40 @@ from firedrake.functionspace import FunctionSpace
 
 import numpy
 
+#@register_overloaded_type
 class ConstantMixin(OverloadedType):
 
     @staticmethod
-    def _ad_annotate_assign(assign):
+    def _ad_annotate_init(init):
+        def wrapper(self, *args, **kwargs):
+            OverloadedType.__init__(self, *args,
+                                           block_class=kwargs.pop("block_class",
+                                                                  None),
+                                           _ad_floating_active=kwargs.pop(
+                                               "_ad_floating_active", False),
+                                           _ad_args=kwargs.pop("_ad_args", None),
+                                           output_block_class=kwargs.pop(
+                                               "output_block_class", None),
+                                           _ad_output_args=kwargs.pop(
+                                               "_ad_output_args", None),
+                                           _ad_outputs=kwargs.pop("_ad_outputs",
+                                                                  None),
+                                           annotate=kwargs.pop("annotate", True),
+                                           **kwargs)
+            init(self, *args, **kwargs)
+        return wrapper
 
+    @staticmethod
+    def _ad_annotate_assign(assign):
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
+                    print("\n not OverloadedType")
                     other = create_overloaded_object(other)
 
+                print(type(self)," other:", type(other))
                 block = AssignBlock(self, other)
                 tape = get_working_tape()
                 tape.add_block(block)
