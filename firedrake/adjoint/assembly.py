@@ -14,7 +14,6 @@ def annotate_assemble(assemble):
 
         form = args[0]
         if isinstance(output, float):
-            import pdb; pdb.set_trace()
             output = create_overloaded_object(output)
 
 
