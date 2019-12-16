@@ -1,10 +1,8 @@
 import ufl
 from pyadjoint import OverloadedType
 from pyadjoint.overloaded_type import create_overloaded_object
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake import TrialFunction, TestFunction, assemble, solve,
-                      dx, grad, inner
-
+from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
+import firedrake
 
 class FunctionMixin(OverloadedType):
 
@@ -116,17 +114,17 @@ class FunctionMixin(OverloadedType):
             ret = Function(self.function_space())
             u = TrialFunction(self.function_space())
             v = TestFunction(self.function_space())
-            M = assemble(inner(u, v)*dx)
-            solve(M, ret, value)
+            M = assemble(firedrake.inner(u, v)*firedrake.dx)
+            firedrake.solve(M, ret, value)
             return ret
 
         elif riesz_representation == "H1":
             ret = Function(self.function_space())
             u = TrialFunction(self.function_space())
             v = TestFunction(self.function_space())
-            M = assemble(inner(u, v)*dx
-                         + inner(grad(u), grad(v))*dx)
-            solve(M, ret, value)
+            M = assemble(firedrake.inner(u, v)*firedrake.dx
+                         + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx)
+            firedrake.solve(M, ret, value)
             return ret
 
         elif callable(riesz_representation):
@@ -145,7 +143,7 @@ class FunctionMixin(OverloadedType):
             return self.copy(deepcopy=True)
 
         dep = self.block.get_dependencies()[0]
-        return Function.sub(dep.saved_output, self.block.idx,
+        return Function.sub(dep.saved_output, self.block.ifiredrake.dx,
                                     deepcopy=False)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
@@ -176,12 +174,12 @@ class FunctionMixin(OverloadedType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
         if riesz_representation == "l2":
-            return self.vector().inner(other.vector())
+            return self.vector().firedrake.inner(other.vector())
         elif riesz_representation == "L2":
-            return assemble(inner(self, other)*dx)
+            return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":
-            return assemble((inner(self, other)
-                            + inner(grad(self), other))*dx)
+            return assemble((firedrake.inner(self, other)
+                            + firedrake.inner(firedrake.grad(self), other))*firedrake.dx)
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
