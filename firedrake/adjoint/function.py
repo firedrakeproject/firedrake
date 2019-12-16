@@ -5,6 +5,27 @@ from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 class FunctionMixin(OverloadedType):
 
     @staticmethod
+    def _ad_annotate_init(init):
+        def wrapper(self, *args, **kwargs):
+            OverloadedType.__init__(self, *args,
+                                           block_class=kwargs.pop("block_class",
+                                                                  None),
+                                           _ad_floating_active=kwargs.pop(
+                                               "_ad_floating_active", False),
+                                           _ad_args=kwargs.pop("_ad_args", None),
+                                           output_block_class=kwargs.pop(
+                                               "output_block_class", None),
+                                           _ad_output_args=kwargs.pop(
+                                               "_ad_output_args", None),
+                                           _ad_outputs=kwargs.pop("_ad_outputs",
+                                                                  None),
+                                           annotate=kwargs.pop("annotate", True),
+                                           **kwargs)
+            init(self, *args, **kwargs)
+        return wrapper
+
+
+    @staticmethod
     def _ad_annotate_project(project):
 
         def wrapper(self, b, *args, **kwargs):
