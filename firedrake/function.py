@@ -12,6 +12,7 @@ from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.adjoint import FunctionMixin
 try:
     import cachetools
 except ImportError:
@@ -203,7 +204,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             return super(Function, self).__str__()
 
 
-class Function(ufl.Coefficient):
+class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
@@ -319,6 +320,7 @@ class Function(ufl.Coefficient):
             return self._components[i]
         return self._split[i]
 
+    @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`.Expression`.
