@@ -1,5 +1,4 @@
 from pyadjoint import OverloadedType
-from fenics_adjoint.projection import ProjectBlock
 from pyadjoint.overloaded_type import create_overloaded_object
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 
@@ -17,6 +16,7 @@ class FunctionMixin(OverloadedType):
             #output = create_overloaded_object(output)
 
             if annotate:
+                from fenics_adjoint.projection import ProjectBlock
                 bcs = kwargs.pop("bcs", [])
                 block = ProjectBlock(b, self.function_space(), output, bcs)
 
