@@ -6,7 +6,7 @@ from pyop2.exceptions import DataTypeError, DataValueError
 from pyop2.datatypes import ScalarType
 
 import firedrake.utils as utils
-
+from firedrake.adjoint.constant import ConstantMixin
 
 __all__ = ['Constant']
 
@@ -26,7 +26,7 @@ def _globalify(value):
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient):
+class Constant(ufl.Coefficient, ConstantMixin):
 
     """A "constant" coefficient
 
@@ -115,6 +115,7 @@ class Constant(ufl.Coefficient):
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
+    @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
 
