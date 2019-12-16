@@ -99,32 +99,6 @@ class FunctionMixin(OverloadedType):
 
         return wrapper
 
-    @staticmethod
-    def _ad_annotate_call(__call__):
-
-        def wrapper(self, *args, **kwargs):
-            annotate = False
-            if len(args) == 1 and isinstance(args[0], (numpy.ndarray,)):
-                annotate = annotate_tape(kwargs)
-
-            if annotate:
-                from fenics_adjoint.types.function import EvalBlock
-
-                block = EvalBlock(self, args[0])
-                tape = get_working_tape()
-                tape.add_block(block)
-
-            with stop_annotating():
-                out = __call__(self, *args, **kwargs)
-
-            if annotate:
-                out = create_overloaded_object(out)
-                block.add_output(out.create_block_variable())
-
-            return out
-        return wrapper
-
-
     def _ad_create_checkpoint(self):
         return self.copy(deepcopy=True)
 
