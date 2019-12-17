@@ -22,7 +22,7 @@ class MeshGeometryMixin(OverloadedType):
     @staticmethod
     def _ad_annotate_coordinates_function(coordinates_function):
         def wrapper(self, *args, **kwargs):
-            from firedrake_adjoint.types.mesh import MeshInputBlock, MeshOutputBlock
+            from .blocks import MeshInputBlock, MeshOutputBlock
             f = coordinates_function(self)
             f.block_class = MeshInputBlock
             f._ad_floating_active = True
