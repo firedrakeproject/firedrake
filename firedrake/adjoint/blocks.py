@@ -39,4 +39,6 @@ class AssembleBlock(blocks.AssembleBlock, Backend):
 class SolveBlock(blocks.SolveBlock, Backend):
     pass
 
+class ProjectBlock(blocks.ProjectBlock, Backend):
+    pass
 
