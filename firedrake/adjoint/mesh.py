@@ -21,7 +21,12 @@ class MeshGeometryMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_coordinates_function(coordinates_function):
-        def wrapper(self, *args, **kwargs):
+        # Name hacking to not end up when caching the coordinates_function with the name 'wrapper',
+        # which causes the cached result to not be used anymore. Put simply, every time the coordinates_function will be
+        # called it will create a new coordinates Function with the same value, causing error since coordinates_function
+        # will be a new object (i.e. with a different `count`).
+        # TODO: there might be a way of keeping the name wrapper by using functools.wraps
+        def _coordinates_function(self, *args, **kwargs):
             from .blocks import MeshInputBlock, MeshOutputBlock
             f = coordinates_function(self)
             f.block_class = MeshInputBlock
@@ -32,4 +37,4 @@ class MeshGeometryMixin(OverloadedType):
             f.output_block_class = MeshOutputBlock
             f._ad_outputs = [self]
             return f
-        return wrapper
+        return _coordinates_function
