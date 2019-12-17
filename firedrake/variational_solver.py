@@ -103,6 +103,7 @@ class NonlinearVariationalProblem(object):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
+    @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, **kwargs):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
@@ -228,10 +229,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Used for custom grid transfer.
         self._transfer_operators = ()
         self._setup = False
-
-        # used in NonlinearVariationalSolverMixin._ad_annotate_solve
-        self._ad_problem = problem
-        self._ad_kwargs = kwargs
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
