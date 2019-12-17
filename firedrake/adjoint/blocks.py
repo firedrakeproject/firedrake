@@ -3,8 +3,8 @@ from dolfin_adjoint_common import blocks
 
 class Backend:
     import firedrake
-    self.backend = firedrake
-    self.compat = compat(firedrake)
+    backend = firedrake
+    compat = compat(firedrake)
 
 class DirichletBCBlock(blocks.DirichletBCBlock, Backend):
     pass
