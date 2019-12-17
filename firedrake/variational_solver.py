@@ -9,6 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
+from firedrake.adjoint import NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -83,6 +84,14 @@ class NonlinearVariationalProblem(object):
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
 
+        # used in NonlinearVariationalSolverMixin._ad_annotate_solve
+        self._ad_F = F
+        self._ad_u = u
+        self._ad_bcs = bcs
+        self._ad_J = J
+        self._ad_args = args
+        self._ad_kwargs = kwargs
+
     def dirichlet_bcs(self):
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
@@ -92,7 +101,7 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(OptionsManager):
+class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
     def __init__(self, problem, **kwargs):
@@ -221,6 +230,11 @@ class NonlinearVariationalSolver(OptionsManager):
         self._transfer_operators = ()
         self._setup = False
 
+        # used in NonlinearVariationalSolverMixin._ad_annotate_solve
+        self._ad_problem = problem
+        self._ad_args = args
+        self._ad_kwargs = kwargs
+
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
         Typically a :class:`~.TransferManager` object.
@@ -231,6 +245,7 @@ class NonlinearVariationalSolver(OptionsManager):
         """
         self._ctx.transfer_manager = manager
 
+    @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
