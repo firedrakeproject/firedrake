@@ -1,8 +1,19 @@
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from .solving import SolveBlock
+from firedrake.adjoint.blocks import SolveBlock, NonlinearVariationalSolveBlock
 
 
 class NonlinearVariationalSolverMixin:
+    @staticmethod
+    def _ad_annotate_init(init):
+        @no_annotations
+        def wrapper(self, problem, *args, **kwargs):
+            init(self, problem, *args, **kwargs)
+            self._ad_problem = problem
+            self._ad_args = args
+            self._ad_kwargs = kwargs
+
+        return wrapper
+
     @staticmethod
     def _ad_annotate_solve(solve):
         def wrapper(self, **kwargs):
