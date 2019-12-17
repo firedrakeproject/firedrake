@@ -1,20 +1,20 @@
-
+from pyadjoint.overloaded_type import FloatingType
 
 class DirichletBCMixin(FloatingType):
     @staticmethod
     def _ad_annotate_init(init):
+        from pyadjoint.
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self,
                                   *args,
                                   block_class=DirichletBCBlock,
                                   _ad_args=args,
                                   _ad_floating_active=True,
-                                  annotate=kwargs.pop("annotate", True),
                                   **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
-
+    @staticmethod
     def _ad_annotate_apply(apply):
         @no_annotations
         def wrapper(self, *args, **kwargs):
