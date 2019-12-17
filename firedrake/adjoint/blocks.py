@@ -21,9 +21,6 @@ class ExpressionBlock(blocks.ExpressionBlock, Backend):
 class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
     pass
 
-class FunctionEvalBlock(blocks.FunctionEvalBlock, Backend):
-    pass
-
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
     pass
 
