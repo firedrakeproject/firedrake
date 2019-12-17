@@ -1,6 +1,8 @@
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 
+from firedrake.adjoint.blocks import AssembleBlock
+
 def annotate_assemble(assemble):
     def wrapper(*args, **kwargs):
         """When a form is assembled, the information about its nonlinear dependencies is lost,
@@ -16,9 +18,7 @@ def annotate_assemble(assemble):
         if isinstance(output, float):
             output = create_overloaded_object(output)
 
-
             if annotate:
-                from fenics_adjoint.assembly import AssembleBlock
                 block = AssembleBlock(form)
 
                 tape = get_working_tape()
@@ -32,4 +32,3 @@ def annotate_assemble(assemble):
         return output
 
     return wrapper
-
