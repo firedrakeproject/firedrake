@@ -54,6 +54,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     mesh = ufl.FunctionSpace.ufl_domain
 
+    @property
     def _ad_parent_space(self):
         return self.parent
 
@@ -348,6 +349,7 @@ class FunctionSpace(object):
     def __hash__(self):
         return hash((self.mesh(), self.dof_dset, self.ufl_element()))
 
+    @property
     def _ad_parent_space(self):
         return self.parent
 
