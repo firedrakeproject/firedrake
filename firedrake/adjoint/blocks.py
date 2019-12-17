@@ -21,16 +21,7 @@ class ExpressionBlock(blocks.ExpressionBlock, Backend):
 class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
     pass
 
-class FunctionEvalBlock(blocks.FunctionEvalBlock, Backend):
-    pass
-
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-    pass
-
-class FunctionSplitBlock(blocks.FunctionSplitBlock, Backend):
-    pass
-
-class FunctionMergeBlock(blocks.FunctionMergeBlock, Backend):
     pass
 
 class FunctionAssignerBlock(blocks.FunctionAssignerBlock, Backend):
@@ -48,8 +39,4 @@ class AssembleBlock(blocks.AssembleBlock, Backend):
 class SolveBlock(blocks.SolveBlock, Backend):
     pass
 
-class SurfaceTransferBlock(blocks.SurfaceTransferBlock, Backend):
-    pass
 
-class VolumeTransferBlock(blocks.VolumeTransferBlock, Backend):
-    pass
