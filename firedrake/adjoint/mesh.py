@@ -6,7 +6,7 @@ class MeshGeometryMixin(OverloadedType):
     @staticmethod
     def _ad_annotate_init(init):
         def wrapper(self, *args, **kwargs):
-            self.backend.mesh.MeshGeometry.__init__(self, *args, **kwargs)
+            OverloadedType.__init__(self, *args, **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
