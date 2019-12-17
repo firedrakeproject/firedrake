@@ -1,5 +1,6 @@
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
+from firedrake.adjoint.blocsk import SolveBlock, ProjectBlock
 
 def annotate_project(project):
 
@@ -18,8 +19,6 @@ def annotate_project(project):
         output = create_overloaded_object(output)
 
         if annotate:
-            from fenics_adjoint.solving import SolveBlock
-            from fenics_adjoint.projection import ProjectBlock
             bcs = kwargs.pop("bcs", [])
             sb_kwargs = SolveBlock.pop_kwargs(kwargs)
             block = ProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)

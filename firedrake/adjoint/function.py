@@ -1,6 +1,7 @@
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock
 import firedrake
 
 class FunctionMixin(FloatingType):
@@ -36,8 +37,6 @@ class FunctionMixin(FloatingType):
                 output = project(self, b, *args, **kwargs)
 
             if annotate:
-                from fenics_adjoint.projection import ProjectBlock
-
                 bcs = kwargs.pop("bcs", [])
                 block = ProjectBlock(b, self.function_space(), output, bcs)
 
@@ -69,10 +68,8 @@ class FunctionMixin(FloatingType):
             func = copy(self, *args, **kwargs)
 
             if annotate:
-                from fenics_adjoint.types.function import AssignBlock
-
                 if kwargs.pop("deepcopy", False):
-                    block = AssignBlock(func, self)
+                    block = FunctionAssignBlock(func, self)
                     tape = get_working_tape()
                     tape.add_block(block)
                     block.add_output(func.create_block_variable())
@@ -96,11 +93,9 @@ class FunctionMixin(FloatingType):
             annotate = annotate_tape(kwargs) and self != other
 
             if annotate:
-                from fenics_adjoint.types.function import AssignBlock
-
                 if not isinstance(other, ufl.core.operator.Operator):
                     other = create_overloaded_object(other)
-                block = AssignBlock(self, other)
+                block = FunctionAssignBlock(self, other)
                 tape = get_working_tape()
                 tape.add_block(block)
 
