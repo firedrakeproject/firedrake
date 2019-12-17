@@ -36,6 +36,9 @@ class ALEMoveBlock(blocks.ALEMoveBlock, Backend):
 class BoundaryMeshBlock(blocks.BoundaryMeshBlock, Backend):
     pass
 
+class AssembleBlock(blocks.AssembleBlock, Backend):
+    pass
+
 class SolveBlock(blocks.SolveBlock, Backend):
     pass
 
