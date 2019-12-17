@@ -155,7 +155,7 @@ class FunctionMixin(FloatingType):
             return self.copy(deepcopy=True)
 
         dep = self.block.get_dependencies()[0]
-        return Function.sub(dep.saved_output, self.block.ifiredrake.dx,
+        return Function.sub(dep.saved_output, self.block.idx,
                                     deepcopy=False)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
