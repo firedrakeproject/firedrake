@@ -6,7 +6,7 @@ Basic printing in parallel
    Contributed by `Ed Bueler <mailto:elbueler@alaska.edu>`__.
 
 This example shows how one may print various quantities in parallel.  The
-`Firedrake <https://www.firedrakeproject.org>`_ public interface largely works
+`Firedrake <https://www.firedrakeproject.org>`_ public interface mostly works
 as-is in parallel but several of the operations here expose the PETSc and MPI
 underpinnings in order to print.
 
@@ -23,14 +23,13 @@ including types like `Vec <http://www.mcs.anl.gov/petsc/petsc-current/docs/manua
 
 In serial the next line could be ``print('setting up mesh...')``  However,
 in parallel that would print :math:`P` times on :math:`P` processes.  In the
-following form the print happens collectively across the default MPI
-communicator, namely ``COMM_WORLD``::
+following form the print happens only once (because it is done only on rank 0)::
 
     PETSc.Sys.Print('setting up mesh across %d processes' % COMM_WORLD.size)
 
-Next we generate a mesh.  It has an MPI communicator ``mesh.comm``,
-also ``COMM_WORLD`` by default.  Here each rank reports on the portion of the
-mesh it owns by using the ``COMM_SELF`` communicator::
+Next we generate a mesh.  It has an MPI communicator ``mesh.comm``, equal to
+``COMM_WORLD`` by default.  By using the ``COMM_SELF`` communicator each rank
+reports on the portion of the mesh it owns::
 
     mesh = UnitSquareMesh(3, 3)
     PETSc.Sys.Print('  rank %d owns %d elements and can access %d vertices' \
@@ -55,25 +54,25 @@ demo::
     a = (dot(grad(v), grad(u)) + v * u) * dx
     L = f * v * dx
 
-And solve::
+Then solve::
 
     PETSc.Sys.Print('solving problem ...')
     u = Function(V)
     solve(a == L, u, options_prefix='s', solver_parameters={'ksp_type': 'cg'})
 
-To print the solution vector in serial one could write
-``print(u.dat.data)`` but then each processor would show its data separately.
-In PETSc language we do a "view" of the solution vector::
+To print the solution vector in serial one could write ``print(u.dat.data)``
+but then in parallel each processor would show its data separately.
+So using PETSc we do a "view" of the solution vector::
 
     with u.dat.vec_ro as vu:
         vu.view()
 
 Here ``vu`` is an instance of the PETSc.Vec class and ``vu.view()`` is the
-equivalent of ``VecView(vu,NULL)`` in PETSc C.  It is a "global" Vec which means
-that each degree of freedom is stored on a unique process.  The context manager
+equivalent of ``VecView(vu,NULL)`` using PETSc's C API.  This Vec is "global",
+meaning that each degree of freedom is stored on a unique process.  The context manager
 in the above usage (i.e. ``with ...``) allows Firedrake to generate a global Vec
 by halo exchanges if needed.  Here we only need read-only access here so we use
-``u.dat.vec_ro``.  (By contrast ``u.dat.vec`` would allow read-write access.)
+``u.dat.vec_ro``; note ``u.dat.vec`` would allow read-write access.
 
 Finally we compute and print the numerical error, relative to the exact
 solution, in two norms.  The :math:`L^2` norm is computed with
