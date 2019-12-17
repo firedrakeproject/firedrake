@@ -3,9 +3,6 @@ import ufl
 
 from pyadjoint.block import Block
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
-from .types import Function
-from .types import compat
-from .types.function_space import extract_subfunction
 
 from firedrake.adjoint.blocks import SolveBlock
 

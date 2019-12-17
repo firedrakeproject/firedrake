@@ -20,7 +20,6 @@ class FunctionMixin(FloatingType):
                                                "_ad_output_args", None),
                                            _ad_outputs=kwargs.pop("_ad_outputs",
                                                                   None),
-                                           annotate=kwargs.pop("annotate", True),
                                            **kwargs)
             init(self, *args, **kwargs)
         return wrapper
