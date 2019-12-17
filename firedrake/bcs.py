@@ -24,7 +24,7 @@ from firedrake import slate
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake import replace
 from firedrake import solving
-from firedrake.adjoint import dirichletbc
+from firedrake.adjoint.dirichletbc import DirichletBCMixin
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -268,7 +268,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
 
-    @DirichletBCMixin._ad_annnotate_init
+    @DirichletBCMixin._ad_annotate_init
     def __init__(self, V, g, sub_domain, method="topological"):
         super().__init__(V, sub_domain, method=method)
         # Save the original value the user passed in.  If the user
@@ -380,7 +380,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         self._original_val = val
 
     @timed_function('ApplyBC')
-    @DirichletBCMixin._ad_annnotate_apply
+    @DirichletBCMixin._ad_annotate_apply
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 

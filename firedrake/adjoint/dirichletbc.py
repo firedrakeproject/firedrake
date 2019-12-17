@@ -1,9 +1,10 @@
 from pyadjoint.overloaded_type import FloatingType
+from .blocks import DirichletBCBlock
+from pyadjoint.tape import no_annotations
 
 class DirichletBCMixin(FloatingType):
     @staticmethod
     def _ad_annotate_init(init):
-        from pyadjoint.
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self,
                                   *args,
