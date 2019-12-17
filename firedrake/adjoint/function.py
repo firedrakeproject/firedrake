@@ -211,7 +211,7 @@ class FunctionMixin(FloatingType):
             m_v = m.vector()
         else:
             m_v = m
-        m_a = gather(m_v)
+        m_a = m_v.gather(m_v)
 
         return m_a.tolist()
 

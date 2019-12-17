@@ -65,7 +65,6 @@ class ConstantMixin(OverloadedType):
             # TODO: Should the default be 0 constant here or return just None?
             return type(self)(numpy.zeros(self.ufl_shape))
         value = gather(value)
-        value = value.dat.data
         return self._constant_from_values(value)
 
     def _ad_function_space(self, mesh):
