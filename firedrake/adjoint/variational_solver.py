@@ -19,7 +19,6 @@ class NonlinearVariationalSolverMixin:
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
-                                                       *self._ad_args,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,

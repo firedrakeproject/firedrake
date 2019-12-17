@@ -89,8 +89,7 @@ class NonlinearVariationalProblem(object):
         self._ad_u = u
         self._ad_bcs = bcs
         self._ad_J = J
-        self._ad_args = args
-        self._ad_kwargs = kwargs
+        self._ad_kwargs = {'Jp': Jp, 'form_compiler_parameters': form_compiler_parameters, 'is_linear': is_linear}
 
     def dirichlet_bcs(self):
         for bc in self.bcs:
@@ -232,7 +231,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         # used in NonlinearVariationalSolverMixin._ad_annotate_solve
         self._ad_problem = problem
-        self._ad_args = args
         self._ad_kwargs = kwargs
 
     def set_transfer_manager(self, manager):
