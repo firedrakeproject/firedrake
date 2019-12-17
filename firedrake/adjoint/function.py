@@ -1,7 +1,7 @@
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, MeshInputBlock
 import firedrake
 
 class FunctionMixin(FloatingType):
@@ -149,7 +149,7 @@ class FunctionMixin(FloatingType):
     def _ad_create_checkpoint(self):
         from firedrake import Function
 
-        if self.block is None:
+        if self.block is None or isinstance(self.block, MeshInputBlock):
             # TODO: This might crash if annotate=False, but still using a sub-function.
             #       Because subfunction.copy(deepcopy=True) raises the can't access vector error.
             return self.copy(deepcopy=True)
