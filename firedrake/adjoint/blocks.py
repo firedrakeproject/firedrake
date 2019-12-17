@@ -2,9 +2,15 @@ from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 
 class Backend:
-    import firedrake
-    backend = firedrake
-    compat = compat(firedrake)
+    @property
+    def backend(self):
+        import firedrake
+        return firedrake
+
+    @property
+    def compat(self):
+        import firedrake
+        return compat(firedrake)
 
 class DirichletBCBlock(blocks.DirichletBCBlock, Backend):
     pass
