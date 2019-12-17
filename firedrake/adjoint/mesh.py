@@ -1,4 +1,5 @@
 from pyadjoint.overloaded_type import OverloadedType
+from pyadjoint.tape import no_annotations
 
 
 class MeshGeometryMixin(OverloadedType):
