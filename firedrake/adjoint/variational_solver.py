@@ -3,6 +3,7 @@ from .solving import SolveBlock
 
 
 class NonlinearVariationalSolverMixin:
+    @staticmethod
     def _ad_annotate_solve(solve):
         def wrapper(self, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
