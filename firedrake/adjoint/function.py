@@ -1,8 +1,9 @@
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, MeshInputBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock
 import firedrake
+
 
 class FunctionMixin(FloatingType):
 
@@ -10,29 +11,22 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_init(init):
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self, *args,
-                                           block_class=kwargs.pop("block_class",
-                                                                  None),
-                                           _ad_floating_active=kwargs.pop(
-                                               "_ad_floating_active", False),
-                                           _ad_args=kwargs.pop("_ad_args", None),
-                                           output_block_class=kwargs.pop(
-                                               "output_block_class", None),
-                                           _ad_output_args=kwargs.pop(
-                                               "_ad_output_args", None),
-                                           _ad_outputs=kwargs.pop("_ad_outputs",
-                                                                  None),
-                                           **kwargs)
+                                  block_class=kwargs.pop("block_class", None),
+                                  _ad_floating_active=kwargs.pop("_ad_floating_active", False),
+                                  _ad_args=kwargs.pop("_ad_args", None),
+                                  output_block_class=kwargs.pop("output_block_class", None),
+                                  _ad_output_args=kwargs.pop("_ad_output_args", None),
+                                  _ad_outputs=kwargs.pop("_ad_outputs", None), **kwargs)
             init(self, *args, **kwargs)
         return wrapper
-
 
     @staticmethod
     def _ad_annotate_project(project):
 
         def wrapper(self, b, *args, **kwargs):
-            
+
             annotate = annotate_tape(kwargs)
-            
+
             with stop_annotating():
                 output = project(self, b, *args, **kwargs)
 
@@ -47,7 +41,6 @@ class FunctionMixin(FloatingType):
 
             return output
         return wrapper
-
 
     @staticmethod
     def _ad_annotate_split(split):
@@ -81,7 +74,6 @@ class FunctionMixin(FloatingType):
 
         return wrapper
 
-
     @staticmethod
     def _ad_annotate_assign(assign):
 
@@ -114,7 +106,7 @@ class FunctionMixin(FloatingType):
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
-        from firedrake import Function
+        from firedrake import Function, TrialFunction, TestFunction, assemble
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
@@ -146,18 +138,6 @@ class FunctionMixin(FloatingType):
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
-    def _ad_create_checkpoint(self):
-        from firedrake import Function
-
-        if self.block is None or isinstance(self.block, MeshInputBlock):
-            # TODO: This might crash if annotate=False, but still using a sub-function.
-            #       Because subfunction.copy(deepcopy=True) raises the can't access vector error.
-            return self.copy(deepcopy=True)
-
-        dep = self.block.get_dependencies()[0]
-        return Function.sub(dep.saved_output, self.block.idx,
-                                    deepcopy=False)
-
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint
 
@@ -182,6 +162,7 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
+        from firedrake import assemble
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")

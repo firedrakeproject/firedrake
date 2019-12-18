@@ -1,8 +1,6 @@
 from pyadjoint.tape import get_working_tape, annotate_tape
-from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object, register_overloaded_type
-from pyadjoint.block import Block
+from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
-from pyadjoint.adjfloat import AdjFloat
 from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
@@ -10,25 +8,20 @@ from firedrake.adjoint.blocks import ConstantAssignBlock
 
 import numpy
 
+
 class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_init(init):
         def wrapper(self, *args, **kwargs):
             OverloadedType.__init__(self, *args,
-                                           block_class=kwargs.pop("block_class",
-                                                                  None),
-                                           _ad_floating_active=kwargs.pop(
-                                               "_ad_floating_active", False),
-                                           _ad_args=kwargs.pop("_ad_args", None),
-                                           output_block_class=kwargs.pop(
-                                               "output_block_class", None),
-                                           _ad_output_args=kwargs.pop(
-                                               "_ad_output_args", None),
-                                           _ad_outputs=kwargs.pop("_ad_outputs",
-                                                                  None),
-                                           annotate=kwargs.pop("annotate", True),
-                                           **kwargs)
+                                    block_class=kwargs.pop("block_class", None),
+                                    _ad_floating_active=kwargs.pop("_ad_floating_active", False),
+                                    _ad_args=kwargs.pop("_ad_args", None),
+                                    output_block_class=kwargs.pop("output_block_class", None),
+                                    _ad_output_args=kwargs.pop("_ad_output_args", None),
+                                    _ad_outputs=kwargs.pop("_ad_outputs", None),
+                                    annotate=kwargs.pop("annotate", True), **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
@@ -88,7 +81,7 @@ class ConstantMixin(OverloadedType):
         return sum(self.values() * other.values())
 
     @staticmethod
-    def _ad_assign_numpy(dst, src, offset):
+    def _ad_assign_numpy(self, dst, src, offset):
         dst.assign(type(self)(numpy.reshape(src[offset:offset + dst.value_size()], dst.ufl_shape)))
         offset += dst.value_size()
         return dst, offset

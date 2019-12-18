@@ -1,7 +1,3 @@
-import numpy
-import ufl
-
-from pyadjoint.block import Block
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
 from firedrake.adjoint.blocks import SolveBlock

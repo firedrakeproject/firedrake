@@ -7,4 +7,3 @@ from firedrake.adjoint.mesh import *                   # noqa: F401
 from pyadjoint.tape import Tape, set_working_tape
 
 set_working_tape(Tape())
-

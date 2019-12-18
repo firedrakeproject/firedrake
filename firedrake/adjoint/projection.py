@@ -2,6 +2,7 @@ from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint.blocks import SolveBlock, ProjectBlock
 
+
 def annotate_project(project):
 
     def wrapper(*args, **kwargs):

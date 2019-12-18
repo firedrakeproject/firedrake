@@ -2,6 +2,7 @@ from pyadjoint.overloaded_type import FloatingType
 from .blocks import DirichletBCBlock
 from pyadjoint.tape import no_annotations
 
+
 class DirichletBCMixin(FloatingType):
     @staticmethod
     def _ad_annotate_init(init):
@@ -39,4 +40,3 @@ class DirichletBCMixin(FloatingType):
         if checkpoint is not None:
             self.set_value(checkpoint.saved_output)
         return self
-
