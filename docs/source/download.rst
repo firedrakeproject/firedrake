@@ -61,9 +61,6 @@ hosts database at ``/etc/hosts`` to include the entries::
 where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
 command. Should the local host name change, this may require updating.
 
-Note also that there is currently an issue with the test harness on MacOS
-which causes the parallel tests to fail. Firedrake will still work in
-parallel, it is only the test system which is affected.
 
 System requirements
 -------------------
