@@ -5,7 +5,7 @@
    :alt: Rainier Vista
    :align: right
    :target: https://uwartsci.files.wordpress.com/2011/04/rainier-vista.jpg
-               
+ 
 Firedrake USA '20
 -----------------
 
@@ -64,8 +64,12 @@ The workshop will be held in the `Data Science Studio
 Registration
 ------------
 
-Registration will open very soon and costs $50, rising to $100 after
-15 January. Registration for the tutorial only is free.
+Early registration is now open. Registration will rise to $40 for students and $100 for others after 15 January. Registration for the tutorial only is free.
+
+.. raw:: html
+
+   <div style="width:100%; text-align:left;"><iframe src="https://eventbrite.com/tickets-external?eid=85712932689&ref=etckt" frameborder="0" height="400" width="100%" vspace="0" hspace="0" marginheight="5" marginwidth="5" scrolling="auto" allowtransparency="true"></iframe><div style="padding:10px 0 5px; margin:2px; width:100%; text-align:left;" ><a class="powered-by-eb" style="color: #ADB0B6; text-decoration: none;" target="_blank" href="http://www.eventbrite.com/">Powered by Eventbrite</a></div></div>
+
 
 
 Organising Committee
