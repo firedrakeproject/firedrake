@@ -72,7 +72,7 @@ class _Facets(object):
     def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
 
-        self.mesh = mesh
+        self.mesh = weakref.proxy(mesh)
 
         classes = as_tuple(classes, int, 3)
         self.classes = classes
