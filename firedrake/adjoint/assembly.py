@@ -16,15 +16,16 @@ def annotate_assemble(assemble):
 
         form = args[0]
         if isinstance(output, float):
+            if not annotate:
+                return output
+
             output = create_overloaded_object(output)
+            block = AssembleBlock(form)
 
-            if annotate:
-                block = AssembleBlock(form)
+            tape = get_working_tape()
+            tape.add_block(block)
 
-                tape = get_working_tape()
-                tape.add_block(block)
-
-                block.add_output(output.block_variable)
+            block.add_output(output.block_variable)
         else:
             # Assembled a vector or matrix
             output.form = form

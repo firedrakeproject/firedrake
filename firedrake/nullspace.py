@@ -97,6 +97,7 @@ class VectorSpaceBasis(object):
         nullsp = self.nullspace(comm=b.comm)
         with b.dat.vec as v:
             nullsp.remove(v)
+        self._ad_orthogonalized = True
 
     def check_orthogonality(self, orthonormal=True):
         r"""Check if the basis is orthogonal.
