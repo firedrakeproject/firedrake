@@ -68,7 +68,7 @@ class FunctionMixin(FloatingType):
                     block.add_output(func.create_block_variable())
                 else:
                     # TODO: Implement. Here we would need to use floating types.
-                    pass
+                    raise NotImplementedError("Currently kwargs['deepcopy'] must be set True")
 
             return func
 

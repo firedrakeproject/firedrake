@@ -2,14 +2,16 @@ from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
 
+import firedrake.utils as utils
+
 
 class Backend:
-    @property
+    @utils.cached_property
     def backend(self):
         import firedrake
         return firedrake
 
-    @property
+    @utils.cached_property
     def compat(self):
         import firedrake
         return compat(firedrake)
@@ -61,7 +63,7 @@ class MeshInputBlock(Block):
     function.
     """
     def __init__(self, mesh):
-        super(MeshInputBlock, self).__init__()
+        super().__init__()
         self.add_dependency(mesh)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -84,7 +86,7 @@ class MeshOutputBlock(Block):
     Block which is called when the coordinates of a mesh are changed.
     """
     def __init__(self, func, mesh):
-        super(MeshOutputBlock, self).__init__()
+        super().__init__()
         self.add_dependency(func)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
