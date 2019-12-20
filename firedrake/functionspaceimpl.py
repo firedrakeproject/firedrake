@@ -54,7 +54,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     mesh = ufl.FunctionSpace.ufl_domain
 
-    @property
+    @utils.cached_property
     def _ad_parent_space(self):
         return self.parent
 

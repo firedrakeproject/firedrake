@@ -150,7 +150,7 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        Function.assign(r, self * other)
+        r.assign(self * other)
         return r
 
     @no_annotations
@@ -200,7 +200,7 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        Function.assign(r, self)
+        r.assign(self)
         return r
 
     def _ad_dim(self):
@@ -212,9 +212,11 @@ class FunctionMixin(FloatingType):
 
     def _ad_iadd(self, other):
         vec = self.vector()
-        # FIXME: PETSc complains when we add the same vector to itself.
-        # So we make a copy.
-        vec += other.vector().copy()
+        ovec = other.vector()
+        if ovec.dat == vec.dat:
+            vec *= 2
+        else:
+            vec += ovec
 
     def _reduce(self, r, r0):
         vec = self.vector().get_local()
@@ -228,7 +230,6 @@ class FunctionMixin(FloatingType):
         for i in range(len(npdata)):
             npdata[i] = f(npdata[i])
         vec.set_local(npdata)
-        vec.apply("insert")
 
     def _applyBinary(self, f, y):
         vec = self.vector()
@@ -237,7 +238,6 @@ class FunctionMixin(FloatingType):
         for i in range(len(npdata)):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
-        vec.apply("insert")
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
