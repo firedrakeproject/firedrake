@@ -5,6 +5,7 @@ from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
+from firedrake import Constant
 
 import numpy
 
@@ -81,8 +82,8 @@ class ConstantMixin(OverloadedType):
         return sum(self.values() * other.values())
 
     @staticmethod
-    def _ad_assign_numpy(self, dst, src, offset):
-        dst.assign(type(self)(numpy.reshape(src[offset:offset + dst.value_size()], dst.ufl_shape)))
+    def _ad_assign_numpy(dst, src, offset):
+        dst.assign(Constant(numpy.reshape(src[offset:offset + dst.value_size()], dst.ufl_shape)))
         offset += dst.value_size()
         return dst, offset
 
