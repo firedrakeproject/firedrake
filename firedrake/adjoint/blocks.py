@@ -81,7 +81,7 @@ class MeshInputBlock(Block):
 
 class MeshOutputBlock(Block):
     """
-    Block which is called when the coordinates of a mesh is changed.
+    Block which is called when the coordinates of a mesh are changed.
     """
     def __init__(self, func, mesh):
         super(MeshOutputBlock, self).__init__()

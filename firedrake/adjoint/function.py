@@ -79,7 +79,7 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, other, *args, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
-            Dolfin assign call."""
+            Firedrake assign call."""
 
             # do not annotate in case of self assignment
             annotate = annotate_tape(kwargs) and self != other

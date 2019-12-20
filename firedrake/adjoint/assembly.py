@@ -6,8 +6,8 @@ from firedrake.adjoint.blocks import AssembleBlock
 def annotate_assemble(assemble):
     def wrapper(*args, **kwargs):
         """When a form is assembled, the information about its nonlinear dependencies is lost,
-        and it is no longer easy to manipulate. Therefore, fenics_adjoint overloads the :py:func:`dolfin.assemble`
-        function to *attach the form to the assembled object*. This lets the automatic annotation work,
+        and it is no longer easy to manipulate. Therefore, we decorate :func:`.assemble`
+        to *attach the form to the assembled object*. This lets the automatic annotation work,
         even when the user calls the lower-level :py:data:`solve(A, x, b)`.
         """
         annotate = annotate_tape(kwargs)

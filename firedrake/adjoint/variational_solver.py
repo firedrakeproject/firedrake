@@ -32,7 +32,7 @@ class NonlinearVariationalSolverMixin:
     def _ad_annotate_solve(solve):
         def wrapper(self, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
-            Dolfin solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
+            Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
 
