@@ -6,7 +6,7 @@ Firedrake is installed using its install script::
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python3 firedrake-install
 
-Running ``firedrake-install`` with no arguments will install firedrake in
+Running ``firedrake-install`` with no arguments will install Firedrake in
 a python venv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
@@ -145,6 +145,16 @@ Firedrake can output data in VTK format, suitable for viewing in
 Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
+
+
+Removing Firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the Firedrake
+install directory. This is usually the ``firedrake`` subdirectory 
+created after having run ``firedrake-install``. Note that this will not 
+undo the installation of any system packages which are Firedrake
+dependencies: removing these might affect subsequently installed 
+packages for which these are also dependencies.
 
 .. _Paraview: http://www.paraview.org
 .. _venv: https://docs.python.org/3/tutorial/venv.html
