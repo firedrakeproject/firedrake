@@ -49,17 +49,19 @@ venv_ as above and then run::
   cd firedrake/src/firedrake
   make alltest
 
-Note that there is a known issue where parallel tests hang without 
-failing. This is particularly a problem on MacOS and is due to the 
-version of MPICH installed with Firedrake failing to resolve the 
-local host at ip address ``127.0.0.1``. To resolve this issue modify the 
-hosts database at ``/etc/hosts`` to include the entries::
+.. note::
 
-  127.0.0.1       LOCALHOSTNAME.local
-  127.0.0.1       LOCALHOSTNAME
+  There is a known issue which causes parallel tests to hang without 
+  failing. This is particularly a problem on MacOS and is due to the 
+  version of MPICH installed with Firedrake failing to resolve the 
+  local host at ip address ``127.0.0.1``. To resolve this issue modify 
+  the hosts database at ``/etc/hosts`` to include the entries::
 
-where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
-command. Should the local host name change, this may require updating.
+    127.0.0.1       LOCALHOSTNAME.local
+    127.0.0.1       LOCALHOSTNAME
+
+  where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
+  command. Should the local host name change, this may require updating.
 
 
 System requirements
