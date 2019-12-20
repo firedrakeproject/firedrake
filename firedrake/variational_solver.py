@@ -9,7 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
-from firedrake.adjoint import NonlinearVariationalSolverMixin
+from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from pyadjoint.tape import no_annotations
 
 __all__ = ["LinearVariationalProblem",
@@ -43,7 +43,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(object):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
-    @no_annotations
+    @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
@@ -85,13 +85,6 @@ class NonlinearVariationalProblem(object):
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
-
-        # used in NonlinearVariationalSolverMixin._ad_annotate_solve
-        self._ad_F = F
-        self._ad_u = u
-        self._ad_bcs = bcs
-        self._ad_J = J
-        self._ad_kwargs = {'Jp': Jp, 'form_compiler_parameters': form_compiler_parameters, 'is_linear': is_linear}
 
     def dirichlet_bcs(self):
         for bc in self.bcs:

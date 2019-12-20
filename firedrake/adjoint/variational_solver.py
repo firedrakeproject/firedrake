@@ -2,6 +2,20 @@ from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_
 from firedrake.adjoint.blocks import SolveBlock, NonlinearVariationalSolveBlock
 
 
+class NonlinearVariationalProblemMixin:
+    @staticmethod
+    def _ad_annotate_init(init):
+        @no_annotations
+        def wrapper(self, *args, **kwargs):
+            init(self, *args, **kwargs)
+            self._ad_F = self.F
+            self._ad_u = self.u
+            self._ad_bcs = self.bcs
+            self._ad_J = self.J
+            self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
+        return wrapper
+
+
 class NonlinearVariationalSolverMixin:
     @staticmethod
     def _ad_annotate_init(init):
@@ -38,7 +52,7 @@ class NonlinearVariationalSolverMixin:
                 tape.add_block(block)
 
             with stop_annotating():
-                out = solve(self)
+                out = solve(self, **kwargs)
 
             if annotate:
                 block.add_output(self._ad_problem._ad_u.create_block_variable())
