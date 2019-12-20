@@ -355,30 +355,6 @@ class MeshTopology(object):
         if distribute is None:
             distribute = True
 
-        overlap_type, overlap = distribution_parameters.get("overlap_type",
-                                                            (DistributedMeshOverlapType.FACET, 1))
-
-        if overlap < 0:
-            raise ValueError("Overlap depth must be >= 0")
-        if overlap_type == DistributedMeshOverlapType.NONE:
-            def add_overlap():
-                pass
-            if overlap > 0:
-                raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            def add_overlap():
-                dmplex.set_adjacency_callback(self._plex)
-                self._plex.distributeOverlap(overlap)
-                dmplex.clear_adjacency_callback(self._plex)
-                self._grown_halos = True
-        elif overlap_type == DistributedMeshOverlapType.VERTEX:
-            def add_overlap():
-                # Default is FEM (vertex star) adjacency.
-                self._plex.distributeOverlap(overlap)
-                self._grown_halos = True
-        else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
-
         dmplex.validate_mesh(plex)
         plex.setFromOptions()
         utils._init()
@@ -423,8 +399,6 @@ class MeshTopology(object):
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
-        dim = plex.getDimension()
-
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
@@ -435,6 +409,7 @@ class MeshTopology(object):
         # TODO: this needs to be updated for mixed-cell meshes.
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
+        dim = plex.getDimension()
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
 
@@ -443,51 +418,36 @@ class MeshTopology(object):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
-
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
-            if self.comm.size > 1:
-                add_overlap()
-
-            if reorder:
-                with timed_region("Mesh: reorder"):
-                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-                    reordering = np.empty_like(old_to_new)
-                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
-            else:
-                # No reordering
-                reordering = None
-            self._did_reordering = bool(reorder)
-
-            # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
-                self._plex_renumbering = dmplex.plex_renumbering(self._plex,
-                                                                 self._entity_classes,
-                                                                 reordering)
-
-                # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-
-                entity_dofs[:] = 0
-                entity_dofs[-2] = 1
-                facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
-        self._callback = callback
+        self._initialisation_params = {"reorder": reorder,
+                                       "dist_params": distribution_parameters}
+        self._finished_initialisation = False
 
     layers = None
     """No layers on unstructured mesh"""
 
     variable_layers = False
     """No variable layers on unstructured mesh"""
+
+    def add_overlap(self, overlap_type, overlap):
+        if self.comm.size == 1:
+            return
+        plex = self._plex
+        if overlap < 0:
+            raise ValueError("Overlap depth must be >= 0")
+        if overlap_type == DistributedMeshOverlapType.NONE:
+            if overlap > 0:
+                raise ValueError("Can't have NONE overlap with overlap > 0")
+        elif overlap_type == DistributedMeshOverlapType.FACET:
+            dmplex.set_adjacency_callback(plex)
+            plex.distributeOverlap(overlap)
+            dmplex.clear_adjacency_callback(plex)
+            self._grown_halos = True
+        elif overlap_type == DistributedMeshOverlapType.VERTEX:
+            # Default is FEM (vertex star) adjacency.
+            plex.distributeOverlap(overlap)
+            self._grown_halos = True
+        else:
+            raise ValueError("Unknown overlap type %r" % overlap_type)
 
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
@@ -496,8 +456,47 @@ class MeshTopology(object):
     @timed_function("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
-        if hasattr(self, '_callback'):
-            self._callback(self)
+        if self._finished_initialisation:
+            return
+        self._finished_initialisation = True
+        reorder = self._initialisation_params["reorder"]
+        params = self._initialisation_params["dist_params"]
+        overlap_type, overlap = params.get("overlap_type",
+                                           (DistributedMeshOverlapType.FACET, 1))
+        self.add_overlap(overlap_type, overlap)
+
+        dim = self._plex.getDimension()
+        if reorder:
+            with timed_region("Mesh: reorder"):
+                old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                reordering = np.empty_like(old_to_new)
+                reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+        else:
+            # No reordering
+            reordering = None
+        self._did_reordering = bool(reorder)
+
+        # Mark OP2 entities and derive the resulting Plex renumbering
+        with timed_region("Mesh: numbering"):
+            dmplex.mark_entity_classes(self._plex)
+            self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
+            self._plex_renumbering = dmplex.plex_renumbering(self._plex,
+                                                             self._entity_classes,
+                                                             reordering)
+
+            # Derive a cell numbering from the Plex renumbering
+            entity_dofs = np.zeros(dim+1, dtype=IntType)
+            entity_dofs[-1] = 1
+
+            self._cell_numbering = self.create_section(entity_dofs)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self.create_section(entity_dofs)
+
+            entity_dofs[:] = 0
+            entity_dofs[-2] = 1
+            facet_numbering = self.create_section(entity_dofs)
+            self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
 
     @property
     def topology(self):
@@ -1365,7 +1364,7 @@ def Mesh(meshfile, **kwargs):
 
     def callback(self):
         """Finish initialisation."""
-        del self._callback
+        delattr(self, "_callback")
         # Finish the initialisation of mesh topology
         self.topology.init()
 
