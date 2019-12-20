@@ -10,7 +10,6 @@ from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from pyadjoint.tape import no_annotations
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
