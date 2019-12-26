@@ -236,7 +236,8 @@ def quiver(function, *args, **kwargs):
         axes = figure.add_subplot()
 
     coords = function.ufl_domain().coordinates.dat.data_ro
-    vals = np.asarray(function.at(coords, tolerance=1e-10))
+    V = function.ufl_domain().coordinates.function_space()
+    vals = interpolate(function, V).dat.data_ro
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, *args, **kwargs)
 
