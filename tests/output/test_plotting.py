@@ -12,11 +12,11 @@ def test_plotting_1d():
     u = interpolate(x * (1 - x), CG)
     v = project(x * (1 - x), DG)
 
-    patches = plot(u, color='black', linestyle='--')
+    patches = plot(u, edgecolor='black', linestyle='--')
     assert patches is not None
 
     fig, axes = plt.subplots()
-    plot(v, color='tab:green', label='v', axes=axes)
+    plot(v, edgecolor='tab:green', label='v', axes=axes)
     legend = axes.legend(loc='upper right')
     assert len(legend.get_texts()) == 1
 
