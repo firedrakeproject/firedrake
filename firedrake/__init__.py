@@ -42,6 +42,12 @@ from ufl import *
 # Set up the cache directories before importing PyOP2.
 firedrake_configuration.setup_cache_dirs()
 
+# By default we disable pyadjoint annotation.
+# To enable annotation, the user has to import firedrake_adjoint
+import pyadjoint
+pyadjoint.pause_annotation()
+del pyadjoint
+
 from firedrake_citations import Citations    # noqa: F401
 # Always get the firedrake paper.
 Citations().register("Rathgeber2016")

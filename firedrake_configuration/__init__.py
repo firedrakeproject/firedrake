@@ -10,7 +10,7 @@ import os
 # Attempt to read configuration from file.
 try:
     with open(os.path.join(os.environ["VIRTUAL_ENV"],
-                            ".configuration.json"), "r") as f:
+                           ".configuration.json"), "r") as f:
         _config = json.load(f)
 
 except IOError:
@@ -21,7 +21,7 @@ except IOError:
             _config = json.load(f)
 
     except IOError:
-            _config = None
+        _config = None
 
 
 def get_config():
