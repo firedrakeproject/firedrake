@@ -124,8 +124,7 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
-    from firedrake.dmhooks import (get_transfer_operators, get_parent, push_transfer_operators, pop_transfer_operators,
-                                   push_parent, pop_parent, add_hook)
+    from firedrake.dmhooks import get_parent, push_parent, pop_parent, add_hook
     fine = V
     indices = []
     while True:
@@ -156,13 +155,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     # hooks are not attached. Instead we just call (say) inject which
     # coarsens the functionspace.
     cdm = V.dm
-    transfer = get_transfer_operators(fine.dm)
     parent = get_parent(fine.dm)
     try:
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_transfer_operators, cdm, transfer),
-                 teardown=partial(pop_transfer_operators, cdm, transfer),
                  call_setup=True)
     except ValueError:
         # Not in an add_hooks context
@@ -177,7 +172,15 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        _, _, inject = firedrake.dmhooks.get_transfer_operators(expr.function_space().dm)
+        from firedrake.dmhooks import get_parent
+        # Find potential parental mixed space (which will have an
+        # appctx attached and hence a transfer manager if we're in a
+        # solve)
+        V = expr.function_space()
+        while V.parent is not None:
+            V = V.parent
+        dm = get_parent(V.dm)
+        _, _, inject = firedrake.dmhooks.get_transfer_operators(dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
         inject(expr, new)
@@ -276,7 +279,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse = type(context)(problem,
                            mat_type=context.mat_type,
                            pmat_type=context.pmat_type,
-                           appctx=new_appctx)
+                           appctx=new_appctx,
+                           transfer_manager=context.transfer_manager)
     coarse._fine = context
     context._coarse = coarse
 
