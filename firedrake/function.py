@@ -75,7 +75,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
@@ -112,12 +112,9 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        if self.dof_dset.cdim == 1:
-            return (self, )
-        else:
-            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                name="view[%d](%s)" % (i, self.name()))
-                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+        return tuple(CoordinatelessFunction(self.function_space().sub(i), # val=op2.DatView(self.dat, j),
+                                            name="view[%d](%s)" % (i, self.name()))
+                     for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -298,11 +295,8 @@ class Function(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self, )
-        else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
+        return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+                     for i in range(self.function_space().value_size))
 
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.

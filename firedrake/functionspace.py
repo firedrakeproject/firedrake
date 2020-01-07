@@ -138,7 +138,8 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
+        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct
+)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:

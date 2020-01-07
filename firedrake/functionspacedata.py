@@ -144,16 +144,19 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
         function space nodes.
     """
     # set->node lists are specific to the sorted entity_dofs.
+    import weakref
     cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets)
-    interior_facet_node_list = partial(get_facet_node_list, mesh, "interior_facets", cell_node_list, offsets)
-    exterior_facet_node_list = partial(get_facet_node_list, mesh, "exterior_facets", cell_node_list, offsets)
+    interior_facet_node_list = partial(get_facet_node_list, weakref.proxy(mesh), "interior_facets", cell_node_list, offsets)
+    exterior_facet_node_list = partial(get_facet_node_list, weakref.proxy(mesh), "exterior_facets", cell_node_list, offsets)
+
+    d = weakref.WeakKeyDictionary()
+    d[mesh.cell_set] = lambda: cell_node_list
+    d[mesh.interior_facets.set] = interior_facet_node_list
+    d[mesh.exterior_facets.set] = exterior_facet_node_list
 
     class magic(dict):
         def __missing__(self, key):
-            return self.setdefault(key,
-                                   {mesh.cell_set: lambda: cell_node_list,
-                                    mesh.interior_facets.set: interior_facet_node_list,
-                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+            return self.setdefault(key, d[key]())
 
     return magic()
 
@@ -391,9 +394,10 @@ class FunctionSpaceData(object):
     __slots__ = ("map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset",
-                 "extruded", "mesh", "global_numbering")
+                 "extruded", "mesh", "global_numbering",
+                 "dof_dset")
 
-    def __init__(self, mesh, finat_element, real_tensorproduct=False):
+    def __init__(self, mesh, finat_element, shape, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
@@ -414,10 +418,10 @@ class FunctionSpaceData(object):
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
+        self.dof_dset = op2.DataSet(self.node_set, shape or 1)
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
         self.extruded = mesh.cell_set._extruded
-        self.mesh = mesh
         self.global_numbering = global_numbering
 
     def __eq__(self, other):
@@ -543,7 +547,7 @@ class FunctionSpaceData(object):
         return val
 
 
-def get_shared_data(mesh, finat_element, real_tensorproduct=False):
+def get_shared_data(mesh, finat_element, shape, real_tensorproduct=False):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
@@ -558,4 +562,4 @@ def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))
-    return FunctionSpaceData(mesh, finat_element, real_tensorproduct=real_tensorproduct)
+    return FunctionSpaceData(mesh, finat_element, shape, real_tensorproduct=real_tensorproduct)

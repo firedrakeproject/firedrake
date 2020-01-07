@@ -6,6 +6,7 @@ classes for attaching extra information to instances of these.
 
 from collections import OrderedDict
 
+import weakref
 import numpy
 
 import finat
@@ -272,7 +273,6 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
-        sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -286,6 +286,7 @@ class FunctionSpace(object):
             self.shape = element.value_shape()[:1]
         else:
             self.shape = ()
+        sdata = get_shared_data(mesh, finat_element, self.shape, real_tensorproduct=real_tensorproduct)
         self._ufl_element = element
         self._shared_data = sdata
         self._mesh = mesh
@@ -305,8 +306,7 @@ class FunctionSpace(object):
         r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
+        self.dof_dset = sdata.dof_dset
         r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
 
@@ -372,7 +372,7 @@ class FunctionSpace(object):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""Function space on a mesh topology."""
         return self
@@ -766,7 +766,7 @@ def IndexedFunctionSpace(index, space, parent):
     else:
         new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
-    new.parent = parent
+    new.parent = weakref.proxy(parent)
     new.identifier = "indexed"
     return new
 
@@ -789,7 +789,7 @@ def ComponentFunctionSpace(parent, component):
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
     new.identifier = "component"
     new.component = component
-    new.parent = parent
+    new.parent = weakref.proxy(parent)
     return new
 
 
