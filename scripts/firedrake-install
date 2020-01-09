@@ -54,7 +54,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "cuda",
+                           "opencascade", "cuda", "cuda_dir", "cudac",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -199,6 +199,10 @@ honoured.""",
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--cuda", action="store_true",
                         help="Use CUDA as backend.")
+    parser.add_argument('--cuda-dir', type=str, help="cuda directory location"
+            " to be passed to PETSc", nargs=1, default='/usr/local/cuda')
+    parser.add_argument('--cudac', type=str, help="path of 'nvcc' "
+            " to be passed to PETSc", nargs=1, default='/usr/bin/nvcc')
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -505,8 +509,8 @@ else:
 
 if args.cuda:
     petsc_options.add('--with-cuda=1')
-    petsc_options.add('--with-cuda-dir=/usr/local/cuda')
-    petsc_options.add('--with-cudac=nvcc')
+    petsc_options.add('--with-cuda-dir={}'.format(args.cuda_dir))
+    petsc_options.add('--with-cudac={}'.format(args.cudac))
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -728,6 +732,12 @@ def install(package):
     if package == "petsc/":
         build_and_install_petsc()
     # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
+    elif package == "PyOP2/":
+        if args.cuda:
+            run_pip_install(["-e", package, "--include-dirs",
+                args.cuda_dir+"/include"])
+        else:
+            run_pip_install(["-e", package])
     elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
