@@ -1,12 +1,13 @@
 
 from firedrake import *
+import math
 
 
 def test_assemble2form(a):
     _A = Tensor(a)
     A = assemble(_A)
     A_comp = assemble(a)
-    assert F.M.handle.norm() == F_comp.M.handle.norm(), "Test for assembly of 2-form failed"
+    assert A.M.handle.norm() == A_comp.M.handle.norm(), "Test for assembly of 2-form failed"
 
 def test_assemble1form(L):
     _F = Tensor(L)
@@ -23,7 +24,7 @@ def test_solve(a,L,V):
     #solve
     u = Function(V)
     u_comp = Function(V)
-    solve(assemble(_A), u, assemble(_F))
+    solve(assemble(_A), u, assemble(_F),solver_parameters={'ksp_type': 'cg'})
     solve(a == L, u_comp, solver_parameters={'ksp_type': 'cg'})
     assert u.dat.data.all()  == u_comp.dat.data.all() , "Test for solved on assembled forms failed"
 
@@ -32,26 +33,33 @@ def test_assembledvector(L):
     _coeff_F = AssembledVector(Function(assemble(L)))
     coeff_F = assemble(_coeff_F)
     coeff_F_comp = assemble(L)
-    assert coeff_F.dat.data.all() == coeff_F_comp.dat.data.all(), "Test for assembled vectors failed"
+    assert math.isclose(coeff_F.dat.data.all(),coeff_F_comp.dat.data.all()), "Test for assembled vectors failed"
 
 def test_add(a):
     _A = Tensor(a)
     add_A = assemble(_A+_A)
     add_A_comp = assemble(a+a)
-    assert add_A.M.handle == add_A_comp.M.handle,  "Test for adding of two 2-forms failed"
+    for i in range(add_A.M.handle.getSize()[0]):
+        for j in range(add_A.M.handle.getSize()[1]):
+            assert math.isclose(add_A.M.handle.getValues(i,j),add_A_comp.M.handle.getValues(i,j)),  "Test for adding of a two 2-form failed"
+
 
 def test_negative(a):
     _A = Tensor(a)
     neg_A=assemble(-_A)
     neg_A_comp=assemble(-a)
-    assert neg_A.M.handle == neg_A_comp.M.handle,  "Test for negative of a two 2-form failed"
+    for i in range(neg_A.M.handle.getSize()[0]):
+        for j in range(neg_A.M.handle.getSize()[1]):
+            assert math.isclose(neg_A.M.handle.getValues(i,j),neg_A_comp.M.handle.getValues(i,j)),  "Test for negative of a two 2-form failed"
 
 #Note: this only really a test for a problem containing an unsymmetric operator 
 def test_transpose(a):
     _A = Tensor(a)
     A = assemble(_A)
     trans_A=assemble(Transpose(_A))
-    assert trans_A.M.handle == trans_A_comp.M.handle,  "Test for transpose of a two 2-form failed"
+    for i in range(trans_A.M.handle.getSize()[0]):
+        for j in range(trans_A.M.handle.getSize()[1]):
+            assert math.isclose(trans_A.M.handle.getValues(i,j),trans_A_comp.M.handle.getValues(i,j)),  "Test for negative of a two 2-form failed"
 
 
 #Note: this tests only a mat vec contraction atm
@@ -62,7 +70,7 @@ def test_mul(A,L,V):
     _coeff_F = AssembledVector(b)
     mul_matvec = assemble(_A*_coeff_F)
     mul_matvec_comp = assemble(action(a,b))
-    assert mul_matvec.dat.data.all()  == mul_matvec_comp.dat.data.all() , "Test for contraction (mat-vec-mul) failed"
+    assert math.isclose(mul_matvec.dat.data.all(),mul_matvec_comp.dat.data.all()) , "Test for contraction (mat-vec-mul) failed"
 
 
 
@@ -80,9 +88,9 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-#test_assembledvector(L)
-#test_mul(a,L,V)
-#test_solve(a,L,V)
+test_assembledvector(L)
+test_mul(a,L,V)
+#test_solve(a,L,V) #fails
 
 #continuous Helmholtz equation
 mesh = UnitSquareMesh(5,5)
@@ -96,16 +104,21 @@ a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
 test_assemble2form(a)
-#test_assemble1form(a)
-#test_negative(a)
-#test_add(a)
+#test_assemble1form(a) #fails
+test_negative(a)
+test_add(a)
 
 #continuous advection problem
-#TODO
+n = 5
+mesh = UnitSquareMesh(n,n)
+V = FunctionSpace(mesh, "CG", 1)
+x, y = SpatialCoordinate(mesh)
+u_ = Function(V).project(x)
+u = TrialFunction(V)
+v = TestFunction(V)
+F = (u_*div(v*u))*dx
 
-#test_transpose(a)
-
-
+#test_assemble2form(F)
 
 ###############################################
 #TODO: TEST: assemble mul of two 2-froms

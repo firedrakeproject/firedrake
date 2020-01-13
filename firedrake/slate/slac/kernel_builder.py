@@ -442,13 +442,13 @@ class LocalLoopyKernelBuilder(object):
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
 
-        self.loopy_indices=[]
-        self.gem_indices=[]
+        self.loopy_indices=OrderedDict()
+        self.gem_indices=OrderedDict()
         #stole this from lawrence
         self.create_index=partial(create_index,
                                    namer=map("i{}".format, itertools.count()),ctx=self)
 
-
+        outermost=True
         #a first compilation is already hapenning here
         #but only for tensors and assembled vectors
         for tensor in expression_dag:
@@ -458,10 +458,8 @@ class LocalLoopyKernelBuilder(object):
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
 
-                print(tensor.shape)
-                indices =self.create_index(tensor.shape)
-                print(len(temps)+len(coeff_vecs))
-                gem_indices=self.gem_indices[len(temps)+len(coeff_vecs)]
+                indices =self.create_index(tensor.shape,tensor)
+                gem_indices=self.gem_indices[tensor]
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" %len(temps),tensor.shape),gem_indices))
                 #TODO this was probably a bad design decision. discuss this.
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
@@ -483,12 +481,11 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
-                    indices =self.create_index(tensor.shape)
-                    gem_indices=self.gem_indices[len(temps)+len(coeff_vecs)]
+                    indices =self.create_index(tensor.shape,tensor)
+                    gem_indices=self.gem_indices[tensor]
 
                     # Local temporary
                     local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)
-                    
                     
                     gem_loopy_dict.setdefault(local_temp,loopy.TemporaryVariable(local_temp.children[0].name,
                                            shape=tensor.shape,
@@ -505,6 +502,18 @@ class LocalLoopyKernelBuilder(object):
                         offset += shape
 
                     seen_coeff.add(function)
+
+            #saving the indices for the return variable
+            #needed for automatic gem to imperoc translation
+            print(len(expression_dag))
+            if outermost and not (type(tensor)==slate.Add or type(tensor)==slate.Negative) :
+                try:
+                    self.return_indices=gem_indices
+                except:
+                    indices =self.create_index(tensor.shape,tensor)
+                    gem_indices=self.gem_indices[tensor]
+                    self.return_indices=gem_indices
+                outermost=False
 
 
         self.expression = expression
@@ -603,7 +612,7 @@ class LocalLoopyKernelBuilder(object):
 
                     raise ValueError("For now only non mixed supported")
                 else:
-                    indices=self.loopy_indices[pos]#TODO is this right?
+                    indices=self.loopy_indices[tensor]
                     output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
                         
                 #kernel data contains the parameters fed into the subkernel
@@ -629,7 +638,7 @@ class LocalLoopyKernelBuilder(object):
                 #they have to be subarrayrefed (fed element by element)
                 for c, name in kernel_data:
                     extent = index_extent(c)
-                    idx =self.create_index(extent)
+                    idx =self.create_index(extent,c)
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
 
@@ -706,20 +715,20 @@ class LocalLoopyKernelBuilder(object):
 
 #every time an index is created it is saved in a list (gem as well as loopy)
 #saved as tuples
-def create_index(extent, namer,ctx):
+def create_index(extent,key, namer,ctx):
     if isinstance(extent,tuple) and len(extent)==2:
         name1,name2 = next(namer),next(namer)
         ret1,ret2=pym.Variable(name1),pym.Variable(name2)
-        ctx.loopy_indices.append((ret1,ret2))
-        ctx.gem_indices.append((gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
+        ctx.loopy_indices.setdefault(key,(ret1,ret2))
+        ctx.gem_indices.setdefault(key,(gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
         return (ret1,ret2)
     else:
         if isinstance(extent, tuple):
             extent=extent[0]
         name = next(namer)
         ret=pym.Variable(name)
-        ctx.loopy_indices.append((ret,))
-        ctx.gem_indices.append((gem.Index(name,int(extent)),))
+        ctx.loopy_indices.setdefault(key,(ret,))
+        ctx.gem_indices.setdefault(key,(gem.Index(name,int(extent)),))
         return (ret,)
 
 #calculation of the range on an index

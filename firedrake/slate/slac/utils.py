@@ -214,8 +214,9 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self,tensor):
         A, = tensor.operands
-        indices =self.builder.create_index(A.shape)
-        A_indices=self.builder.gem_indices[-1]
+        indices =self.builder.create_index(A.shape,tensor)
+        A_indices=self.builder.gem_indices[tensor]
+        print(self.builder.gem_indices[tensor])
         ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
         return ret
 
@@ -236,11 +237,11 @@ class SlateTranslator():
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
 
-        indices =self.builder.create_index(A.shape)
-        A_indices=self.builder.gem_indices[-1]
+        indices =self.builder.create_index(A.shape,A)
+        A_indices=self.builder.gem_indices[A]
 
-        indices =self.builder.create_index(B.shape)
-        B_indices=self.builder.gem_indices[-1]
+        indices =self.builder.create_index(B.shape,B)
+        B_indices=self.builder.gem_indices[B]
 
 
         if A.shape==B.shape:
@@ -258,8 +259,8 @@ class SlateTranslator():
             prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(vec_gem.children[0],(A_indices[1],)))
 
 
-            new_indices =self.builder.create_index((A.shape[0],))
-            new_indices=self.builder.gem_indices[-1]
+            new_indices =self.builder.create_index((A.shape[0],),tensor)
+            new_indices=self.builder.gem_indices[tensor]
 
             sum=IndexSum(prod,(A_indices[1],))
             return Indexed(ComponentTensor(sum,sum_indices),new_indices)
@@ -383,17 +384,17 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     c=0
     for slate_tensor,gem_indexed in builder.temps.items():
         loopy_tensor=builder.gem_loopy_dict[gem_indexed]
-        indices=builder.loopy_indices[1]
+        print(builder.loopy_indices)
+        indices=builder.loopy_indices[slate_tensor]
         inames={var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
     
-    
-    #create output arg
+    #generate initilisation instructions for all coefficent temporaries
     for k,v in builder.coefficient_vecs.items():
         loopy_tensor=builder.gem_loopy_dict[v[0].local_temp]
         loopy_outer.temporary_variables[loopy_tensor.name]=loopy_tensor
-        indices=builder.loopy_indices[0]
+        indices=builder.loopy_indices[v[0].vector]
         inames={var.name for var in indices}
         print(inames)
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
@@ -403,24 +404,25 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     kitting_insn=builder.assembly_calls["cell"]
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     print(loopy_merged.temporary_variables)
-
-    print(loopy_merged)
+    print("\n\n")
     #add dependencies dynamically
     #add dep from first instruction of outer kernel to last instr of inner kernel
     #add dep from last instruction of inner kernel to first instr of inner kernel
     if len(loopy_merged.instructions)>1:
         noi_outer=len(loopy_outer.instructions)
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
+      #  loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
 
         #remove priority generate from tsfc compile call
         for insn in loopy_merged.instructions[-noi_outer:]:
             loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
 
     
+    print(loopy_merged)
     if len(loopy_merged.instructions)>2:
         loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
 
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+1].id,  "id:"+loopy_merged.instructions[1].id)
+        print(loopy_merged)
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[1].id)
 
     #add arguments of the subkernel
     #TODO check if is the dimtag right
@@ -432,13 +434,14 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     #fix domains (add additional indices coming from calling the subkernel)
     print(builder.gem_indices)
     def create_domains(gem_indices):
+
         for tuple_index in gem_indices:
             for i in tuple_index:
                 name=i.name
                 extent=i.extent
                 vars = isl.make_zero_and_vars([name], [])
                 yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
-    domains = list(create_domains(builder.gem_indices))
+    domains = list(create_domains(builder.gem_indices.values()))
     loopy_merged= loopy_merged.copy(domains=domains+loopy_merged.domains)
 
     #generate program from kernel, register inner kernel and inline inner kernel

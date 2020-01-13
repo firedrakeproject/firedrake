@@ -631,18 +631,11 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     args.append(arg)
 
     if len(builder.coefficient_vecs)!=0:
-        arg=loopy.GlobalArg("coeff",shape=(3,),dtype="double")
+        arg=loopy.GlobalArg("coeff",shape=builder.coefficient_vecs[3][0].shape,dtype="double")
         args.append(arg)
-
-
     
     #creation of return variables for slate loopy
-    if len(builder.gem_indices)>1:
-       # indices=builder.create_index(builder.expression.shape)
-        indices=builder.gem_indices[-1]
-    else:
-        indices=builder.gem_indices[0]
-    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),indices)]
+    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]
 
     #@TODO: preprocessing of gem for removing unneccesary component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
