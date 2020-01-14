@@ -54,7 +54,8 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "cuda", "cuda_dir", "cudac",
+                           "opencascade",
+                           "cuda", "cuda_dir", "cudac", "cuda_compile_flags",
                            "petsc_int_type", "cache_dir"]
 
 
@@ -200,9 +201,11 @@ honoured.""",
     parser.add_argument("--cuda", action="store_true",
                         help="Use CUDA as backend.")
     parser.add_argument('--cuda-dir', type=str, help="cuda directory location"
-            " to be passed to PETSc", nargs=1, default='/usr/local/cuda')
+            " to be passed to PETSc", default='/usr/local/cuda', action="store")
+    parser.add_argument('--cuda-compile-flags', type=str, help="cuda directory location"
+            " to be passed to PETSc", default=None, action="store")
     parser.add_argument('--cudac', type=str, help="path of 'nvcc' "
-            " to be passed to PETSc", nargs=1, default='/usr/bin/nvcc')
+            " to be passed to PETSc", default='/usr/bin/nvcc', action="store")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -511,6 +514,9 @@ if args.cuda:
     petsc_options.add('--with-cuda=1')
     petsc_options.add('--with-cuda-dir={}'.format(args.cuda_dir))
     petsc_options.add('--with-cudac={}'.format(args.cudac))
+    if args.cuda_compile_flags:
+        petsc_options.add('--CUDAFLAGS={}'.format(args.cuda_compile_flags))
+
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
