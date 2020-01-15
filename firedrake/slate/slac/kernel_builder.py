@@ -453,7 +453,6 @@ class LocalLoopyKernelBuilder(object):
         #but only for tensors and assembled vectors
         for tensor in expression_dag:
             counter.update(tensor.operands)
-            print(tensor)
             
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
@@ -505,7 +504,6 @@ class LocalLoopyKernelBuilder(object):
 
             #saving the indices for the return variable
             #needed for automatic gem to imperoc translation
-            print(len(expression_dag))
             if outermost and not (type(tensor)==slate.Add or type(tensor)==slate.Negative) :
                 try:
                     self.return_indices=gem_indices
@@ -728,7 +726,6 @@ def create_index(extent,key, namer,ctx):
         if isinstance(extent, tuple):
             extent=extent[0]
         name = next(namer)
-        print(name,"\n\n\n\n\n\n\n")
         ret=pym.Variable(name)
         ctx.loopy_indices.setdefault(key,(ret,))
         ctx.gem_indices.setdefault(key,(gem.Index(name,int(extent)),))

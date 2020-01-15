@@ -175,21 +175,17 @@ class SlateTranslator():
     def slate_to_gem_translate(self):
         gem_expression_dag=[]
         for tensor in self.traversed_slate_expr_dag:#tensor hier is actually TensorBase
-            print(tensor)
             # Terminal tensors/Assembled Vectors are already defined
             #just redirect to allocated memory, how??
             if isinstance(tensor, sl.Tensor):
                 gem_expression_dag.append(self.tensor_to_variable[tensor])
-                print(self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
-                print(self.coeff_vecs)
                 gem_expression_dag.append(self.coeff_vecs[3][0].local_temp)
 
             #other tensor types are translated into gem nodes
             else:
                 gem_expression_dag.append(self.slate_to_gem(tensor))
-        print(gem_expression_dag)
         return list(gem_expression_dag)
 
     
@@ -216,7 +212,6 @@ class SlateTranslator():
         A, = tensor.operands
         indices =self.builder.create_index(A.shape,tensor)
         A_indices=self.builder.gem_indices[tensor]
-        print(self.builder.gem_indices[tensor])
         ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
         return ret
 
@@ -237,7 +232,7 @@ class SlateTranslator():
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
 
-        #assert A==B, "We have a problem with multiplying the same operand!"
+        #TODO:We have a problem with multiplying the same operand!"
 
         indices =self.builder.create_index(A.shape,A)
         A_indices=self.builder.gem_indices[A]
@@ -245,15 +240,11 @@ class SlateTranslator():
         indices =self.builder.create_index(B.shape,B)
         B_indices=self.builder.gem_indices[B]
 
-        print(self.builder.gem_indices)
-
         if len(A.shape)==len(B.shape) and A.shape[1]==B.shape[0]:
             prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[B].children[0],(A_indices[1],B_indices[1])))
             
             sum_indices=(A_indices[0],B_indices[1])
             sum=IndexSum(prod,(A_indices[1],))
-
-            print(sum)
 
             new_indices =self.builder.create_index((A.shape[0],B.shape[1]),tensor)
             new_indices=self.builder.gem_indices[tensor]

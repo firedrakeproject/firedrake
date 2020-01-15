@@ -97,7 +97,7 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-test_assemble_vector(L)
+test_assemble_vector(L) #TODO: dependecy generation doesnt seem quite right in this case
 test_mul(a,L,V,mesh)
 #test_solve(a,L,V) #fails
 
@@ -116,7 +116,7 @@ test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
 
-#continuous advection problem
+#TODO: continuous advection problem 
 n = 5
 mesh = UnitSquareMesh(n,n)
 V = FunctionSpace(mesh, "CG", 1)
@@ -126,10 +126,9 @@ u = TrialFunction(V)
 v = TestFunction(V)
 F = (u_*div(v*u))*dx
 
-#test_assemble2form(F)
+#test_assemble2form(F) 
 
 ###############################################
-#TODO: TEST: assemble mul of two 2-froms
 #TODO: TEST: assemble blocks
 
 print("All tests passed.")
