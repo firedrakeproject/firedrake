@@ -250,12 +250,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if not (len(v) == 1 and v[0] == (0,)*len(v[0])):
                     c = f.coefficients()[k]
                     popc = new_coefficients.pop(k)
-                    if c.derivatives == (0,)*len(c.ufl_operands):
+                    #import ipdb; ipdb.set_trace()
+                    if c._extop_master not in new_coefficients:#c.derivatives == (0,)*len(c.ufl_operands):
                         # ExternalOperators have the particularity of generating other Extops (during the differentiation)
                         # Therefore, even though the information about wich ExtOps has been created during the form compiling
                         # is stored in the kernel we still need to construct this dependency when needed.
                         # That is when the form is already compiled and therefore the differentiation bit of the code is not hitted
                         mc = popc
+                        #import ipdb; ipdb.set_trace()
                         mc._add_dependencies(v)
                         for i, c in enumerate(mc._extop_dependencies):
                             if c.derivatives in v:

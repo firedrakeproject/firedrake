@@ -37,6 +37,10 @@ class FunctionAssignerBlock(blocks.FunctionAssignerBlock, Backend):
     pass
 
 
+class FunctionSplitBlock(blocks.FunctionSplitBlock, Backend):
+    pass
+
+
 class ALEMoveBlock(blocks.ALEMoveBlock, Backend):
     pass
 
@@ -108,3 +112,38 @@ class MeshOutputBlock(Block):
 
 class NonlinearVariationalSolveBlock(blocks.NonlinearVariationalSolveBlock, Backend):
     pass
+
+
+class PointwiseOperatorBlock(Block, Backend):
+    def __init__(self, point_op, *args, **kwargs):
+        super(PointwiseOperatorBlock, self).__init__()
+        self.point_op = point_op
+        self.add_dependency(self.point_op, no_duplicates=True)
+        for c in self.point_op.ufl_operands:
+            self.add_dependency(c, no_duplicates=True)
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        N, ops = inputs[0], inputs[1:]
+        return N._ufl_expr_reconstruct_(*ops)
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        print('PointopBlock eval_adj_comp')
+        if self.point_op == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            #self.point_op_rep = block_variable.saved_output
+            return None
+
+        q_rep = block_variable.saved_output
+        N = prepared
+
+        i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0] 
+        dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
+        #dNdm_adj = self.compat.assemble_adjoint_value(dNdm_adj)
+        import ipdb; ipdb.set_trace()
+        return dNdm_adj
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        print('PointopBlock recompute_comp')
+        p, ops = inputs[0], inputs[1:]
+        q = type(p).copy(p)
+        return q.evaluate()

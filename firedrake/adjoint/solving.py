@@ -1,6 +1,7 @@
+import ufl
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
+from firedrake.adjoint.blocks import SolveBlock, PointwiseOperatorBlock
 
-from firedrake.adjoint.blocks import SolveBlock
 
 # Type dependencies
 
@@ -38,8 +39,24 @@ def annotate_solve(solve):
 
         if annotate:
             tape = get_working_tape()
+
+            form_equation = args[0]
+
+            coeff_form = form_equation.lhs.coefficients()
+            extops_form = []
+            for coeff in coeff_form:
+                if isinstance(coeff, ufl.ExternalOperator):
+                    extops_form += [coeff]
+                    block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
+                    tape.add_block(block_extops)
+
+                    block_variable = coeff.create_block_variable()
+                    block_extops.add_output(block_variable)
+            #sb_kwargs['extops'] = extops_form
+
             sb_kwargs = SolveBlock.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
+
             block = SolveBlock(*args, **sb_kwargs)
             tape.add_block(block)
 

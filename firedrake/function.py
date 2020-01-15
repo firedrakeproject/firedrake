@@ -224,7 +224,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
 
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType, count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.

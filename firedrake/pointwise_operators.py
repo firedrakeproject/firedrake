@@ -1,20 +1,28 @@
 from abc import ABCMeta, abstractmethod
 from functools import partial
 import types
-from ufl.core.external_operator import ExternalOperator
-from ufl.core.expr import Expr
-from ufl.algorithms.apply_derivatives import VariableRuleset
-from ufl.constantvalue import as_ufl
-from firedrake.function import Function
-from firedrake import utils, functionspaceimpl
-from pyop2.datatypes import ScalarType
-from ufl.log import error
 import sympy as sp
 import numpy as np
 from scipy import optimize
 
+from ufl.core.external_operator import ExternalOperator
+from ufl.core.expr import Expr
+from ufl.algorithms.apply_derivatives import VariableRuleset
+from ufl.constantvalue import as_ufl
+from ufl.operators import conj, transpose
+from ufl.log import error
 
-class AbstractPointwiseOperator(Function, ExternalOperator, metaclass=ABCMeta):
+import firedrake.assemble
+from firedrake.function import Function
+from firedrake.ufl_expr import adjoint
+from firedrake import utils, functionspaceimpl
+from firedrake.adjoint import PointwiseOperatorsMixin
+from firedrake.adjoint.blocks import PointwiseOperatorBlock, Backend
+from pyop2.datatypes import ScalarType
+
+
+
+class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMixin, metaclass=ABCMeta):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
@@ -48,6 +56,27 @@ class AbstractPointwiseOperator(Function, ExternalOperator, metaclass=ABCMeta):
     @abstractmethod
     def evaluate(self):
         """define the evaluation method for the ExternalOperator object"""
+
+    @abstractmethod
+    def copy(self, deepcopy=False):
+        r"""Return a copy of this CoordinatelessFunction.
+
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+
+    # Computing the action of the adjoint derivative may requires different procedures
+    # depending on wrt what is taken the derivative
+    # E.g. the neural network case: where the adjoint derivative computation leads us
+    # to compute the gradient wrt the inputs of the network or the weights.
+    @abstractmethod
+    def adjoint_action(self, x, idx):
+        r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
+            This method computes the action of (dN/dq)^{*}
+            where q \in \{u, m\}.
+        """
 
     @utils.cached_property
     def _split(self):
@@ -147,6 +176,37 @@ class PointexprOperator(AbstractPointwiseOperator):
         elif expr == 0:
             return self.assign(expr)
         return self.interpolate(expr)
+
+    def copy(self, deepcopy=False):
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
+                          name=self.name(), dtype=self.dat.dtype,
+                          derivatives=self.derivatives,
+                          operator_data=self.operator_data)
+
+    def _adjoint(self, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        dNdq_adj = dNdq
+        result = firedrake.assemble(dNdq_adj)
+        return result
+
+    def adjoint_action(self, x, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        dNdq_adj = dNdq#conj(transpose(dNdq))
+        #dNdq_adj = adjoint(dNdq)
+        #import ipdb; ipdb.set_trace()
+        print('adjoint_action')
+        result = firedrake.assemble(dNdq_adj)
+        #import ipdb; ipdb.set_trace()
+        return result.vector() * x
+        #return dNdq_adj * x
 
 
 class PointsolveOperator(AbstractPointwiseOperator):
@@ -441,6 +501,22 @@ class PointsolveOperator(AbstractPointwiseOperator):
             maxiter = kwargs.get('maxiter') or 50
             jacobian = kwargs.get('fprime')
             return newton_generalized(g, jacobian, x0, tol, maxiter)
+
+    def copy(self, deepcopy=False):
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
+                          name=self.name(), dtype=self.dat.dtype,
+                          derivatives=self.derivatives,
+                          operator_data=self.operator_data, disp=self.disp)
+
+    def adjoint_u(self, x, idx):
+        pass
+
+    def adjoint_m(self, x, idx):
+        pass
 
 # Neural Net bit : Here !
 
