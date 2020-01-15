@@ -237,35 +237,40 @@ class SlateTranslator():
     def slate_to_gem_mul(self,tensor):
         A, B = tensor.operands
 
+        #assert A==B, "We have a problem with multiplying the same operand!"
+
         indices =self.builder.create_index(A.shape,A)
         A_indices=self.builder.gem_indices[A]
 
         indices =self.builder.create_index(B.shape,B)
         B_indices=self.builder.gem_indices[B]
 
+        print(self.builder.gem_indices)
 
-        if A.shape==B.shape:
-
-            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[B].children[0],B_indices))
+        if len(A.shape)==len(B.shape) and A.shape[1]==B.shape[0]:
+            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[B].children[0],(A_indices[1],B_indices[1])))
+            
             sum_indices=(A_indices[0],B_indices[1])
-            print(sum_indices)
-            sum=IndexSum(prod,(A_indices[0],))
-            return ComponentTensor(sum,sum_indices)
+            sum=IndexSum(prod,(A_indices[1],))
 
-        else:#TODO treat all cases
-            sum_indices=(A_indices[0],)
+            print(sum)
+
+            new_indices =self.builder.create_index((A.shape[0],B.shape[1]),tensor)
+            new_indices=self.builder.gem_indices[tensor]
+            return Indexed(ComponentTensor(sum,sum_indices),new_indices)
+
+        elif len(A.shape)>len(B.shape) and A.shape[1]==B.shape[0]:
             vec_gem=self.coeff_vecs[3][0].local_temp
 
             prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(vec_gem.children[0],(A_indices[1],)))
 
+            sum_indices=(A_indices[0],)
+            sum=IndexSum(prod,(A_indices[1],))
 
             new_indices =self.builder.create_index((A.shape[0],),tensor)
             new_indices=self.builder.gem_indices[tensor]
-
-            sum=IndexSum(prod,(A_indices[1],))
             return Indexed(ComponentTensor(sum,sum_indices),new_indices)
 
-        print(ret)
         return ret
 
     #call gem nodes for inverse and solve
@@ -383,9 +388,10 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     inits=[]
     c=0
     for slate_tensor,gem_indexed in builder.temps.items():
+        #create new indices for inits and save with indexed (gem) key instead of slate tensor
+        indices =builder.create_index(slate_tensor.shape,gem_indexed)
         loopy_tensor=builder.gem_loopy_dict[gem_indexed]
-        print(builder.loopy_indices)
-        indices=builder.loopy_indices[slate_tensor]
+        indices=builder.loopy_indices[gem_indexed]
         inames={var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
@@ -396,34 +402,35 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
         loopy_outer.temporary_variables[loopy_tensor.name]=loopy_tensor
         indices=builder.loopy_indices[v[0].vector]
         inames={var.name for var in indices}
-        print(inames)
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
 
     #get the CallInstruction from builder and include at beginning of outer kernel
     kitting_insn=builder.assembly_calls["cell"]
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
-    print(loopy_merged.temporary_variables)
-    print("\n\n")
-    #add dependencies dynamically
-    #add dep from first instruction of outer kernel to last instr of inner kernel
-    #add dep from last instruction of inner kernel to first instr of inner kernel
-    if len(loopy_merged.instructions)>1:
-        noi_outer=len(loopy_outer.instructions)
-      #  loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
-
-        #remove priority generate from tsfc compile call
-        for insn in loopy_merged.instructions[-noi_outer:]:
-            loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
-
     
-    print(loopy_merged)
-    if len(loopy_merged.instructions)>2:
+    noi_outer=len(loopy_outer.instructions)
+    noi_inits=len(inits)
+    #add dependencies dynamically
+    if len(loopy_outer.instructions)>1:
+        for i in range(len(kitting_insn)):
+            #add dep from second insn of outer kernel to all subkernels
+            loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+1].id,  "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+            #dep from subkernel to the according init       
+            loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[i].id)
+    
+    elif not len(kitting_insn)==0:
+        #add dep from first insn of outer kernel to the subkernel
+        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
+        
+        #dep from subkernel to the according init       
         loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
 
-        print(loopy_merged)
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[1].id)
+    #remove priority generate from tsfc compile call
+    for insn in loopy_merged.instructions[-noi_outer:]:
+        loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
 
+  
     #add arguments of the subkernel
     #TODO check if is the dimtag right
     #TODO maybe we need to run over subkernels
@@ -432,7 +439,6 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     #    loopy_merged = loopy_merged.copy(args=list(loopy_merged.args)+inner_args[1:]) #first variable is A which gets replaced by slate name of tensor anyways
 
     #fix domains (add additional indices coming from calling the subkernel)
-    print(builder.gem_indices)
     def create_domains(gem_indices):
 
         for tuple_index in gem_indices:

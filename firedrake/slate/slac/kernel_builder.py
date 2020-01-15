@@ -638,7 +638,9 @@ class LocalLoopyKernelBuilder(object):
                 #they have to be subarrayrefed (fed element by element)
                 for c, name in kernel_data:
                     extent = index_extent(c)
-                    idx =self.create_index(extent,c)
+                    if c not in self.loopy_indices:
+                        idx =self.create_index(extent,c)
+                    idx=self.loopy_indices[c]
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
 
@@ -697,7 +699,7 @@ class LocalLoopyKernelBuilder(object):
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,
-                                            within_inames_is_final=True,id="inner_call"))
+                                            within_inames_is_final=True,id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
                 
        # self.integral_type=integral_type
 
@@ -726,6 +728,7 @@ def create_index(extent,key, namer,ctx):
         if isinstance(extent, tuple):
             extent=extent[0]
         name = next(namer)
+        print(name,"\n\n\n\n\n\n\n")
         ret=pym.Variable(name)
         ctx.loopy_indices.setdefault(key,(ret,))
         ctx.gem_indices.setdefault(key,(gem.Index(name,int(extent)),))

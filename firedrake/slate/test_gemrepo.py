@@ -1,19 +1,13 @@
 
 from firedrake import *
 import math
+import copy
 
-
-def test_assemble2form(a):
+def test_assemble_matrix(a):
     _A = Tensor(a)
     A = assemble(_A)
     A_comp = assemble(a)
     assert A.M.handle.norm() == A_comp.M.handle.norm(), "Test for assembly of 2-form failed"
-
-def test_assemble1form(L):
-    _F = Tensor(L)
-    F = assemble(_F)
-    F_comp = assemble(F)
-    assert F.M.handle.norm() == F_comp.M.handle.norm(), "Test for assembly of 1-form failed"
 
 #in order to be able to do solve I need to do mul first
 def test_solve(a,L,V):
@@ -29,7 +23,7 @@ def test_solve(a,L,V):
     assert u.dat.data.all()  == u_comp.dat.data.all() , "Test for solved on assembled forms failed"
 
 #Note: this test only works for discontinuous function spaces
-def test_assembledvector(L):
+def test_assemble_vector(L):
     _coeff_F = AssembledVector(Function(assemble(L)))
     coeff_F = assemble(_coeff_F)
     coeff_F_comp = assemble(L)
@@ -52,18 +46,18 @@ def test_negative(a):
         for j in range(neg_A.M.handle.getSize()[1]):
             assert math.isclose(neg_A.M.handle.getValues(i,j),neg_A_comp.M.handle.getValues(i,j)),  "Test for negative of a two 2-form failed"
 
-#Note: this only really a test for a problem containing an unsymmetric operator 
+#TODO: this only really a test for a problem containing an unsymmetric operator 
 def test_transpose(a):
     _A = Tensor(a)
     A = assemble(_A)
     trans_A=assemble(Transpose(_A))
     for i in range(trans_A.M.handle.getSize()[0]):
         for j in range(trans_A.M.handle.getSize()[1]):
-            assert math.isclose(trans_A.M.handle.getValues(i,j),trans_A_comp.M.handle.getValues(i,j)),  "Test for negative of a two 2-form failed"
+            assert math.isclose(trans_A.M.handle.getValues(i,j),A_comp.M.handle.getValues(j,i)),  "Test for negative of a two 2-form failed"
 
+def test_mul(A,L,V,mesh):
 
-#Note: this tests only a mat vec contraction atm
-def test_mul(A,L,V):
+    #test for mat-vec multiplication
     _A = Tensor(a)
     mat_comp = assemble(a)
     b = Function(assemble(L))
@@ -71,6 +65,21 @@ def test_mul(A,L,V):
     mul_matvec = assemble(_A*_coeff_F)
     mul_matvec_comp = assemble(action(a,b))
     assert math.isclose(mul_matvec.dat.data.all(),mul_matvec_comp.dat.data.all()) , "Test for contraction (mat-vec-mul) failed"
+
+    #test for mat-mat multiplication
+    u2 = TrialFunction(V)
+    v2 = TestFunction(V)
+    f2 = Function(V)
+    x2, y2 = SpatialCoordinate(mesh)
+    f2.interpolate((1+8*pi*pi)*cos(x2*pi*2)*cos(y2*pi*2))
+    a2 = (dot(grad(v2), grad(u2))) * dx
+    _A2 = Tensor(a2)
+    mul_matmat = assemble(_A*_A2)
+    mul_matmat_comp = assemble(_A).M.handle* assemble(_A2).M.handle
+    for i in range(mul_matmat.M.handle.getSize()[0]):
+        for j in range(mul_matmat.M.handle.getSize()[1]):
+            assert math.isclose(mul_matmat_comp.getValues(i,j),mul_matmat.M.handle.getValues(i,j)),  "Test for mat-mat-mul failed"
+
 
 
 
@@ -88,8 +97,8 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-test_assembledvector(L)
-test_mul(a,L,V)
+test_assemble_vector(L)
+test_mul(a,L,V,mesh)
 #test_solve(a,L,V) #fails
 
 #continuous Helmholtz equation
@@ -103,8 +112,7 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-test_assemble2form(a)
-#test_assemble1form(a) #fails
+test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
 
@@ -122,7 +130,6 @@ F = (u_*div(v*u))*dx
 
 ###############################################
 #TODO: TEST: assemble mul of two 2-froms
-#test=assemble(_A*_A)
 #TODO: TEST: assemble blocks
 
 print("All tests passed.")

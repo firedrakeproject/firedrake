@@ -634,6 +634,9 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         arg=loopy.GlobalArg("coeff",shape=builder.coefficient_vecs[3][0].shape,dtype="double")
         args.append(arg)
     
+
+    print(builder.gem_indices)
+    
     #creation of return variables for slate loopy
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]
 
