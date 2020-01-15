@@ -37,6 +37,10 @@ class FunctionAssignerBlock(blocks.FunctionAssignerBlock, Backend):
     pass
 
 
+class FunctionSplitBlock(blocks.FunctionSplitBlock, Backend):
+    pass
+
+
 class ALEMoveBlock(blocks.ALEMoveBlock, Backend):
     pass
 
