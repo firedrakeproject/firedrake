@@ -21,10 +21,6 @@ class DirichletBCBlock(blocks.DirichletBCBlock, Backend):
     pass
 
 
-class ExpressionBlock(blocks.ExpressionBlock, Backend):
-    pass
-
-
 class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
     pass
 
