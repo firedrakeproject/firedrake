@@ -7,6 +7,8 @@ def test_assemble_matrix(a):
     _A = Tensor(a)
     A = assemble(_A)
     A_comp = assemble(a)
+    print(A.M.handle.view())
+    print(A_comp.M.handle.view())
     assert A.M.handle.norm() == A_comp.M.handle.norm(), "Test for assembly of 2-form failed"
 
 #in order to be able to do solve I need to do mul first
@@ -94,11 +96,13 @@ v = TestFunction(V)
 f = Function(V)
 x, y = SpatialCoordinate(mesh)
 f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
-a = (dot(grad(v), grad(u)) + v * u) * dx
+#a = (dot(grad(v), grad(u)) + v * u) * dx
+a= (v * u) * ds
 L = f * v * dx
 
-test_assemble_vector(L) #TODO: dependecy generation doesnt seem quite right in this case
-test_mul(a,L,V,mesh)
+test_assemble_matrix(a)
+#test_assemble_vector(L) #TODO: dependecy generation doesnt seem quite right in this case
+#test_mul(a,L,V,mesh)
 #test_solve(a,L,V) #fails
 
 #continuous Helmholtz equation
@@ -109,12 +113,13 @@ v = TestFunction(V)
 f = Function(V)
 x, y = SpatialCoordinate(mesh)
 f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
-a = (dot(grad(v), grad(u)) + v * u) * dx
+#a = (dot(grad(v), grad(u)) + v * u) * dx
+a= (dot(grad(v), grad(u)) + v * u) * ds
 L = f * v * dx
 
 test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
+#test_negative(a)
+#test_add(a)
 
 #TODO: continuous advection problem 
 n = 5

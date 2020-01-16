@@ -441,7 +441,6 @@ class LocalLoopyKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-
         self.loopy_indices=OrderedDict()
         self.gem_indices=OrderedDict()
         #stole this from lawrence
@@ -558,7 +557,7 @@ class LocalLoopyKernelBuilder(object):
         needs_mesh_layers=False
         subkernel_indices=OrderedDict([(it, []) for it in self.supported_integral_types])
 
-
+        num_facets=0
         #Maps integral type to subdomain key
         subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
                          "exterior_facet_vert": "subdomains_exterior_facet",
@@ -569,6 +568,7 @@ class LocalLoopyKernelBuilder(object):
         for pos,cxt_kernel in enumerate(self.context_kernels):
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
+            print(integral_type)
             tensor= cxt_kernel.tensor
             temp=self.temps[tensor]
             mesh = tensor.ufl_domain()
@@ -586,6 +586,7 @@ class LocalLoopyKernelBuilder(object):
             for inner in cxt_kernel.tsfc_kernels:
                 kinfo = inner.kinfo
                 reads = []
+                inames=[]
 
                 #populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
@@ -647,30 +648,44 @@ class LocalLoopyKernelBuilder(object):
                     predicates = None
                     if kinfo.subdomain_id != "otherwise":
                         raise NotImplementedError("No subdomain markers for cells yet")
-                #@TODO: for now only cell integrals supported
-                #elif integral_type in {"interior_facet",
-                #                    "interior_facet_vert",
-                #                    "exterior_facet",
-                #                    "exterior_facet_vert"}:
+                
+                elif integral_type in {"interior_facet",
+                                   "interior_facet_vert",
+                                   "exterior_facet",
+                                   "exterior_facet_vert"}:
+                    #number of recerence cell facets
+                    if mesh.cell_set._extruded:
+                        num_facets = mesh._base_mesh.ufl_cell().num_facets()
+                    else:
+                        num_facets = mesh.ufl_cell().num_facets()
 
-                #    needs_cell_facets = True
-                #   if integral_type.startswith("interior_facet"):
-                #        select = 1
-                #    else:
-                #        select = 0
-                #    cell_facets = pym.Variable(cell_facets_arg)
-                #    predicates = [pym.Comparison(pym.Subscript(cell_facets, (fidx, 0)), "==", select)]
-                #    # TODO, this does the wrong thing for integrals like f*ds + g*ds(1)
-                #    # "otherwise" is treated incorrectly as "everywhere"
-                #    # However, this replicates an existing slate bug.
-                #    if kinfo.subdomain_id != "otherwise":
-                #        predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx, 1)), "==", kinfo.subdomain_id))
+                    #index for loop over cell faces of reference cell
+                    fidx = self.create_index((num_facets,),self.cell_facets_arg)
 
-                #    i = create_index(1)
-                #    subscript = pym.Subscript(pym.Variable(local_facet_array_arg),
-                #                            (pym.Sum((i, fidx))))
-                #    reads.append(SubArrayRef((i, ), subscript))
-                #elif integral_type in {"interior_facet_horiz_top",
+                    #cell is interior or exterior
+                    needs_cell_facets = True
+                    if integral_type.startswith("interior_facet"):
+                        select = 1
+                    else:
+                        select = 0
+                    cell_facets = pym.Variable(self.cell_facets_arg)
+
+                    #index for is external facet or not if clause
+                    i = self.create_index((1,),self.cell_facets_arg+"_sum")
+                    predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx[0], 0)), "==", select)])
+                    
+                    # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
+                    # "otherwise" is treated incorrectly as "everywhere"
+                    # However, this replicates an existing slate bug.
+                    if kinfo.subdomain_id != "otherwise":
+                        predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx[0], 1)), "==", kinfo.subdomain_id))
+                   # assert kinfo.subdomain_id != "otherwise", "Tsslac not working on ds[something] yet"
+
+                    subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
+                                           (pym.Sum((i[0],fidx[0]))))
+                    reads.append(SubArrayRef(i, subscript))
+                    inames.append(fidx[0].name)
+                # elif integral_type in {"interior_facet_horiz_top",
                 #                    "interior_facet_horiz_bottom",
                 #                    "exterior_facet_top",
                 #                    "exterior_facet_bottom"}:
@@ -680,13 +695,13 @@ class LocalLoopyKernelBuilder(object):
                 #    layer = pym.Variable(layer_arg)
 
                 #    # TODO: Variable layers
-                 #   nlayer = tensor.ufl_domain().layers
+                #    nlayer = tensor.ufl_domain().layers
                 #    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
                 #            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
                 #            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
                 #            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
                 #    predicates = frozenset([which])
-                #else:
+                # else:
                 #    raise ValueError("Unhandled integral type {}".format(integral_type))
                 else:
                     raise NotImplementedError("Only cell integrals are implemente for slateloopy yet.")
@@ -694,14 +709,11 @@ class LocalLoopyKernelBuilder(object):
                 #reads are the variables being fed into the subkernel
                 #later on assemby calls will be needed for the kitting instruction 
                 #when merging the outer (slate) kernel with the inner (ufl) kernel
+                print(reads)
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
-                                            predicates=predicates,
-                                            within_inames_is_final=True,id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
+                                            predicates=predicates,within_inames=frozenset(inames),id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
                 
-       # self.integral_type=integral_type
-
-
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
@@ -709,7 +721,7 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets= needs_cell_facets
         self.needs_mesh_layers= needs_mesh_layers
-        #self.integral_type=integral_type
+        self.num_facets=num_facets 
         #self.oriented =kinfo.oriented
         #self.reads=reads
 

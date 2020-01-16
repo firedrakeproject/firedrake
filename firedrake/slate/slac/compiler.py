@@ -149,14 +149,14 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopykernel = op2.Kernel(code, loopy_merged.name)
 
     kinfo = KernelInfo(kernel=loopykernel,
-                       integral_type="cell",
+                       integral_type="cell",#TODO: "this should be exterior facet but then PYOP2 dies"
                        oriented=False,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),#@TODO: is this right????
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=False,
-                       needs_cell_sizes=builder.needs_cell_sizes)
+                       needs_cell_sizes=False)
 
     # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
@@ -613,7 +613,6 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
 
-    #TODO shape is wrong for contractions
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
@@ -623,6 +622,19 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     if len(builder.coefficient_vecs)!=0:
         arg=loopy.GlobalArg("coeff",shape=builder.coefficient_vecs[3][0].shape,dtype="double")
         args.append(arg)
+    
+
+    # args.append(loopy.GlobalArg(builder.local_facet_array_arg,
+    #                                      shape=(builder.num_facets,),
+    #                                      dtype=np.uint32))
+    
+
+    args.append(loopy.GlobalArg(builder.cell_facets_arg,
+                                         shape=(builder.num_facets,2),
+                                         dtype=np.uint8))  
+
+
+   
     
     #creation of return variables for slate loopy
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]

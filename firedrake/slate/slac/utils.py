@@ -21,6 +21,7 @@ from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
 from islpy import BasicSet
 
+import numpy as np
 import islpy as isl
 import pymbolic.primitives as pym
 
@@ -374,7 +375,6 @@ def traverse_dags(exprs):
 
 
 def merge_loopy(loopy_outer,loopy_inner_list,builder):
-
     #generate initilisation instructions for all tensor temporaries
     inits=[]
     c=0
@@ -396,8 +396,27 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
 
+    loopy_outer.temporary_variables["facet_array"] = lp.TemporaryVariable(builder.local_facet_array_arg,
+                                                                     shape=(builder.num_facets,),
+                                                                     dtype=np.uint32,
+                                                                     address_space=lp.AddressSpace.GLOBAL,
+                                                                     read_only=True,
+                                                                    initializer=np.arange(builder.num_facets, dtype=np.uint32))
+
+
+    # indices =builder.create_index((builder.num_facets,),builder.local_facet_array_arg+"_init")
+    # inames={var.name for var in indices}
+    # inits.append(lp.Assignment(pym.Subscript(pym.Variable(builder.local_facet_array_arg),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
+        
+        
+    # loopy_outer.temporary_variables["cell_facets"] = lp.TemporaryVariable(builder.cell_facets_arg,
+    #                                                                 shape=(builder.num_facets,2),
+    #                                                                 dtype=np.uint8,
+    #                                                                 address_space=lp.AddressSpace.LOCAL,
+    #                                                                 read_only=True)
+
     #get the CallInstruction from builder and include at beginning of outer kernel
-    kitting_insn=builder.assembly_calls["cell"]
+    kitting_insn=builder.assembly_calls["exterior_facet"]
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     
     noi_outer=len(loopy_outer.instructions)
@@ -441,6 +460,8 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     domains = list(create_domains(builder.gem_indices.values()))
     loopy_merged= loopy_merged.copy(domains=domains+loopy_merged.domains)
 
+
+    print(loopy_merged)
     #generate program from kernel, register inner kernel and inline inner kernel
     prg=make_program(loopy_merged)
     for loopy_inner in loopy_inner_list:
