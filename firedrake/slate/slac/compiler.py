@@ -298,6 +298,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Construct the final ast
     kernel_ast = ast.Node(builder.templated_subkernels + [macro_kernel])
+    print(kernel_ast)
 
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
@@ -623,19 +624,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         arg=loopy.GlobalArg("coeff",shape=builder.coefficient_vecs[3][0].shape,dtype="double")
         args.append(arg)
     
+    #arg for is exterior (==0)/interior (==1) facet or not
+    if builder.needs_cell_facets:
+        args.append(loopy.GlobalArg(builder.cell_facets_arg,
+                                            shape=(builder.num_facets,2),
+                                            dtype=np.uint8))  
 
-    # args.append(loopy.GlobalArg(builder.local_facet_array_arg,
-    #                                      shape=(builder.num_facets,),
-    #                                      dtype=np.uint32))
-    
-
-    args.append(loopy.GlobalArg(builder.cell_facets_arg,
-                                         shape=(builder.num_facets,2),
-                                         dtype=np.uint8))  
-
-
-   
-    
     #creation of return variables for slate loopy
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]
 

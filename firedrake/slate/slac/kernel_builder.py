@@ -672,14 +672,13 @@ class LocalLoopyKernelBuilder(object):
 
                     #index for is external facet or not if clause
                     i = self.create_index((1,),self.cell_facets_arg+"_sum")
-                    predicates = frozenset([pym.Comparison(pym.Subscript(cell_facets, (fidx[0], 0)), "==", select)])
+                    predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
                     
                     # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
                     # "otherwise" is treated incorrectly as "everywhere"
                     # However, this replicates an existing slate bug.
                     if kinfo.subdomain_id != "otherwise":
-                        predicates.append(pym.Comparison(pym.Subscript(cell_facets, (fidx[0], 1)), "==", kinfo.subdomain_id))
-                   # assert kinfo.subdomain_id != "otherwise", "Tsslac not working on ds[something] yet"
+                        predicates.append("cell_facets["+fidx[0]+",1]=="+kinfo.subdomain_id)
 
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
                                            (pym.Sum((i[0],fidx[0]))))
@@ -709,7 +708,6 @@ class LocalLoopyKernelBuilder(object):
                 #reads are the variables being fed into the subkernel
                 #later on assemby calls will be needed for the kitting instruction 
                 #when merging the outer (slate) kernel with the inner (ufl) kernel
-                print(reads)
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,within_inames=frozenset(inames),id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))

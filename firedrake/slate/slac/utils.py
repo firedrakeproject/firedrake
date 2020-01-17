@@ -395,28 +395,18 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
         inames={var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name),indices), pym.Subscript(pym.Variable("coeff"),indices),id="init%d"%c, within_inames=frozenset(inames)))
         c+=1
-
-    loopy_outer.temporary_variables["facet_array"] = lp.TemporaryVariable(builder.local_facet_array_arg,
+        
+    #generate temp e.g. for plexmesh_exterior_local_facet_number (maps from global to local facets)
+    if builder.needs_cell_facets:
+        loopy_outer.temporary_variables["facet_array"] = lp.TemporaryVariable(builder.local_facet_array_arg,
                                                                      shape=(builder.num_facets,),
                                                                      dtype=np.uint32,
-                                                                     address_space=lp.AddressSpace.GLOBAL,
+                                                                     address_space=lp.AddressSpace.LOCAL,
                                                                      read_only=True,
-                                                                    initializer=np.arange(builder.num_facets, dtype=np.uint32))
-
-
-    # indices =builder.create_index((builder.num_facets,),builder.local_facet_array_arg+"_init")
-    # inames={var.name for var in indices}
-    # inits.append(lp.Assignment(pym.Subscript(pym.Variable(builder.local_facet_array_arg),indices), 0.0,id="init%d"%c, within_inames=frozenset(inames)))
-        
-        
-    # loopy_outer.temporary_variables["cell_facets"] = lp.TemporaryVariable(builder.cell_facets_arg,
-    #                                                                 shape=(builder.num_facets,2),
-    #                                                                 dtype=np.uint8,
-    #                                                                 address_space=lp.AddressSpace.LOCAL,
-    #                                                                 read_only=True)
+                                                                     initializer=np.arange(builder.num_facets, dtype=np.uint32))
 
     #get the CallInstruction from builder and include at beginning of outer kernel
-    kitting_insn=builder.assembly_calls["exterior_facet"]
+    kitting_insn=builder.assembly_calls["exterior_facet"]#TODO: need to access this from builder
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     
     noi_outer=len(loopy_outer.instructions)
@@ -440,7 +430,6 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     for insn in loopy_merged.instructions[-noi_outer:]:
         loopy_merged=lp.set_instruction_priority(loopy_merged,"id:"+insn.id, None)
 
-  
     #add arguments of the subkernel
     #TODO check if is the dimtag right
     #TODO maybe we need to run over subkernels
@@ -450,7 +439,6 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
 
     #fix domains (add additional indices coming from calling the subkernel)
     def create_domains(gem_indices):
-
         for tuple_index in gem_indices:
             for i in tuple_index:
                 name=i.name
@@ -460,8 +448,6 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     domains = list(create_domains(builder.gem_indices.values()))
     loopy_merged= loopy_merged.copy(domains=domains+loopy_merged.domains)
 
-
-    print(loopy_merged)
     #generate program from kernel, register inner kernel and inline inner kernel
     prg=make_program(loopy_merged)
     for loopy_inner in loopy_inner_list:
