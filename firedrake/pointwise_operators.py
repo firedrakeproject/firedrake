@@ -512,10 +512,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                           derivatives=self.derivatives,
                           operator_data=self.operator_data, disp=self.disp)
 
-    def adjoint_u(self, x, idx):
-        pass
-
-    def adjoint_m(self, x, idx):
+    def adjoint_action(self, x, idx):
         pass
 
 # Neural Net bit : Here !
@@ -555,6 +552,11 @@ class PointnetOperator(AbstractPointwiseOperator):
     #    "Compute the gradient of the neural net output with respect to the inputs."
     #    raise NotImplementedError(self.__class__.compute_grad_inputs)
 
+    def adjoint_action(self, x, idx):
+        pass
+
+    def copy(self, deepcopy=False):
+        pass
 
 class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :

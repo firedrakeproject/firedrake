@@ -41,6 +41,11 @@ def annotate_solve(solve):
             tape = get_working_tape()
 
             form_equation = args[0]
+            sb_kwargs = SolveBlock.pop_kwargs(kwargs)
+            sb_kwargs.update(kwargs)
+
+            block = SolveBlock(*args, **sb_kwargs)
+            tape.add_block(block)
 
             coeff_form = form_equation.lhs.coefficients()
             extops_form = []
@@ -53,12 +58,6 @@ def annotate_solve(solve):
                     block_variable = coeff.create_block_variable()
                     block_extops.add_output(block_variable)
             #sb_kwargs['extops'] = extops_form
-
-            sb_kwargs = SolveBlock.pop_kwargs(kwargs)
-            sb_kwargs.update(kwargs)
-
-            block = SolveBlock(*args, **sb_kwargs)
-            tape.add_block(block)
 
         with stop_annotating():
             output = solve(*args, **kwargs)
