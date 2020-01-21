@@ -9,7 +9,7 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor,Variable,index_sum)#,Inverse,Solve,)
+                 ListTensor,Variable,index_sum,partial_indexed,view,FlexiblyIndexed)#,Inverse,Solve,)
 
 
 from functools import singledispatch,update_wrapper
@@ -24,6 +24,7 @@ from islpy import BasicSet
 import numpy as np
 import islpy as isl
 import pymbolic.primitives as pym
+import itertools
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -215,19 +216,6 @@ class SlateTranslator():
         A_indices=self.builder.gem_indices[tensor]
         ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
         return ret
-
-    #@TODO: actually more complicated because used for mixed tensors?
-    @slate_to_gem.register(firedrake.slate.slate.Block)
-    def slate_to_gem_block(self,tensor,slice_indices):
-        A,=tensor.operands
-        A_indices=tuple(Index(extent=A.shape[i]) for i in range(len(A.shape)))
-        ret=ComponentTensor(Indexed(self.tensor_to_variable[A],A_indices),slice_indices)
-
-        print("ret multiiindex: ",ret.multiindex)
-        print("ret freeindex: ",ret.free_indices)
-        print("ret children: ",ret.children)
-        print("ret: ",ret)
-        return ret
     
     @slate_to_gem.register(firedrake.slate.slate.Mul)
     def slate_to_gem_mul(self,tensor):
@@ -273,8 +261,35 @@ class SlateTranslator():
 
     @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self,tensor,context):
-        raise Solve(self.tensor_to_variable[A])         
+        raise Solve(self.tensor_to_variable[A])   
 
+    @slate_to_gem.register(firedrake.slate.slate.Block)
+    def slate_to_gem_blocks(self,tensor):
+
+        A, = tensor.operands
+
+        Aoffset = ()
+        extent = ()
+        block = tensor._indices
+        #i points to the block matrices
+        #idx points to the shape of that block matrix in all dimensions
+        for i, idx in enumerate(block):
+            Aoffset += (sum(A.shapes[i][:idx]), )
+            extent += (A.shapes[i][idx], )
+
+        #reusage of already generated indices for the tensor
+        gem_index = self.builder.gem_indices[tensor]
+
+        #move the original index by an offset 
+        #to reference into the subblock of the tensor which 
+        #dim2idxs is of form ((offset, ((index, stride), ) ... ), (offset, ((index, stride), ) ...))
+        dim2idxs = ()
+        for i, idx in enumerate(block):
+            idxs = ()
+            idxs += ((gem_index[i], 1), )
+            dim2idxs += ((Aoffset[i], idxs), )
+
+        return FlexiblyIndexed(self.tensor_to_variable[A].children[0],dim2idxs)
 
 
 
@@ -405,8 +420,11 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
                                                                      read_only=True,
                                                                      initializer=np.arange(builder.num_facets, dtype=np.uint32))
 
-    #get the CallInstruction from builder and include at beginning of outer kernel
-    kitting_insn=builder.assembly_calls["exterior_facet"]#TODO: need to access this from builder
+    #get the CallInstruction for each kernel from builder 
+    kitting_insn=[]
+    for integral_type in builder.assembly_calls:
+        kitting_insn+=builder.assembly_calls[integral_type]
+    
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     
     noi_outer=len(loopy_outer.instructions)
@@ -420,11 +438,13 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
             loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[i].id)
     
     elif not len(kitting_insn)==0:
-        #add dep from first insn of outer kernel to the subkernel
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-1].id)
-        
-        #dep from subkernel to the according init       
-        loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-1].id,  "id:"+loopy_merged.instructions[0].id)
+        for i,assembly_call in enumerate(kitting_insn):
+            #add dep from first insn of outer kernel to the subkernel in first loop
+            #then from subkernel to subkernel
+            loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-i].id,  "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+            
+    #dep from first subkernel to the according init       
+    loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-len(kitting_insn)].id,  "id:"+loopy_merged.instructions[0].id)
 
     #remove priority generate from tsfc compile call
     for insn in loopy_merged.instructions[-noi_outer:]:

@@ -139,8 +139,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_inner_list=builder.templated_subkernels
 
     loopy_merged= merge_loopy(loopy_outer,loopy_inner_list,builder)#builder owns the callinstruction
-    print("GLUED LOOPY KERNEL")
-    print(loopy_merged)
+    print("LOOPY KERNEL GLUED")
+    #print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
@@ -298,7 +298,6 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Construct the final ast
     kernel_ast = ast.Node(builder.templated_subkernels + [macro_kernel])
-    print(kernel_ast)
 
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files

@@ -2,13 +2,15 @@
 from firedrake import *
 import math
 import copy
+from firedrake.formmanipulation import split_form
+import numpy as np
 
 def test_assemble_matrix(a):
+    print("Test of assemble matrix")
+
     _A = Tensor(a)
     A = assemble(_A)
     A_comp = assemble(a)
-    print(A.M.handle.view())
-    print(A_comp.M.handle.view())
     assert A.M.handle.norm() == A_comp.M.handle.norm(), "Test for assembly of 2-form failed"
 
 #in order to be able to do solve I need to do mul first
@@ -25,13 +27,17 @@ def test_solve(a,L,V):
     assert u.dat.data.all()  == u_comp.dat.data.all() , "Test for solved on assembled forms failed"
 
 #Note: this test only works for discontinuous function spaces
-def test_assemble_vector(L):
+def test_assembled_vector(L):
+    print("Test of assemble vector")
+
     _coeff_F = AssembledVector(Function(assemble(L)))
     coeff_F = assemble(_coeff_F)
     coeff_F_comp = assemble(L)
     assert math.isclose(coeff_F.dat.data.all(),coeff_F_comp.dat.data.all()), "Test for assembled vectors failed"
 
 def test_add(a):
+    print("Test of add")
+    
     _A = Tensor(a)
     add_A = assemble(_A+_A)
     add_A_comp = assemble(a+a)
@@ -41,6 +47,8 @@ def test_add(a):
 
 
 def test_negative(a):
+    print("Test of negative")
+
     _A = Tensor(a)
     neg_A=assemble(-_A)
     neg_A_comp=assemble(-a)
@@ -50,6 +58,8 @@ def test_negative(a):
 
 #TODO: this only really a test for a problem containing an unsymmetric operator 
 def test_transpose(a):
+    print("Test of transpose")
+
     _A = Tensor(a)
     A = assemble(_A)
     trans_A=assemble(Transpose(_A))
@@ -58,6 +68,7 @@ def test_transpose(a):
             assert math.isclose(trans_A.M.handle.getValues(i,j),A_comp.M.handle.getValues(j,i)),  "Test for negative of a two 2-form failed"
 
 def test_mul(A,L,V,mesh):
+    print("Test of mul")
 
     #test for mat-vec multiplication
     _A = Tensor(a)
@@ -83,11 +94,29 @@ def test_mul(A,L,V,mesh):
     #     for j in range(mul_matmat.M.handle.getSize()[1]):
     #         assert math.isclose(mul_matmat_comp.getValues(i,j),mul_matmat.M.handle.getValues(i,j)),  "Test for mat-mat-mul failed"
 
+def test_blocks():
+    print("Test of blocks")
+    mesh = UnitSquareMesh(2,2)  
+    U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    n = FacetNormal(mesh)
+    W = U * V 
+    u, p = TrialFunctions(W)
+    w, q = TestFunctions(W)
 
+    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx)
 
+    # Test individual blocks
+    indices = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    refs = dict(split_form(A.form))
+    _A = A.blocks # is type blockinderxer
+    for x, y in indices:
+        ref = assemble(refs[x, y])
+        block = assemble(_A[x, y])
+        assert np.allclose(block.M.values, ref.M.values, rtol=1e-14)
 
 ###########
-print("Run test for slate to loopy compilation.")
+print("Run test for slate to loopy compilation.\n\n")
 
 #discontinuous Helmholtz equation on cell integrals
 mesh = UnitSquareMesh(5,5)
@@ -100,11 +129,11 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-#test_assemble_matrix(a)
-#test_negative(a)
-#test_add(a)
-#test_assemble_vector(L) #sth wrong
-#test_mul(a,L,V,mesh)
+test_assemble_matrix(a)
+test_negative(a)
+test_add(a)
+test_assembled_vector(L) #sth wrong
+test_mul(a,L,V,mesh)
 #test_solve(a,L,V) #fails
 
 #discontinuous Helmholtz equation on facet integrals
@@ -138,6 +167,11 @@ test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
 
+#test for assembly of blocks of mixed systems 
+#(here for lowest order RT-DG discretisation)
+test_blocks()
+
+
 #TODO: continuous advection problem 
 n = 5
 mesh = UnitSquareMesh(n,n)
@@ -150,11 +184,12 @@ F = (u_*div(v*u))*dx
 
 #test_assemble2form(F) 
 
+
 ###############################################
-#TODO: blocks
+#TODO: dependecy generation doesnt seem quite right in ass. vector case
 #TODO: fix facets for matmatmul
-#TODO: dependecy generation doesnt seem quite right in this case
 #TODO: mesh layers, probs after facets are fixed
 #TODO: assymetric problem test
+#TODO: write test for subdomain integrals as well
 
-print("All tests passed.")
+print("\n\nAll tests passed.")

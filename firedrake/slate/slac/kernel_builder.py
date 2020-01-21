@@ -568,7 +568,6 @@ class LocalLoopyKernelBuilder(object):
         for pos,cxt_kernel in enumerate(self.context_kernels):
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
-            print(integral_type)
             tensor= cxt_kernel.tensor
             temp=self.temps[tensor]
             mesh = tensor.ufl_domain()
@@ -596,20 +595,23 @@ class LocalLoopyKernelBuilder(object):
                 #generation of output variable of loopy kernel
                 if tensor.is_mixed:
                     # For the mixed case, the output is a slice of the matrix/vector
-                    #block_index = inner.indices
-                    #slices = []
-                    #swept_indices = []
-                    #for i, j in enumerate(block_index):
-                    #    extent = tensor.shapes[i][j]
-                    #    offset = sum(tensor.shapes[i][:j])
-                    #    index = create_index(extent)
-                    #    swept_indices.append(index)
-                    #    slices.append(pym.Sum((offset, index)))
+                    block_index = inner.indices
+                    extent=()
+                    offset=()
 
-                    #output = SubArrayRef(tuple(swept_indices),
-                    #                    pym.Subscript(output_tensor, tuple(slices)))
+                    #e.g. for rank 2 mixed tensor you get two extents,offsets
+                    for i, j in enumerate(block_index):
+                        extent+=(tensor.shapes[i][j],)
+                        offset+=(sum(tensor.shapes[i][:j]),)
+                    idx = self.create_index(extent,block_index)
 
-                    raise ValueError("For now only non mixed supported")
+                    slices=()
+                    for i, j in enumerate(block_index):
+                            slices+=(pym.Sum((offset[i],idx[i])),)
+
+                    output = SubArrayRef(idx,
+                                        pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
+                    #print(output)                 
                 else:
                     indices=self.loopy_indices[tensor]
                     output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
@@ -700,11 +702,9 @@ class LocalLoopyKernelBuilder(object):
                 #            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
                 #            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
                 #    predicates = frozenset([which])
-                # else:
-                #    raise ValueError("Unhandled integral type {}".format(integral_type))
                 else:
-                    raise NotImplementedError("Only cell integrals are implemente for slateloopy yet.")
-
+                   raise ValueError("Unhandled integral type {}".format(integral_type))
+              
                 #reads are the variables being fed into the subkernel
                 #later on assemby calls will be needed for the kitting instruction 
                 #when merging the outer (slate) kernel with the inner (ufl) kernel
