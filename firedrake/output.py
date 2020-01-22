@@ -466,7 +466,6 @@ class File(object):
 
     def _write_vtu(self, *functions):
         from firedrake.function import Function
-        from ufl import Mesh
 
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
