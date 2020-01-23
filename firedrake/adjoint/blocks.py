@@ -190,4 +190,3 @@ class MeshOutputBlock(Block):
         mesh = vector.function_space().mesh()
         mesh.coordinates.assign(vector, annotate=False)
         return mesh._ad_create_checkpoint()
-
