@@ -611,7 +611,6 @@ class LocalLoopyKernelBuilder(object):
 
                     output = SubArrayRef(idx,
                                         pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
-                    #print(output)                 
                 else:
                     indices=self.loopy_indices[tensor]
                     output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
@@ -662,7 +661,8 @@ class LocalLoopyKernelBuilder(object):
                         num_facets = mesh.ufl_cell().num_facets()
 
                     #index for loop over cell faces of reference cell
-                    fidx = self.create_index((num_facets,),self.cell_facets_arg)
+                    if self.cell_facets_arg not in self.loopy_indices:
+                        fidx = self.create_index((num_facets,),self.cell_facets_arg)
 
                     #cell is interior or exterior
                     needs_cell_facets = True
@@ -672,8 +672,8 @@ class LocalLoopyKernelBuilder(object):
                         select = 0
                     cell_facets = pym.Variable(self.cell_facets_arg)
 
-                    #index for is external facet or not if clause
-                    i = self.create_index((1,),self.cell_facets_arg+"_sum")
+                    if self.cell_facets_arg+"_sum" not in self.loopy_indices:
+                        i = self.create_index((1,),self.cell_facets_arg+"_sum")
                     predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
                     
                     # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
@@ -686,24 +686,23 @@ class LocalLoopyKernelBuilder(object):
                                            (pym.Sum((i[0],fidx[0]))))
                     reads.append(SubArrayRef(i, subscript))
                     inames.append(fidx[0].name)
-                # elif integral_type in {"interior_facet_horiz_top",
-                #                    "interior_facet_horiz_bottom",
-                #                    "exterior_facet_top",
-                #                    "exterior_facet_bottom"}:
+                elif integral_type in {"interior_facet_horiz_top",
+                                    "interior_facet_horiz_bottom",
+                                    "exterior_facet_top",
+                                    "exterior_facet_bottom"}:
 
-                #    needs_mesh_layers = True
+                    needs_mesh_layers = True
 
-                #    layer = pym.Variable(layer_arg)
-
-                #    # TODO: Variable layers
-                #    nlayer = tensor.ufl_domain().layers
-                #    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
-                #            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                #            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
-                #            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
-                #    predicates = frozenset([which])
+                    layer = pym.Variable(layer_arg)
+                    # TODO: Variable layers
+                    nlayer = tensor.ufl_domain().layers
+                    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+                            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+                    predicates = frozenset([which])
                 else:
-                   raise ValueError("Unhandled integral type {}".format(integral_type))
+                    raise ValueError("Unhandled integral type {}".format(integral_type))
               
                 #reads are the variables being fed into the subkernel
                 #later on assemby calls will be needed for the kitting instruction 

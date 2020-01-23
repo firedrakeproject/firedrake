@@ -435,6 +435,7 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
             #add dep from second insn of outer kernel to all subkernels
             loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+1].id,  "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
             #dep from subkernel to the according init       
+            #loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
             loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[i].id)
     
     elif not len(kitting_insn)==0:

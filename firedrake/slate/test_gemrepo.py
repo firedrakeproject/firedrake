@@ -11,7 +11,9 @@ def test_assemble_matrix(a):
     _A = Tensor(a)
     A = assemble(_A)
     A_comp = assemble(a)
-    assert A.M.handle.norm() == A_comp.M.handle.norm(), "Test for assembly of 2-form failed"
+    for i in range(A.M.handle.getSize()[0]):
+        for j in range(A.M.handle.getSize()[1]):
+            assert math.isclose(A.M.handle.getValues(i,j),A_comp.M.handle.getValues(i,j)),  "Test for assembly of 2-form failed"
 
 #in order to be able to do solve I need to do mul first
 def test_solve(a,L,V):
@@ -50,8 +52,8 @@ def test_negative(a):
     print("Test of negative")
 
     _A = Tensor(a)
-    neg_A=assemble(-_A)
-    neg_A_comp=assemble(-a)
+    neg_A = assemble(-_A)
+    neg_A_comp = assemble(-a)
     for i in range(neg_A.M.handle.getSize()[0]):
         for j in range(neg_A.M.handle.getSize()[1]):
             assert math.isclose(neg_A.M.handle.getValues(i,j),neg_A_comp.M.handle.getValues(i,j)),  "Test for negative of a two 2-form failed"
@@ -62,12 +64,12 @@ def test_transpose(a):
 
     _A = Tensor(a)
     A = assemble(_A)
-    trans_A=assemble(Transpose(_A))
+    trans_A = assemble(Transpose(_A))
     for i in range(trans_A.M.handle.getSize()[0]):
         for j in range(trans_A.M.handle.getSize()[1]):
-            assert math.isclose(trans_A.M.handle.getValues(i,j),A_comp.M.handle.getValues(j,i)),  "Test for negative of a two 2-form failed"
+            assert math.isclose(trans_A.M.handle.getValues(i, j), A_comp.M.handle.getValues(j, i)),  "Test for negative of a two 2-form failed"
 
-def test_mul(A,L,V,mesh):
+def test_mul_dx(A,L,V,mesh):
     print("Test of mul")
 
     #test for mat-vec multiplication
@@ -77,25 +79,54 @@ def test_mul(A,L,V,mesh):
     _coeff_F = AssembledVector(b)
     mul_matvec = assemble(_A*_coeff_F)
     mul_matvec_comp = assemble(action(a,b))
-    assert math.isclose(mul_matvec.dat.data.all(),mul_matvec_comp.dat.data.all()) , "Test for contraction (mat-vec-mul) failed"
+    assert math.isclose(mul_matvec.dat.data.all(),mul_matvec_comp.dat.data.all()) , "Test for contraction (mat-vec-mul)  on cell integrals failed"
 
-    #TODO: does not work for cell integrals
     #test for mat-mat multiplication
     u2 = TrialFunction(V)
     v2 = TestFunction(V)
     f2 = Function(V)
     x2, y2 = SpatialCoordinate(mesh)
     f2.interpolate((1+8*pi*pi)*cos(x2*pi*2)*cos(y2*pi*2))
-    a2 = (dot(grad(v2), grad(u2))) * ds
+    a2 = (dot(grad(v2), grad(u2))) * dx
     _A2 = Tensor(a2)
+    mul_matmat = assemble(_A*_A2)
+    mul_matmat_comp = assemble(_A).M.handle* assemble(_A2).M.handle
+    for i in range(mul_matmat.M.handle.getSize()[0]):
+        for j in range(mul_matmat.M.handle.getSize()[1]):
+            assert math.isclose(mul_matmat_comp.getValues(i,j),mul_matmat.M.handle.getValues(i,j)),  "Test for mat-mat-mul  on cell integrals failed"
+
+def test_mul_ds(A,L,V,mesh):
+    print("Test of mul")
+
+    #test for mat-vec multiplication
+    _A = Tensor(a)
+    mat_comp = assemble(a)
+    b = Function(assemble(L))
+    _coeff_F = AssembledVector(b)
+    mul_matvec = assemble(_A*_coeff_F)
+    mul_matvec_comp = assemble(action(a,b))
+    assert math.isclose(mul_matvec.dat.data.all(),mul_matvec_comp.dat.data.all()) , "Test for contraction (mat-vec-mul) on facet integrals failed"
+
+
+    #TODO I think this should be postponed to a later stage then in gem since this is kind of a global operation
+    #test for mat-mat multiplication
+    # u2 = TrialFunction(V)
+    # v2 = TestFunction(V)
+    # a2 = (u2*v2) * ds
+    # _A2 = Tensor(a2)
+    # comp1=assemble(_A)
+    # comp2=assemble(_A2)
+    # mul_matmat_comp = comp1.M.handle * comp2.M.handle
     # mul_matmat = assemble(_A*_A2)
-    # mul_matmat_comp = assemble(_A).M.handle* assemble(_A2).M.handle
+
     # for i in range(mul_matmat.M.handle.getSize()[0]):
     #     for j in range(mul_matmat.M.handle.getSize()[1]):
-    #         assert math.isclose(mul_matmat_comp.getValues(i,j),mul_matmat.M.handle.getValues(i,j)),  "Test for mat-mat-mul failed"
+    #         assert math.isclose(mul_matmat_comp.getValues(i,j),mul_matmat.M.handle.getValues(i,j)),  "Test for mat-mat-mul  on facet integrals  failed"
+
 
 def test_blocks():
     print("Test of blocks")
+
     mesh = UnitSquareMesh(2,2)  
     U = FunctionSpace(mesh, "RT", 1)
     V = FunctionSpace(mesh, "DG", 0)
@@ -107,6 +138,27 @@ def test_blocks():
     A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx)
 
     # Test individual blocks
+    indices = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    refs = dict(split_form(A.form))
+    _A = A.blocks # is type blockinderxer
+    for x, y in indices:
+        ref = assemble(refs[x, y])
+        block = assemble(_A[x, y])
+        assert np.allclose(block.M.values, ref.M.values, rtol=1e-14)
+
+def test_layers():
+    print("Test of layer integrals")
+
+    m = UnitSquareMesh(5, 5)
+    mesh = ExtrudedMesh(m, 5)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2= FunctionSpace(mesh, "CG", 1)
+    V = V1 * V2
+    u, p = TrialFunction(V)
+    v, q = TestFunction(V)
+    a = inner(u, v)*dx 
+
+    A = Tensor(a)
     indices = [(0, 0), (0, 1), (1, 0), (1, 1)]
     refs = dict(split_form(A.form))
     _A = A.blocks # is type blockinderxer
@@ -132,8 +184,8 @@ L = f * v * dx
 test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
-test_assembled_vector(L) #sth wrong
-test_mul(a,L,V,mesh)
+test_assembled_vector(L) 
+test_mul_dx(a,L,V,mesh)
 #test_solve(a,L,V) #fails
 
 #discontinuous Helmholtz equation on facet integrals
@@ -150,7 +202,7 @@ L = f * v * ds
 test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
-test_mul(a,L,V,mesh)
+test_mul_ds(a,L,V,mesh)
 
 #continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5,5)
@@ -160,10 +212,11 @@ v = TestFunction(V)
 f = Function(V)
 x, y = SpatialCoordinate(mesh)
 f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
-a= (dot(grad(v), grad(u)) + v * u) * ds
+a= (dot(grad(v), grad(u))  +u*v) * ds
 L = f * v * ds
 
 test_assemble_matrix(a)
+test_mul_ds(a,L,V,mesh)
 test_negative(a)
 test_add(a)
 
@@ -171,6 +224,8 @@ test_add(a)
 #(here for lowest order RT-DG discretisation)
 test_blocks()
 
+#test of block assembly of mixed system defined on extruded mesh
+test_layers()
 
 #TODO: continuous advection problem 
 n = 5
@@ -186,9 +241,6 @@ F = (u_*div(v*u))*dx
 
 
 ###############################################
-#TODO: dependecy generation doesnt seem quite right in ass. vector case
-#TODO: fix facets for matmatmul
-#TODO: mesh layers, probs after facets are fixed
 #TODO: assymetric problem test
 #TODO: write test for subdomain integrals as well
 

@@ -140,7 +140,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     loopy_merged= merge_loopy(loopy_outer,loopy_inner_list,builder)#builder owns the callinstruction
     print("LOOPY KERNEL GLUED")
-    #print(loopy_merged)
+    # print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
@@ -149,14 +149,14 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopykernel = op2.Kernel(code, loopy_merged.name)
 
     kinfo = KernelInfo(kernel=loopykernel,
-                       integral_type="cell",#TODO: "this should be exterior facet but then PYOP2 dies"
+                       integral_type="cell",#slate can only do things as contributions to the cell integrals
                        oriented=False,
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),
                        needs_cell_facets=builder.needs_cell_facets,
-                       pass_layer_arg=False,
-                       needs_cell_sizes=False)
+                       pass_layer_arg=builder.needs_mesh_layers,
+                       needs_cell_sizes=builder.needs_cell_sizes)
 
     # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
@@ -616,7 +616,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
-    arg=loopy.GlobalArg("coords",shape=(6,),dtype="double")
+    arg=loopy.GlobalArg("coords",shape=(18,),dtype="double")
     args.append(arg)
 
     if len(builder.coefficient_vecs)!=0:
