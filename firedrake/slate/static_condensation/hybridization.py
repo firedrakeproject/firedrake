@@ -222,7 +222,6 @@ class HybridizationPC(SCBase):
 
         with timed_region("HybridOperatorAssembly"):
             self._assemble_S()
-            self.S.force_evaluation()
 
         Smat = self.S.petscmat
 
@@ -325,7 +324,6 @@ class HybridizationPC(SCBase):
         reconstruct symbolic objects.
         """
         self._assemble_S()
-        self.S.force_evaluation()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and

@@ -48,11 +48,9 @@ def run_store_load(mesh, fs, degree, dumpfile):
     f2 = Function(V, name="f")
 
     dumpfile = mesh.comm.bcast(dumpfile, root=0)
-    chk = DumbCheckpoint(dumpfile, mode=FILE_CREATE)
-
-    chk.store(f)
-
-    chk.load(f2)
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+        chk.store(f)
+        chk.load(f2)
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
 
@@ -69,10 +67,9 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
 @pytest.mark.parallel(nprocs=2)
 def test_serial_checkpoint_parallel_load_fails(f, dumpfile):
     # Write on COMM_SELF (size == 1)
-    chk = DumbCheckpoint("%s.%d" % (dumpfile, f.comm.rank),
-                         mode=FILE_CREATE, comm=COMM_SELF)
-    chk.store(f)
-    chk.close()
+    with DumbCheckpoint("%s.%d" % (dumpfile, f.comm.rank),
+                        mode=FILE_CREATE, comm=COMM_SELF) as chk:
+        chk.store(f)
     # Make sure it's written, and broadcast rank-0 name to all processes
     fname = f.comm.bcast("%s.0" % dumpfile, root=0)
     with pytest.raises(ValueError):

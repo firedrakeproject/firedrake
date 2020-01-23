@@ -6,7 +6,7 @@ Firedrake is installed using its install script::
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python3 firedrake-install
 
-Running ``firedrake-install`` with no arguments will install firedrake in
+Running ``firedrake-install`` with no arguments will install Firedrake in
 a python venv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
@@ -49,9 +49,20 @@ venv_ as above and then run::
   cd firedrake/src/firedrake
   make alltest
 
-Note that there is currently an issue with the test harness on MacOS
-which causes the parallel tests to fail. Firedrake will still work in
-parallel, it is only the test system which is affected.
+.. note::
+
+  There is a known issue which causes parallel tests to hang without 
+  failing. This is particularly a problem on MacOS and is due to the 
+  version of MPICH installed with Firedrake failing to resolve the 
+  local host at ip address ``127.0.0.1``. To resolve this issue modify 
+  the hosts database at ``/etc/hosts`` to include the entries::
+
+    127.0.0.1       LOCALHOSTNAME.local
+    127.0.0.1       LOCALHOSTNAME
+
+  where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
+  command. Should the local host name change, this may require updating.
+
 
 System requirements
 -------------------
@@ -145,6 +156,16 @@ Firedrake can output data in VTK format, suitable for viewing in
 Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
+
+
+Removing Firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the Firedrake
+install directory. This is usually the ``firedrake`` subdirectory 
+created after having run ``firedrake-install``. Note that this will not 
+undo the installation of any system packages which are Firedrake
+dependencies: removing these might affect subsequently installed 
+packages for which these are also dependencies.
 
 .. _Paraview: http://www.paraview.org
 .. _venv: https://docs.python.org/3/tutorial/venv.html

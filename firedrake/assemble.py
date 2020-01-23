@@ -1,11 +1,9 @@
-import numpy
 import ufl
 from collections import defaultdict
 from itertools import chain
 import functools
 
 from pyop2 import op2
-from pyop2.base import collecting_loops
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
 from firedrake import assemble_expressions
@@ -18,10 +16,14 @@ from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
 from firedrake.bcs import DirichletBC, EquationBCSplit
+from firedrake.utils import ScalarType
+from firedrake.adjoint import annotate_assemble
+
 
 __all__ = ["assemble"]
 
 
+@annotate_assemble
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
              inverse=False, mat_type=None, sub_mat_type=None,
              appctx={}, options_prefix=None, **kwargs):
@@ -91,6 +93,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     collect_loops = kwargs.pop("collect_loops", False)
     allocate_only = kwargs.pop("allocate_only", False)
+    diagonal = kwargs.pop("diagonal", False)
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
@@ -101,6 +104,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                           sub_mat_type=sub_mat_type, appctx=appctx,
                           assemble_now=not collect_loops,
                           allocate_only=allocate_only,
+                          diagonal=diagonal,
                           options_prefix=options_prefix)
         loops = tuple(loops)
         if collect_loops and not allocate_only:
@@ -135,7 +139,8 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
-                             inverse=False, mat_type=None, sub_mat_type=None):
+                             inverse=False, mat_type=None, sub_mat_type=None,
+                             diagonal=False):
     r"""Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
@@ -153,7 +158,8 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
-                      sub_mat_type=sub_mat_type)
+                      sub_mat_type=sub_mat_type,
+                      diagonal=diagonal)
 
     loops = tuple(loops)
 
@@ -170,7 +176,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               options_prefix=None,
               assemble_now=False,
               allocate_only=False,
-              zero_tensor=True):
+              zero_tensor=True,
+              diagonal=False):
     r"""Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
@@ -222,10 +229,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if isinstance(f, slate.TensorBase):
+        if diagonal:
+            raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
-        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse, diagonal=diagonal)
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
         if bcs is not None:
@@ -233,8 +242,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
     rank = len(f.arguments())
-    is_mat = rank == 2
-    is_vec = rank == 1
+    if diagonal:
+        assert rank == 2
+    is_mat = rank == 2 and not diagonal
+    is_vec = rank == 1 or diagonal
 
     if any((coeff.function_space() and coeff.function_space().component is not None)
            for coeff in f.coefficients()):
@@ -256,18 +267,20 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if matfree:
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
+            if diagonal:
+                raise NotImplementedError("Diagonal not implemented with matfree")
             if tensor is None:
                 result_matrix = matrix.ImplicitMatrix(f, bcs,
                                                       fc_params=form_compiler_parameters,
                                                       appctx=appctx,
                                                       options_prefix=options_prefix)
                 yield lambda: result_matrix
-                raise StopIteration()
+                return
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()
             yield lambda: tensor
-            raise StopIteration()
+            return
 
         test, trial = f.arguments()
 
@@ -328,16 +341,16 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, numpy.float64,
+            result_matrix = matrix.Matrix(f, bcs, mat_type, sparsity, ScalarType,
                                           "%s_%s_matrix" % fs_names,
                                           options_prefix=options_prefix)
-            tensor = result_matrix._M
+            tensor = result_matrix.M
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting matfree with implicit matrix")
 
             result_matrix = tensor
-            tensor = tensor._M
+            tensor = tensor.M
             zero_tensor_parloop = tensor.zero
 
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
@@ -364,7 +377,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: result_matrix
         if allocate_only:
             yield result
-            raise StopIteration()
+            return
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
@@ -528,8 +541,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
         try:
-            with collecting_loops(True):
-                yield op2.par_loop(*args, **kwargs)
+            yield op2.ParLoop(*args, **kwargs).compute
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -547,30 +559,29 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if len(fs) > 1:
                     raise RuntimeError(r"""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = result_matrix.block_shape
-                with collecting_loops(True):
-                    for i in range(shape[0]):
-                        for j in range(shape[1]):
-                            # Set diagonal entries on bc nodes to 1 if the current
-                            # block is on the matrix diagonal and its index matches the
-                            # index of the function space the bc is defined on.
-                            if i != j:
-                                continue
-                            if fs.component is None and fs.index is not None:
-                                # Mixed, index (no ComponentFunctionSpace)
-                                if fs.index == i:
-                                    yield tensor[i, j].set_local_diagonal_entries(nodes)
-                            elif fs.component is not None:
-                                # ComponentFunctionSpace, check parent index
-                                if fs.parent.index is not None:
-                                    # Mixed, index doesn't match
-                                    if fs.parent.index != i:
-                                        continue
-                                # Index matches
-                                yield tensor[i, j].set_local_diagonal_entries(nodes, idx=fs.component)
-                            elif fs.index is None:
-                                yield tensor[i, j].set_local_diagonal_entries(nodes)
-                            else:
-                                raise RuntimeError("Unhandled BC case")
+                for i in range(shape[0]):
+                    for j in range(shape[1]):
+                        # Set diagonal entries on bc nodes to 1 if the current
+                        # block is on the matrix diagonal and its index matches the
+                        # index of the function space the bc is defined on.
+                        if i != j:
+                            continue
+                        if fs.component is None and fs.index is not None:
+                            # Mixed, index (no ComponentFunctionSpace)
+                            if fs.index == i:
+                                yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        elif fs.component is not None:
+                            # ComponentFunctionSpace, check parent index
+                            if fs.parent.index is not None:
+                                # Mixed, index doesn't match
+                                if fs.parent.index != i:
+                                    continue
+                            # Index matches
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes, idx=fs.component)
+                        elif fs.index is None:
+                            yield functools.partial(tensor[i, j].set_local_diagonal_entries, nodes)
+                        else:
+                            raise RuntimeError("Unhandled BC case")
             elif isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
@@ -587,10 +598,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for bc in bcs:
             if isinstance(bc, DirichletBC):
                 if assemble_now:
-                    yield functools.partial(bc.apply, result_function)
+                    if diagonal:
+                        yield functools.partial(bc.set, result_function, 1)
+                    else:
+                        yield functools.partial(bc.apply, result_function)
                 else:
                     yield functools.partial(bc.zero, result_function)
             elif isinstance(bc, EquationBCSplit):
+                if diagonal:
+                    raise NotImplementedError("diagonal assembly and EquationBC not supported")
                 yield functools.partial(bc.zero, result_function)
                 yield from _assemble(bc.f, tensor=result_function, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
@@ -603,6 +619,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if zero_tensor:
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
-            yield tensor.assemble()
+            yield tensor.assemble
         if assemble_now:
             yield result

@@ -114,7 +114,6 @@ class SCPC(SCBase):
             mat_type=mat_type)
 
         self._assemble_S()
-        self.S.force_evaluation()
         Smat = self.S.petscmat
 
         # If a different matrix is used for preconditioning,
@@ -252,7 +251,6 @@ class SCPC(SCBase):
         """
 
         self._assemble_S()
-        self.S.force_evaluation()
 
         # Only reassemble if a preconditioning operator
         # is provided for the condensed system
