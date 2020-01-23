@@ -27,6 +27,7 @@ from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -979,7 +980,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
-class MeshGeometry(ufl.Mesh):
+class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
     def __new__(cls, element):
@@ -991,6 +992,7 @@ class MeshGeometry(ufl.Mesh):
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
+    @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
@@ -1025,6 +1027,7 @@ class MeshGeometry(ufl.Mesh):
         return self._topology
 
     @utils.cached_property
+    @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
         import firedrake.functionspaceimpl as functionspaceimpl

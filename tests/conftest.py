@@ -1,7 +1,9 @@
 """Global test configuration."""
 
+import pytest
 from subprocess import check_call
 from mpi4py import MPI
+from pyadjoint.tape import get_working_tape
 
 
 def parallel(item):
@@ -58,3 +60,12 @@ def pytest_runtest_call(item):
     if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def check_empty_tape(request):
+    """Check that the tape is empty at the end of each module"""
+    def fin():
+        assert(len(get_working_tape().get_blocks()) == 0)
+
+    request.addfinalizer(fin)
