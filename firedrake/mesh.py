@@ -1479,6 +1479,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
+    elif extrusion_type == 'uniform':
+        helement = helement.reconstruct(cell=topology.ufl_cell().sub_cells()[0])
     velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
     element = ufl.TensorProductElement(helement, velement)
 
