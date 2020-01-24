@@ -902,7 +902,7 @@ def build_and_install_libsupermesh():
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
                             "-DMPI_Fortran_COMPILER=" + f90,
-                            "-DCMAKE_Fortran_COMPILER" + f90])
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -925,7 +925,7 @@ def build_and_install_pythonocc():
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
                             "-DMPI_Fortran_COMPILER=" + f90,
-                            "-DCMAKE_Fortran_COMPILER" + f90])
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild pythonocc-core")
