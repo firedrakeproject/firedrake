@@ -245,6 +245,7 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         self._ctx_ref = nctx
+        self._ctx_ref.appctx.update({'TraceSpace': TraceSpace})
 
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm
