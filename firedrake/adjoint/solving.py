@@ -44,17 +44,18 @@ def annotate_solve(solve):
             block = solve_block_type(*args, **sb_kwargs)
             tape.add_block(block)
 
-            coeff_form = form_equation.lhs.coefficients()
-            extops_form = []
-            for coeff in coeff_form:
-                if isinstance(coeff, ufl.ExternalOperator):
-                    extops_form += [coeff]
-                    block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
-                    tape.add_block(block_extops)
+            if isinstance(args[0], ufl.equation.Equation):
+                coeff_form = args[0].lhs.coefficients()
+                extops_form = []
+                for coeff in coeff_form:
+                    if isinstance(coeff, ufl.ExternalOperator):
+                        extops_form += [coeff]
+                        block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
+                        tape.add_block(block_extops)
 
-                    block_variable = coeff.create_block_variable()
-                    block_extops.add_output(block_variable)
-            #sb_kwargs['extops'] = extops_form
+                        block_variable = coeff.create_block_variable()
+                        block_extops.add_output(block_variable)
+                #sb_kwargs['extops'] = extops_form
 
         with stop_annotating():
             output = solve(*args, **kwargs)
