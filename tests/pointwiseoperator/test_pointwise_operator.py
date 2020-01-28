@@ -23,8 +23,8 @@ def test_abstract_pointwise_operator(mesh):
 
     class TestAbstract(AbstractPointwiseOperator):
 
-        def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
-            AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+        def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
+            AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
         def compute_derivatives(self):
             pass
@@ -35,12 +35,11 @@ def test_abstract_pointwise_operator(mesh):
     f = lambda x, y: x*y
     position = 1
     p = TestAbstract(u, w, g, function_space=V, derivatives=(0, 0, 1), count=9999,
-                     name='abstract_po', operator_data=f, extop_id={'name_form': position})
+                     name='abstract_po', operator_data=f)
 
     _check_extop_attributes_(p, (u, w, g), V, (0, 0, 1), ())
 
     assert p.operator_data == f
-    assert p.extop_id == {'name_form': position}
     assert p._count == 9999
     assert p._name == 'abstract_po'
 
