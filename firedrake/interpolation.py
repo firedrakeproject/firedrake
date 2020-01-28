@@ -26,7 +26,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     :kwarg access: The access descriptor for combining updates to shared dofs.
     Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
     it was a Function).
+
     .. note::
+
        If you find interpolating the same expression again and again
        (for example in a time loop) you may find you get better
        performance by using an :class:`Interpolator` instead.
@@ -45,7 +47,9 @@ class Interpolator(object):
         re-evaluated on each call.
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
+
     .. note::
+
        The :class:`Interpolator` holds a reference to the provided
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).

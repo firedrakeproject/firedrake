@@ -6,10 +6,11 @@ itself is broken."""
 
 import json
 import os
+import sys
 
 # Attempt to read configuration from file.
 try:
-    with open(os.path.join(os.environ["VIRTUAL_ENV"],
+    with open(os.path.join(sys.prefix,
                            ".configuration.json"), "r") as f:
         _config = json.load(f)
 

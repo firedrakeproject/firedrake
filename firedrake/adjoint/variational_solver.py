@@ -1,5 +1,5 @@
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint.blocks import SolveBlock, NonlinearVariationalSolveBlock
+from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
 
 
 class NonlinearVariationalProblemMixin:
@@ -40,7 +40,7 @@ class NonlinearVariationalSolverMixin:
             if annotate:
                 tape = get_working_tape()
                 problem = self._ad_problem
-                sb_kwargs = SolveBlock.pop_kwargs(kwargs)
+                sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,

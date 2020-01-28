@@ -280,7 +280,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         r"""
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`.Function` to solve for
+        :param u: the :class:`.Function` to which the solution will be assigned
         :param bcs: the boundary conditions (optional)
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be

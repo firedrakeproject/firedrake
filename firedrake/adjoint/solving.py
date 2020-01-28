@@ -1,11 +1,7 @@
-import ufl
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
-from firedrake.adjoint.blocks import SolveBlock, PointwiseOperatorBlock
 
-
-# Type dependencies
-
-# TODO: Clean up: some inaccurate comments. Reused code. Confusing naming with dFdm when denoting the control as c.
+from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, PointwiseOperatorBlock
+import ufl
 
 
 def annotate_solve(solve):
@@ -39,12 +35,13 @@ def annotate_solve(solve):
 
         if annotate:
             tape = get_working_tape()
+            solve_block_type = SolveVarFormBlock
+            if not isinstance(args[0], ufl.equation.Equation):
+                solve_block_type = SolveLinearSystemBlock
 
-            form_equation = args[0]
-            sb_kwargs = SolveBlock.pop_kwargs(kwargs)
+            sb_kwargs = solve_block_type.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
-
-            block = SolveBlock(*args, **sb_kwargs)
+            block = solve_block_type(*args, **sb_kwargs)
             tape.add_block(block)
 
             coeff_form = form_equation.lhs.coefficients()
