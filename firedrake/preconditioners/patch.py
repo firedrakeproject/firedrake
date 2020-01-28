@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
-from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
+from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian, JacType
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -111,13 +111,14 @@ def matrix_funptr(form, state):
 
     cell_kernels = []
     int_facet_kernels = []
+    ext_facet_kernels = []
     for kernel in kernels:
         kinfo = kernel.kinfo
 
         if kinfo.subdomain_id != "otherwise":
             raise NotImplementedError("Only for full domain integrals")
-        if kinfo.integral_type not in {"cell", "interior_facet"}:
-            raise NotImplementedError("Only for cell or interior facet integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet", "exterior_facet"}:
+            raise NotImplementedError("Only for cell or interior/exterior facet integrals")
 
         # OK, now we've validated the kernel, let's build the callback
         args = []
@@ -128,6 +129,9 @@ def matrix_funptr(form, state):
         elif kinfo.integral_type == "interior_facet":
             get_map = operator.methodcaller("interior_facet_node_map")
             kernels = int_facet_kernels
+        elif kinfo.integral_type == "exterior_facet":
+            get_map = operator.methodcaller("exterior_facet_node_map")
+            kernels = ext_facet_kernels
         else:
             get_map = None
 
@@ -181,10 +185,14 @@ def matrix_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
+        if kinfo.integral_type == "exterior_facet":
+            arg = test.ufl_domain().exterior_facets.local_facet_dat(op2.READ)
+            arg.position = len(args)
+            args.append(arg)
         iterset = op2.Subset(iterset, [0])
         mod = seq.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
-    return cell_kernels, int_facet_kernels
+    return cell_kernels, int_facet_kernels, ext_facet_kernels
 
 
 def residual_funptr(form, state):
@@ -203,13 +211,14 @@ def residual_funptr(form, state):
 
     cell_kernels = []
     int_facet_kernels = []
+    ext_facet_kernels = []
     for kernel in kernels:
         kinfo = kernel.kinfo
 
         if kinfo.subdomain_id != "otherwise":
             raise NotImplementedError("Only for full domain integrals")
-        if kinfo.integral_type not in {"cell", "interior_facet"}:
-            raise NotImplementedError("Only for cell integrals or interior_facet integrals")
+        if kinfo.integral_type not in {"cell", "interior_facet", "exterior_facet"}:
+            raise NotImplementedError("Only for cell integrals or interior/exterior facet integrals")
         args = []
 
         if kinfo.integral_type == "cell":
@@ -218,6 +227,9 @@ def residual_funptr(form, state):
         elif kinfo.integral_type == "interior_facet":
             get_map = operator.methodcaller("interior_facet_node_map")
             kernels = int_facet_kernels
+        elif kinfo.integral_type == "exterior_facet":
+            get_map = operator.methodcaller("exterior_facet_node_map")
+            kernels = ext_facet_kernels
         else:
             get_map = None
 
@@ -273,10 +285,14 @@ def residual_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
+        if kinfo.integral_type == "exterior_facet":
+            arg = test.ufl_domain().exterior_facets.local_facet_dat(op2.READ)
+            arg.position = len(args)
+            args.append(arg)
         iterset = op2.Subset(iterset, [0])
         mod = seq.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
-    return cell_kernels, int_facet_kernels
+    return cell_kernels, int_facet_kernels, ext_facet_kernels
 
 
 # We need to set C function pointer callbacks for PCPatch to work.
@@ -692,7 +708,7 @@ class PatchBase(PCSNESBase):
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
+        Jcell_kernels, Jint_facet_kernels, Jext_facet_kernels = matrix_funptr(J, Jstate)
         Jcell_kernel, = Jcell_kernels
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
@@ -704,21 +720,35 @@ class PatchBase(PCSNESBase):
         if len(Jint_facet_kernels) > 0:
             Jint_facet_kernel, = Jint_facet_kernels
             Jhas_int_facet_kernel = True
-            facet_Jop_data_args, facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
+            int_facet_Jop_data_args, int_facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
-            code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian")
-            point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
-            facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
+            code, Struct = make_jacobian_wrapper(intfacet_Jop_data_args, intfacet_Jop_map_args)
+            int_facet_Jop_function = load_c_function(code, "ComputeJacobian")
+            point2intfacet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+            int_facet_Jop_struct = make_c_struct(int_facet_Jop_data_args, int_facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
-                                             point2facet=point2facet)
+                                             point2facet=point2intfacet)
+
+        Jhas_ext_facet_kernel = False
+        if len(Jext_facet_kernels) > 0:
+            Jext_facet_kernel, = Jext_facet_kernels
+            Jhas_ext_facet_kernel = True
+            ext_facet_Jop_data_args, ext_facet_Jop_map_args = make_c_arguments(J, Jext_facet_kernel, Jstate,
+                                                                       operator.methodcaller("exterior_facet_node_map"),
+                                                                       require_facet_number=True)
+            code, Struct = make_jacobian_wrapper(ext_facet_Jop_data_args, ext_facet_Jop_map_args)
+            ext_facet_Jop_function = load_c_function(code, "ComputeJacobian")
+            point2extfacet = J.ufl_domain().exterior_facets.point2facetnumber.ctypes.data
+            ext_facet_Jop_struct = make_c_struct(ext_facet_Jop_data_args, ext_facet_Jop_map_args,
+                                             Jext_facet_kernel.funptr, Struct,
+                                             point2facet=point2extfacet)
 
         set_residual = hasattr(ctx, "F") and isinstance(obj, PETSc.SNES)
         if set_residual:
             F = ctx.F
             Fstate = ctx._problem.u
-            Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
+            Fcell_kernels, Fint_facet_kernels, Fext_facet_kernels = residual_funptr(F, Fstate)
 
             Fcell_kernel, = Fcell_kernels
 
@@ -735,16 +765,32 @@ class PatchBase(PCSNESBase):
                 Fint_facet_kernel, = Fint_facet_kernels
                 Fhas_int_facet_kernel = True
 
-                facet_Fop_data_args, facet_Fop_map_args = make_c_arguments(F, Fint_facet_kernel, Fstate,
+                int_facet_Fop_data_args, int_facet_Fop_map_args = make_c_arguments(F, Fint_facet_kernel, Fstate,
                                                                            operator.methodcaller("interior_facet_node_map"),
                                                                            require_state=True,
                                                                            require_facet_number=True)
-                code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual")
-                point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
-                facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
+                code, Struct = make_jacobian_wrapper(int_facet_Fop_data_args, int_facet_Fop_map_args)
+                int_facet_Fop_function = load_c_function(code, "ComputeResidual")
+                point2intfacet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+                int_facet_Fop_struct = make_c_struct(int_facet_Fop_data_args, int_facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
-                                                 point2facet=point2facet)
+                                                 point2facet=point2intfacet)
+
+            Fhas_ext_facet_kernel = False
+            if len(Fext_facet_kernels) > 0:
+                Fext_facet_kernel, = Fext_facet_kernels
+                Fhas_ext_facet_kernel = True
+
+                ext_facet_Fop_data_args, ext_facet_Fop_map_args = make_c_arguments(F, Fext_facet_kernel, Fstate,
+                                                                           operator.methodcaller("exterior_facet_node_map"),
+                                                                           require_state=True,
+                                                                           require_facet_number=True)
+                code, Struct = make_jacobian_wrapper(ext_facet_Fop_data_args, ext_facet_Fop_map_args)
+                ext_facet_Fop_function = load_c_function(code, "ComputeResidual")
+                point2extfacet = F.ufl_domain().exterior_facets.point2facetnumber.ctypes.data
+                ext_facet_Fop_struct = make_c_struct(ext_facet_Fop_data_args, ext_facet_Fop_map_args,
+                                                 Fext_facet_kernel.funptr, Struct,
+                                                 point2facet=point2extfacet)
 
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh._cell_numbering)
@@ -762,18 +808,27 @@ class PatchBase(PCSNESBase):
         set_patch_jacobian(patch, ctypes.cast(Jop_function, ctypes.c_voidp).value,
                            ctypes.addressof(Jop_struct), is_snes=is_snes)
         if Jhas_int_facet_kernel:
-            self.facet_Jop_struct = facet_Jop_struct
-            set_patch_jacobian(patch, ctypes.cast(facet_Jop_function, ctypes.c_voidp).value,
-                               ctypes.addressof(facet_Jop_struct), is_snes=is_snes,
-                               interior_facets=True)
+            self.facet_Jop_struct = int_facet_Jop_struct
+            set_patch_jacobian(patch, ctypes.cast(int_facet_Jop_function, ctypes.c_voidp).value,
+                               ctypes.addressof(int_facet_Jop_struct), is_snes=is_snes,
+                               jac_type = JacType.INTERIOR_FACET)
+        if Jhas_ext_facet_kernel:
+            self.facet_Jop_struct = ext_facet_Jop_struct
+            set_patch_jacobian(patch, ctypes.cast(ext_facet_Jop_function, ctypes.c_voidp).value,
+                               ctypes.addressof(ext_facet_Jop_struct), is_snes=is_snes,
+                               jac_type = JacType.EXTERIOR_FACET)
         if set_residual:
             self.Fop_struct = Fop_struct
             set_patch_residual(patch, ctypes.cast(Fop_function, ctypes.c_voidp).value,
                                ctypes.addressof(Fop_struct), is_snes=is_snes)
             if Fhas_int_facet_kernel:
-                set_patch_residual(patch, ctypes.cast(facet_Fop_function, ctypes.c_voidp).value,
-                                   ctypes.addressof(facet_Fop_struct), is_snes=is_snes,
-                                   interior_facets=True)
+                set_patch_residual(patch, ctypes.cast(int_facet_Fop_function, ctypes.c_voidp).value,
+                                   ctypes.addressof(int_facet_Fop_struct), is_snes=is_snes,
+                                   jac_type = JacType.INTERIOR_FACET)
+            if Fhas_ext_facet_kernel:
+                set_patch_residual(patch, ctypes.cast(ext_facet_Fop_function, ctypes.c_voidp).value,
+                                   ctypes.addressof(ext_facet_Fop_struct), is_snes=is_snes,
+                                   jac_type = JacType.EXTERIOR_FACET)
 
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
         patch.setAttr("ctx", ctx)
