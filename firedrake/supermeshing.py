@@ -358,7 +358,7 @@ each supermesh cell.
         "dim": dim
     }
 
-    dirs = get_petsc_dir() + (os.environ["VIRTUAL_ENV"], )
+    dirs = get_petsc_dir() + (sys.prefix, )
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
