@@ -62,7 +62,6 @@ class GTMGPC(PCBase):
                                                               form_compiler_parameters=fcp,
                                                               mat_type=fine_mat_type)
             self._assemble_fine_op()
-            self.fine_op.force_evaluation()
             fine_petscmat = self.fine_op.petscmat
         else:
             fine_petscmat = P
@@ -104,7 +103,6 @@ class GTMGPC(PCBase):
                                                             bcs=coarse_space_bcs,
                                                             form_compiler_parameters=fcp)
         self._assemble_coarse_op()
-        self.coarse_op.force_evaluation()
         coarse_opmat = self.coarse_op.petscmat
 
         # Set nullspace if provided
@@ -122,7 +120,6 @@ class GTMGPC(PCBase):
             fine_space = ctx.J.arguments()[0].function_space()
             interpolator = Interpolator(TestFunction(coarse_space), fine_space)
             interpolation_matrix = interpolator.callable()
-            interpolation_matrix._force_evaluation()
             interp_petscmat = interpolation_matrix.handle
 
         # We set up a PCMG object that uses the constructed interpolation
