@@ -153,8 +153,28 @@ class _SNESContext(object):
     @property
     def transfer_manager(self):
         if self._transfer_manager is None:
-            from firedrake import TransferManager
-            self._transfer_manager = TransferManager(use_averaging=True)
+            opts = PETSc.Options()
+            prefix = self.options_prefix or ""
+            if opts.hasName(prefix + "mg_transfer_manager"):
+                managername = opts[prefix + "mg_transfer_manager"]
+            elif opts.hasName(prefix + "fas_transfer_manager"):
+                managername = opts[prefix + "fas_transfer_manager"]
+            else:
+                managername = None
+
+            if managername is None:
+                from firedrake import TransferManager
+                transfer = TransferManager(use_averaging=True)
+            else:
+                (modname, objname) = managername.rsplit('.', 1)
+                mod = __import__(modname)
+                obj = getattr(mod, objname)
+                if isinstance(obj, type):
+                    transfer = obj()
+                else:
+                    transfer = obj
+
+            self._transfer_manager = transfer
         return self._transfer_manager
 
     @transfer_manager.setter
@@ -355,8 +375,8 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
-            _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
-            inject(fine._x, ctx._x)
+            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
+            manager.inject(fine._x, ctx._x)
 
             for bc in itertools.chain(*ctx._problem.bcs):
                 if isinstance(bc, DirichletBC):
