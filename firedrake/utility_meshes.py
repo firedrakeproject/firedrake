@@ -507,7 +507,8 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
-    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, m.ufl_cell(), 1, variant="equispaced"), dim=2)
+    cell = 'quadrilateral' if quadrilateral else 'triangle'
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
