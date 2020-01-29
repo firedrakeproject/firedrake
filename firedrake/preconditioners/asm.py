@@ -1,3 +1,4 @@
+import abc
 import itertools
 
 from pyop2.mpi import COMM_SELF
@@ -5,12 +6,13 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_appctx
 
+__all__ = ("ASMPatchPC", "ASMLinesmooth")
+
 class ASMPatchPC(PCBase):
-    ''' Modified ASMPatchPC based on Colin's suggestions
-    These patches are made by looping over base mesh interior DOFs
-    and collecting all the DOFs on the "horizontal" faces.
-    Then looping over all facet DOFs and collecting the DOFs on the
-    "vertical" faces. 
+    ''' PC for PETSc PCASM
+    
+    should implement:
+    - :meth:`get_patches`
     '''
     
     def initialize(self, pc):
@@ -21,15 +23,55 @@ class ASMPatchPC(PCBase):
         else:
             ctx = get_appctx(pc.getDM()).appctx
         
+        self.prefix = pc.getOptionsPrefix() + "pc_asm_"
+        
         # Extract function space and mesh to obtain plex and indexing functions
         V = ctx['TraceSpace']
+        
+        # Obtain patches from user defined funtion
+        ises = self.get_patches(V)
+        
+        # Create new PC object as ASM type and set index sets for patches
+        asmpc = PETSc.PC().create(comm=pc.comm)
+        asmpc.incrementTabLevel(1, parent=pc)
+        asmpc.setOptionsPrefix(self.prefix + "_sub")
+        asmpc.setOperators(*pc.getOperators())
+        asmpc.setType(asmpc.Type.ASM)
+        asmpc.setASMLocalSubdomains(len(ises), ises)
+        asmpc.setFromOptions()
+        self.asmpc = asmpc
+    
+    @abc.abstractmethod
+    def get_patches(self, V):
+        ''' Get the patches used for PETSc PSASM
+        '''
+        pass
+    
+    def update(self, pc):
+        pass
+
+    def apply(self, pc, x, y):
+        self.asmpc.apply(x, y)
+
+    def applyTranspose(self, pc, x, y):
+        self.asmpc.applyTranspose(x, y)
+
+
+class ASMLinesmooth(ASMPatchPC):
+    ''' Modified ASMPatchPC based on Colin's suggestions
+    These patches are made by looping over base mesh interior DOFs
+    and collecting all the DOFs on the "horizontal" faces.
+    Then looping over all facet DOFs and collecting the DOFs on the
+    "vertical" faces. 
+    '''
+    
+    def get_patches(self, V):
         mesh = V._mesh
         dm = mesh._plex
         section = V.dm.getDefaultSection()
         lgmap = V.dof_dset.lgmap
         
         # Obtain the codimensions to loop over from options, if present
-        self.prefix = pc.getOptionsPrefix() + "pc_asm_"
         codim_list = PETSc.Options().getString(self.prefix
                                                 + "codims",
                                                 "0, 1")
@@ -54,19 +96,4 @@ class ASMPatchPC(PCBase):
                 iset = PETSc.IS().createGeneral(global_index, comm=COMM_SELF)
                 ises.append(iset)
         
-        # Create new PC object as ASM type and set index sets for patches
-        asmpc = PETSc.PC().create(comm=pc.comm)
-        asmpc.setOperators(*pc.getOperators())
-        asmpc.setType(asmpc.Type.ASM)
-        asmpc.setASMLocalSubdomains(len(ises), ises)
-        asmpc.setFromOptions()
-        self.asmpc = asmpc
-    
-    def update(self, pc):
-        pass
-
-    def apply(self, pc, x, y):
-        self.asmpc.apply(x, y)
-
-    def applyTranspose(self, pc, x, y):
-        self.asmpc.applyTranspose(x, y)
+        return ises
