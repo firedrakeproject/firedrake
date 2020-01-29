@@ -264,6 +264,7 @@ class HybridizationPC(SCBase):
         monitor = self.ctx.appctx.get('custom_monitor', None)
         if monitor:
             #print('MONITOR')
+            monitor.add_reconstructor(self.backward_substitution)
             trace_ksp.setMonitor(monitor)
         ### 
         self.trace_ksp = trace_ksp
