@@ -172,15 +172,8 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        from firedrake.dmhooks import get_parent
-        # Find potential parental mixed space (which will have an
-        # appctx attached and hence a transfer manager if we're in a
-        # solve)
         V = expr.function_space()
-        while V.parent is not None:
-            V = V.parent
-        dm = get_parent(V.dm)
-        manager = firedrake.dmhooks.get_transfer_manager(dm)
+        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
         manager.inject(expr, new)
@@ -283,6 +276,15 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                            transfer_manager=context.transfer_manager)
     coarse._fine = context
     context._coarse = coarse
+
+    # Now that we have the coarse snescontext, push it to the coarsened DMs
+    # Otherwise they won't have the right transfer manager when they are
+    # coarsened in turn
+    for val in coefficient_mapping.values():
+        if isinstance(val, firedrake.function.Function):
+            dm = val.function_space().dm
+            if firedrake.dmhooks.get_appctx(dm) is None:
+                firedrake.dmhooks.push_appctx(dm, coarse)
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)

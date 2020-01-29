@@ -38,12 +38,16 @@ def test_repeated_custom_transfer():
 
     assert count == 1
 
+
 optcount = 0
+
+
 class CountingTransferManager(TransferManager):
     def prolong(self, *args, **kwargs):
         global optcount
         TransferManager.prolong(self, *args, **kwargs)
         optcount += 1
+
 
 def test_repeated_custom_transfer_options():
     mesh = UnitIntervalMesh(2)
@@ -74,6 +78,7 @@ def test_repeated_custom_transfer_options():
     solve(a == L, uh, solver_parameters=options)
 
     assert optcount == 2
+
 
 def test_multiple_custom_transfer_split():
     mesh = UnitIntervalMesh(2)
