@@ -463,7 +463,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
                           distribution_parameters=None,
                           diagonal=None,
-                          comm=COMM_WORLD):
+                          comm=COMM_WORLD, mark_plex=None):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -500,12 +500,14 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                                               quadrilateral=quadrilateral,
                                               reorder=reorder,
                                               distribution_parameters=distribution_parameters,
-                                              diagonal=diagonal, comm=comm)
+                                              diagonal=diagonal, comm=comm, mark_plex=mark_plex)
     if nx < 3 or ny < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder,
+                  distribution_parameters=distribution_parameters, comm=comm,
+                  mark_plex=mark_plex)
     coord_family = 'DQ' if quadrilateral else 'DG'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, m.ufl_cell(), 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
@@ -555,7 +557,8 @@ cells in each direction are not currently supported")
 
 
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD,
+                       mark_plex=None):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -583,12 +586,12 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
                                  quadrilateral=quadrilateral, reorder=reorder,
                                  distribution_parameters=distribution_parameters,
-                                 diagonal=diagonal, comm=comm)
+                                 diagonal=diagonal, comm=comm, mark_plex=mark_plex)
 
 
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                            quadrilateral=False, distribution_parameters=None,
-                           diagonal=None, comm=COMM_WORLD):
+                           diagonal=None, comm=COMM_WORLD, mark_plex=None):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -615,7 +618,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral,
                               distribution_parameters=distribution_parameters,
-                              diagonal=diagonal, comm=comm)
+                              diagonal=diagonal, comm=comm, mark_plex=mark_plex)
 
 
 def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
@@ -1197,7 +1200,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
-              distribution_parameters=None, comm=COMM_WORLD):
+              distribution_parameters=None, comm=COMM_WORLD, mark_plex=None):
     """Generate a toroidal mesh
 
     :arg nR: The number of cells in the major direction (min 3)
@@ -1237,13 +1240,19 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, vertices, comm)
+
+    dmplex.label_facets(plex)
+    if mark_plex is not None:
+        mark_plex(plex)
+
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD,
+                 mark_plex=None):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1365,12 +1374,17 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 # top of cylinder
                 plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
 
+    dmplex.label_facets(plex)
+    if mark_plex is not None:
+        mark_plex(plex)
+
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
-                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                                   reorder=None, distribution_parameters=None, diagonal=None,
+                                   comm=COMM_WORLD, mark_plex=None):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
@@ -1411,7 +1425,7 @@ cells in each direction are not currently supported")
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder,
                      distribution_parameters=distribution_parameters,
-                     diagonal=diagonal, comm=comm)
+                     diagonal=diagonal, comm=comm, mark_plex=mark_plex)
     coord_family = 'DQ' if quadrilateral else 'DG'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, m.ufl_cell(), 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
