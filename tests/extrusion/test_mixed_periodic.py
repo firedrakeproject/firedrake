@@ -20,4 +20,4 @@ def test_mixed_periodic(base_mesh):
     V1 = FunctionSpace(mesh, "DG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
     V2_broken = FunctionSpace(mesh, BrokenElement(V2.ufl_element()))
-    W = MixedFunctionSpace((V1, V2_broken))
+    MixedFunctionSpace((V1, V2_broken))
