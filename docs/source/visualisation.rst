@@ -145,7 +145,7 @@ This approximation can be controlled in at least two ways:
    curved geometry. Further, the Nonlinear Subdivision Level can also be
    changed after applying filters such as Extract Surface.
 2. The Tessellate_ filter can be applied to unstructured grid data
-   and has two parameters: Chord Error, Maximum Number of Subdivisions,
+   and has three parameters: Chord Error, Maximum Number of Subdivisions,
    and Field Error. Tessellation_ is the process of approximating a higher
    order geometry via subdividing cells into smaller linear cells. Chord Error
    is a tessellation error metric, the distance between the midpoint of any

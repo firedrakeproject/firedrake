@@ -35,19 +35,13 @@ def V(mesh, degree, space):
     return FunctionSpace(mesh, space, degree)
 
 
-@pytest.fixture(params=[False, True],
-                ids=["Exact", "Fortin"])
-def use_fortin_interpolation(request):
+@pytest.fixture(params=["Default", "Exact", "Averaging"])
+def use_averaging(request):
     return request.param
 
 
 @pytest.fixture
-def transfer(use_fortin_interpolation, V):
-    return EmbeddedDGTransfer(V.ufl_element(), use_fortin_interpolation=use_fortin_interpolation)
-
-
-@pytest.fixture
-def solver_parameters(use_fortin_interpolation, V):
+def solver_parameters(use_averaging, V):
     element_name = V.ufl_element()._short_name
     solver_parameters = {
         "mat_type": "aij",
@@ -55,7 +49,7 @@ def solver_parameters(use_fortin_interpolation, V):
         # When using mass solves in the prolongation, the V-cycle is
         # no longer a linear operator (because the prolongation uses
         # CG which is a nonlinear operator).
-        "ksp_type": "cg" if use_fortin_interpolation else "fcg",
+        "ksp_type": "cg" if use_averaging else "fcg",
         "ksp_max_it": 20,
         "ksp_rtol": 1e-9,
         "ksp_monitor_true_residual": None,
@@ -105,22 +99,19 @@ def solver(V, space, solver_parameters):
     return solver
 
 
-def test_riesz(V, solver, transfer):
-    solver.set_transfer_operators(dmhooks.transfer_operators(V,
-                                                             prolong=transfer.prolong,
-                                                             inject=transfer.inject,
-                                                             restrict=transfer.restrict))
+def test_riesz(V, solver, use_averaging):
+    if use_averaging == "Default":
+        transfer = None
+    elif use_averaging == "Exact":
+        transfer = TransferManager(use_averaging=False)
+    else:
+        transfer = TransferManager(use_averaging=True)
+    solver.set_transfer_manager(transfer)
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_riesz_parallel(V, solver, transfer):
-    solver.set_transfer_operators(dmhooks.transfer_operators(V,
-                                                             prolong=transfer.prolong,
-                                                             inject=transfer.inject,
-                                                             restrict=transfer.restrict))
-    solver.solve()
-
-    assert solver.snes.ksp.getIterationNumber() < 15
+def test_riesz_parallel(V, solver, use_averaging):
+    test_riesz(V, solver, use_averaging)
