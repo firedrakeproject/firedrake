@@ -1,7 +1,7 @@
 # Code for projections and other fun stuff involving supermeshes.
 import firedrake
 import ctypes
-import os
+import sys
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
