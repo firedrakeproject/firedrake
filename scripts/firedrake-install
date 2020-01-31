@@ -21,8 +21,6 @@ firedrake_apps = {
               "git+ssh://github.com/firedrakeproject/gusto#egg=gusto"),
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
-    "pyadjoint": ("""New generation adjoint. https://bitbucket.org/dolfin-adjoint/pyadjoint""",
-                  "git+ssh://bitbucket.org/dolfin-adjoint/pyadjoint.git#egg=pyadjoint"),
     "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
                 "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
 }
@@ -409,8 +407,8 @@ class environment(object):
 
 options = config["options"]
 
-# Apply short cut package names.
-options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"]]
+# Apply short cut package names. pyadjoint shoud no longer turn up the packages list because it is a hard dependency.
+options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"] if not p.endswith("pyadjoint")]
 
 
 # Record of obsolete packages which --clean should remove from old installs.
@@ -497,13 +495,14 @@ if options["petsc_int_type"] == "int32":
     if not options["minimal_petsc"]:
         # AMG
         petsc_options.add("--download-ml")
-        # Mesh adaptivity (needs metis, but not parmetis)
-        petsc_options.add("--download-pragmatic")
 else:
     petsc_options.add("--with-64-bit-indices")
 
 if options.get("mpiexec") is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
+    petsc_options.add("--with-cc={}".format(options["mpicc"]))
+    petsc_options.add("--with-cxx={}".format(options["mpicxx"]))
+    petsc_options.add("--with-fc={}".format(options["mpif90"]))
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
@@ -657,7 +656,8 @@ def git_update(name, url=None):
             new_url = git_url(plain_url, protocol)
             # Ensure we only change from bitbucket to github and not the reverse.
             if new_url != current_url and "bitbucket.org" in current_url \
-               and "github.com/firedrakeproject" in plain_url:
+               and ("github.com/firedrakeproject" in plain_url
+                    or "github.com/dolfin-adjoint" in plain_url):
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
         check_call(["git", "pull", "--recurse-submodules"])
@@ -899,7 +899,8 @@ def build_and_install_libsupermesh():
                             "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90])
+                            "-DMPI_Fortran_COMPILER=" + f90,
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -921,7 +922,8 @@ def build_and_install_pythonocc():
                             "-DPYTHON_EXECUTABLE=" + python[0],
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90])
+                            "-DMPI_Fortran_COMPILER=" + f90,
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild pythonocc-core")
@@ -1246,12 +1248,12 @@ for opt in ["mpicc", "mpicxx", "mpif90"]:
         src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
     dest = os.path.join(firedrake_env, "bin", opt)
     log.debug("Creating a symlink from %s to %s" % (src, dest))
-    if os.path.exists(dest):
+    if os.path.lexists(dest):
         os.remove(dest)
     os.symlink(src, dest)
 
 if options.get("mpiexec"):
-    mpiexec_loc = shutil.which(args.mpiexec)
+    mpiexec_loc = shutil.which(options.get("mpiexec"))
 else:
     mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
 mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")

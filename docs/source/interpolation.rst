@@ -68,17 +68,20 @@ following line creates an interpolator which will interpolate the
 current value of `expression` into the space `V`:
 
 .. code-block:: python
+
    interpolator = Interpolator(expression, V)
 
 If `expression` does not contain a :py:func:`~ufl.TestFunction` then
 the interpolation can be performed with:
 
 .. code-block:: python
+
    f = interpolator.interpolate()
 
 Alternatively, one can use the interpolator to set the value of an existing :py:class:`~.Function`:
 
 .. code-block:: python
+
    f = Function(V)
    interpolator.interpolate(output=f)
 
@@ -86,7 +89,8 @@ If `expression` does not contain a :py:func:`~ufl.TestFunction` then
 the interpolator acts to interpolate :py:class:`~.Function`\s in the
 test space to those in the target space. For example:
 
-.. code-bloc:: python
+.. code-block:: python
+
    w = TestFunction(W)
    interpolator = Interpolator(w, V)
 

@@ -26,8 +26,10 @@ import firedrake.variational_solver as vs
 from firedrake import solving_utils
 from firedrake import dmhooks
 import firedrake
+from firedrake.adjoint import annotate_solve
 
 
+@annotate_solve
 def solve(*args, **kwargs):
     r"""Solve linear system Ax = b or variational problem a == L or F == 0.
 
