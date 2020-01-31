@@ -1,7 +1,7 @@
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SplitBlock
 import firedrake
 
 
@@ -47,9 +47,33 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
+      
+            with stop_annotating():
+            
+            	if self._split is None:
+                	self._split = tuple(firedrake.Function(fs, dat, name="%s[%d]" % (self.name(), i))
+                                for i, (fs, dat) in
+                                enumerate(zip(self.function_space(), self.dat)))                        
+            
+            	output = tuple(create_overloaded_object(e) for e in split(self,*args, **kwargs))
+            
             if annotate:
-                raise NotImplementedError("Function.split has no adjoint implementation yet")
-            return split(self, *args, **kwargs)
+            
+            	num_sub_spaces = len(self.function_space().split())
+            	tape = get_working_tape()
+
+            	block = SplitBlock(self)
+            	tape.add_block(block)
+
+            	for idx in range(num_sub_spaces):
+            	    block.add_output(output[idx].create_block_variable()) 
+
+            
+            return output  
+
+            #if annotate:
+            #    raise NotImplementedError("Function.split has no adjoint implementation yet")
+            #return split(self, *args, **kwargs)
 
         return wrapper
 

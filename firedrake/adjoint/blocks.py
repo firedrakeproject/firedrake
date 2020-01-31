@@ -4,6 +4,7 @@ from pyadjoint.block import Block
 
 import firedrake.utils as utils
 
+import firedrake
 
 class Backend:
     @utils.cached_property
@@ -165,6 +166,42 @@ class MeshInputBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         mesh = self.get_dependencies()[0].saved_output
         return mesh.coordinates
+
+class SplitBlock(Block):
+    
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+        self.add_dependency(func)
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
+                               prepared=None):
+        eval_adj = firedrake.Function(block_variable.output.function_space())
+        for i, e in enumerate(adj_inputs):
+            if e is not None:
+                eval_adj.sub(i).assign(e.function)
+            else:
+                eval_adj.sub(i).assign(0)
+        return eval_adj
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
+                               prepared=None):
+        return tlm_inputs[0]
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        eval_hessian = firedrake.Function(block_variable.output.function_space())
+        for i, e in enumerate(hessian_inputs):
+            if e is not None:
+                eval_hessian.sub(i).assign(e.function)
+            else:
+                eval_hessian.sub(i).assign(0)
+        return eval_hessian
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        new_func = firedrake.Function(self.func.function_space()).assign(inputs[0])
+        return new_func.sub(idx) 
 
 
 class MeshOutputBlock(Block):
