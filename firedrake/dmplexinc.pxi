@@ -68,32 +68,6 @@ cdef extern from "petscsf.h" nogil:
     int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
 
-ctypedef int (*PetscPCPatchComputeFunction)(PETSc.PetscPC,
-                                            PetscInt,
-                                            PETSc.PetscVec,
-                                            PETSc.PetscVec,
-                                            PETSc.PetscIS,
-                                            PetscInt,
-                                            const PetscInt*,
-                                            const PetscInt*,
-                                            void*)
-ctypedef int (*PetscPCPatchComputeOperator)(PETSc.PetscPC,
-                                            PetscInt,
-                                            PETSc.PetscVec,
-                                            PETSc.PetscMat,
-                                            PETSc.PetscIS,
-                                            PetscInt,
-                                            const PetscInt*,
-                                            const PetscInt*,
-                                            void*)
-cdef extern from "petscsnes.h" nogil:
-   int SNESPatchSetComputeFunction(PETSc.PetscSNES, PetscPCPatchComputeFunction, void *)
-   int SNESPatchSetComputeOperator(PETSc.PetscSNES, PetscPCPatchComputeOperator, void *)
-
-cdef extern from "petscpc.h" nogil:
-   int PCPatchSetComputeFunction(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
-   int PCPatchSetComputeOperator(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
-
 cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT
     int PetscBTCreate(PetscInt,PetscBT*)

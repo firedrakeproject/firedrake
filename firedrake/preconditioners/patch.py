@@ -1,6 +1,5 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmplex import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -13,12 +12,9 @@ import numpy
 from ufl import VectorElement, MixedElement
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 
-import ctypes
 from pyop2 import op2
 from pyop2 import base as pyop2
 from pyop2 import sequential as seq
-from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
@@ -268,146 +264,6 @@ def residual_funptr(form, state):
     return cell_kernels, int_facet_kernels
 
 
-def make_struct(op_coeffs, op_maps, jacobian=False):
-    import ctypes
-    coeffs = []
-    maps = []
-    for i, c in enumerate(op_coeffs):
-        if c is None:
-            coeffs.append("state")
-        else:
-            coeffs.append("c{}".format(i))
-    for i, m in enumerate(op_maps):
-        if m is None:
-            maps.append("dofArrayWithAll")
-        else:
-            maps.append("m{}".format(i))
-    coeff_struct = ";\n".join("  const PetscScalar *c{}".format(i) for i, c in enumerate(op_coeffs) if c is not None)
-    map_struct = ";\n".join("  const PetscInt    *m{}".format(i) for i, m in enumerate(op_maps) if m is not None)
-    coeff_decl = ", ".join("const PetscScalar *restrict {}".format(c) for c in coeffs)
-    map_decl = ", ".join("const PetscInt *restrict {}".format(m) for m in maps)
-    coeff_call = ", ".join(c if c == "state" else "ctx->{}".format(c) for c in coeffs)
-    map_call = ", ".join(m if m == "dofArrayWithAll" else "ctx->{}".format(m) for m in maps)
-    if jacobian:
-        out = "Mat J"
-    else:
-        out = "PetscScalar * restrict F"
-    function = "  void (*pyop2_call)(int start, int end, const PetscInt * restrict cells, {}, {}, const PetscInt *restrict dofArray, {})".format(out, coeff_decl, map_decl)
-
-    fields = []
-    for c in coeffs:
-        if c != "state":
-            fields.append((c, ctypes.c_voidp))
-    for m in maps:
-        if m != "dofArrayWithAll":
-            fields.append((m, ctypes.c_voidp))
-    fields.append(("pyop2_call", ctypes.c_voidp))
-    class Struct(ctypes.Structure):
-        _fields_ = fields
-    struct = """
-typedef struct {{
-{};
-{};
-{};
-}} UserCtx;""".format(coeff_struct, map_struct, function)
-    call = "pyop2_call(0, ncell, whichCells, out, {}, dofArray, {})".format(coeff_call, map_call)
-
-    return struct, call, Struct
-
-
-def make_residual_wrapper(coeffs, maps):
-    struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=False)
-
-    return """
-#include <petsc.h>
-{}
-PetscErrorCode ComputeResidual(PC pc,
-                               PetscInt point,
-                               Vec x,
-                               Vec F,
-                               IS cells,
-                               PetscInt ndof,
-                               const PetscInt *dofArray,
-                               const PetscInt *dofArrayWithAll,
-                               void *ctx_)
-{{
-   const PetscScalar *state      = NULL;
-   const PetscInt    *whichCells = NULL;
-   PetscScalar       *out        = NULL;
-   UserCtx           *ctx        = (UserCtx *)ctx_;
-   PetscInt           ncell;
-   PetscErrorCode     ierr;
-   PetscFunctionBeginUser;
-   ierr = ISGetSize(cells, &ncell);CHKERRQ(ierr);
-   if (!ncell) PetscFunctionReturn(0);
-   ierr = VecSet(F, 0.0);CHKERRQ(ierr);
-   if (x) {{
-     ierr = VecGetArrayRead(x, &state);CHKERRQ(ierr);
-   }}
-   ierr = VecGetArray(F, &out);CHKERRQ(ierr);
-   ierr = ISGetIndices(cells, &whichCells);CHKERRQ(ierr);
-   ctx->{};
-   ierr = ISRestoreIndices(cells, &whichCells);CHKERRQ(ierr);
-   ierr = VecRestoreArray(F, &out);CHKERRQ(ierr);
-   if (x) {{
-     ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
-   }}
-   PetscFunctionReturn(0);
-}}
-""".format(struct_decl, pyop2_call), struct
-
-
-def make_jacobian_wrapper(coeffs, maps):
-    struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=True)
-
-    return """
-#include <petsc.h>
-{}
-PetscErrorCode ComputeJacobian(PC pc,
-                               PetscInt point,
-                               Vec x,
-                               Mat out,
-                               IS cells,
-                               PetscInt ndof,
-                               const PetscInt *dofArray,
-                               const PetscInt *dofArrayWithAll,
-                               void *ctx_)
-{{
-   const PetscScalar *state      = NULL;
-   const PetscInt    *whichCells = NULL;
-   UserCtx           *ctx        = (UserCtx *)ctx_;
-   PetscInt           ncell;
-   PetscErrorCode     ierr;
-   PetscFunctionBeginUser;
-   ierr = ISGetSize(cells, &ncell);CHKERRQ(ierr);
-   if (!ncell) PetscFunctionReturn(0);
-   if (x) {{
-     ierr = VecGetArrayRead(x, &state);CHKERRQ(ierr);
-   }}
-   ierr = ISGetIndices(cells, &whichCells);CHKERRQ(ierr);
-   ctx->{};
-   ierr = ISRestoreIndices(cells, &whichCells);CHKERRQ(ierr);
-   if (x) {{
-     ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
-   }}
-   PetscFunctionReturn(0);
-}}
-""".format(struct_decl, pyop2_call), struct
-
-
-def load_c_function(code, name):
-    cppargs = ["-I%s/include" % d for d in get_petsc_dir()] 
-    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()] +
-              ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] +
-              ["-lpetsc", "-lm"])
-    return load(code, "c", name,
-                argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs)
-
-
-
 def bcdofs(bc, ghost=True):
     # Return the global dofs fixed by a DirichletBC
     # in the numbering given by concatenation of all the
@@ -523,41 +379,6 @@ class PlaneSmoother(object):
         return (patches, iterationSet)
 
 
-def make_c_arguments(form, kernel, state, get_map, require_state=False,
-                     require_facet_number=False):
-    coeffs = [form.ufl_domain().coordinates]
-    if kernel.kinfo.oriented:
-        coeffs.append(form.ufl_domain().cell_orientations())
-    for n in kernel.kinfo.coefficient_map:
-        coeffs.append(form.coefficients()[n])
-    if require_state:
-        assert state in coeffs, "Couldn't find state vector in form coefficients"
-    data_args = []
-    map_args = []
-    seen = set()
-    for c in coeffs:
-        if c is state:
-            data_args.append(None)
-            map_args.append(None)
-        else:
-            data_args.extend(c.dat._kernel_args_)
-        map_ = get_map(c)
-        if map_ is not None:
-            for k in map_._kernel_args_:
-                if k not in seen:
-                    map_args.append(k)
-                    seen.add(k)
-    if require_facet_number:
-        data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
-    return data_args, map_args
-
-
-def make_c_struct(data_args, map_args, function, struct):
-    args = ([d for d in data_args if d is not None] +
-            [m for m in map_args if m is not None])
-    return struct(*args, ctypes.cast(function, ctypes.c_voidp).value)
-
-
 class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
@@ -610,10 +431,8 @@ class PatchBase(PCSNESBase):
 
         if isinstance(obj, PETSc.SNES):
             Jstate = ctx._problem.u
-            is_snes = True
         else:
             Jstate = None
-            is_snes = False
 
         V, _ = map(operator.methodcaller("function_space"), J.arguments())
 
@@ -627,26 +446,81 @@ class PatchBase(PCSNESBase):
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
+        Jop_coeffs = [mesh.coordinates]
         Jcell_kernel, = Jcell_kernels
-        Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
-                                                       operator.methodcaller("cell_node_map"))
-        code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian")
-        Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
+        if Jcell_kernel.kinfo.oriented:
+            Jop_coeffs.append(J.ufl_domain().cell_orientations())
+        for n in Jcell_kernel.kinfo.coefficient_map:
+            Jop_coeffs.append(J.coefficients()[n])
+
+        Jop_data_args = []
+        Jop_map_args = []
+        seen = set()
+        Jop_state_data_slot = None
+        Jop_state_map_slot = None
+        for c in Jop_coeffs:
+            if c is Jstate:
+                Jop_state_data_slot = len(Jop_data_args)
+                Jop_state_map_slot = len(Jop_map_args)
+                Jop_data_args.append(None)
+                Jop_map_args.append(None)
+                continue
+            Jop_data_args.extend(c.dat._kernel_args_)
+            map_ = c.cell_node_map()
+            if map_ is not None:
+                for k in map_._kernel_args_:
+                    if k in seen:
+                        continue
+                    Jop_map_args.append(k)
+                    seen.add(k)
+
+        def Jop(obj, point, vec, mat, cellIS, cell_dofmap, cell_dofmapWithAll):
+            cells = cellIS.indices
+            ncell = len(cells)
+            dofs = cell_dofmap.ctypes.data
+            if cell_dofmapWithAll is not None:
+                dofsWithAll = cell_dofmapWithAll.ctypes.data
+            else:
+                dofsWithAll = None
+            if Jop_state_data_slot is not None:
+                assert dofsWithAll is not None
+                Jop_data_args[Jop_state_data_slot] = vec.array_r.ctypes.data
+                Jop_map_args[Jop_state_map_slot] = dofsWithAll
+            Jcell_kernel.funptr(0, ncell, cells.ctypes.data, mat.handle, *Jop_data_args,
+                                dofs, *Jop_map_args)
 
         Jhas_int_facet_kernel = False
         if len(Jint_facet_kernels) > 0:
             Jint_facet_kernel, = Jint_facet_kernels
             Jhas_int_facet_kernel = True
-            facet_Jop_data_args, facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
-                                                                       operator.methodcaller("interior_facet_node_map"),
-                                                                       require_facet_number=True)
-            try:
-                facet_Jop_state_data_slot = facet_Jop_data.args.index(None)
-                facet_Jop_state_map_slot = facet_Jop_map_args.index(None)
-            except ValueError:
-                facet_Jop_state_data_slot = None
-                facet_Jop_state_map_slot = None
+            facet_Jop_coeffs = [mesh.coordinates]
+            if Jint_facet_kernel.kinfo.oriented:
+                facet_Jop_coeffs.append(J.ufl_domain().cell_orientations())
+            for n in Jint_facet_kernel.kinfo.coefficient_map:
+                facet_Jop_coeffs.append(J.coefficients()[n])
+
+            facet_Jop_data_args = []
+            facet_Jop_map_args = []
+            facet_Jop_state_data_slot = None
+            facet_Jop_state_map_slot = None
+            seen = set()
+            for c in facet_Jop_coeffs:
+                if c is Jstate:
+                    facet_Jop_state_data_slot = len(facet_Jop_data_args)
+                    facet_Jop_state_map_slot = len(facet_Jop_map_args)
+                    facet_Jop_data_args.append(None)
+                    facet_Jop_map_args.append(None)
+                    continue
+                facet_Jop_data_args.extend(c.dat._kernel_args_)
+                map_ = c.interior_facet_node_map()
+                if map_ is not None:
+                    for k in map_._kernel_args_:
+                        if k in seen:
+                            continue
+                        facet_Jop_map_args.append(k)
+                        seen.add(k)
+            facet_Jop_data_args.extend(J.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
+
             point2facetnumber = J.ufl_domain().interior_facets.point2facetnumber
 
             def Jfacet_op(pc, point, vec, mat, facetIS, facet_dofmap, facet_dofmapWithAll):
@@ -666,28 +540,80 @@ class PatchBase(PCSNESBase):
             F = ctx.F
             Fstate = ctx._problem.u
             Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
-
+            Fop_coeffs = [mesh.coordinates]
             Fcell_kernel, = Fcell_kernels
+            if Fcell_kernel.kinfo.oriented:
+                Fop_coeffs.append(F.ufl_domain().cell_orientations())
+            for n in Fcell_kernel.kinfo.coefficient_map:
+                Fop_coeffs.append(F.coefficients()[n])
+            assert any(c is Fstate for c in Fop_coeffs), "Couldn't find state vector in F.coefficients()"
 
-            Fop_data_args, Fop_map_args = make_c_arguments(F, Fcell_kernel, Fstate,
-                                                           operator.methodcaller("cell_node_map"),
-                                                           require_state=True)
+            Fop_data_args = []
+            Fop_map_args = []
+            seen = set()
+            Fop_state_data_slot = None
+            Fop_state_map_slot = None
+            for c in Fop_coeffs:
+                if c is Fstate:
+                    Fop_state_data_slot = len(Fop_data_args)
+                    Fop_state_map_slot = len(Fop_map_args)
+                    Fop_data_args.append(None)
+                    Fop_map_args.append(None)
+                    continue
+                Fop_data_args.extend(c.dat._kernel_args_)
+                map_ = c.cell_node_map()
+                if map_ is not None:
+                    for k in map_._kernel_args_:
+                        if k in seen:
+                            continue
+                        Fop_map_args.append(k)
+                        seen.add(k)
 
-            code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual")
-            Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
+            assert Fop_state_data_slot is not None
+
+            def Fop(pc, point, vec, out, cellIS, cell_dofmap, cell_dofmapWithAll):
+                cells = cellIS.indices
+                ncell = len(cells)
+                dofs = cell_dofmap.ctypes.data
+                dofsWithAll = cell_dofmapWithAll.ctypes.data
+                out.set(0)
+                outdata = out.array
+                Fop_data_args[Fop_state_data_slot] = vec.array_r.ctypes.data
+                Fop_map_args[Fop_state_map_slot] = dofsWithAll
+                Fcell_kernel.funptr(0, ncell, cells.ctypes.data, outdata.ctypes.data,
+                                    *Fop_data_args, dofs, *Fop_map_args)
 
             Fhas_int_facet_kernel = False
             if len(Fint_facet_kernels) > 0:
                 Fint_facet_kernel, = Fint_facet_kernels
                 Fhas_int_facet_kernel = True
+                facet_Fop_coeffs = [mesh.coordinates]
+                if Fint_facet_kernel.kinfo.oriented:
+                    facet_Fop_coeffs.append(F.ufl_domain().cell_orientations())
+                for n in Fint_facet_kernel.kinfo.coefficient_map:
+                    facet_Fop_coeffs.append(J.coefficients()[n])
 
-                facet_Fop_data_args, facet_Fop_map_args = make_c_arguments(F, Fint_facet_kernel, Fstate,
-                                                                           operator.methodcaller("interior_facet_node_map"),
-                                                                           require_state=True,
-                                                                           require_facet_number=True)
-                facet_Fop_state_data_slot = facet_Fop_data.args.index(None)
-                facet_Fop_state_map_slot = facet_Fop_map_args.index(None)
+                facet_Fop_data_args = []
+                facet_Fop_map_args = []
+                facet_Fop_state_data_slot = None
+                facet_Fop_state_map_slot = None
+                seen = set()
+                for c in facet_Fop_coeffs:
+                    if c is Fstate:
+                        facet_Fop_state_data_slot = len(Fop_data_args)
+                        facet_Fop_state_map_slot = len(Fop_map_args)
+                        facet_Fop_data_args.append(None)
+                        facet_Fop_map_args.append(None)
+                        continue
+                    facet_Fop_data_args.extend(c.dat._kernel_args_)
+                    map_ = c.interior_facet_node_map()
+                    if map_ is not None:
+                        for k in map_._kernel_args_:
+                            if k in seen:
+                                continue
+                            facet_Fop_map_args.append(k)
+                            seen.add(k)
+                facet_Fop_data_args.extend(F.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
 
                 point2facetnumber = F.ufl_domain().interior_facets.point2facetnumber
 
@@ -715,13 +641,11 @@ class PatchBase(PCSNESBase):
                                          offsets,
                                          ghost_bc_nodes,
                                          global_bc_nodes)
-        self.Jop_struct = Jop_struct
-        set_patch_jacobian(patch, ctypes.cast(Jop_function, ctypes.c_voidp).value, ctypes.addressof(Jop_struct), is_snes=is_snes)
+        patch.setPatchComputeOperator(Jop)
         if Jhas_int_facet_kernel:
             patch.setPatchComputeOperatorInteriorFacets(Jfacet_op)
         if set_residual:
-            self.Fop_struct = Fop_struct
-            set_patch_residual(patch, ctypes.cast(Fop_function, ctypes.c_voidp).value, ctypes.addressof(Fop_struct), is_snes=is_snes)
+            patch.setPatchComputeFunction(Fop)
             if Fhas_int_facet_kernel:
                 patch.setPatchComputeFunctionInteriorFacets(Ffacet_op)
 
