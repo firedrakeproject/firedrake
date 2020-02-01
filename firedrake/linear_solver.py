@@ -94,9 +94,6 @@ class LinearSolver(OptionsManager):
         self.near_nullspace = near_nullspace
         # Operator setting must come after null space has been
         # applied
-        # Force evaluation here
-        self.A.force_evaluation()
-        self.P.force_evaluation()
         self.ksp.setOperators(A=self.A.petscmat, P=self.P.petscmat)
         # Set from options now (we're not allowed to change parameters
         # anyway).

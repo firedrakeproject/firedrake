@@ -4,9 +4,13 @@ Obtaining Firedrake
 Firedrake is installed using its install script::
 
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+
+In the simplest cases, such as on a Mac with Homebrew installed or on
+an Ubuntu workstation on which the user has sudo acccess, the user can simply run::
+  
   python3 firedrake-install
 
-Running ``firedrake-install`` with no arguments will install firedrake in
+Running ``firedrake-install`` with no arguments will install Firedrake in
 a python venv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
@@ -49,9 +53,20 @@ venv_ as above and then run::
   cd firedrake/src/firedrake
   make alltest
 
-Note that there is currently an issue with the test harness on MacOS
-which causes the parallel tests to fail. Firedrake will still work in
-parallel, it is only the test system which is affected.
+.. note::
+
+  There is a known issue which causes parallel tests to hang without 
+  failing. This is particularly a problem on MacOS and is due to the 
+  version of MPICH installed with Firedrake failing to resolve the 
+  local host at ip address ``127.0.0.1``. To resolve this issue modify 
+  the hosts database at ``/etc/hosts`` to include the entries::
+
+    127.0.0.1       LOCALHOSTNAME.local
+    127.0.0.1       LOCALHOSTNAME
+
+  where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
+  command. Should the local host name change, this may require updating.
+
 
 System requirements
 -------------------
@@ -59,7 +74,21 @@ System requirements
 The installation script is tested on Ubuntu and MacOS X. Installation
 is likely to work well on other Linux platforms, although the script
 may stop to ask you to install some dependency packages. Installation
-on other Unix platforms may work but is untested.
+on other Unix platforms may work but is untested. On Linux systems
+that do not use the Debian package management system, it will be
+necessary to pass the `--no-package-manager` option to the install
+script. In this case, it is the user's responsibilty to ensure that
+they have the system dependencies:
+
+* A C and C++ compiler (for example gcc/g++ or clang), GNU make
+* A Fortran compiler (for PETSc)
+* Blas and Lapack
+* Git, Mercurial
+* Python version >=3.5
+* The Python headers
+* autoconf, automake, libtool
+* CMake
+* zlib
 
 Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed
@@ -88,11 +117,6 @@ follow the SSL certificate instructions given in the installation process (or in
 .. note::
 
    Your system still needs to have Python 2 available to build PETSc_.
-
-.. warning::
-
-   The installation script *does not work* with anaconda_ based python
-   installations. This is due to venv issues in anaconda.
 
 Additional considerations for MacPorts users
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -146,8 +170,17 @@ Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
+
+Removing Firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the Firedrake
+install directory. This is usually the ``firedrake`` subdirectory 
+created after having run ``firedrake-install``. Note that this will not 
+undo the installation of any system packages which are Firedrake
+dependencies: removing these might affect subsequently installed 
+packages for which these are also dependencies.
+
 .. _Paraview: http://www.paraview.org
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
-.. _anaconda: https://www.continuum.io/downloads
 .. _PETSc: https://www.mcs.anl.gov/petsc/

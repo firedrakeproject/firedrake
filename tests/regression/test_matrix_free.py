@@ -114,9 +114,7 @@ def test_matrixfree_action(a, V, bcs):
     else:
         bcs = None
     A = assemble(a, bcs=bcs)
-    A.force_evaluation()
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
-    Amf.force_evaluation()
 
     with f.dat.vec_ro as x:
         with expect.dat.vec as y:

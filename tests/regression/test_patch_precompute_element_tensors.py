@@ -43,6 +43,7 @@ def test_patch_precompute_element_tensors(mesh, V):
           "mg_coarse_pc_python_type": "firedrake.AssembledPC",
           "mg_coarse_assembled_pc_type": "lu",
           "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+          "mg_coarse_assembled_mat_mumps_icntl_14": 200,
           "mg_levels_ksp_type": "richardson",
           "mg_levels_ksp_max_it": 1,
           "mg_levels_ksp_richardson_scale": 1/3,

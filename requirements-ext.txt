@@ -6,3 +6,4 @@ ipython
 matplotlib
 pylint
 randomgen==1.16.4
+vtk

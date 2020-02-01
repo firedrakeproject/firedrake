@@ -46,6 +46,7 @@ def test_opencascade_poisson(stepdata, order):
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
         "mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "mg_coarse_mat_mumps_icntl_14": 200,
     }
 
     solve(F == 0, u, bcs, solver_parameters=params)

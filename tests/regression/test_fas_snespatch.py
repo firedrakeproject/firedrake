@@ -17,7 +17,7 @@ def CG1(mesh):
     return FunctionSpace(mesh, "CG", 1)
 
 
-@pytest.fixture(scope='module', params=[0, 1])
+@pytest.fixture(scope='module', params=[0, 1, 2])
 def solver_params(request):
     if request.param == 0:
         return {
@@ -63,6 +63,55 @@ def solver_params(request):
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
+               "snes_view": None
+               }
+    elif request.param == 1:
+        return {
+               "mat_type": "matfree",  # noqa: E126
+               "snes_type": "fas",
+               "snes_fas_cycles": 1,
+               "snes_fas_type": "full",
+               "snes_fas_galerkin": False,
+               "snes_fas_smoothup": 1,
+               "snes_fas_smoothdown": 1,
+               "snes_monitor": None,
+               "snes_max_it": 20,
+               "fas_levels_snes_type": "python",
+               "fas_levels_snes_python_type": "firedrake.PatchSNES",
+               "fas_levels_snes_max_it": 1,
+               "fas_levels_snes_convergence_test": "skip",
+               "fas_levels_snes_converged_reason": None,
+               "fas_levels_snes_monitor": None,
+               "fas_levels_snes_linesearch_type": "basic",
+               "fas_levels_snes_linesearch_damping": 4/5,
+               "fas_levels_patch_snes_patch_partition_of_unity": False,
+               "fas_levels_patch_snes_patch_construct_type": "vanka",
+               "fas_levels_patch_snes_patch_construct_dim": 0,
+               "fas_levels_patch_snes_patch_vanka_dim": 0,
+               "fas_levels_patch_snes_patch_sub_mat_type": "seqdense",
+               "fas_levels_patch_snes_patch_local_type": "additive",
+               "fas_levels_patch_snes_patch_symmetrise_sweep": False,
+               "fas_levels_patch_sub_snes_type": "newtonls",
+               "fas_levels_patch_sub_snes_converged_reason": None,
+               "fas_levels_patch_sub_snes_linesearch_type": "basic",
+               "fas_levels_patch_sub_ksp_type": "preonly",
+               "fas_levels_patch_sub_pc_type": "lu",
+               "fas_coarse_snes_type": "newtonls",
+               "fas_coarse_snes_monitor": None,
+               "fas_coarse_snes_converged_reason": None,
+               "fas_coarse_snes_max_it": 100,
+               "fas_coarse_snes_atol": 1.0e-14,
+               "fas_coarse_snes_rtol": 1.0e-14,
+               "fas_coarse_snes_linesearch_type": "l2",
+               "fas_coarse_ksp_type": "preonly",
+               "fas_coarse_ksp_max_it": 1,
+               "fas_coarse_pc_type": "python",
+               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
+               "fas_coarse_assembled_mat_type": "aij",
+               "fas_coarse_assembled_pc_type": "lu",
+               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
                "snes_view": None
                }
     else:
@@ -111,7 +160,8 @@ def solver_params(request):
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               }
+               "fas_coarse_assembled_mat_mumps_icntl_14": 200
+        }
 
 
 @pytest.mark.parallel

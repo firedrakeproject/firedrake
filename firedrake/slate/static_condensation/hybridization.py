@@ -218,8 +218,9 @@ class HybridizationPC(SCBase):
                                                     form_compiler_parameters=self.ctx.fc_params,
                                                     mat_type=mat_type)
 
-        self._assemble_S()
-        self.S.force_evaluation()
+        with timed_region("HybridOperatorAssembly"):
+            self._assemble_S()
+
         Smat = self.S.petscmat
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
@@ -294,7 +295,6 @@ class HybridizationPC(SCBase):
         reconstruct symbolic objects.
         """
         self._assemble_S()
-        self.S.force_evaluation()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
