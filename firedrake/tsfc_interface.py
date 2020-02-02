@@ -40,7 +40,6 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subdomain_id",
                                      "domain_number",
                                      "coefficient_map",
-                                     "coefficient_enabled_components",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -141,7 +140,6 @@ class TSFCKernel(Cached):
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
-                                      coefficient_enabled_components=kernel.coefficient_enabled_components,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))
@@ -177,6 +175,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
     :func:`~.Mesh`)
 
     """
+
     # Check that we get a Form
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
