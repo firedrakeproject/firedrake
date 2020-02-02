@@ -215,20 +215,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-    # All ufl_domains must share the same base topology
-    topology = f.ufl_domains()[0].topology.submesh_get_base()
     for m in f.ufl_domains():
         # Ensure mesh is "initialised" (could have got here without
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
-        if m.topology.submesh_get_base() != topology:
-            raise NotImplementedError("All integration domains must share the same base mesh topology.")
-
-    for o in chain(f.arguments(), f.coefficients()):
-        domains = o.ufl_domains()
-        for domain in domains:
-            if domain is not None and domain.topology.submesh_get_base() != topology:
-                raise NotImplementedError("Assembly with objects defined on domains with multiple base meshes is currently not supported.")
 
     if isinstance(f, slate.TensorBase):
         if diagonal:
@@ -344,20 +334,27 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             else:
                                 cm = op2.ComposedMap([trial.cell_node_map().split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
                         map_pairs_ij[i][j].append((rm, cm))
-                map_pairs_ij=None
+                #map_pairs_ij=None
                 iteration_regions.append(tuple(cell_domains))
             if exterior_facet_domains:
                 map_pairs.append((test.exterior_facet_node_map(), trial.exterior_facet_node_map()))
-                map_pairs_ij = None
+                #TODO: Implement correct map_pairs_ij after testing cell implementation
+                for i in range(nrow):
+                    for j in range(ncol):
+                        map_pairs_ij[i][j].append((test.exterior_facet_node_map().split[i], trial.exterior_facet_node_map().split[j]))
                 iteration_regions.append(tuple(exterior_facet_domains))
             if interior_facet_domains:
                 map_pairs.append((test.interior_facet_node_map(), trial.interior_facet_node_map()))
-                map_pairs_ij = None
+                #TODO: Implement correct map_pairs_ij after testing cell implementation
+                for i in range(nrow):
+                    for j in range(ncol):
+                        map_pairs_ij[i][j].append((test.interior_facet_node_map().split[i], trial.interior_facet_node_map().split[j]))
                 iteration_regions.append(tuple(interior_facet_domains))
 
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
+
             try:
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
@@ -388,7 +385,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         def mat(testmap, trialmap, rowbc, colbc, i, j):
             m = testmap(test.function_space()[i])
             n = trialmap(trial.function_space()[j])
-            maps = (m if m else None, n if n else None)
+            imesh = test.function_space()[i].mesh().topology
+            idim = imesh._plex.getDimension()
+            jmesh = trial.function_space()[j].mesh().topology
+            jdim = jmesh._plex.getDimension()
+            maps = (m if m else None, 
+                    op2.ComposedMap([n, ] + jmesh.submesh_get_entity_map_list(imesh, jdim)) if n else None)
 
             rlgmap, clgmap = tensor[i, j].local_to_global_maps
             V = test.function_space()[i]
@@ -453,7 +455,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
-        coeff_enabled_components = kinfo.coefficient_enabled_components
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -497,7 +498,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         decoration = None
         itspace = m.measure_set(integral_type, subdomain_id,
                                 all_integer_subdomain_ids)
-        #print("itspace", itspace)
         if integral_type == "cell":
             itspace = sdata or itspace
             if subdomain_id not in ["otherwise", "everywhere"] and sdata is not None:
@@ -560,14 +560,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             o = m.cell_sizes
             args.append(o.dat(op2.READ, get_map(o)))
 
-        for i, n in enumerate(coeff_map):
+        for n in coeff_map:
             c = coefficients[n]
-            #print("c: ", repr(c))
-            for j, c_ in enumerate(c.split()):
-                if coeff_enabled_components is not None and coeff_enabled_components[i] is not None and j not in coeff_enabled_components[i]:
-                    continue
-                #print("c_:", repr(c_))
-                m_ = get_map(c_)
+            for c_ in c.split():
+                jmesh = c_.function_space().mesh().topology
+                jdim = jmesh._plex.getDimension()
+                m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:
             assert integral_type == "cell"
