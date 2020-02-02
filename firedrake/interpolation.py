@@ -207,7 +207,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     coords = mesh.coordinates
 
     if not isinstance(expr, firedrake.Expression):
-        if expr.ufl_domain() and expr.ufl_domain() != V.mesh().ufl_base():
+        if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
