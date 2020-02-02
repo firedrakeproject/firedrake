@@ -152,22 +152,16 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         else:
             return du
 
-    meshes = form.ufl_domains()
-    is_dX = u_is_x or any([u is mesh.coordinates for mesh in meshes])
+    # TODO: Think what coordinate derivatives should be allowed on a mixed domain
+    mesh = form.ufl_domain()
+    is_dX = u_is_x or u is mesh.coordinates
 
     if is_dX:
-        if u_is_x:
-            # Reconstruct FunctionSpace from u
-            V = firedrake.VectorFunctionSpace(u.ufl_domain(), "Lagrange", 1)
-        else:
-            # Determine the correct (sub)mesh from the coordinate function u
-            mesh = u.ufl_domain()
-            u = ufl.SpatialCoordinate(mesh)
-            V = mesh.coordinates.function_space()
+        coords = mesh.coordinates
+        u = ufl.SpatialCoordinate(mesh)
+        V = coords.function_space()
         du = argument(V)
-        cds = {}
-        for mesh in meshes:
-            cds[mesh.coordinates] = du
+        cds = {coords: du}
         if coefficient_derivatives is not None:
             cds.update(coefficient_derivatives)
         coefficient_derivatives = cds
@@ -177,8 +171,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     elif isinstance(u, firedrake.Constant):
         if u.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")
-        # Use submesh base in this case.
-        V = firedrake.FunctionSpace(mesh[0].submesh_get_base(), "Real", 0)
+        V = firedrake.FunctionSpace(u.ufl_domain(), "Real", 0)
         du = argument(V)
     else:
         raise RuntimeError("Can't compute derivative for form")
