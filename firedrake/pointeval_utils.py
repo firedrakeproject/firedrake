@@ -53,8 +53,8 @@ def compile_element(expression, coordinates, parameters=None):
     # Initialise kernel builder
     builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
     builder.domain_coordinate[domain] = coordinates
-    x_arg = builder._coefficient(coordinates, "x")[0]
-    f_arg = builder._coefficient(coefficient, "f")[0]
+    x_arg = builder._coefficient(coordinates, "x")
+    f_arg = builder._coefficient(coefficient, "f")
 
     # TODO: restore this for expression evaluation!
     # expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
