@@ -15,6 +15,8 @@ class ASMPatchPC(PCBase):
     - :meth:`get_patches`
     '''
 
+    _prefix = "pc_asm_"
+
     def initialize(self, pc):
         # Get context from pc
         _, P = pc.getOperators()
@@ -23,7 +25,7 @@ class ASMPatchPC(PCBase):
         else:
             ctx = get_appctx(pc.getDM()).appctx
 
-        self.prefix = pc.getOptionsPrefix() + "pc_asm_"
+        self.prefix = pc.getOptionsPrefix() + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = ctx['TraceSpace']
@@ -72,8 +74,8 @@ class ASMLinesmooth(ASMPatchPC):
         lgmap = V.dof_dset.lgmap
 
         # Obtain the codimensions to loop over from options, if present
-        codim_list = PETSc.Options().getString(self.prefix + "codims", "0, 1")
-        codim_list = [int(ii) for ii in codim_list.split(',')]
+        codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
+        codim_list = [int(ii) for ii in codim_list.split(",")]
 
         # Build index sets for the patches
         ises = []
