@@ -437,14 +437,14 @@ class MeshTopology(object):
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         if cStart == cEnd:
-            cell_nfacets = 0  # -1
+            nfacets = -1
         else:
             # If dim = 0, nfacets = 1 for simplex
-            cell_nfacets = plex.getConeSize(cStart) if dim > 0 else 1
+            nfacets = plex.getConeSize(cStart) if dim > 0 else 1
         # TODO: this needs to be updated for mixed-cell meshes.
-        cell_nfacets = self.comm.allreduce(cell_nfacets, op=MPI.MAX)
+        nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
+        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -1593,7 +1593,7 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
     if height > tdim:
         raise ValueError("Invalid entity_type: provided entity_type expects \
                          a larger topological dimension that actual")
-    subplex = plex.createSubmesh_Closure(filterName, filterValue, height)
+    subplex = plex.createSubmesh('DMPLEX_SUBMESH_CLOSURE', filterName, filterValue, height, 0, 0, 0, 0)
 
     # Create "exterior_facets" label
     dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
