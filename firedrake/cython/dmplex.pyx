@@ -770,9 +770,9 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
-
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
+
     CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
@@ -949,21 +949,11 @@ def mark_entity_classes(PETSc.DM plex):
     CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
 
-    
-    import sys
-    import time
-    from mpi4py import MPI
     if plex.comm.size > 1:
         # Mark ghosts from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
-        print('rank =', MPI.COMM_WORLD.rank,', num leaves = ', nleaves)
-        sys.stdout.flush()
         for p in range(nleaves):
-            print('rank=', MPI.COMM_WORLD.rank,', 777777777')
-            sys.stdout.flush()
-            print('rank=', MPI.COMM_WORLD.rank,',  99999999, ilocalp =', ilocal[p])
-            sys.stdout.flush()
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
     else:
         # If sequential mark all points as core
