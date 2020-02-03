@@ -242,13 +242,14 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         rec(spaces.sub_elements())
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
-    # Extract meshes
-    meshes = [space.mesh() for space in spaces]
+    # Get a mixed mesh
+    mesh = tuple(space.mesh() for space in spaces)
+    mesh = flatten(mesh)
 
     # Get topological spaces
-    tspaces = tuple(s.topological for s in flatten(spaces))
+    spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
-    for space in tspaces:
+    for space in spaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
@@ -258,29 +259,14 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    # tspaces may or may not share the same mesh
-    if meshes[:-1] == meshes[1:]:
-        # All tspaces share the same mesh
-        new = impl.MixedFunctionSpace(tspaces, name=name)
-
-        # Select mesh
-        mesh = meshes[0]
-        if mesh is not mesh.topology:
+    new = impl.MixedFunctionSpace(spaces, name=name)
+    if all(m is not m.topology for m in mesh):
+        if new.mixed():
+            # the topological spaces are defined on multiple meshes
+            # and new.ufl_element() is defined on a mixed cell.
             return impl.WithGeometry(new, mesh)
-        return new
-    else:
-        # Spaces are defined on multiple meshes
-
-        # Check that they all have the same base mesh
-        base_meshes = [m.submesh_get_base() for m in meshes]
-        if base_meshes[:-1] != base_meshes[1:]:
-            raise ValueError("All function spaces must be defined on meshes sharing the same base!")
-
-        new = impl.MixedFunctionSpace(tspaces, name=name, has_multiple_meshes=True)
-
-        if all([m is not m.topology for m in meshes]):
-            return impl.WithGeometryMixed(new, meshes, spaces)
-        elif all([m is m.topology for m in meshes]):
-            return new
         else:
-            raise TypeError("FunctionSpaces have inconsistent mesh types.")
+            # the topological spaces are defined on a single mesh
+            # and new.ufl_element() is defined on a single cell.
+            return impl.WithGeometry(new, mesh[0])
+    return new

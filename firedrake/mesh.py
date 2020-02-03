@@ -891,6 +891,9 @@ class MeshTopology(object):
         else:
             return []
 
+    def __iter__(self):
+        yield self
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -1399,6 +1402,9 @@ values from f.)"""
     def __lt__(self, other):
         # __lt__ has been removed in ufl.Mesh, but is required in `ufl.domain.extract_domains`
         return self._ufl_id < other._ufl_id
+
+    def __iter__(self):
+        yield self
 
 
 def make_mesh_from_coordinates(coordinates):

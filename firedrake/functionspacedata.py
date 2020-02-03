@@ -402,7 +402,6 @@ class FunctionSpaceData(object):
 
         # These are keyed only on nodes per topological entity.
         global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
-        
         node_set = get_node_set(mesh, (nodes_per_entity, real_tensorproduct))
 
         edofs_key = entity_dofs_key(entity_dofs)
