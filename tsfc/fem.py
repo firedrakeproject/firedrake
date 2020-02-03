@@ -23,6 +23,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
 
 
 from FIAT.reference_element import make_affine_mapping
+from FIAT import ufc_simplex
 
 import gem
 from gem.node import traversal
@@ -151,9 +152,19 @@ class CoordinateMapping(PhysicalGeometry):
         return map_expr_dag(context.translator, expr)
 
     def reference_normals(self):
-        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
+        if isinstance(self.interface.fiat_cell, FIAT.ufc_simplex) \
+           and self.interface.fiat_cell.get_spatial_dimension() == 2:
+            return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
+        else:
+            raise NotImplementedError("Only works for triangles for now")
 
     def physical_tangents(self):
+        if isinstance(self.interface.fiat_cell, FIAT.ufc_simplex) \
+           and self.interface.fiat_cell.get_spatial_dimension() == 2:
+            return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
+        else:
+            raise NotImplementedError("Only works for triangles for now")
+
         rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
         jac = self.jacobian_at([1/3, 1/3])
 
@@ -180,6 +191,24 @@ class CoordinateMapping(PhysicalGeometry):
         config.update(self.config)
         context = PointSetContext(**config)
         return map_expr_dag(context.translator, expr)
+
+    def physical_points(self, point_set):
+        """Converts point_set from reference to physical space"""
+        expr = SpatialCoordinate(self.mt.terminal.ufl_domain())
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+        expr = preprocess_expression(expr)
+        config = {"point_set": point_set}
+        config.update(self.config)
+        context = PointSetContext(**config)
+        return map_expr_dag(context.translator, expr)
+
+    def physical_vertices(self):
+        vs = PointSet(self.interface.fiat_cell.vertices)
+        return self.physical_points(vs)
+
 
 
 def needs_coordinate_mapping(element):
