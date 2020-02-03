@@ -240,7 +240,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
-        elif not isinstance(V, functionspaceimpl.WithGeometryBase):
+        elif not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
