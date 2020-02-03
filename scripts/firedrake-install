@@ -1425,6 +1425,7 @@ if mode == "install":
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
+    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch) 
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1522,6 +1523,7 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
+        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch) 
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:
