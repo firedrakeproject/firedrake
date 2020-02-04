@@ -308,50 +308,40 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             # Used for the sparsity construction
             iteration_regions = []
-            nrow = len(test.function_space())
-            ncol = len(trial.function_space())
-            map_pairs_ij = [[[] for _ in range(ncol)] for _ in range(nrow)]
             if cell_domains:
                 map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
-                for i in range(nrow):
-                    imesh = test.function_space()[i].mesh().topology
-                    idim = imesh._plex.getDimension()
-                    for j in range(ncol):
-                        jmesh = trial.function_space()[j].mesh().topology
-                        jdim = jmesh._plex.getDimension()
-                        if test.cell_node_map() is None:
-                            rm = None
-                        else:
-                            if test.cell_node_map().split[i] is None:
-                                rm = None
-                            else:
-                                rm = op2.ComposedMap([test.cell_node_map().split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
-                        if trial.cell_node_map() is None:
-                            cm = None
-                        else:
-                            if trial.cell_node_map().split[j] is None:
-                                cm = None
-                            else:
-                                cm = op2.ComposedMap([trial.cell_node_map().split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
-                        map_pairs_ij[i][j].append((rm, cm))
-                #map_pairs_ij=None
                 iteration_regions.append(tuple(cell_domains))
             if exterior_facet_domains:
                 map_pairs.append((test.exterior_facet_node_map(), trial.exterior_facet_node_map()))
-                #TODO: Implement correct map_pairs_ij after testing cell implementation
-                for i in range(nrow):
-                    for j in range(ncol):
-                        map_pairs_ij[i][j].append((test.exterior_facet_node_map().split[i], trial.exterior_facet_node_map().split[j]))
                 iteration_regions.append(tuple(exterior_facet_domains))
             if interior_facet_domains:
                 map_pairs.append((test.interior_facet_node_map(), trial.interior_facet_node_map()))
-                #TODO: Implement correct map_pairs_ij after testing cell implementation
-                for i in range(nrow):
-                    for j in range(ncol):
-                        map_pairs_ij[i][j].append((test.interior_facet_node_map().split[i], trial.interior_facet_node_map().split[j]))
                 iteration_regions.append(tuple(interior_facet_domains))
 
             map_pairs = tuple(map_pairs)
+
+            # General implementation for mixed problems
+            nrow = len(test.function_space())
+            ncol = len(trial.function_space())
+            map_pairs_ij = [[[] for _ in range(ncol)] for _ in range(nrow)]
+
+            #TODO: Think what (idim, jdim) pair should be used when mixed, for each integ_type.
+            for i in range(nrow):
+                for j in range(ncol):
+                    if cell_domains:
+                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'cell'))
+                    if exterior_facet_domains:
+                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'exterior_facet'))
+                    if interior_facet_domains:
+                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'interior_facet'))
+            import sys
+            print(cell_domains)
+            print(exterior_facet_domains)
+            print(interior_facet_domains)
+            for k, v in test.function_space()._sparsity_maps.items():
+                print(v)
+                sys.stdout.flush()
+
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
 
@@ -382,15 +372,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if result_matrix.block_shape != (1, 1) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        def mat(testmap, trialmap, rowbc, colbc, i, j):
-            m = testmap(test.function_space()[i])
-            n = trialmap(trial.function_space()[j])
-            imesh = test.function_space()[i].mesh().topology
-            idim = imesh._plex.getDimension()
-            jmesh = trial.function_space()[j].mesh().topology
-            jdim = jmesh._plex.getDimension()
-            maps = (m if m else None, 
-                    op2.ComposedMap([n, ] + jmesh.submesh_get_entity_map_list(imesh, jdim)) if n else None)
+        def mat(test_domain, trial_domain, rowbc, colbc, i, j):
+            # assume test_domain == trial_domain for now
+            maps = test.sparsity_map(trial, i, j, test_domain)
 
             rlgmap, clgmap = tensor[i, j].local_to_global_maps
             V = test.function_space()[i]
@@ -506,11 +490,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             def get_map(x):
                 return x.cell_node_map()
 
+            domain_type = 'cell'
+
         elif integral_type in ("exterior_facet", "exterior_facet_vert"):
             extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
             def get_map(x):
                 return x.exterior_facet_node_map()
+
+            domain_type = 'exterior_facet'
 
         elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
             # In the case of extruded meshes with horizontal facet integrals, two
@@ -523,11 +511,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             def get_map(x):
                 return x.cell_node_map()
 
+            domain_type = 'cell'
+
         elif integral_type in ("interior_facet", "interior_facet_vert"):
             extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
             def get_map(x):
                 return x.interior_facet_node_map()
+
+            domain_type = 'interior_facet'
 
         elif integral_type == "interior_facet_horiz":
             decoration = op2.ON_INTERIOR_FACETS
@@ -536,13 +528,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             def get_map(x):
                 return x.cell_node_map()
 
+            domain_type = 'cell'
+
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
         # Output argument
         if is_mat:
-            tensor_arg = mat(lambda s: get_map(s),
-                             lambda s: get_map(s),
+            tensor_arg = mat(domain_type,
+                             domain_type,
                              tsbc, trbc,
                              i, j)
         elif is_vec:

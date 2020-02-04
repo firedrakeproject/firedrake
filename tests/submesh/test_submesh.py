@@ -6,7 +6,7 @@ import math
 import pytest
 
 from firedrake import *
-from firedrake import dmplex
+from firedrake.cython import dmplex
 from firedrake.petsc import PETSc
 from pyop2.datatypes import IntType
 

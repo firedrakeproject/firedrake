@@ -244,7 +244,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     # Get a mixed mesh
     mesh = tuple(space.mesh() for space in spaces)
-    mesh = flatten(mesh)
+    mesh = tuple(flatten(mesh))
 
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))

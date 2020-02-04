@@ -40,12 +40,12 @@ class WithGeometry(ufl.FunctionSpace):
         if isinstance(mesh, tuple):
             # Function space on a mixed mesh
             assert isinstance(function_space, MixedFunctionSpace)
-            assert function_space.mixed():
-            assert len(function_space) = len(mesh)
+            assert function_space.mixed()
+            assert len(function_space) == len(mesh)
             for fs, m in zip(function_space, mesh):
                 assert m.topology is fs.mesh()
                 assert m.topology is not m
-        else
+        else:
             # Function space on a single mesh
             assert mesh.topology is function_space.mesh()
             assert mesh.topology is not mesh
@@ -56,7 +56,7 @@ class WithGeometry(ufl.FunctionSpace):
 
         if parent is not None:
             self.parent = parent
-        else if function_space.parent is not None:
+        elif function_space.parent is not None:
             self.parent = WithGeometry(function_space.parent, mesh)
         else:
             self.parent = None
@@ -65,7 +65,7 @@ class WithGeometry(ufl.FunctionSpace):
     def _split(self):
         if self.mixed():
             return tuple(WithGeometry(fs, m, parent=self)
-                         for m, fs in zip(self.mesh(), self.topological.split())
+                         for m, fs in zip(self.mesh(), self.topological.split()))
         else:
             return tuple(WithGeometry(subspace, self.mesh())
                          for subspace in self.topological.split())
@@ -254,6 +254,42 @@ class WithGeometry(ufl.FunctionSpace):
         return type(self)(self.topological.collapse(), self.mesh())
 
 
+def _sparsity_map(self, trial, i, j, domain_type):
+    r"""Return (cached) sparsity map corresponding to the given arguments:
+    self        : test functionspace
+    trial       : trial functionspace
+    i           : row index
+    j           : col index
+    domain_type : 'cell', 'interior_facet', or 'exterior_facet'
+    """
+    if (trial, i, j, domain_type) in self._sparsity_maps:
+        return self._sparsity_maps[(trial, i, j, domain_type)]
+
+    imesh = self[i].mesh().topology
+    idim = imesh._plex.getDimension()
+    jmesh = trial[j].mesh().topology
+    jdim = jmesh._plex.getDimension()
+    # Get test and trial maps
+    test_map = getattr(self, domain_type + '_node_map')()
+    trial_map = getattr(trial, domain_type + '_node_map')()
+    if test_map is None:
+        rm = None
+    else:
+        if test_map.split[i] is None:
+            rm = None
+        else:
+            rm = op2.ComposedMap([test_map.split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
+    if trial_map is None:
+        cm = None
+    else:
+        if trial_map.split[j] is None:
+            cm = None
+        else:
+            cm = op2.ComposedMap([trial_map.split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
+
+    return self._sparsity_maps.setdefault((trial, i, j, domain_type), (rm, cm))
+
+
 class FunctionSpace(object):
     r"""A representation of a function space.
 
@@ -337,6 +373,11 @@ class FunctionSpace(object):
         self.offset = sdata.offset
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+
+        # Cache sparsity maps on test function space object;
+        # we set items when allocating, and get values when
+        # actually assembling.
+        self._sparsity_maps = {}
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -531,6 +572,9 @@ class FunctionSpace(object):
         from firedrake import FunctionSpace
         return FunctionSpace(self.mesh(), self.ufl_element())
 
+    def sparsity_map(self, trial, i, j, domain_type):
+        return _sparsity_map(self, trial, i, j, domain_type)
+
 
 class MixedFunctionSpace(object):
     r"""A function space on a mixed finite element.
@@ -556,7 +600,7 @@ class MixedFunctionSpace(object):
         self.comm = self.node_set.comm
         # Get a mixed mesh_topology
         _mesh = tuple(space.mesh() for space in spaces)
-        _mesh = flatten(_mesh)
+        _mesh = tuple(flatten(_mesh))
         if _mesh[:-1] == _mesh[1:]:
             # Single mesh_topology
             self._mesh = _mesh[0]
@@ -567,6 +611,12 @@ class MixedFunctionSpace(object):
             self._mesh = _mesh
             # MixedElement on a mixed cell
             self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s in spaces], mixed=True)
+
+        # Cache sparsity maps on test function space object;
+        # we set items when allocating, and get values when
+        # actually assembling.
+        self._sparsity_maps = {}
+
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -696,6 +746,9 @@ class MixedFunctionSpace(object):
         r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
+
+    def sparsity_map(self, trial, i, j, domain_type):
+        return _sparsity_map(self, trial, i, j, domain_type)
 
     def local_to_global_map(self, bcs):
         r"""Return a map from process local dof numbering to global dof numbering.
