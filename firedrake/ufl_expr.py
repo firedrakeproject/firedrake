@@ -46,11 +46,10 @@ class Argument(ufl.argument.Argument):
         return self.function_space().exterior_facet_node_map
 
     def sparsity_map(self, trial, i, j, domain_type):
-        # Store sparsity maps on the test function when
+        # Store sparsity maps on the 'test' function when
         # allocating the matrix, and use those objects
         # when assembling.
-        if self._number != 0:
-            raise RuntimeError("Must store sparsity maps on test function")
+        # This 'test' function may or may not have number = 0.
         return self.function_space().sparsity_map(trial.function_space(), i, j, domain_type)
 
     def function_space(self):

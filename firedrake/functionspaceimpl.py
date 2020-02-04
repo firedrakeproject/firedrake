@@ -517,7 +517,7 @@ class FunctionSpace(object):
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
     def cell_node_map(self):
-        r"""Return the :class:`pyop2.Map` from cels to
+        r"""Return the :class:`pyop2.Map` from cells to
         function space nodes."""
         sdata = self._shared_data
         return sdata.get_map(self,

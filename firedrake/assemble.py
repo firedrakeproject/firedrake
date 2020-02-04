@@ -18,6 +18,7 @@ from firedrake.slate import slac
 from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.utils import ScalarType
 from firedrake.adjoint import annotate_assemble
+from firedrake.constant import Constant
 
 
 __all__ = ["assemble"]
@@ -395,9 +396,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor = result_function.dat
             zero_tensor_parloop = tensor.zero
 
-        def vec(testmap, i):
-            _testmap = testmap(test.function_space()[i])
+        #def vec(testmap, i):
+        #    _testmap = testmap(test.function_space()[i])
+        #    return tensor[i](op2.INC, _testmap if _testmap else None)
+        def vec(get_map, i):
+            _testmap = get_map(test.function_space()[i])
+            _testmap = op2.ComposedMap([_testmap, ])
             return tensor[i](op2.INC, _testmap if _testmap else None)
+
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -532,26 +538,29 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              tsbc, trbc,
                              i, j)
         elif is_vec:
-            tensor_arg = vec(lambda s: get_map(s), i)
+            tensor_arg = vec(get_map, i)
         else:
             tensor_arg = tensor(op2.INC)
 
         coords = m.coordinates
         args = [kernel, itspace, tensor_arg,
-                coords.dat(op2.READ, get_map(coords))]
+                coords.dat(op2.READ, op2.ComposedMap([get_map(coords), ]))]
         if needs_orientations:
             o = m.cell_orientations()
-            args.append(o.dat(op2.READ, get_map(o)))
+            args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
         if needs_cell_sizes:
             o = m.cell_sizes
-            args.append(o.dat(op2.READ, get_map(o)))
+            args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
 
         for n in coeff_map:
             c = coefficients[n]
             for c_ in c.split():
-                jmesh = c_.function_space().mesh().topology
-                jdim = jmesh._plex.getDimension()
-                m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+                if isinstance(c_, Constant):
+                    m_ = get_map(c_)
+                else:
+                    jmesh = c_.function_space().mesh().topology
+                    jdim = jmesh._plex.getDimension()
+                    m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:
             assert integral_type == "cell"
