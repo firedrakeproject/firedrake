@@ -507,7 +507,7 @@ else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
 
-petsc_options |= set(os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split())
+petsc_options = list(petsc_options) + os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split()
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
