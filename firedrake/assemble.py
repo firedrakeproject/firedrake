@@ -334,13 +334,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'exterior_facet'))
                     if interior_facet_domains:
                         map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'interior_facet'))
-            import sys
-            print(cell_domains)
-            print(exterior_facet_domains)
-            print(interior_facet_domains)
-            for k, v in test.function_space()._sparsity_maps.items():
-                print(v)
-                sys.stdout.flush()
 
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
@@ -375,7 +368,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         def mat(test_domain, trial_domain, rowbc, colbc, i, j):
             # assume test_domain == trial_domain for now
             maps = test.sparsity_map(trial, i, j, test_domain)
-
             rlgmap, clgmap = tensor[i, j].local_to_global_maps
             V = test.function_space()[i]
             rlgmap = V.local_to_global_map(rowbc, lgmap=rlgmap)

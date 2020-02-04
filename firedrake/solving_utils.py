@@ -274,7 +274,9 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
+        print("before assemble residual:::::99999999999999999999")
         ctx._assemble_residual()
+        print("after assemble residual:::::99999999999999999999")
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -308,7 +310,7 @@ class _SNESContext(object):
 
         if ctx._pre_jacobian_callback is not None:
             ctx._pre_jacobian_callback(X)
-
+        print(99999999999999999999999999999999999999999)
         ctx._assemble_jac()
 
         if ctx.Jp is not None:

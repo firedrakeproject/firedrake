@@ -266,6 +266,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                print(488888888888888888888888888)
             work.copy(u)
         self._setup = True
         solving_utils.check_snes_convergence(self.snes)

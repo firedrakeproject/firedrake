@@ -264,7 +264,6 @@ def _sparsity_map(self, trial, i, j, domain_type):
     """
     if (trial, i, j, domain_type) in self._sparsity_maps:
         return self._sparsity_maps[(trial, i, j, domain_type)]
-
     imesh = self[i].mesh().topology
     idim = imesh._plex.getDimension()
     jmesh = trial[j].mesh().topology
