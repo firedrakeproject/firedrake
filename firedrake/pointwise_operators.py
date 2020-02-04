@@ -201,10 +201,7 @@ class PointexprOperator(AbstractPointwiseOperator):
         dNdq = dNdq.evaluate()
         dNdq_adj = dNdq#conj(transpose(dNdq))
         #dNdq_adj = adjoint(dNdq)
-        #import ipdb; ipdb.set_trace()
-        print('adjoint_action')
         result = firedrake.assemble(dNdq_adj)
-        #import ipdb; ipdb.set_trace()
         return result.vector() * x
         #return dNdq_adj * x
 

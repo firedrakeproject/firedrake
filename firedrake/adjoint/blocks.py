@@ -1,9 +1,12 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+from pyadjoint.tape import no_annotations
+
 
 import firedrake.utils as utils
 
+import ufl
 
 class Backend:
     @utils.cached_property
@@ -200,16 +203,72 @@ class PointwiseOperatorBlock(Block, Backend):
     def __init__(self, point_op, *args, **kwargs):
         super(PointwiseOperatorBlock, self).__init__()
         self.point_op = point_op
-        self.add_dependency(self.point_op, no_duplicates=True)
         for c in self.point_op.ufl_operands:
-            self.add_dependency(c, no_duplicates=True)
+            coeff_c = ufl.algorithms.extract_coefficients(c)
+            for ci in coeff_c:
+                self.add_dependency(ci, no_duplicates=True)
+        self.add_dependency(self.point_op, no_duplicates=True)
+
+    @no_annotations
+    def evaluate_adj(self, markings=False):
+        """Computes the adjoint action and stores the result in the `adj_value` attribute of the dependencies.
+
+        This method will by default call the `evaluate_adj_component` method for each dependency.
+
+        Args:
+            markings (bool): If True, then each block_variable will have set `marked_in_path` attribute indicating
+                whether their adjoint components are relevant for computing the final target adjoint values.
+                Default is False.
+
+        """
+        outputs = self.get_outputs()
+        adj_inputs = []
+        has_input = False
+        """
+        for output in outputs:
+            adj_inputs.append(output.adj_value)
+            for i, e in enumerate(self._dependencies):
+                if e.output == output.output:
+                    adj_inputs.pop(-1)
+                    adj_inputs.append(e.adj_value)
+                    if e.adj_value is not None:
+                        has_input = True
+            if output.adj_value is not None:
+                has_input = True
+        """
+        for output in outputs:
+            for i, e in enumerate(self._dependencies):
+                if e.output == output.output:
+                    adj_inputs.append(e.adj_value)
+                    if e.adj_value is not None:
+                        has_input = True
+
+        if not has_input:
+            return
+
+        deps = self.get_dependencies()
+        inputs = [bv.saved_output for bv in deps]
+        relevant_dependencies = [(i, bv) for i, bv in enumerate(deps) if bv.marked_in_path or not markings]
+
+        if len(relevant_dependencies) <= 0:
+            return
+
+        prepared = self.prepare_evaluate_adj(inputs, adj_inputs, relevant_dependencies)
+
+        for idx, dep in relevant_dependencies:
+            adj_output = self.evaluate_adj_component(inputs,
+                                                     adj_inputs,
+                                                     dep,
+                                                     idx,
+                                                     prepared)
+            if adj_output is not None:
+                dep.add_adj_output(adj_output)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        N, ops = inputs[0], inputs[1:]
+        N, ops = inputs[-1], inputs[:-1]
         return N._ufl_expr_reconstruct_(*ops)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        print('PointopBlock eval_adj_comp')
         if self.point_op == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             #self.point_op_rep = block_variable.saved_output
@@ -221,12 +280,10 @@ class PointwiseOperatorBlock(Block, Backend):
         i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0] 
         dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
         #dNdm_adj = self.compat.assemble_adjoint_value(dNdm_adj)
-        import ipdb; ipdb.set_trace()
         return dNdm_adj
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        print('PointopBlock recompute_comp')
-        p, ops = inputs[0], inputs[1:]
+        p, ops = inputs[-1], inputs[:-1]
         q = type(p).copy(p)
         return q.evaluate()
 
