@@ -2,7 +2,6 @@ import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SplitBlock
-import firedrake
 
 
 class FunctionMixin(FloatingType):
@@ -47,11 +46,11 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
-      
+
             with stop_annotating():
-            
+
             	if self._split is None:
-                	self._split = tuple(firedrake.Function(fs, dat, name="%s[%d]" % (self.name(), i))
+                	self._split = tuple(self.backend.Function(fs, dat, name="%s[%d]" % (self.name(), i))
                                 for i, (fs, dat) in
                                 enumerate(zip(self.function_space(), self.dat)))                        
             

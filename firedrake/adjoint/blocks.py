@@ -4,8 +4,6 @@ from pyadjoint.block import Block
 
 import firedrake.utils as utils
 
-import firedrake
-
 class Backend:
     @utils.cached_property
     def backend(self):
@@ -167,7 +165,7 @@ class MeshInputBlock(Block):
         mesh = self.get_dependencies()[0].saved_output
         return mesh.coordinates
 
-class SplitBlock(Block):
+class SplitBlock(Block, Backend):
     
     def __init__(self, func):
         super().__init__()
@@ -176,7 +174,7 @@ class SplitBlock(Block):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = firedrake.Function(block_variable.output.function_space())
+        eval_adj = self.backend.Function(block_variable.output.function_space())
         for i, e in enumerate(adj_inputs):
             if e is not None:
                 eval_adj.sub(i).assign(e.function)
@@ -191,7 +189,7 @@ class SplitBlock(Block):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = firedrake.Function(block_variable.output.function_space())
+        eval_hessian = self.backend.Function(block_variable.output.function_space())
         for i, e in enumerate(hessian_inputs):
             if e is not None:
                 eval_hessian.sub(i).assign(e.function)
@@ -200,7 +198,7 @@ class SplitBlock(Block):
         return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        new_func = firedrake.Function(self.func.function_space()).assign(inputs[0])
+        new_func = self.backend.Function(self.func.function_space()).assign(inputs[0])
         return new_func.sub(idx) 
 
 
