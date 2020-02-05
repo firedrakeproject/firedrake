@@ -28,9 +28,9 @@ class Argument(ufl.argument.Argument):
        :func:`TestFunction`, with a number of ``1`` it is used as
        a :func:`TrialFunction`.
     """
-    def __init__(self, function_space, number, part=None):
+    def __init__(self, function_space, number, part=None, parent=None):
         super(Argument, self).__init__(function_space.ufl_function_space(),
-                                       number, part=part)
+                                       number, part=part, parent=parent)
         self._function_space = function_space
 
     @utils.cached_property

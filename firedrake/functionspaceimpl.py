@@ -45,12 +45,14 @@ class WithGeometry(ufl.FunctionSpace):
             for fs, m in zip(function_space, mesh):
                 assert m.topology is fs.mesh()
                 assert m.topology is not m
+            cell = tuple(m.ufl_cell() for m in mesh)
         else:
             # Function space on a single mesh
             assert mesh.topology is function_space.mesh()
             assert mesh.topology is not mesh
+            cell = mesh.ufl_cell()
 
-        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
+        element = function_space.ufl_element().reconstruct(cell=cell)
         super(WithGeometry, self).__init__(mesh, element)
         self.topological = function_space
 

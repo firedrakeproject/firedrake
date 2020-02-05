@@ -234,6 +234,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
+    for indices, kinfo in kernels:
+        print(indices, ":::::::", kinfo)
+
+
     rank = len(f.arguments())
     if diagonal:
         assert rank == 2
@@ -275,7 +279,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             yield lambda: tensor
             return
 
-        test, trial = f.arguments()
+        form_arguments = f.arguments()
+        test, trial = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
 
         map_pairs = []
         cell_domains = []

@@ -24,7 +24,8 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
         self.bcs = bcs
-        test, trial = a.arguments()
+        form_arguments = a.arguments()
+        test, trial = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
