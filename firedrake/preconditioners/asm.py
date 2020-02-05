@@ -3,7 +3,7 @@ import abc
 from pyop2.mpi import COMM_SELF
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_function_space
 
 __all__ = ("ASMPatchPC", "ASMLinesmooth")
 
@@ -20,15 +20,11 @@ class ASMPatchPC(PCBase):
     def initialize(self, pc):
         # Get context from pc
         _, P = pc.getOperators()
-        if P.getType() == 'python':
-            ctx = P.getPythonContext()
-        else:
-            ctx = get_appctx(pc.getDM()).appctx
-
+        dm = pc.getDM()
         self.prefix = pc.getOptionsPrefix() + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
-        V = ctx['TraceSpace']
+        V = get_function_space(dm)
 
         # Obtain patches from user defined funtion
         ises = self.get_patches(V)

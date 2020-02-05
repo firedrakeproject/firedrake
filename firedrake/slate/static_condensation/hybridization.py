@@ -245,7 +245,6 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params)
         nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
         self._ctx_ref = nctx
-        self._ctx_ref.appctx.update({'TraceSpace': TraceSpace})
 
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm
@@ -259,14 +258,14 @@ class HybridizationPC(SCBase):
         trace_ksp.setDMActive(False)
         trace_ksp.setOptionsPrefix(prefix)
         trace_ksp.setOperators(Smat, Smat)
-        
+
         # Option to add custom monitor
         monitor = self.ctx.appctx.get('custom_monitor', None)
         if monitor:
             #print('MONITOR')
             monitor.add_reconstructor(self.backward_substitution)
             trace_ksp.setMonitor(monitor)
-        ### 
+        ###
         self.trace_ksp = trace_ksp
 
         with dmhooks.add_hooks(trace_dm, self,
