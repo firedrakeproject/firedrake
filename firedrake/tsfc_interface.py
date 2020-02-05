@@ -99,7 +99,7 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False, domain_numbers=None):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -109,9 +109,10 @@ class TSFCKernel(Cached):
                     + str(number_map)
                     + str(type(interface))
                     + str(coffee)
-                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
+                    + str(diagonal)
+                    + str(domain_numbers)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False, domain_numbers=None):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
@@ -134,11 +135,13 @@ class TSFCKernel(Cached):
             ast = ast if not assemble_inverse else _inverse(ast)
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
+            if domain_numbers:
+                domain_number = domain_numbers[form.ufl_domains()[kernel.domain_number]]
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
-                                      domain_number=kernel.domain_number,
+                                      domain_number=domain_number,
                                       coefficient_map=numbers,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
@@ -205,6 +208,10 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
     # A map from all form coefficients to their number.
     coefficient_numbers = dict((c, n)
                                for (n, c) in enumerate(form.coefficients()))
+
+    # A map from all form domains to their number.
+    domain_numbers = form.domain_numbering()
+
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -220,7 +227,7 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
         kinfos = TSFCKernel(f, name + "".join(map(str, idx)), parameters,
-                            number_map, interface, coffee, diagonal).kernels
+                            number_map, interface, coffee, diagonal, domain_numbers).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

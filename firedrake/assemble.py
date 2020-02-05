@@ -234,11 +234,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
-    for indices, kinfo in kernels:
-        print(indices, ":::::::", kinfo)
+    #for indices, kinfo in kernels:
+    #    print(indices, ":::::::", kinfo)
 
+    form_arguments = f.arguments()
+    form_arguments = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
 
-    rank = len(f.arguments())
+    rank = len(form_arguments)
     if diagonal:
         assert rank == 2
     is_mat = rank == 2 and not diagonal
@@ -279,8 +281,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             yield lambda: tensor
             return
 
-        form_arguments = f.arguments()
-        test, trial = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
+        test, trial = form_arguments
 
         map_pairs = []
         cell_domains = []
@@ -392,7 +393,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             yield result
             return
     elif is_vec:
-        test = f.arguments()[0]
+        test = form_arguments[0]
         if tensor is None:
             result_function = function.Function(test.function_space())
             tensor = result_function.dat
@@ -448,6 +449,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         needs_cell_sizes = kinfo.needs_cell_sizes
 
         m = domains[domain_number]
+
         subdomain_data = f.subdomain_data()[m]
         # Find argument space indices
         if is_mat:
@@ -576,6 +578,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         try:
             yield op2.ParLoop(*args, **kwargs).compute
         except MapValueError:
+            print("^^^^^^^^domains^^^^^^^", domains)
+            print("^^^^^^^^m      ^^^^^^^", m)
+            print("^^^^^^^^do number ^^^^", domain_number)
+
+            print("====idxxx  =================", indices)
+            print("====m      =================", repr(m))
+            print("====itspace=================", itspace)
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
     # Must apply bcs outside loop over kernels because we may wish
