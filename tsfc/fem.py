@@ -31,7 +31,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
-from finat.physically_mapped import PhysicalGeometry, PhysicallyMappedElement
+from finat.physically_mapped import PhysicalGeometry, NeedsCoordinateMappingElement
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
@@ -207,7 +207,12 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_vertices(self):
         vs = PointSet(self.interface.fiat_cell.vertices)
-        return self.physical_points(vs)
+        pvs = self.physical_points(vs)
+        return pvs
+        # print(pvs)
+        # i = gem.Index()
+        # j = pvs.free_indices
+        # return gem.ComponentTensor(gem.Indexed(pvs, (i,)), j + (i,))
 
 
 
@@ -216,7 +221,7 @@ def needs_coordinate_mapping(element):
     if element.family() == 'Real':
         return False
     else:
-        return isinstance(create_element(element), PhysicallyMappedElement)
+        return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
 class PointSetContext(ContextBase):
