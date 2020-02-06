@@ -9,7 +9,7 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor,Variable,index_sum,partial_indexed,view,FlexiblyIndexed)#,Inverse,Solve,)
+                 ListTensor,Variable,index_sum,partial_indexed,view,FlexiblyIndexed,Inverse)
 
 
 from functools import singledispatch,update_wrapper
@@ -253,12 +253,6 @@ class SlateTranslator():
 
         return ret
 
-    #call gem nodes for inverse and solve
-    #@TODO: see questions on that in gem
-    @slate_to_gem.register(firedrake.slate.slate.Inverse)
-    def slate_to_gem_inverse(self,tensor,context):
-        return Inverse(self.tensor_to_variable[A])
-
     @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self,tensor,context):
         raise Solve(self.tensor_to_variable[A])   
@@ -291,6 +285,18 @@ class SlateTranslator():
 
         return FlexiblyIndexed(self.tensor_to_variable[A].children[0],dim2idxs)
 
+
+
+    # @slate_to_gem.register(firedrake.slate.slate.Inverse)
+    # def slate_to_gem_inverse(self,tensor):
+    #     A, = tensor.operands
+    #     indices =self.builder.create_index(A.shape,A)
+    #     A_indices=self.builder.gem_indices[A]
+    #     indices =self.builder.create_index(A.shape,tensor)
+    #     new_indices=self.builder.gem_indices[tensor]
+    #     ret=ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),A_indices)#TODO: check if it is possible to this easier
+    #     ret=Indexed(Inverse(ret,new_indices),new_indices)
+    #     return ret
 
 
 def eigen_tensor(expr, temporary, index):
@@ -433,9 +439,9 @@ def merge_loopy(loopy_outer,loopy_inner_list,builder):
     if len(loopy_outer.instructions)>1:
         for i in range(len(kitting_insn)):
             #add dep from second insn of outer kernel to all subkernels
-            loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+1].id,  "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+            loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id,  "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
             #dep from subkernel to the according init       
-            #loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
+            # loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
             loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[i].id)
     
     elif not len(kitting_insn)==0:
