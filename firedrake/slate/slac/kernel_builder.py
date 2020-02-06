@@ -556,6 +556,7 @@ class LocalLoopyKernelBuilder(object):
         needs_cell_facets=False
         needs_mesh_layers=False
         subkernel_indices=OrderedDict([(it, []) for it in self.supported_integral_types])
+        args_extents=[]
 
         num_facets=0
         #Maps integral type to subdomain key
@@ -589,6 +590,7 @@ class LocalLoopyKernelBuilder(object):
 
                 #populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
+                print(kinfo.kernel)
                 subkernel_indices=list(*templated_subkernels[0].loop_priority)#do I ever need these?
                 include_dirs.extend(kinfo.kernel._include_dirs)
 
@@ -643,6 +645,7 @@ class LocalLoopyKernelBuilder(object):
                     idx=self.loopy_indices[c]
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
+                    args_extents.append(extent)
 
                 #append more arguments to subkernel for different integral types
                 if integral_type == "cell":
@@ -710,7 +713,7 @@ class LocalLoopyKernelBuilder(object):
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
                                             pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
                                             predicates=predicates,within_inames=frozenset(inames),id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
-                
+
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
@@ -720,7 +723,7 @@ class LocalLoopyKernelBuilder(object):
         self.needs_mesh_layers= needs_mesh_layers
         self.num_facets=num_facets 
         #self.oriented =kinfo.oriented
-        #self.reads=reads
+        self.args=args_extents
 
 #every time an index is created it is saved in a list (gem as well as loopy)
 #saved as tuples
