@@ -538,7 +538,8 @@ def two_dimension_plot(function,
         else:
             mappable = axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
         if cmap is not None:
-            plt.colorbar(mappable)
+            pass
+            #plt.colorbar(mappable)
     return axes
 
 
