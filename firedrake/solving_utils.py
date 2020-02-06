@@ -399,4 +399,6 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return function.Function(self.F.arguments()[0].function_space())
+        form_arguments = self.F.arguments()
+        test, = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
+        return function.Function(test.function_space())

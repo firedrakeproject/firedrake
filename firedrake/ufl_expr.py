@@ -146,9 +146,9 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """
     # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if not u_is_x and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
-        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
-                         "\nYou probably meant to write split(u) when defining your form.")
+    #if not u_is_x and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
+    #    raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
+    #                     "\nYou probably meant to write split(u) when defining your form.")
 
     args = form.arguments()
 
@@ -160,9 +160,10 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
             return du
 
     # TODO: Think what coordinate derivatives should be allowed on a mixed domain
-    mesh = form.ufl_domain()
-    is_dX = u_is_x or u is mesh.coordinates
-
+    print("ufl_expr:::: fix this")
+    #mesh = form.ufl_domain()
+    #is_dX = u_is_x or u is mesh.coordinates
+    is_dX=u_is_x
     if is_dX:
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
@@ -175,6 +176,9 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     elif isinstance(u, firedrake.Function):
         V = u.function_space()
         du = argument(V)
+        if u.mixed():
+            u = u.split()
+            du = du.split()
     elif isinstance(u, firedrake.Constant):
         if u.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")

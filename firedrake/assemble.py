@@ -234,9 +234,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
-    #for indices, kinfo in kernels:
-    #    print(indices, ":::::::", kinfo)
-
     form_arguments = f.arguments()
     form_arguments = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
 
@@ -578,13 +575,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         try:
             yield op2.ParLoop(*args, **kwargs).compute
         except MapValueError:
-            print("^^^^^^^^domains^^^^^^^", domains)
-            print("^^^^^^^^m      ^^^^^^^", m)
-            print("^^^^^^^^do number ^^^^", domain_number)
-
-            print("====idxxx  =================", indices)
-            print("====m      =================", repr(m))
-            print("====itspace=================", itspace)
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
     # Must apply bcs outside loop over kernels because we may wish

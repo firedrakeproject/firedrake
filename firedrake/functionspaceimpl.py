@@ -69,7 +69,7 @@ class WithGeometry(ufl.FunctionSpace):
             return tuple(WithGeometry(fs, m, parent=self)
                          for m, fs in zip(self.mesh(), self.topological.split()))
         else:
-            return tuple(WithGeometry(subspace, self.mesh())
+            return tuple(WithGeometry(subspace, self.mesh(), parent=self.parent)
                          for subspace in self.topological.split())
 
     mesh = ufl.FunctionSpace.ufl_domain
