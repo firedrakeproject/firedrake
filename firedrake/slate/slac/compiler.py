@@ -45,6 +45,7 @@ import loopy
 import gem
 import pymbolic.primitives as pym
 from tsfc.loopy import generate as generate_loopy
+from loopy.target.c import CTarget
 
 from loopy.symbolic import SubArrayRef
 __all__ = ['compile_expression']
@@ -140,7 +141,6 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     loopy_merged= merge_loopy(loopy_outer,loopy_inner_list,builder)#builder owns the callinstruction
     print("LOOPY KERNEL GLUED")
-    # print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
@@ -616,8 +616,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
-    arg=loopy.GlobalArg("coords",shape=(18,),dtype="double")
-    args.append(arg)
+    if len(builder.args)>0:
+        arg=loopy.GlobalArg("coords",shape=(builder.args[0],),dtype="double")
+        args.append(arg)
+    else:
+        arg=loopy.GlobalArg("coords",shape=(6,),dtype="double")
+        args.append(arg)
 
     if len(builder.coefficient_vecs)!=0:
         arg=loopy.GlobalArg("coeff",shape=builder.coefficient_vecs[3][0].shape,dtype="double")
