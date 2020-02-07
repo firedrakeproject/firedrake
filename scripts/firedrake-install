@@ -1076,8 +1076,8 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
     log.info("*********************************************\n")
-    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
-    log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
+    log.info("\n".join(petsc_options))
+    log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
     sys.exit(0)
 
 
