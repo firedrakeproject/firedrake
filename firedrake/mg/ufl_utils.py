@@ -280,11 +280,16 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
+    from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx, add_hook, get_parent
     for val in coefficient_mapping.values():
         if isinstance(val, firedrake.function.Function):
-            dm = val.function_space().dm
-            if firedrake.dmhooks.get_appctx(dm) is None:
-                firedrake.dmhooks.push_appctx(dm, coarse)
+            V = val.function_space()
+            coarseneddm = V.dm
+            parentdm = get_parent(coarseneddm)
+            if get_appctx(coarseneddm) is None:
+                push_appctx(coarseneddm, coarse)
+                teardown = partial(pop_appctx, coarseneddm, coarse)
+                add_hook(parentdm, teardown=teardown)
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
