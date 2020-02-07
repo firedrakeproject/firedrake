@@ -203,16 +203,13 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": point_set}
         config.update(self.config)
         context = PointSetContext(**config)
-        return map_expr_dag(context.translator, expr)
-
+        mapped = map_expr_dag(context.translator, expr)
+        indices = tuple(gem.Index() for _ in mapped.shape)
+        return gem.ComponentTensor(gem.Indexed(mapped, indices), point_set.indices + indices) 
+        
     def physical_vertices(self):
         vs = PointSet(self.interface.fiat_cell.vertices)
-        pvs = self.physical_points(vs)
-        return pvs
-        # print(pvs)
-        # i = gem.Index()
-        # j = pvs.free_indices
-        # return gem.ComponentTensor(gem.Indexed(pvs, (i,)), j + (i,))
+        return self.physical_points(vs)
 
 
 
