@@ -245,7 +245,7 @@ honoured.""",
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
-    parser.add_argument("--show-package-manager-options", action="store_true",
+    parser.add_argument("--show-dependencies", action="store_true",
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
@@ -1166,7 +1166,7 @@ if mode == "install" or not args.update_script:
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
-    if args.show_package_manager_options:
+    if args.show_dependencies:
         log.info("\n************************************************")
         log.info("The following dependencies need to be installed:")
         log.info("************************************************\n")
@@ -1212,7 +1212,7 @@ if mode == "install" or not args.update_script:
                 brew_install(package)
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
-            log.info("Please use the --show_package_manager_options for more information.")
+            log.info("Please use the --show-dependencies for more information.")
 
     elif osname == "Linux":
         # Check for apt.
@@ -1227,7 +1227,7 @@ if mode == "install" or not args.update_script:
 
         except (subprocess.CalledProcessError, InstallError):
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
-            log.info("Please use the --show_package_manager_options for more information.")
+            log.info("Please use the --show-dependencies for more information.")
 
 
 if mode == "install":
