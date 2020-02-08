@@ -139,7 +139,9 @@ class CoordinateMapping(PhysicalGeometry):
         return self.interface.cell_size(self.mt.restriction)
 
     def jacobian_at(self, point):
+        ps = PointSingleton(point)
         expr = Jacobian(self.mt.terminal.ufl_domain())
+        assert ps.expression.shape == (expr.ufl_domain().topological_dimension(), )
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
