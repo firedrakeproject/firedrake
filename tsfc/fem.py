@@ -152,17 +152,14 @@ class CoordinateMapping(PhysicalGeometry):
         return map_expr_dag(context.translator, expr)
 
     def reference_normals(self):
-        if isinstance(self.interface.fiat_cell, FIAT.ufc_simplex) \
-           and self.interface.fiat_cell.get_spatial_dimension() == 2:
-            return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
-        else:
+        if not (isinstance(self.interface.fiat_cell, ufc_simplex) and
+                self.interface.fiat_cell.get_spatial_dimension() == 2):
             raise NotImplementedError("Only works for triangles for now")
+        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
 
     def physical_tangents(self):
-        if isinstance(self.interface.fiat_cell, FIAT.ufc_simplex) \
-           and self.interface.fiat_cell.get_spatial_dimension() == 2:
-            return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
-        else:
+        if not (isinstance(self.interface.fiat_cell, ufc_simplex) and
+                self.interface.fiat_cell.get_spatial_dimension() == 2):
             raise NotImplementedError("Only works for triangles for now")
 
         rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
