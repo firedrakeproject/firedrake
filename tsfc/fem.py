@@ -147,8 +147,7 @@ class CoordinateMapping(PhysicalGeometry):
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
         expr = preprocess_expression(expr)
-
-        config = {"point_set": PointSingleton(point)}
+        config = {"point_set": ps}
         config.update(self.config)
         context = PointSetContext(**config)
         return map_expr_dag(context.translator, expr)
@@ -191,9 +190,15 @@ class CoordinateMapping(PhysicalGeometry):
         context = PointSetContext(**config)
         return map_expr_dag(context.translator, expr)
 
-    def physical_points(self, point_set):
+    def physical_points(self, point_set, entity=None):
         """Converts point_set from reference to physical space"""
         expr = SpatialCoordinate(self.mt.terminal.ufl_domain())
+        point_shape, = point_set.expression.shape
+        if entity is not None:
+            e, _ = entity
+            assert point_shape == e
+        else:
+            assert point_shape == expr.ufl_domain().topological_dimension()
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -201,15 +206,17 @@ class CoordinateMapping(PhysicalGeometry):
         expr = preprocess_expression(expr)
         config = {"point_set": point_set}
         config.update(self.config)
+        if entity is not None:
+            config.update({name: getattr(self.interface, name)
+                           for name in ["integration_dim", "entity_ids"]})
         context = PointSetContext(**config)
         mapped = map_expr_dag(context.translator, expr)
         indices = tuple(gem.Index() for _ in mapped.shape)
-        return gem.ComponentTensor(gem.Indexed(mapped, indices), point_set.indices + indices) 
-        
+        return gem.ComponentTensor(gem.Indexed(mapped, indices), point_set.indices + indices)
+
     def physical_vertices(self):
         vs = PointSet(self.interface.fiat_cell.vertices)
         return self.physical_points(vs)
-
 
 
 def needs_coordinate_mapping(element):
