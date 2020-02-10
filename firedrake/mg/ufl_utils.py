@@ -281,7 +281,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
     from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx, add_hook, get_parent
-    for val in coefficient_mapping.values():
+    from itertools import chain
+    for val in chain(coefficient_mapping.values(), (bc._original_val for bc in problem.bcs)):
         if isinstance(val, firedrake.function.Function):
             V = val.function_space()
             coarseneddm = V.dm
