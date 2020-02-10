@@ -518,7 +518,6 @@ if args.cuda:
         petsc_options.add('--CUDAFLAGS={}'.format(args.cuda_compile_flags))
 
 
-
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(sorted(petsc_options))
 else:
@@ -737,13 +736,13 @@ def install(package):
     log.info("Installing %s" % package)
     if package == "petsc/":
         build_and_install_petsc()
-    # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
     elif package == "PyOP2/":
         if args.cuda:
             run_pip_install(["-e", package, "--include-dirs",
                 args.cuda_dir+"/include"])
         else:
             run_pip_install(["-e", package])
+    # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
     elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
