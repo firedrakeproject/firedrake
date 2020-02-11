@@ -9,7 +9,8 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor,Variable,index_sum,partial_indexed,view,FlexiblyIndexed,Inverse)
+                 ListTensor,Variable,index_sum,partial_indexed,view,
+                 FlexiblyIndexed,Inverse,Factorization)
 
 
 from functools import singledispatch,update_wrapper
@@ -287,16 +288,27 @@ class SlateTranslator():
 
 
 
-    # @slate_to_gem.register(firedrake.slate.slate.Inverse)
-    # def slate_to_gem_inverse(self,tensor):
-    #     A, = tensor.operands
-    #     indices =self.builder.create_index(A.shape,A)
-    #     A_indices=self.builder.gem_indices[A]
-    #     indices =self.builder.create_index(A.shape,tensor)
-    #     new_indices=self.builder.gem_indices[tensor]
-    #     ret=ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),A_indices)#TODO: check if it is possible to this easier
-    #     ret=Indexed(Inverse(ret,new_indices),new_indices)
-    #     return ret
+    @slate_to_gem.register(firedrake.slate.slate.Inverse)
+    def slate_to_gem_inverse(self,tensor):
+        A, = tensor.operands
+        indices =self.builder.create_index(A.shape,A)
+        A_indices=self.builder.gem_indices[A]
+        indices =self.builder.create_index(A.shape,tensor)
+        new_indices=self.builder.gem_indices[tensor]
+        ret=ComponentTensor(self.tensor_to_variable[A],A_indices)
+        ret=Indexed(Inverse(ret,new_indices),new_indices)
+        return ret
+
+    @slate_to_gem.register(firedrake.slate.slate.Factorization)
+    def slate_to_gem_factorization(self,tensor):
+        A, = tensor.operands
+        indices =self.builder.create_index(A.shape,A)
+        A_indices=self.builder.gem_indices[A]
+        indices =self.builder.create_index(A.shape,tensor)
+        new_indices=self.builder.gem_indices[tensor]
+        ret=ComponentTensor(self.tensor_to_variable[A],A_indices)
+        ret=Indexed(Factorization(ret,new_indices),new_indices)
+        return ret
 
 
 def eigen_tensor(expr, temporary, index):
