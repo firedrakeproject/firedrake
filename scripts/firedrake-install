@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 import atexit
 import json
+import shlex
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -507,7 +508,7 @@ else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
 
-petsc_options = list(petsc_options) + os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split()
+petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -1076,7 +1077,7 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
     log.info("*********************************************\n")
-    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
+    log.info("\n".join(shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))))
     log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
     sys.exit(0)
 
