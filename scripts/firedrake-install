@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 import atexit
 import json
+import shlex
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -509,7 +510,7 @@ else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
 
-petsc_options = list(petsc_options) + os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split()
+petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -1343,6 +1344,8 @@ if mode == "install":
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
+    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
+    os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1437,6 +1440,8 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
+        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
+        os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:
