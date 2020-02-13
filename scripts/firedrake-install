@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 import atexit
 import json
+import shlex
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -495,18 +496,19 @@ if options["petsc_int_type"] == "int32":
     if not options["minimal_petsc"]:
         # AMG
         petsc_options.add("--download-ml")
-        # Mesh adaptivity (needs metis, but not parmetis)
-        petsc_options.add("--download-pragmatic")
 else:
     petsc_options.add("--with-64-bit-indices")
 
 if options.get("mpiexec") is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
+    petsc_options.add("--with-cc={}".format(options["mpicc"]))
+    petsc_options.add("--with-cxx={}".format(options["mpicxx"]))
+    petsc_options.add("--with-fc={}".format(options["mpif90"]))
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
 
-petsc_options |= set(os.environ.get("PETSC_CONFIGURE_OPTIONS", "").split())
+petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -898,7 +900,8 @@ def build_and_install_libsupermesh():
                             "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90])
+                            "-DMPI_Fortran_COMPILER=" + f90,
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -920,7 +923,8 @@ def build_and_install_pythonocc():
                             "-DPYTHON_EXECUTABLE=" + python[0],
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90])
+                            "-DMPI_Fortran_COMPILER=" + f90,
+                            "-DCMAKE_Fortran_COMPILER=" + f90])
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild pythonocc-core")
@@ -1073,7 +1077,7 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
     log.info("*********************************************\n")
-    log.info("\n".join(os.environ["PETSC_CONFIGURE_OPTIONS"].split()))
+    log.info("\n".join(shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))))
     log.info("\nEigen will be downloaded from https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz")
     sys.exit(0)
 
@@ -1250,7 +1254,7 @@ for opt in ["mpicc", "mpicxx", "mpif90"]:
     os.symlink(src, dest)
 
 if options.get("mpiexec"):
-    mpiexec_loc = shutil.which(args.mpiexec)
+    mpiexec_loc = shutil.which(options.get("mpiexec"))
 else:
     mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
 mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
@@ -1314,6 +1318,8 @@ if mode == "install":
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
+    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
+    os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1408,6 +1414,8 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
+        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
+        os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:

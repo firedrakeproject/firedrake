@@ -8,6 +8,7 @@ class MeshGeometryMixin(OverloadedType):
         def wrapper(self, *args, **kwargs):
             OverloadedType.__init__(self, *args, **kwargs)
             init(self, *args, **kwargs)
+            self._ad_coordinate_space = None
         return wrapper
 
     @no_annotations
@@ -38,3 +39,8 @@ class MeshGeometryMixin(OverloadedType):
             f._ad_outputs = [self]
             return f
         return _coordinates_function
+
+    def _ad_function_space(self):
+        if self._ad_coordinate_space is None:
+            self._ad_coordinate_space = self.coordinates.function_space().ufl_function_space()
+        return self._ad_coordinate_space

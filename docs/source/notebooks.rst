@@ -70,7 +70,7 @@ PDE-constrained optimisation with `dolfin-adjoint <http://www.dolfin-adjoint.org
 
 Now that we've learnt how to solve some PDEs, we might want to
 consider optimisation subject to PDE constraints.  `This notebook
-<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-stokes-bc-control.ipynb>`__
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb>`__
 introduces the use of `dolfin-adjoint
 <http://www.dolfin-adjoint.org/>`__ to solve PDE constrained
 optimisation problems.  We solve the Stokes equations and minimise
@@ -82,7 +82,7 @@ Geometric multigrid
 The next notebook looks a little bit at the support Firedrake has for
 geometric multigrid, and how you can configure complex multilevel
 solvers purely using `PETSc options
-<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-multigrid.ipynb>`__.
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-geometric-multigrid.ipynb>`__.
 
 Solver Composition
 ==================
