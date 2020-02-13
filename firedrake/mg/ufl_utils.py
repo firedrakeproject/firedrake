@@ -8,6 +8,7 @@ import firedrake
 from firedrake.petsc import PETSc
 
 from . import utils
+import weakref
 
 
 __all__ = ["coarsen"]
@@ -167,10 +168,34 @@ def coarsen_function(expr, self, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         V = expr.function_space()
-        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
+        dm = expr.function_space().dm
+        manager = firedrake.dmhooks.get_transfer_manager(dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
         manager.inject(expr, new)
+
+        expr._child = weakref.proxy(new)
+
+        def inject_on_restrict(fine, mrestrict, rscale, inject, coarse):
+            print("Inside our restrict hook!!!")
+            finectx = firedrake.dmhooks.get_appctx(fine)
+
+            coeffs = set(finectx.F.coefficients()).union(set(finectx.J.coefficients()))
+            if finectx.Jp is not None:
+                coeffs = coeffs.union(finectx.Jp.coefficients())
+
+            for coeff in coeffs:
+                print("Considering coeff = %s" % coeff)
+                if isinstance(coeff, firedrake.Function):
+                    if hasattr(coeff, '_child'):
+                        print("Injecting %s -> %s" % (coeff, coeff._child))
+                        manager.inject(coeff, coeff._child)
+
+            import sys; sys.stdout.flush()
+        print("Adding hook to DM with prefix %s for %s -> %s" % (dm.getOptionsPrefix(), expr, new))
+        dm.addCoarsenHook(None, inject_on_restrict)
+
+
     return new
 
 
