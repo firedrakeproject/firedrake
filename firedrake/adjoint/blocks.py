@@ -166,7 +166,7 @@ class MeshInputBlock(Block):
         return mesh.coordinates
 
 class SplitBlock(Block, Backend):
-    
+
     def __init__(self, func):
         super().__init__()
         self.func = func
@@ -199,7 +199,7 @@ class SplitBlock(Block, Backend):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         new_func = self.backend.Function(self.func.function_space()).assign(inputs[0])
-        return new_func.sub(idx) 
+        return new_func.sub(idx)
 
 
 class MeshOutputBlock(Block):

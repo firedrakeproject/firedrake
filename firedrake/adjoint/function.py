@@ -49,30 +49,24 @@ class FunctionMixin(FloatingType):
 
             with stop_annotating():
 
-            	if self._split is None:
-                	self._split = tuple(self.backend.Function(fs, dat, name="%s[%d]" % (self.name(), i))
-                                for i, (fs, dat) in
-                                enumerate(zip(self.function_space(), self.dat)))                        
-            
-            	output = tuple(create_overloaded_object(e) for e in split(self,*args, **kwargs))
-            
+                if self._split is None:
+                    self._split = tuple(self.backend.Function(fs, dat, name="%s[%d]" % (self.name(), i))
+                                        for i, (fs, dat) in enumerate(zip(self.function_space(), self.dat)))
+
+                output = tuple(create_overloaded_object(e) for e in split(self, *args, **kwargs))
+
             if annotate:
-            
-            	num_sub_spaces = len(self.function_space().split())
-            	tape = get_working_tape()
 
-            	block = SplitBlock(self)
-            	tape.add_block(block)
+                num_sub_spaces = len(self.function_space().split())
+                tape = get_working_tape()
 
-            	for idx in range(num_sub_spaces):
-            	    block.add_output(output[idx].create_block_variable()) 
+                block = SplitBlock(self)
+                tape.add_block(block)
 
-            
-            return output  
+                for idx in range(num_sub_spaces):
+                    block.add_output(output[idx].create_block_variable())
 
-            #if annotate:
-            #    raise NotImplementedError("Function.split has no adjoint implementation yet")
-            #return split(self, *args, **kwargs)
+            return output
 
         return wrapper
 
