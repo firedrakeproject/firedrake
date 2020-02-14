@@ -158,22 +158,12 @@ class SCPC(SCBase):
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
-        # Create a SNESContext for the DM associated with the condensed problem
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.ufl_expr import action
-
-        # Pull out dm from the original mixed system to get the original context
-        dm = pc.getDM()
-        octx = dmhooks.get_appctx(dm)
-        tmp = Function(Vc)
-        F = action(S_expr, tmp)
-        nproblem = NonlinearVariationalProblem(F, tmp, bcs=bcs,
-                                               J=S_expr,
-                                               Jp=self.S_pc_expr,
-                                               form_compiler_parameters=self.cxt.fc_params)
-        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
-        self._ctx_ref = nctx
+        # Create a SNESContext for the DM associated with the trace problem
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          S_expr,
+                                          bcs,
+                                          mat_type,
+                                          self.cxt.fc_params)
 
         # Push new context onto the dm associated with the condensed problem
         c_dm = Vc.dm
