@@ -345,6 +345,8 @@ else:
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
+    parser.add_argument("--show-dependencies", action="store_true",
+                        help="Print out the package manager used and packages installed/required.")
 
     args = parser.parse_args()
 
@@ -356,6 +358,17 @@ else:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
+
+if args.rebuild_script:
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
+
+    build_update_script()
+
+    log.info("Successfully rebuilt firedrake-update.\n")
+
+    log.info("To upgrade firedrake, run firedrake-update")
+    sys.exit(0)
+
 
 if args.install_help:
     help_string = """
@@ -1109,17 +1122,6 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
     quit("""Sorry, automatically installing opencascade on OSX hasn't been
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
-
-if args.rebuild_script:
-    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
-
-    build_update_script()
-
-    log.info("Successfully rebuilt firedrake-update.\n")
-
-    log.info("To upgrade firedrake, run firedrake-update")
-    sys.exit(0)
-
 
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
