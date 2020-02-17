@@ -359,17 +359,6 @@ else:
 
     config = deep_update(config, FiredrakeConfiguration(args))
 
-if args.rebuild_script:
-    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
-
-    build_update_script()
-
-    log.info("Successfully rebuilt firedrake-update.\n")
-
-    log.info("To upgrade firedrake, run firedrake-update")
-    sys.exit(0)
-
-
 if args.install_help:
     help_string = """
 You can install the following packages by passing --install shortname
@@ -1068,6 +1057,17 @@ def build_update_script():
     with open("../bin/firedrake-update", "w") as f:
         f.write(update_script)
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
+
+
+if args.rebuild_script:
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
+
+    build_update_script()
+
+    log.info("Successfully rebuilt firedrake-update.\n")
+
+    log.info("To upgrade firedrake, run firedrake-update")
+    sys.exit(0)
 
 
 def create_compiler_env(cc, cxx, f90):
