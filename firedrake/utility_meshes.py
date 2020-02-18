@@ -6,7 +6,7 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate
+    par_loop, dx, WRITE, READ, interpolate, FiniteElement
 from firedrake.cython import dmplex
 from firedrake import mesh
 from firedrake import function
@@ -105,7 +105,7 @@ def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM
 cells are not currently supported")
 
     m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    coord_fs = VectorFunctionSpace(m, FiniteElement('DG', m.ufl_cell(), 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -276,7 +276,8 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     mesh1.init()
 
-    Vc = VectorFunctionSpace(mesh1, 'DQ', 1)
+    fe_dg = FiniteElement('DQ', mesh1.ufl_cell(), 1, variant="equispaced")
+    Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc)
@@ -506,7 +507,7 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
-    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, m.ufl_cell(), 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -1412,7 +1413,7 @@ cells in each direction are not currently supported")
                      distribution_parameters=distribution_parameters,
                      diagonal=diagonal, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
-    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, m.ufl_cell(), 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 

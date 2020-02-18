@@ -31,6 +31,21 @@ pipeline {
         }
       }
     }
+    stage('Setup') {
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+python $(which firedrake-clean)
+python -m pip install pytest-cov pytest-xdist
+python -m pip list
+'''
+>>>>>>> master
+          }
+        }
+      }
+    }
     stage('Test') {
       parallel {
         stage('Test Firedrake') {
@@ -39,9 +54,6 @@ pipeline {
               timestamps {
                 sh '''
 . ./firedrake/bin/activate
-python $(which firedrake-clean)
-python -m pip install pytest-cov pytest-xdist
-python -m pip list
 cd firedrake/src/firedrake
 python -m pytest -n 11 --cov firedrake -v tests
 '''
@@ -123,4 +135,3 @@ sudo docker push firedrakeproject/firedrake-notebooks:latest
     }
   }
 }
-
