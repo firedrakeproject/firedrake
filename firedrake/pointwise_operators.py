@@ -57,7 +57,6 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
     def evaluate(self):
         """define the evaluation method for the ExternalOperator object"""
 
-    @abstractmethod
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
@@ -66,17 +65,39 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
             and copy values.  If ``False``, the default, then the new
             :class:`CoordinatelessFunction` will share the dof values.
         """
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
+                          name=self.name(), dtype=self.dat.dtype,
+                          derivatives=self.derivatives,
+                          operator_data=self.operator_data)
 
     # Computing the action of the adjoint derivative may requires different procedures
     # depending on wrt what is taken the derivative
     # E.g. the neural network case: where the adjoint derivative computation leads us
     # to compute the gradient wrt the inputs of the network or the weights.
-    @abstractmethod
+    #@abstractmethod
     def adjoint_action(self, x, idx):
         r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
             This method computes the action of (dN/dq)^{*}
             where q \in \{u, m\}.
         """
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        dNdq_adj = transpose(dNdq)
+        result = firedrake.assemble(dNdq_adj)
+        return result.vector() * x
+
+    def _adjoint(self, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        dNdq_adj = transpose(dNdq)
+        result = firedrake.assemble(dNdq_adj)
+        return result
 
     @utils.cached_property
     def _split(self):
@@ -176,22 +197,13 @@ class PointexprOperator(AbstractPointwiseOperator):
         elif expr == 0:
             return self.assign(expr)
         return self.interpolate(expr)
-
-    def copy(self, deepcopy=False):
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
-        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
-                          name=self.name(), dtype=self.dat.dtype,
-                          derivatives=self.derivatives,
-                          operator_data=self.operator_data)
-
+    """
     def _adjoint(self, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
-        dNdq_adj = dNdq
+        #import ipdb; ipdb.set_trace()
+        dNdq_adj = transpose(dNdq)
         result = firedrake.assemble(dNdq_adj)
         return result
 
@@ -199,12 +211,12 @@ class PointexprOperator(AbstractPointwiseOperator):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
-        dNdq_adj = dNdq#conj(transpose(dNdq))
-        #dNdq_adj = adjoint(dNdq)
+        dNdq_adj = transpose(dNdq)
+        #import ipdb; ipdb.set_trace()
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
         #return dNdq_adj * x
-
+    """
 
 class PointsolveOperator(AbstractPointwiseOperator):
     r"""A :class:`PointsolveOperator` is an implementation of ExternalOperator that is defined through
@@ -509,8 +521,26 @@ class PointsolveOperator(AbstractPointwiseOperator):
                           derivatives=self.derivatives,
                           operator_data=self.operator_data, disp=self.disp)
 
+    """
+    def _adjoint(self, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        #import ipdb; ipdb.set_trace()
+        dNdq_adj = transpose(dNdq)
+        result = firedrake.assemble(dNdq_adj)
+        return result
+
     def adjoint_action(self, x, idx):
-        pass
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        dNdq = dNdq.evaluate()
+        dNdq_adj = transpose(dNdq)
+        #import ipdb; ipdb.set_trace()
+        result = firedrake.assemble(dNdq_adj)
+        return result.vector() * x
+        #return dNdq_adj * x
+    """
 
 # Neural Net bit : Here !
 
@@ -518,7 +548,7 @@ class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):#framework, model, ncontrols=None, extop_id=None):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
         AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
 
         # Checks
@@ -549,12 +579,6 @@ class PointnetOperator(AbstractPointwiseOperator):
     #    "Compute the gradient of the neural net output with respect to the inputs."
     #    raise NotImplementedError(self.__class__.compute_grad_inputs)
 
-    def adjoint_action(self, x, idx):
-        pass
-
-    def copy(self, deepcopy=False):
-        pass
-
 class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :
      """
@@ -581,24 +605,29 @@ class PytorchOperator(PointnetOperator):
         return res
 
     def evaluate(self):
+        """
         import torch
         model = self.model.eval()
         op = self.interpolate(self.ufl_operands[0])
         torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
-        #import ipdb;ipdb.set_trace()
         model_input = torch.unsqueeze(torch_op, 0)
-       # model_input = model_input.reshape(1,*torch_op.shape)
-        #import ipdb;ipdb.set_trace()
+        #model_input = model_input.reshape(1,*torch_op.shape)
         result = Function(self.ufl_function_space())
         val = model(model_input).detach().numpy()#.squeeze(0)
-        #import ipdb;ipdb.set_trace()
         result.dat.data[:] = val.squeeze(0)
-        #import ipdb;ipdb.set_trace()
         return self.assign(result)
-        # for i, e in enumerate(torch_op):
-        #     model_input = torch.unsqueeze(e, 0)
-        #     result.dat.data[i] = model(model_input).detach().numpy()
-        # return self.assign(result)
+        """
+        import torch
+        model = self.model.eval()
+        op = self.interpolate(self.ufl_operands[0])
+        torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
+        model_input = torch.unsqueeze(torch_op, 0)
+        #model_input = model_input.reshape(1,*torch_op.shape)
+        result = Function(self.ufl_function_space())
+        for i, e in enumerate(torch_op):
+            model_input = torch.unsqueeze(e, 0)
+            result.dat.data[i] = model(model_input).detach().numpy()
+        return self.assign(result)
 
 
 class TensorFlowOperator(PointnetOperator):
