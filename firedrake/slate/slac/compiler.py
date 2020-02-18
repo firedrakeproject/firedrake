@@ -144,13 +144,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
 
     # loopy_merged= get_inv_callable(loopy_merged)
-    loopy_merged= get_factorization_callable(loopy_merged)
+    # loopy_merged= get_solve_callable(loopy_merged)
+
+
+    print(loopy_merged)
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
+    print(code)
     code.replace('void slate_kernel', 'static void slate_kernel')
     loopykernel = op2.Kernel(code, loopy_merged.name)
+
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",#slate can only do things as contributions to the cell integrals
@@ -602,7 +607,7 @@ def parenthesize(arg, prec=None, parent=None):
 #they are acessed by the translator
 def slate_to_gem(builder,prec=None):
     traversed_gem_dag=SlateTranslator(builder).slate_to_gem_translate()
-    return traversed_gem_dag
+    return list([traversed_gem_dag])
 
 #STAGE 2
 #converts the gem expression dag into imperoc
@@ -616,6 +621,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     for k,v in builder.temps.items():
         arg=builder.gem_loopy_dict[v]
         args.append(arg)
+    # for k,v in builder.inverse.items():
+    #     arg=builder.gem_loopy_dict[v]
+    #     args.append(arg)
+    # for k,v in builder.factor.items():
+    #     arg=builder.gem_loopy_dict[v]
+    #     args.append(arg)
 
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
@@ -638,8 +649,13 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
                                             dtype=np.uint8))  
 
     #creation of return variables for slate loopy
-    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]
-
+    #TODO: idx not quite right yet
+    if  (type(builder.expression)==slate.Tensor): 
+        idx=builder.gem_indices[builder.expression]
+    else:
+        idx=traversed_gem_expr_dag[0].free_indices 
+    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),idx)]
+    
     #@TODO: preprocessing of gem for removing unneccesary component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
     #traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
@@ -657,193 +673,215 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     loopy_outer= generate_loopy(impero_c, args, precision,"double","loopy_outer")
     return loopy_outer
 
-#STAGE3
-#register external function calls
-def get_inv_callable(loopy_merged):
-    class INVCallable(loopy.ScalarCallable):
-        def with_types(self, arg_id_to_dtype, kernel, callables_table):
-            print("INVWITHTYPES")
-            for i in range(0, len(arg_id_to_dtype)):
-                if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
-                    # the types provided aren't mature enough to specialize the
-                    # callable
-                    return (
-                            self.copy(arg_id_to_dtype=arg_id_to_dtype),
-                            callables_table)
+# #STAGE3
+# #register external function calls
+# def get_inv_callable(loopy_merged):
+#     class INVCallable(loopy.ScalarCallable):
+#         def with_types(self, arg_id_to_dtype, kernel, callables_table):
+#             print("INVWITHTYPES")
+#             for i in range(0, len(arg_id_to_dtype)):
+#                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
+#                     # the types provided aren't mature enough to specialize the
+#                     # callable
+#                     return (
+#                             self.copy(arg_id_to_dtype=arg_id_to_dtype),
+#                             callables_table)
 
-            mat_dtype = arg_id_to_dtype[0].numpy_dtype
-            if mat_dtype == np.float32:
-                name_in_target = "LAPACKtrtri_"#this is only for symmetric matrices
-            elif mat_dtype == np.float64:
-                name_in_target = "LAPACKtrtri_"
-            else:
-                raise LoopyError("INV only supported for float32 and float64 "
-                        "types")
+#             mat_dtype = arg_id_to_dtype[0].numpy_dtype
+#             if mat_dtype == np.float32:
+#                 name_in_target = "LAPACKtrtri_"#this is only for symmetric matrices
+#             elif mat_dtype == np.float64:
+#                 name_in_target = "LAPACKtrtri_"
+#             else:
+#                 raise LoopyError("INV only supported for float32 and float64 "
+#                         "types")
 
-            from loopy.types import NumpyType
-            return self.copy(name_in_target=name_in_target,
-                    arg_id_to_dtype={-1: NumpyType(mat_dtype),0: NumpyType(mat_dtype)}), callables_table
+#             from loopy.types import NumpyType
+#             return self.copy(name_in_target=name_in_target,
+#                     arg_id_to_dtype={-1: NumpyType(mat_dtype),0: NumpyType(mat_dtype)}), callables_table
 
-        def emit_call_insn(self, insn, target, expression_to_code_mapper):
-            print("INVEMITCALL")
-            assert self.is_ready_for_codegen()
+#         def emit_call_insn(self, insn, target, expression_to_code_mapper):
+#             print("INVEMITCALL")
+#             assert self.is_ready_for_codegen()
 
-            from loopy.kernel.instruction import CallInstruction
+#             from loopy.kernel.instruction import CallInstruction
 
-            assert isinstance(insn, loopy.CallInstruction)#for batched this should be call instruction
+#             assert isinstance(insn, loopy.CallInstruction)#for batched this should be call instruction
 
-            parameters = insn.expression.parameters
+#             parameters = insn.expression.parameters
 
-            parameters = list(parameters)
-            par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
+#             parameters = list(parameters)
+#             par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
 
-            parameters.append(insn.assignees[0])
-            par_dtypes.append(self.arg_id_to_dtype[-1])
+#             parameters.append(insn.assignees[0])
+#             par_dtypes.append(self.arg_id_to_dtype[-1])
 
-            # no type casting in array calls.
-            from loopy.expression import dtype_to_type_context
-            from pymbolic.mapper.stringifier import PREC_NONE
-            from loopy.symbolic import SubArrayRef
-            from pymbolic import var
+#             # no type casting in array calls.
+#             from loopy.expression import dtype_to_type_context
+#             from pymbolic.mapper.stringifier import PREC_NONE
+#             from loopy.symbolic import SubArrayRef
+#             from pymbolic import var
 
-            mat_descr = self.arg_id_to_descr[0]
+#             mat_descr = self.arg_id_to_descr[0]
 
-            arg_c_parameters = [
-                    expression_to_code_mapper(par, PREC_NONE,
-                        dtype_to_type_context(target, par_dtype),
-                        par_dtype).expr if isinstance(par, SubArrayRef) else
-                    expression_to_code_mapper(par, PREC_NONE,
-                        dtype_to_type_context(target, par_dtype),
-                        par_dtype).expr
-                    for par, par_dtype in zip(
-                        parameters, par_dtypes)]
-            c_parameters = []
-            c_parameters.insert(0, var('\'U\''))#uplo
-            c_parameters.insert(1, mat_descr.shape[0])#n
-            c_parameters.insert(2, arg_c_parameters[0])#t1
-            c_parameters.insert(3, 1)#lda
-            c_parameters.insert(4, 1)#ipiv
-            # c_parameters.insert(0, mat_descr.shape[0])#n
-            # c_parameters.insert(1, arg_c_parameters[0])#t1
-            # c_parameters.insert(2, mat_descr.shape[0])#n
-            # c_parameters.insert(3, arg_c_parameters[1])#t0?
-            # c_parameters.insert(4, 1)#ipiv
-            # c_parameters.insert(5, 1)#ipiv
-            # c_parameters.insert(6, 1)#buffer
-            print(c_parameters)
-            print(var(self.name_in_target))
-            return var(self.name_in_target)(*c_parameters), False
+#             arg_c_parameters = [
+#                     expression_to_code_mapper(par, PREC_NONE,
+#                         dtype_to_type_context(target, par_dtype),
+#                         par_dtype).expr if isinstance(par, SubArrayRef) else
+#                     expression_to_code_mapper(par, PREC_NONE,
+#                         dtype_to_type_context(target, par_dtype),
+#                         par_dtype).expr
+#                     for par, par_dtype in zip(
+#                         parameters, par_dtypes)]
+#             c_parameters = []
+#             c_parameters.insert(0, var('\'U\''))#uplo
+#             c_parameters.insert(1, mat_descr.shape[0])#n
+#             c_parameters.insert(2, arg_c_parameters[0])#t1
+#             c_parameters.insert(3, 1)#lda
+#             c_parameters.insert(4, 1)#ipiv
+#             # c_parameters.insert(0, mat_descr.shape[0])#n
+#             # c_parameters.insert(1, arg_c_parameters[0])#t1
+#             # c_parameters.insert(2, mat_descr.shape[0])#n
+#             # c_parameters.insert(3, arg_c_parameters[1])#t0?
+#             # c_parameters.insert(4, 1)#ipiv
+#             # c_parameters.insert(5, 1)#ipiv
+#             # c_parameters.insert(6, 1)#buffer
+#             print(c_parameters)
+#             print(var(self.name_in_target))
+#             return var(self.name_in_target)(*c_parameters), False
 
-        def generate_preambles(self, target):
-            assert isinstance(target, CTarget)
-            yield("lapack", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n#include <lapacke.h>")
-            return
+#         def generate_preambles(self, target):
+#             assert isinstance(target, CTarget)
+#             yield("lapack", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n#include <lapacke.h>")
+#             return
 
-    def inv_fn_lookup(target, identifier):
-        if identifier == 'inv':
-            print("INV identified")
-            return INVCallable(name='inv')
+#     def inv_fn_lookup(target, identifier):
+#         if identifier == 'inv':
+#             print("INV identified")
+#             return INVCallable(name='inv')
         
-        return None
+#         return None
     
-    loopy_merged=loopy.register_function_id_to_in_knl_callable_mapper(
-            loopy_merged, inv_fn_lookup)
+#     loopy_merged=loopy.register_function_id_to_in_knl_callable_mapper(
+#             loopy_merged, inv_fn_lookup)
     
-    return loopy_merged
+#     return loopy_merged
 
 
-def get_factorization_callable(loopy_merged):
-    class FACCallable(loopy.ScalarCallable):
-        def with_types(self, arg_id_to_dtype, kernel, callables_table):
-            print("FACWITHTYPES")
-            for i in range(0, len(arg_id_to_dtype)):
-                if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
-                    # the types provided aren't mature enough to specialize the
-                    # callable
-                    return (
-                            self.copy(arg_id_to_dtype=arg_id_to_dtype),
-                            callables_table)
+# def get_solve_callable(loopy_merged):
+#     class SolveCallable(loopy.ScalarCallable):
+#         def with_types(self, arg_id_to_dtype, kernel, callables_table):
+#             for i in range(0, len(arg_id_to_dtype)):
+#                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
+#                     # the types provided aren't mature enough to specialize the
+#                     # callable
+#                     return (
+#                             self.copy(arg_id_to_dtype=arg_id_to_dtype),
+#                             callables_table)
 
-            mat_dtype = arg_id_to_dtype[0].numpy_dtype
-            if mat_dtype == np.float32:
-                name_in_target = "LAPACKgetrf_"
-            elif mat_dtype == np.float64:
-                name_in_target = "LAPACKgetrf_"
-            else:
-                raise LoopyError("SOLVE only supported for float32 and float64 "
-                        "types")
+#             mat_dtype = arg_id_to_dtype[0].numpy_dtype
+#             if mat_dtype == np.float32:
+#                 name_in_target = "solve_"
+#             elif mat_dtype == np.float64:
+#                 name_in_target = "solve_"
+#             else:
+#                 raise LoopyError("SOLVE only supported for float32 and float64 "
+#                         "types")
 
-            from loopy.types import NumpyType
-            return self.copy(name_in_target=name_in_target,
-                    arg_id_to_dtype={-1: NumpyType(mat_dtype),0: NumpyType(mat_dtype)}), callables_table
+#             from loopy.types import NumpyType
+#             return self.copy(name_in_target=name_in_target,
+#                     arg_id_to_dtype={-1: NumpyType(mat_dtype),0: NumpyType(mat_dtype),1: NumpyType(mat_dtype)}), callables_table
 
-        def emit_call_insn(self, insn, target, expression_to_code_mapper):
-            print("FACEMITCALL")
-            assert self.is_ready_for_codegen()
+#         def emit_call_insn(self, insn, target, expression_to_code_mapper):
+#             assert self.is_ready_for_codegen()
 
-            from loopy.kernel.instruction import CallInstruction
+#             from loopy.kernel.instruction import CallInstruction
 
-            assert isinstance(insn, loopy.CallInstruction)#for batched this should be call instruction
+#             assert isinstance(insn, loopy.CallInstruction)#for batched this should be call instruction
 
-            parameters = insn.expression.parameters
+#             parameters = insn.expression.parameters
 
-            parameters = list(parameters)
-            par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
+#             parameters = list(parameters)
+#             par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
 
-            parameters.append(insn.assignees[0])
-            par_dtypes.append(self.arg_id_to_dtype[-1])
+#             parameters.append(insn.assignees[0])
+#             par_dtypes.append(self.arg_id_to_dtype[-1])
 
-            # no type casting in array calls.
-            from loopy.expression import dtype_to_type_context
-            from pymbolic.mapper.stringifier import PREC_NONE
-            from loopy.symbolic import SubArrayRef
-            from pymbolic import var
+#             # no type casting in array calls.
+#             from loopy.expression import dtype_to_type_context
+#             from pymbolic.mapper.stringifier import PREC_NONE
+#             from loopy.symbolic import SubArrayRef
+#             from pymbolic import var
 
-            mat_descr = self.arg_id_to_descr[0]
+#             mat_descr = self.arg_id_to_descr[0]
+#             print(mat_descr)
+#             vec_descr = ArrayArgDescriptor(dim_tags=(FixedStrideArrayDimTag(layout_nesting_level=None, stride=3, target_axis=0), FixedStrideArrayDimTag(layout_nesting_level=None, stride=1, target_axis=0)), shape=(3, 1), address_space=1)
+#             arg_c_parameters = [
+#                     expression_to_code_mapper(par, PREC_NONE,
+#                         dtype_to_type_context(target, par_dtype),
+#                         par_dtype).expr if isinstance(par, SubArrayRef) else
+#                     expression_to_code_mapper(par, PREC_NONE,
+#                         dtype_to_type_context(target, par_dtype),
+#                         par_dtype).expr
+#                     for par, par_dtype in zip(
+#                         parameters, par_dtypes)]
+#             c_parameters = []
+#             c_parameters.insert(0,  mat_descr.shape[0])#n
+#             c_parameters.insert(1, mat_descr.shape[0])#n
+#             c_parameters.insert(2, arg_c_parameters[0])#A
+#             c_parameters.insert(3, 1)#lda
+#             c_parameters.insert(4, vec_descr)#ipiv
+#             c_parameters.insert(5, 0)#info
+#             # c_parameters.insert(0, mat_descr.shape[0])#n
+#             # c_parameters.insert(1, arg_c_parameters[0])#t1
+#             # c_parameters.insert(2, mat_descr.shape[0])#n
+#             # c_parameters.insert(3, arg_c_parameters[1])#t0?
+#             # c_parameters.insert(4, 1)#ipiv
+#             # c_parameters.insert(5, 1)#ipiv
+#             # c_parameters.insert(6, 1)#buffer
+#             print(c_parameters)
+#             print(var(self.name_in_target))
+#             return var(self.name_in_target)(*c_parameters), False
 
-            arg_c_parameters = [
-                    expression_to_code_mapper(par, PREC_NONE,
-                        dtype_to_type_context(target, par_dtype),
-                        par_dtype).expr if isinstance(par, SubArrayRef) else
-                    expression_to_code_mapper(par, PREC_NONE,
-                        dtype_to_type_context(target, par_dtype),
-                        par_dtype).expr
-                    for par, par_dtype in zip(
-                        parameters, par_dtypes)]
-            c_parameters = []
-            c_parameters.insert(0,  mat_descr.shape[0])#n
-            c_parameters.insert(1, mat_descr.shape[0])#n
-            c_parameters.insert(2, arg_c_parameters[0])#A
-            c_parameters.insert(3, 1)#lda
-            c_parameters.insert(4, 1)#ipiv
-            c_parameters.insert(5, 1)#info
-            # c_parameters.insert(0, mat_descr.shape[0])#n
-            # c_parameters.insert(1, arg_c_parameters[0])#t1
-            # c_parameters.insert(2, mat_descr.shape[0])#n
-            # c_parameters.insert(3, arg_c_parameters[1])#t0?
-            # c_parameters.insert(4, 1)#ipiv
-            # c_parameters.insert(5, 1)#ipiv
-            # c_parameters.insert(6, 1)#buffer
-            print(c_parameters)
-            print(var(self.name_in_target))
-            return var(self.name_in_target)(*c_parameters), False
+#         def generate_preambles(self, target):
+#             assert isinstance(target, CTarget)
+#             code="""#include <petscsystypes.h>\n
+#                 #include <petscblaslapack.h>#include <lapacke.h>\n
+#                 #include <cstring>\n
+#                 #include <cstdio>\n
 
-        def generate_preambles(self, target):
-            assert isinstance(target, CTarget)
-            yield("lapack", "#include <petscsystypes.h>\n#include <petscblaslapack.h>")
-            return
+#                 #ifndef solve_HPP\n
+#                 #define solve_HPP\n
 
-    def fac_fn_lookup(target, identifier):
-        if identifier == 'factorization':
-            print("FAC identified")
-            return FACCallable(name='factorization')
+#                 void solve_(doubel *A,double *F, double *I,unsigned N)
+#                 {
+#                     memcpy(Ainv,A,N*N*sizeof(double));
+#                     memcpy(Ainv,A,N*N*sizeof(double));
+#                     int info;
+#                     int ipiv[N];
+#                     info =  LAPACKE_dgetrf(LAPACK_ROW_MAJOR,N,N,Ainv,N,ipiv);
+#                     if(info==0)
+#                         info =  LAPACKE_dgetri(LAPACK_ROW_MAJOR,N,Ainv,N,ipiv);
+#                     if(info!=0)
+#                         fprintf(stderr,"The inverse of the matrix was unsuccesful.\n");
+#                 }
+
+#                 #endif"""
+
+#             yield("lapack", code)
+#             return
+
+#     def fac_fn_lookup(target, identifier):
+#         if identifier == 'solve':
+#             print("solve identified")
+#             return FACCallable(name='solve')
         
-        return None
+#         return None
     
-    loopy_merged=loopy.register_function_id_to_in_knl_callable_mapper(
-            loopy_merged, fac_fn_lookup)
+#     loopy_merged=loopy.register_function_id_to_in_knl_callable_mapper(
+#             loopy_merged, fac_fn_lookup)
     
-    return loopy_merged
+#     return loopy_merged
 
 
 

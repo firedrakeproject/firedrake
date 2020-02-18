@@ -446,8 +446,9 @@ class LocalLoopyKernelBuilder(object):
         #stole this from lawrence
         self.create_index=partial(create_index,
                                    namer=map("i{}".format, itertools.count()),ctx=self)
-
         outermost=True
+        inverse=OrderedDict()
+        factor=OrderedDict()
         #a first compilation is already hapenning here
         #but only for tensors and assembled vectors
         for tensor in expression_dag:
@@ -462,7 +463,23 @@ class LocalLoopyKernelBuilder(object):
                 #TODO this was probably a bad design decision. discuss this.
                 gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
                                            shape=tensor.shape,
-                                           dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
+                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
+            
+            if isinstance(tensor, slate.Inverse):
+                indices = self.create_index(tensor.shape,tensor)
+                gem_indices = self.gem_indices[tensor]
+                inverse.setdefault(tensor, gem.Indexed(gem.Variable("I%d" %len(inverse), tensor.shape), gem_indices))
+                gem_loopy_dict.setdefault(inverse[tensor], loopy.TemporaryVariable(inverse[tensor].children[0].name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
+             
+            if isinstance(tensor, slate.Factorization):
+                indices = self.create_index(tensor.shape,tensor)
+                gem_indices = self.gem_indices[tensor]
+                factor.setdefault(tensor, gem.Indexed(gem.Variable("F%d" %len(factor), tensor.shape), gem_indices))
+                gem_loopy_dict.setdefault(factor[tensor], loopy.TemporaryVariable(factor[tensor].children[0].name,
+                                           shape=tensor.shape,
+                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
 
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
@@ -501,16 +518,16 @@ class LocalLoopyKernelBuilder(object):
 
                     seen_coeff.add(function)
 
-            #saving the indices for the return variable
-            #needed for automatic gem to imperoc translation
-            if outermost and not (type(tensor)==slate.Add or type(tensor)==slate.Negative) :
-                try:
-                    self.return_indices=gem_indices
-                except:
-                    indices =self.create_index(tensor.shape,tensor)
-                    gem_indices=self.gem_indices[tensor]
-                    self.return_indices=gem_indices
-                outermost=False
+            # #saving the indices for the return variable
+            # #needed for automatic gem to imperoc translation
+            # if outermost and (type(tensor)==slate.Add or type(tensor)==slate.Negative) :
+            #     try:
+            #         self.return_indices=gem_indices
+            #     except:
+            #         indices =self.create_index(tensor.shape,tensor)
+            #         gem_indices=self.gem_indices[tensor]
+            #         self.return_indices=gem_indices
+            #     outermost=False
 
 
         self.expression = expression
@@ -520,6 +537,8 @@ class LocalLoopyKernelBuilder(object):
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
+        # self.inverse=inverse
+        # self.factor=factor
         self._setup()
 
     @cached_property
@@ -696,7 +715,7 @@ class LocalLoopyKernelBuilder(object):
 
                     needs_mesh_layers = True
 
-                    layer = pym.Variable(layer_arg)
+                    layer = pym.Variable(self.layer_arg)
                     # TODO: Variable layers
                     nlayer = tensor.ufl_domain().layers
                     which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),

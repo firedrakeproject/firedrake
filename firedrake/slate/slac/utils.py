@@ -10,7 +10,7 @@ from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
                  ListTensor,Variable,index_sum,partial_indexed,view,
-                 FlexiblyIndexed,Inverse,Factorization)
+                 FlexiblyIndexed,Solve,Inverse,Factorization)
 
 
 from functools import singledispatch,update_wrapper
@@ -169,97 +169,127 @@ class SlateTranslator():
     """Multifunction for translating UFL -> GEM.  """
 
     def __init__(self,builder):
-        # Need context during translation!
+        #TODO builder alone is enough
         self.tensor_to_variable=builder.temps
         self.coeff_vecs=builder.coefficient_vecs
         self.traversed_slate_expr_dag=builder.expression_dag
         self.builder=builder
 
     def slate_to_gem_translate(self):
-        gem_expression_dag=[]
-        for tensor in self.traversed_slate_expr_dag:#tensor hier is actually TensorBase
+        translated_nodes=OrderedDict()
+        traversed_dag=list(post_traversal([self.builder.expression]))
+        for tensor in (traversed_dag):#tensor hier is actually TensorBase
             # Terminal tensors/Assembled Vectors are already defined
-            #just redirect to allocated memory, how??
             if isinstance(tensor, sl.Tensor):
-                gem_expression_dag.append(self.tensor_to_variable[tensor])
+                translated_nodes.setdefault(tensor, self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
-                gem_expression_dag.append(self.coeff_vecs[3][0].local_temp)
-
+                translated_nodes.setdefault(tensor, self.coeff_vecs[3][0].local_temp)
+        for tensor in (traversed_dag):
             #other tensor types are translated into gem nodes
-            else:
-                gem_expression_dag.append(self.slate_to_gem(tensor))
-        return list(gem_expression_dag)
+            if not isinstance(tensor, sl.Tensor) and not isinstance(tensor, sl.AssembledVector):
+                translated_nodes.setdefault(tensor,self.slate_to_gem(tensor,translated_nodes))
+        tree=self.slate_to_gem(self.traversed_slate_expr_dag[0],translated_nodes)
+        return tree
 
     
     @classsingledispatch
-    def slate_to_gem(self,tensor):
+    def slate_to_gem(self,tensor,node_dict):
         """Translates slate tensors into GEM.
         :returns: GEM translation of the modified terminal
         """
         raise AssertionError("Cannot handle terminal type: %s" % type(tensor))
 
+    @slate_to_gem.register(firedrake.slate.slate.Tensor)
+    def slate_to_gem_tensor(self,tensor,node_dict):
+        return self.tensor_to_variable[tensor]
+    
+    @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
+    def slate_to_gem_vector(self,tensor,node_dict):
+        return self.coeff_vecs[3][0].local_temp
+
     @slate_to_gem.register(firedrake.slate.slate.Add)
-    def slate_to_gem_add(self,tensor):
+    def slate_to_gem_add(self,tensor,node_dict):
         A, B = tensor.operands #slate tensors
-        _A,_B=self.tensor_to_variable[A],self.tensor_to_variable[B]#gem representations
+        _A,_B=node_dict[A],node_dict[B]#gem representations
+        if not _A.multiindex==_B.free_indices:
+            _B=Indexed(_B.children[0], _A.free_indices)
         return Sum(_A,_B)
 
     @slate_to_gem.register(firedrake.slate.slate.Negative)
-    def slate_to_gem_negative(self,tensor):
+    def slate_to_gem_negative(self,tensor,node_dict):
         A,=tensor.operands
-        return Product(Literal(-1), self.tensor_to_variable[A])
+        return Product(Literal(-1), node_dict[A])
 
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
-    def slate_to_gem_transpose(self,tensor):
+    def slate_to_gem_transpose(self,tensor,node_dict):
         A, = tensor.operands
-        indices =self.builder.create_index(A.shape,tensor)
-        A_indices=self.builder.gem_indices[tensor]
-        ret=Indexed(ComponentTensor(Indexed(self.tensor_to_variable[A].children[0],A_indices),tuple(reversed(A_indices))),A_indices)
+        A_indices=node_dict[A].multiindex
+        ret=Indexed(node_dict[A].children[0],A_indices[::-1])
         return ret
     
     @slate_to_gem.register(firedrake.slate.slate.Mul)
-    def slate_to_gem_mul(self,tensor):
+    def slate_to_gem_mul(self,tensor,node_dict):
         A, B = tensor.operands
 
-        #TODO:We have a problem with multiplying the same operand!"
-
-        indices =self.builder.create_index(A.shape,A)
-        A_indices=self.builder.gem_indices[A]
-
-        indices =self.builder.create_index(B.shape,B)
-        B_indices=self.builder.gem_indices[B]
+        A_indices=node_dict[A].free_indices
+        indices =self.builder.create_index(tensor.shape,tensor)
+        new_indices=self.builder.gem_indices[tensor]
 
         if len(A.shape)==len(B.shape) and A.shape[1]==B.shape[0]:
-            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(self.tensor_to_variable[B].children[0],(A_indices[1],B_indices[1])))
-            
-            sum_indices=(A_indices[0],B_indices[1])
-            sum=IndexSum(prod,(A_indices[1],))
+            var_A,var_B=node_dict[A],node_dict[B]
+            if type(var_A)==Indexed:
+                var_A=var_A.children[0]
+                var_A=Indexed(var_A,(new_indices[0],A_indices[1]))
+            elif type(var_A)==Sum or type(var_A)==Product:
+                sum_indices=node_dict[A].children[0].free_indices
+                var_A=Indexed(ComponentTensor(var_A,sum_indices),(new_indices[0],A_indices[1]))
+            elif type(var_A)==IndexSum:
+                sum_indices=node_dict[A].free_indices
+                var_A=Indexed(ComponentTensor(var_A,sum_indices),(new_indices[0],A_indices[1]))
 
-            new_indices =self.builder.create_index((A.shape[0],B.shape[1]),tensor)
-            new_indices=self.builder.gem_indices[tensor]
-            return Indexed(ComponentTensor(sum,sum_indices),new_indices)
+            if type(var_B)==Indexed:
+                var_B=var_B.children[0]
+                var_B=Indexed(var_B,(A_indices[1],new_indices[1]))            
+            elif type(var_B)==Sum or type(var_B)==Product:
+                sum_indices=node_dict[B].free_indices
+                var_B=Indexed(ComponentTensor(var_B,sum_indices),(A_indices[1],new_indices[1]))   
+            prod=Product(var_A,var_B)         
+            sum=IndexSum(prod,(A_indices[1],))
+            sum=Indexed(ComponentTensor(sum,sum.free_indices),sum.free_indices)
+            return sum
 
         elif len(A.shape)>len(B.shape) and A.shape[1]==B.shape[0]:
-            vec_gem=self.coeff_vecs[3][0].local_temp
+            var_A,var_B=node_dict[A],node_dict[B]
+            if type(var_A)==Indexed:
+                var_A=var_A.children[0]
+                var_A=Indexed(var_A,(new_indices[0],A_indices[1]))
+            elif type(var_A)==Sum or type(var_A)==Product:
+                sum_indices=node_dict[A].children[0].free_indices
+                var_A=Indexed(ComponentTensor(var_A,sum_indices),(new_indices[0],A_indices[1]))
+            # elif type(var_A)==IndexSum:
+            #     sum_indices=node_dict[A].free_indices
+            #     var_A=Indexed(ComponentTensor(var_A,sum_indices),(new_indices[0],A_indices[1]))
 
-            prod=Product(Indexed(self.tensor_to_variable[A].children[0],A_indices),Indexed(vec_gem.children[0],(A_indices[1],)))
+            if type(var_B)==Indexed:
+                var_B=var_B.children[0]
+                var_B=Indexed(var_B,(A_indices[1],))            
+            elif type(var_B)==Sum or type(var_B)==Product:
+                sum_indices=node_dict[B].free_indices
+                var_B=Indexed(ComponentTensor(var_B,sum_indices),(A_indices[1],))   
+            # elif type(var_B)==IndexSum:
+            #     sum_indices=node_dict[B].free_indices
+            #     var_B=Indexed(ComponentTensor(var_B,sum_indices),(A_indices[1],))
 
-            sum_indices=(A_indices[0],)
+            prod=Product(var_A,var_B)
             sum=IndexSum(prod,(A_indices[1],))
-
-            new_indices =self.builder.create_index((A.shape[0],),tensor)
-            new_indices=self.builder.gem_indices[tensor]
-            return Indexed(ComponentTensor(sum,sum_indices),new_indices)
-
-        return ret
-
-    @slate_to_gem.register(firedrake.slate.slate.Solve)
-    def slate_to_gem_solve(self,tensor,context):
-        raise Solve(self.tensor_to_variable[A])   
+            sum=Indexed(ComponentTensor(sum,sum.free_indices),sum.multiindex)
+            return sum 
+        else:
+            return[]
 
     @slate_to_gem.register(firedrake.slate.slate.Block)
-    def slate_to_gem_blocks(self,tensor):
+    def slate_to_gem_blocks(self,tensor,node_dict):
 
         A, = tensor.operands
 
@@ -273,7 +303,7 @@ class SlateTranslator():
             extent += (A.shapes[i][idx], )
 
         #reusage of already generated indices for the tensor
-        gem_index = self.builder.gem_indices[tensor]
+        gem_index = node_dict[A].multiindex
 
         #move the original index by an offset 
         #to reference into the subblock of the tensor which 
@@ -284,31 +314,44 @@ class SlateTranslator():
             idxs += ((gem_index[i], 1), )
             dim2idxs += ((Aoffset[i], idxs), )
 
-        return FlexiblyIndexed(self.tensor_to_variable[A].children[0],dim2idxs)
+        return FlexiblyIndexed(node_dict[A].children[0],dim2idxs)
 
 
+    # @slate_to_gem.register(firedrake.slate.slate.Solve)
+    # def slate_to_gem_solve(self,tensor,node_dict):
+    #     A,B = tensor.operands
+    #     indices =self.builder.create_index(A.shape,A)
+    #     A_indices=self.builder.gem_indices[A]
+    #     indices =self.builder.create_index(B.shape,B)
+    #     B_indices=self.builder.gem_indices[B]
+    #     indices =self.builder.create_index(A.shape,tensor)
+    #     new_indices=self.builder.gem_indices[tensor]
+    #     ret_A=ComponentTensor(node_dict[A].children[0],new_indices)
+    #     ret_B=ComponentTensor(node_dict[A].children[B],new_indices)
+    #     ret=Indexed(Solve(A,B,new_indices),new_indices)
+    #     return ret
 
-    @slate_to_gem.register(firedrake.slate.slate.Inverse)
-    def slate_to_gem_inverse(self,tensor):
-        A, = tensor.operands
-        indices =self.builder.create_index(A.shape,A)
-        A_indices=self.builder.gem_indices[A]
-        indices =self.builder.create_index(A.shape,tensor)
-        new_indices=self.builder.gem_indices[tensor]
-        ret=ComponentTensor(self.tensor_to_variable[A],A_indices)
-        ret=Indexed(Inverse(ret,new_indices),new_indices)
-        return ret
+    # @slate_to_gem.register(firedrake.slate.slate.Inverse)
+    # def slate_to_gem_inverse(self,tensor,node_dict):
+    #     A, = tensor.operands
+    #     indices = self.builder.create_index(A.shape,A)
+    #     A_indices = self.builder.gem_indices[A]
+    #     indices = self.builder.create_index(tensor.shape,tensor)
+    #     new_indices=self.builder.gem_indices[tensor]
+    #     ret=ComponentTensor(self.builder.inverse[tensor],new_indices)
+    #     ret=Indexed(Inverse(ret,new_indices),new_indices)
+    #     return ret
 
-    @slate_to_gem.register(firedrake.slate.slate.Factorization)
-    def slate_to_gem_factorization(self,tensor):
-        A, = tensor.operands
-        indices =self.builder.create_index(A.shape,A)
-        A_indices=self.builder.gem_indices[A]
-        indices =self.builder.create_index(A.shape,tensor)
-        new_indices=self.builder.gem_indices[tensor]
-        ret=ComponentTensor(self.tensor_to_variable[A],A_indices)
-        ret=Indexed(Factorization(ret,new_indices),new_indices)
-        return ret
+    # @slate_to_gem.register(firedrake.slate.slate.Factorization)
+    # def slate_to_gem_factorization(self,tensor,node_dict):
+    #     A, = tensor.operands
+    #     indices =self.builder.create_index(A.shape,A)
+    #     A_indices=self.builder.gem_indices[A]
+    #     indices =self.builder.create_index(A.shape,tensor)
+    #     new_indices=self.builder.gem_indices[tensor]
+    #     ret=ComponentTensor(self.builder.factor[tensor],new_indices)
+    #     ret=Indexed(Factorization(ret,new_indices),new_indices)
+    #     return ret
 
 
 def eigen_tensor(expr, temporary, index):
@@ -385,6 +428,30 @@ def topological_sort(exprs):
 
     return schedule
 
+#note: this is basically from tsfc gem node.py
+def post_traversal(expression_dags):
+    """Post-order traversal of the nodes of expression DAGs."""
+    seen = set()
+    lifo = []
+    # Some roots might be same, but they must be visited only once.
+    # Keep the original ordering of roots, for deterministic code
+    # generation.
+    for root in expression_dags:
+        if root not in seen:
+            seen.add(root)
+            lifo.append((root, list(root.operands)))
+
+    while lifo:
+        node, deps = lifo[-1]
+        for i, dep in enumerate(deps):
+            if dep is not None and dep not in seen:
+                lifo.append((dep, list(dep.operands)))
+                deps[i] = None
+                break
+        else:
+            yield node
+            seen.add(node)
+            lifo.pop()
 
 def traverse_dags(exprs):
     """Traverses a set of DAGs and returns each node.
