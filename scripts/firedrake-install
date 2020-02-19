@@ -485,6 +485,8 @@ if not options["minimal_petsc"]:
     # Sparse direct solvers
     petsc_options.add("--download-suitesparse")
     petsc_options.add("--download-pastix")
+    # Required by pastix
+    petsc_options.add("--download-hwloc")
     # Serial mesh partitioner
     petsc_options.add("--download-metis")
     if options.get("with_parmetis", None):
