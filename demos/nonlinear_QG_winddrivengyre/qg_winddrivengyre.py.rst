@@ -219,7 +219,7 @@ elliptic solver, ::
   nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
-we can plot it, ::
+we can plot it using the :func:`tripcolor <firedrake.plot.tripcolor>` function ::
 
   try:
       import matplotlib.pyplot as plt
