@@ -59,10 +59,15 @@ def _get_collection_types(gdim, tdim):
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh with a different color for each boundary segment
 
+    The interior and boundary keyword arguments can be any keyword argument for
+    :class:`LineCollection <matplotlib.collections.LinecCollection>` and
+    related types.
+
     :arg mesh: mesh to be plotted
-    :arg axes: axis object on which to plot mesh
-    :arg interior_kw: keyword arguments to matplotlib collection for mesh interior
-    :arg boundary_kw: keyword arguments to matplotlib collection for mesh boundary
+    :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot mesh
+    :arg interior_kw: keyword arguments to apply when plotting the mesh interior
+    :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
+    :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
@@ -167,28 +172,40 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
 
 
 def tricontourf(function, *args, **kwargs):
-    r"""Create a filled contour plot of a finite element field
+    r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
-    :arg function: the function to plot
-    :return: matplotlib TriContourSet object
+    If the input function is a vector field, the magnitude will be plotted.
+
+    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
     return _plot_2d_field("tricontourf", function, *args, **kwargs)
 
 
 def tricontour(function, *args, **kwargs):
-    r"""Create a contour plot of a finite element field
+    r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
-    :arg function: the function to plot
-    :return: matplotlib TriContourSet object
+    If the input function is a vector field, the magnitude will be plotted.
+
+    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
     return _plot_2d_field("tricontour", function, *args, **kwargs)
 
 
 def trisurf(function, *args, **kwargs):
-    r"""Create a 3D surface plot of a finite element field
+    r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
-    :arg function: the function to plot
-    :return:
+    If the input function is a vector field, the magnitude will be plotted.
+
+    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`Poly3DCollection <mpl_toolkits.mplot3d.art3d.Poly3DCollection>` object
     """
     axes = kwargs.pop("axes", None)
     if axes is None:
@@ -213,19 +230,25 @@ def trisurf(function, *args, **kwargs):
 
 
 def tripcolor(function, *args, **kwargs):
-    r"""Create a pseudo-color plot of a finite element field
+    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
+
+    If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the function to plot
-    :return: matplotlib Collection object
+    :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
     return _plot_2d_field("tripcolor", function, *args, **kwargs)
 
 
 def quiver(function, *args, **kwargs):
-    r"""Make a quiver plot of a vector field
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
     :arg function: the vector field to plot
-    :return: matplotlib Quiver object
+    :arg args: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
     """
     if function.ufl_shape != (2,):
         raise ValueError("Quiver plots only defined for 2D vector fields!")
@@ -243,9 +266,14 @@ def quiver(function, *args, **kwargs):
 
 
 def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
-    r"""Plot a Firedrake object.
+    r"""Plot a 1D Firedrake :class:`~.Function`
 
-    :arg function_or_mesh: The :class:`~.Function` to plot
+    :arg function: The :class:`~.Function` to plot
+    :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
+    :arg bezier: whether to use Bezier curves for higher-degree functions or piecewise linear
+    :arg num_sample_points: number of extra points when sampling higher-degree functions
+    :arg kwargs: same as for matplotlib
+    :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
     if isinstance(function, MeshGeometry):
         raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
