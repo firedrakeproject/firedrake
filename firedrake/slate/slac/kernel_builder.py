@@ -752,7 +752,7 @@ def create_index(extent,key, namer,ctx):
         ret1,ret2=pym.Variable(name1),pym.Variable(name2)
         ctx.loopy_indices.setdefault(key,(ret1,ret2))
         ctx.gem_indices.setdefault(key,(gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
-        return (ret1,ret2)
+        return tuple((ret1,ret2))
     else:
         if isinstance(extent, tuple):
             extent=extent[0]
@@ -760,7 +760,7 @@ def create_index(extent,key, namer,ctx):
         ret=pym.Variable(name)
         ctx.loopy_indices.setdefault(key,(ret,))
         ctx.gem_indices.setdefault(key,(gem.Index(name,int(extent)),))
-        return (ret,)
+        return tuple((ret,))
 
 #calculation of the range on an index
 def index_extent(coefficient):

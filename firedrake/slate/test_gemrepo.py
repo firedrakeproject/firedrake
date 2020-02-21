@@ -169,10 +169,13 @@ def test_stacked(a,L):
     _A2 = Tensor(a2)
     b = Function(assemble(L))
     _b = AssembledVector(b)
-    test=assemble(((_A+_A)*(_A+_A2)*_b)+_b)
-    test=assemble((_A*(_A+_A2)))
-    test=assemble((_A*_A))
-    test=assemble((_A*_A2))
+    test = assemble(((_A+_A)*(_A+_A2)*_b)+_b)
+    test = assemble((_A2*(_A+_A2)))
+    test = assemble((_A*(_A+_A2)))
+    test = assemble((_A*_A))
+    test = assemble((_A*_A2))
+
+    #TODO: this needs proper testing!
 
 def test_blocks():
     print("Test of blocks")
@@ -217,13 +220,13 @@ def test_layers():
         block = assemble(_A[x, y])
         assert np.allclose(block.M.values, ref.M.values, rtol=1e-14)
 
-# def test_solve_local(a,L):
-#     print("Test of inverse")
+def test_solve_local(a,L):
+    print("Test of inverse")
 
-#     _A = Tensor(a)
-#     node=_A.solve((_A))
-#     A = assemble(node)
-#     print(A)
+    _A = Tensor(a)
+    node=_A.solve((_A))
+    A = assemble(node)
+    print(A)
   
 
 ###########
@@ -251,7 +254,7 @@ test_add(a)
 test_assembled_vector(L) 
 test_transpose(a)
 test_mul_dx(a,L,V,mesh)
-# test_solve(a,L,V)
+test_solve(a,L,V)
 
 #discontinuous Helmholtz equation on facet integrals
 mesh = UnitSquareMesh(5,5)
@@ -264,10 +267,10 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a= (v * u) * ds
 L = f * v * ds
 
-# test_assemble_matrix(a)
-# test_negative(a)
-# test_add(a)
-# test_mul_ds(a,L,V,mesh)
+test_assemble_matrix(a)
+test_negative(a)
+test_add(a)
+test_mul_ds(a,L,V,mesh)
 
 #continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5,5)
@@ -280,16 +283,16 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a= (dot(grad(v), grad(u))  +u*v) * ds
 L = f * v * ds
 
-# test_assemble_matrix(a)
-# test_negative(a)
-# test_add(a)
+test_assemble_matrix(a)
+test_negative(a)
+test_add(a)
 
 #test for assembly of blocks of mixed systems 
 #(here for lowest order RT-DG discretisation)
-# test_blocks()
+test_blocks()
 
 #test of block assembly of mixed system defined on extruded mesh
-# test_layers()
+test_layers()
 
 #TODO: continuous advection problem 
 n = 5
@@ -305,12 +308,10 @@ F = (u_*div(v*u))*dx
 
 
 ###############################################
-#TODO: check the order of the indiced on tsfc kernel
-#TODO: fix blocks & layers for ne compiler version
+#TODO: get the solve and inv into loopy
 #TODO: assymetric problem test
 #TODO: write test for subdomain integrals as well
 #TODO: make argument generation nicer
 #TODO: fix dependency generation for transpose on facets
-#TODO: emit call on inv callable is never called
 
 print("\n\nAll tests passed.")

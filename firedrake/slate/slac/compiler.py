@@ -649,12 +649,14 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
                                             dtype=np.uint8))  
 
     #creation of return variables for slate loopy
-    #TODO: idx not quite right yet
-    if  (type(builder.expression)==slate.Tensor): 
+    if  (type(builder.expression)==slate.Tensor or type(builder.expression)==slate.Block): 
         idx=builder.gem_indices[builder.expression]
-    else:
-        idx=traversed_gem_expr_dag[0].free_indices 
-    ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),idx)]
+        shape=builder.expression.shape
+    else: 
+        idx=traversed_gem_expr_dag[0].multiindex
+        shape=builder.expression.shape
+
+    ret_vars=[gem.Indexed(gem.Variable("output",shape),idx)]
     
     #@TODO: preprocessing of gem for removing unneccesary component tensors
     #print("not peprocessed",traversed_gem_expr_dag)
