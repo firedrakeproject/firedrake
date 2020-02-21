@@ -661,8 +661,9 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #traversed_gem_expr_dag=traversed_gem_expr_dag[1]
 
     print("\n==not peprocessed: ",traversed_gem_expr_dag)
-    view_gem_dag(traversed_gem_expr_dag)
-    #traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_before', condensed=False)
+    traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_after', condensed=False)
     print("==preprocessed:",traversed_gem_expr_dag)
     print('\n')
 
