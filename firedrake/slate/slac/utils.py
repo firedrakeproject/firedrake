@@ -173,13 +173,26 @@ class SlateTranslator():
         self.coeff_vecs=builder.coefficient_vecs
         self.traversed_slate_expr_dag=builder.expression_dag
         self.builder=builder
+        print('\n===In SlateTranslator init()')
+        print('tensor_to_variable: ')
+        for tensor, var in self.tensor_to_variable.items():
+            print('(tensor: ', tensor, ' ; variable: ', var , ')')
+        print('coeff_vecs: ')
+        for key, val in self.coeff_vecs.items():
+            print('(key: ', key, ' ; val: ', val , ')')
+        print('traversed_slate_expr_dag: ')
+        for elem in self.traversed_slate_expr_dag:
+            print('elem: ', elem, '; type: ', type(elem))
 
     def slate_to_gem_translate(self):
         gem_expression_dag=[]
+        print('\n==Start gem_expression_dag build==')
         for tensor in self.traversed_slate_expr_dag:#tensor hier is actually TensorBase
             # Terminal tensors/Assembled Vectors are already defined
             #just redirect to allocated memory, how??
+            print('tensor: ', tensor)
             if isinstance(tensor, sl.Tensor):
+                #print('pass tensor addition')
                 gem_expression_dag.append(self.tensor_to_variable[tensor])
 
             elif isinstance(tensor, sl.AssembledVector):
@@ -188,6 +201,9 @@ class SlateTranslator():
             #other tensor types are translated into gem nodes
             else:
                 gem_expression_dag.append(self.slate_to_gem(tensor))
+            print('gem_expression_dag: ', gem_expression_dag)
+        
+        print('==End gem_expression_dag build==\n')
         return list(gem_expression_dag)
 
     

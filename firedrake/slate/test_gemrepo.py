@@ -5,15 +5,20 @@ import copy
 from firedrake.formmanipulation import split_form
 import numpy as np
 
+
 def test_assemble_matrix(a):
     print("Test of assemble matrix")
 
+    print('a:', a)
     _A = Tensor(a)
+    print('_A:', _A)
     A = assemble(_A)
-    A_comp = assemble(a)
-    for i in range(A.M.handle.getSize()[0]):
-        for j in range(A.M.handle.getSize()[1]):
-            assert math.isclose(A.M.handle.getValues(i,j),A_comp.M.handle.getValues(i,j)),  "Test for assembly of tensor failed"
+    print('A:', A)
+    print('A.M:', A.M)
+    #A_comp = assemble(a)
+    #for i in range(A.M.handle.getSize()[0]):
+    #    for j in range(A.M.handle.getSize()[1]):
+    #        assert math.isclose(A.M.handle.getValues(i,j),A_comp.M.handle.getValues(i,j)),  "Test for assembly of tensor failed"
 
 #Note: this test only works for DG problems because assembled vector does not do the right thing
 #the bug is also in the earlier version of slate compiler
@@ -62,11 +67,13 @@ def test_negative(a):
 def test_transpose(a):
     print("Test of transpose")
     _A = Tensor(a)
+    print('_A:', _A)
     trans_A = assemble(Transpose(_A))
-    A_comp = assemble(_A)
-    for i in range(trans_A.M.handle.getSize()[0]):
-        for j in range(trans_A.M.handle.getSize()[1]):
-            assert math.isclose(trans_A.M.handle.getValues(i, j), A_comp.M.handle.getValues(j, i)),  "Test for transpose failed"
+    print('trans_A:', trans_A)
+    #A_comp = assemble(_A)
+    #for i in range(trans_A.M.handle.getSize()[0]):
+    #    for j in range(trans_A.M.handle.getSize()[1]):
+    #        assert math.isclose(trans_A.M.handle.getValues(i, j), A_comp.M.handle.getValues(j, i)),  "Test for transpose failed"
 
 def test_mul_dx(A,L,V,mesh):
     print("Test of mul")
@@ -177,6 +184,7 @@ def test_inverse(a):
             assert math.isclose(A.M.handle.getValues(i,j),abs(A.M.handle.getValues(i,j))),  "Test for assembly failed"
 
 
+
 ###########
 print("Run test for slate to loopy compilation.\n\n")
 
@@ -191,13 +199,15 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
 
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
-test_assembled_vector(L) 
-test_mul_dx(a,L,V,mesh)
+
+#test_assemble_matrix(a)
 test_transpose(a)
-test_solve(a,L,V)
+
+#test_negative(a)
+#test_add(a)
+#test_assembled_vector(L) 
+#test_mul_dx(a,L,V,mesh)
+#test_solve(a,L,V)
 
 #discontinuous Helmholtz equation on facet integrals
 mesh = UnitSquareMesh(5,5)
@@ -210,10 +220,10 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a= (v * u) * ds
 L = f * v * ds
 
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
-test_mul_ds(a,L,V,mesh)
+#test_assemble_matrix(a)
+#test_negative(a)
+#test_add(a)
+#test_mul_ds(a,L,V,mesh)
 
 #continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5,5)
@@ -226,26 +236,26 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a= (dot(grad(v), grad(u))  +u*v) * ds
 L = f * v * ds
 
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
+#test_assemble_matrix(a)
+#test_negative(a)
+#test_add(a)
 
 #test for assembly of blocks of mixed systems 
 #(here for lowest order RT-DG discretisation)
-test_blocks()
+#test_blocks()
 
 #test of block assembly of mixed system defined on extruded mesh
-test_layers()
+#test_layers()
 
 #TODO: continuous advection problem 
-n = 5
-mesh = UnitSquareMesh(n,n)
-V = FunctionSpace(mesh, "CG", 1)
-x, y = SpatialCoordinate(mesh)
-u_ = Function(V).project(x)
-u = TrialFunction(V)
-v = TestFunction(V)
-F = (u_*div(v*u))*dx
+#n = 5
+#mesh = UnitSquareMesh(n,n)
+#V = FunctionSpace(mesh, "CG", 1)
+#x, y = SpatialCoordinate(mesh)
+#u_ = Function(V).project(x)
+#u = TrialFunction(V)
+#v = TestFunction(V)
+#F = (u_*div(v*u))*dx
 
 #test_assemble2form(F) 
 

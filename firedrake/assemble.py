@@ -81,7 +81,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
     """
-
+    print('in assemble')
     if "nest" in kwargs:
         nest = kwargs.pop("nest")
         from firedrake.logging import warning, RED

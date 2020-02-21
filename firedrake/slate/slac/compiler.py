@@ -24,6 +24,7 @@ from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, SlateTranslator,merge_loopy
+from firedrake.slate.view_gem_dag import view_gem_dag
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -110,6 +111,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     try:
         return cache[key]
     except KeyError:
+        print('==========Generating kernel=====')
         kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
         return cache.setdefault(key, kernel)
 
@@ -130,17 +132,27 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     print("BUILDER DONE")
 
-    #stage1: slate to gem....                      
+    #stage1: slate to gem....   
+    print('\n====Slate to GEM===')                   
     gem_expr=slate_to_gem(builder)
-   
+    print('gem_expr: ', gem_expr)
+
     #stage 2: gem to loopy...
+    print('\n====Loopy outer===')                   
     loopy_outer=gem_to_loopy(gem_expr,builder)
+    print('loopy_outer:', loopy_outer)
 
     #stage 3: merge loopys...
+    print('\n====Loopy inner===')                   
     loopy_inner_list=builder.templated_subkernels
+    #print('loopy_inner_list size: ', len(loopy_inner_list))
+    #for kernel in loopy_inner_list:
+    #    print('kernel: ', kernel)
 
+    #print('\n====Loopy merge===')                   
     loopy_merged= merge_loopy(loopy_outer,loopy_inner_list,builder)#builder owns the callinstruction
-    print("LOOPY KERNEL GLUED")
+    #print('\nloopy_merged: ', loopy_merged)
+    print("\nLOOPY KERNEL GLUED")
 
      # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
@@ -161,6 +173,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # Cache the resulting kernel
     idx = tuple([0]*slate_expr.rank)
     logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    #print('\nSplitKernel: ', (SplitKernel(idx, kinfo),))
     return (SplitKernel(idx, kinfo),)
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
@@ -597,7 +610,11 @@ def parenthesize(arg, prec=None, parent=None):
 #tensor and assembled vectors are already run through by now
 #they are acessed by the translator
 def slate_to_gem(builder,prec=None):
+    print('\nbuilder: ', builder)
     traversed_gem_dag=SlateTranslator(builder).slate_to_gem_translate()
+    
+    #fewer_temps_gem=gem.optimise.remove_useless_temps(traversed_gem_dag)
+    #print('\nfewer_temps_gem: ', fewer_temps_gem)
     return traversed_gem_dag
 
 #STAGE 2
@@ -642,6 +659,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #print("preprocessed",traversed_gem_expr_dag)
     #print(traversed_gem_expr_dag[1])
     #traversed_gem_expr_dag=traversed_gem_expr_dag[1]
+
+    print("\n==not peprocessed: ",traversed_gem_expr_dag)
+    view_gem_dag(traversed_gem_expr_dag)
+    #traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
+    print("==preprocessed:",traversed_gem_expr_dag)
+    print('\n')
 
     #glue assignments to return variable
     assignments=list(zip(ret_vars,traversed_gem_expr_dag))
