@@ -1,3 +1,4 @@
+import pytest
 from firedrake import *
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -19,6 +20,18 @@ def test_plotting_1d():
     plot(v, edgecolor='tab:green', label='v', axes=axes)
     legend = axes.legend(loc='upper right')
     assert len(legend.get_texts()) == 1
+
+
+def test_plot_wrong_inputs():
+    mesh = UnitSquareMesh(32, 32)
+    with pytest.raises(TypeError) as excinfo:
+        plot(mesh)
+
+    Q = FunctionSpace(mesh, family='CG', degree=1)
+    x, y = SpatialCoordinate(mesh)
+    q = interpolate(x - y, Q)
+    with pytest.raises(ValueError) as excinfo:
+        plot(q)
 
 
 def test_plotting_scalar_field():
