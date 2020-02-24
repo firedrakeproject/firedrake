@@ -443,11 +443,12 @@ def _bezier_calculate_points(function):
 
 def _bezier_plot(function, axes, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
-    Bezier curve within each cell, return a matplotlib axes
+    Bezier curves within each cell
 
-    :arg function: 1D function for plotting
-    :arg axes: Axes for plotting
+    :arg function: 1D :class:`~.Function` to plot
+    :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
     :arg kwargs: additional key work arguments to plot
+    :return: matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     """
     deg = function.function_space().ufl_element().degree()
     mesh = function.function_space().mesh()
