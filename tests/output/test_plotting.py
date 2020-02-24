@@ -24,13 +24,13 @@ def test_plotting_1d():
 
 def test_plot_wrong_inputs():
     mesh = UnitSquareMesh(32, 32)
-    with pytest.raises(TypeError) as excinfo:
+    with pytest.raises(TypeError):
         plot(mesh)
 
     Q = FunctionSpace(mesh, family='CG', degree=1)
     x, y = SpatialCoordinate(mesh)
     q = interpolate(x - y, Q)
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError):
         plot(q)
 
 
