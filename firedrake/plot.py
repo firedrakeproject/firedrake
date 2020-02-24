@@ -242,12 +242,11 @@ def tripcolor(function, *args, **kwargs):
     return _plot_2d_field("tripcolor", function, *args, **kwargs)
 
 
-def quiver(function, *args, **kwargs):
+def quiver(function, **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
     :arg function: the vector field to plot
-    :arg args: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
-    :arg kwargs: same as for matplotlib
+    :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
     :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
     """
     if function.ufl_shape != (2,):
@@ -262,7 +261,7 @@ def quiver(function, *args, **kwargs):
     V = function.ufl_domain().coordinates.function_space()
     vals = interpolate(function, V).dat.data_ro
     C = np.linalg.norm(vals, axis=1)
-    return axes.quiver(*(coords.T), *(vals.T), C, *args, **kwargs)
+    return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
 def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):

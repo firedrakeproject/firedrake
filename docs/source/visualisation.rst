@@ -280,6 +280,11 @@ figure.
       fig.colorbar(contours)
       fig.show()
 
+For vector fields, triplot and tricontour will show the magnitude of function.
+To see the direction as well, you can instead call the
+:func:`quiver <firedrake.plot.quiver>` function, which again works the same as
+its counterpart in matplotlib.
+
 The function :func:`triplot <firedrake.plot.triplot>` has one major departure
 from matplotlib to make finite element analysis easier. The different segments
 of the boundary are shown with different colors in order to make it easy to
