@@ -277,7 +277,7 @@ class PointwiseOperatorBlock(Block, Backend):
         q_rep = block_variable.saved_output
         N = prepared
 
-        i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0] 
+        i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0]
         dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
         #dNdm_adj = self.compat.assemble_adjoint_value(dNdm_adj)
         return dNdm_adj
