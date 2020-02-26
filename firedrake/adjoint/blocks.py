@@ -4,6 +4,7 @@ from pyadjoint.block import Block
 
 import firedrake.utils as utils
 
+
 class Backend:
     @utils.cached_property
     def backend(self):
@@ -165,12 +166,13 @@ class MeshInputBlock(Block):
         mesh = self.get_dependencies()[0].saved_output
         return mesh.coordinates
 
+
 class SplitBlock(Block, Backend):
 
     def __init__(self, func):
         super().__init__()
         self.func = func
-        self.add_dependency(func)
+        self.add_dependency(func, no_duplicates=True)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
@@ -184,7 +186,7 @@ class SplitBlock(Block, Backend):
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
-        return tlm_inputs[0]
+        return tlm_inputs[0].sub(idx)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,

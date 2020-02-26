@@ -48,22 +48,19 @@ class FunctionMixin(FloatingType):
             annotate = annotate_tape(kwargs)
 
             with stop_annotating():
-
+                """
                 if self._split is None:
                     self._split = tuple(self.backend.Function(fs, dat, name="%s[%d]" % (self.name(), i))
                                         for i, (fs, dat) in enumerate(zip(self.function_space(), self.dat)))
-
-                output = tuple(create_overloaded_object(e) for e in split(self, *args, **kwargs))
+                """
+                output = split(self, *args, **kwargs)
+                # output = tuple(create_overloaded_object(e) for e in split(self, *args, **kwargs))
 
             if annotate:
-
-                num_sub_spaces = len(self.function_space().split())
                 tape = get_working_tape()
-
                 block = SplitBlock(self)
                 tape.add_block(block)
-
-                for idx in range(num_sub_spaces):
+                for idx in range(self.ufl_element().num_sub_elements()):
                     block.add_output(output[idx].create_block_variable())
 
             return output
