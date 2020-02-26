@@ -2,6 +2,7 @@ import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SplitBlock
+import firedrake
 
 
 class FunctionMixin(FloatingType):
