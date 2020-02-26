@@ -54,7 +54,6 @@ class FunctionMixin(FloatingType):
                                         for i, (fs, dat) in enumerate(zip(self.function_space(), self.dat)))
                 """
                 output = split(self, *args, **kwargs)
-                # output = tuple(create_overloaded_object(e) for e in split(self, *args, **kwargs))
 
             if annotate:
                 tape = get_working_tape()
