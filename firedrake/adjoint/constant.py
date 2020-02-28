@@ -1,7 +1,6 @@
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
-from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
