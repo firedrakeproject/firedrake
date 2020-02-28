@@ -161,10 +161,8 @@ class GTMGPC(PCBase):
     def update(self, pc):
         if hasattr(self, "fine_op"):
             self._assemble_fine_op()
-            self.fine_op.force_evaluation()
 
         self._assemble_coarse_op()
-        self.coarse_op.force_evaluation()
         self.pc.setUp()
 
     def apply(self, pc, X, Y):

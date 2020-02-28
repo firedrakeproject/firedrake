@@ -143,7 +143,6 @@ class SCPC(SCBase):
                 mat_type=mat_type)
 
             self._assemble_S_pc()
-            self.S_pc.force_evaluation()
             Smat_pc = self.S_pc.petscmat
 
         else:
@@ -246,7 +245,6 @@ class SCPC(SCBase):
         # is provided for the condensed system
         if hasattr(self, "S_pc"):
             self._assemble_S_pc()
-            self.S_pc.force_evaluation()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
