@@ -45,7 +45,7 @@ class ExtractSubBlock(MultiFunction):
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
         args = form.arguments()
-        args = tuple(sorted(set(a if a.parent is None else a.parent for a in args), key=lambda x: x.number()))
+        #args = tuple(sorted(set(a if a.parent is None else a.parent for a in args), key=lambda x: x.number()))
         self._arg_cache = {}
         self.blocks = dict(enumerate(argument_indices))
         if len(args) == 0:
@@ -75,20 +75,20 @@ class ExtractSubBlock(MultiFunction):
         from firedrake import MixedFunctionSpace, FunctionSpace
 
         # Split component of argument on MixedFunctionSpace
-        if o.parent is not None:
-            part = self.blocks[o.number()]
-            if isinstance(part, (tuple, list)):
-                raise NotImplementedError("Only one index accepted")
-            if o.part() == part:
-                return o
-            else:
-                if len(o.ufl_shape) == 0:
-                    return Zero()
-                else:
-                    return as_vector([Zero()
-                                      for j in numpy.ndindex(
-                                      o.ufl_shape)])
-
+        #if o.parent is not None:
+        #    part = self.blocks[o.number()]
+        #    if isinstance(part, (tuple, list)):
+        #        raise NotImplementedError("Only one index accepted")
+        #    if o.part() == part:
+        #        return o
+        #    else:
+        #        if len(o.ufl_shape) == 0:
+        #            return Zero()
+        #        else:
+        #            return as_vector([Zero()
+        #                              for j in numpy.ndindex(
+        #                              o.ufl_shape)])
+        #
         V = o.function_space()
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
@@ -164,7 +164,7 @@ def split_form(form, diagonal=False):
     """
     splitter = ExtractSubBlock()
     args = form.arguments()
-    args = tuple(sorted(set(a if a.parent is None else a.parent for a in args), key=lambda x: x.number()))
+    #args = tuple(sorted(set(a if a.parent is None else a.parent for a in args), key=lambda x: x.number()))
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     if diagonal:

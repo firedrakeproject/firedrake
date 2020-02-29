@@ -40,6 +40,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subdomain_id",
                                      "domain_number",
                                      "coefficient_map",
+                                     "coefficient_parts",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -99,7 +100,7 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False, domain_numbers=None):
+    def _cache_key(cls, form, name, parameters, number_map, domain_map, interface, coffee=False, diagonal=False):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -107,18 +108,19 @@ class TSFCKernel(Cached):
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
+                    + str(domain_map)
                     + str(type(interface))
                     + str(coffee)
-                    + str(diagonal)
-                    + str(domain_numbers)).encode()).hexdigest(), form.ufl_domains()[0].comm
+                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False, domain_numbers=None):
+    def __init__(self, form, name, parameters, number_map, domain_map, interface, coffee=False, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
+        :arg domain_map: a map from local domain numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
@@ -135,14 +137,14 @@ class TSFCKernel(Cached):
             ast = ast if not assemble_inverse else _inverse(ast)
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            if domain_numbers:
-                domain_number = domain_numbers[form.ufl_domains()[kernel.domain_number]]
+            domain_number = domain_map[kernel.domain_number]
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=domain_number,
                                       coefficient_map=numbers,
+                                      coefficient_parts=kernel.coefficient_parts,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))
@@ -226,8 +228,10 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         # compiler) to the global coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
+        domain_map = dict((n, domain_numbers[d])
+                          for (n, d) in enumerate(f.ufl_domains()))
         kinfos = TSFCKernel(f, name + "".join(map(str, idx)), parameters,
-                            number_map, interface, coffee, diagonal, domain_numbers).kernels
+                            number_map, domain_map, interface, coffee, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

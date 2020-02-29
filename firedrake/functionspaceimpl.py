@@ -69,8 +69,16 @@ class WithGeometry(ufl.FunctionSpace):
             return tuple(WithGeometry(fs, m, parent=self)
                          for m, fs in zip(self.mesh(), self.topological.split()))
         else:
-            return tuple(WithGeometry(subspace, self.mesh(), parent=self.parent)
+            return tuple(WithGeometry(subspace, self.mesh(), parent=self)
                          for subspace in self.topological.split())
+
+    def split(self):
+        r"""Split into a tuple of constituent spaces."""
+        if self.mixed() or len(self) > 1:
+            print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
+            return self._split
+        else:
+            return (self, )
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -91,20 +99,19 @@ class WithGeometry(ufl.FunctionSpace):
 
     @utils.cached_property
     def _components(self):
-        if len(self) == 1:
-            return tuple(WithGeometry(self.topological.sub(i), self.mesh())
-                         for i in range(self.value_size))
-        else:
-            return self._split
+        return tuple(WithGeometry(self.topological.sub(i), self.mesh())
+                     for i in range(self.value_size))
 
     def sub(self, i):
         if len(self) == 1:
             bound = self.value_size
+            s = self._components
         else:
             bound = len(self)
+            s = self._split
         if i < 0 or i >= bound:
             raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
-        return self._components[i]
+        return s[i]
 
     @utils.cached_property
     def dm(self):
@@ -482,6 +489,7 @@ class FunctionSpace(object):
 
     def sub(self, i):
         r"""Return a view into the ith component."""
+        print("mmm: what is this?")
         if self.rank == 0:
             assert i == 0
             return self
@@ -594,6 +602,7 @@ class MixedFunctionSpace(object):
     """
     def __init__(self, spaces, name=None):
         super(MixedFunctionSpace, self).__init__()
+        print("mmm: move _spaces to _split")
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         self.name = name or "_".join(str(s.name) for s in spaces)
@@ -648,15 +657,20 @@ class MixedFunctionSpace(object):
     def __hash__(self):
         return hash(tuple(self))
 
+    #@utils.cached_property
+    @property
+    def _split(self):
+        return self._spaces
+
     def split(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
-        return self._spaces
+        return self._split
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        return self._spaces[i]
+        return self._split[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
@@ -666,15 +680,15 @@ class MixedFunctionSpace(object):
     def __len__(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
-        return len(self._spaces)
+        return len(self._split)
 
     def __getitem__(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        return self._spaces[i]
+        return self._split[i]
 
     def __iter__(self):
-        return iter(self._spaces)
+        return iter(self._split)
 
     def __repr__(self):
         return "MixedFunctionSpace(%s, name=%r)" % \
@@ -688,21 +702,21 @@ class MixedFunctionSpace(object):
         r"""Return the sum of the :attr:`FunctionSpace.value_size`\s of the
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of."""
-        return sum(fs.value_size for fs in self._spaces)
+        return sum(fs.value_size for fs in self._split)
 
     @utils.cached_property
     def node_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.node_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return tuple(fs.node_count for fs in self._spaces)
+        return tuple(fs.node_count for fs in self._split)
 
     @utils.cached_property
     def dof_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return tuple(fs.dof_count for fs in self._spaces)
+        return tuple(fs.dof_count for fs in self._split)
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -718,7 +732,7 @@ class MixedFunctionSpace(object):
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of one or (for VectorFunctionSpaces) more degrees of freedom
         are stored at each node."""
-        return op2.MixedSet(s.node_set for s in self._spaces)
+        return op2.MixedSet(s.node_set for s in self._split)
 
     @utils.cached_property
     def dof_dset(self):
@@ -727,7 +741,7 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
+        return op2.MixedDataSet(s.dof_dset for s in self._split)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
@@ -736,7 +750,7 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
+        return op2.MixedMap(s.cell_node_map() for s in self._split)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.MixedMap` from interior facets to
@@ -765,7 +779,7 @@ class MixedFunctionSpace(object):
         else:
             val = [None for _ in self]
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
-                            for i, (s, v) in enumerate(zip(self._spaces, val)))
+                            for i, (s, v) in enumerate(zip(self._split, val)))
 
     @utils.cached_property
     def dm(self):
@@ -776,7 +790,7 @@ class MixedFunctionSpace(object):
 
     def _dm(self):
         if self.mixed():
-            print("This is probably fine.")
+            print("mmm: This is probably fine.")
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())

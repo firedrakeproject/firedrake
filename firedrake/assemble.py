@@ -440,6 +440,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
+        coeff_parts = kinfo.coefficient_parts
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -558,7 +559,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         for n in coeff_map:
             c = coefficients[n]
-            for c_ in c.split():
+            enabled_parts = coeff_parts[c]
+            if enabled_parts:
+                assert c.mixed()
+                split = tuple(c.split()[part] for part in enabled_parts)
+            else:
+                split = c.split()
+            for c_ in split:
                 if isinstance(c_, Constant):
                     m_ = get_map(c_)
                 else:
