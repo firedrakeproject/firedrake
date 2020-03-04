@@ -4,6 +4,7 @@ import math
 import copy
 from firedrake.formmanipulation import split_form
 import numpy as np
+import petsc4py.PETSc as PETSc
 
 def test_assemble_matrix(a):
     print("Test of assemble matrix")
@@ -73,7 +74,6 @@ def test_negative(a):
             assert math.isclose(negneg_A.M.handle.getValues(i,j),negneg_A_comp.M.handle.getValues(i,j)),  "Test for negative of tensor failed"
 
 
-#TODO: this only really a test for a problem containing an unsymmetric operator 
 def test_transpose(a):
     print("Test of transpose")
     _A = Tensor(a)
@@ -220,14 +220,58 @@ def test_layers():
         block = assemble(_A[x, y])
         assert np.allclose(block.M.values, ref.M.values, rtol=1e-14)
 
-def test_solve_local(a,L):
+def test_inverse_local(a):
     print("Test of inverse")
 
+    #calculate local inverse
     _A = Tensor(a)
-    node=_A.solve((_A))
-    A = assemble(node)
-    print(A)
-  
+    A_inv= assemble(_A.inv).M.handle
+
+    #generate reference solutions
+    #init of A,B,X
+    petsc_mat=assemble(_A).M.handle
+    n=petsc_mat.getSize()[0]
+    m=petsc_mat.getSize()[1]
+    petsc_unitmat=PETSc.Mat().create(PETSc.COMM_SELF)
+    petsc_unitmat.setSizes([n,m])
+    petsc_unitmat.setType(PETSc.Mat.Type.SEQDENSE)
+    petsc_unitmat.setUp()
+    petsc_invmat=PETSc.Mat().create(PETSc.COMM_SELF)
+    petsc_invmat.setSizes([n,m])
+    petsc_invmat.setType(PETSc.Mat.Type.SEQDENSE)
+    petsc_invmat.setUp()
+    for i in range(n):
+        for j in range(m):
+            if i==j:
+                petsc_unitmat[i,j]=1
+            else:
+                petsc_unitmat[i,j]=0
+    r, c = petsc_mat.getOrdering("nd")
+    #factorization
+    petsc_mat.reorderForNonzeroDiagonal(r, c)
+    petsc_mat.factorLU(r,c)
+    #inverse caluclation
+    petsc_mat.matSolve(petsc_unitmat,petsc_invmat)
+    #convert into sparse again
+    petsc_invmat.convert(PETSc.Mat.Type.SEQAIJ)
+    petsc_invmat.assemble()
+
+    assert np.allclose(petsc_invmat.getValues(range(n),range(m)), A_inv.getValues(range(n),range(m)), rtol=1e-14)
+
+def test_solve_local(a,L):
+    print("Test of solve")
+
+    #calculate local solve
+    _A = Tensor(a)
+    _F = AssembledVector(assemble(L))
+    u=assemble(_A.solve(_F))     
+
+    #global solve TODO: I should probably test against petsc solve to make this test safer
+    u_comp = Function(V)
+    solve(assemble(_A), u_comp, assemble(_F),solver_parameters={'ksp_type': 'cg'})
+    solve(a == L, u_comp, solver_parameters={'ksp_type': 'cg'})
+    assert np.allclose(u.dat.data,u_comp.dat.data), "Test for local solve failed"
+
 
 ###########
 print("Run test for slate to loopy compilation.\n\n")
@@ -245,9 +289,6 @@ L = f * v * dx
 
 test_negative(a)
 test_stacked(a,L)
-# test_solve_local(a,L)
-# import sys
-# sys.exit()
 test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
@@ -255,6 +296,8 @@ test_assembled_vector(L)
 test_transpose(a)
 test_mul_dx(a,L,V,mesh)
 test_solve(a,L,V)
+test_solve_local(a,L)
+test_inverse_local(a)
 
 #discontinuous Helmholtz equation on facet integrals
 mesh = UnitSquareMesh(5,5)
@@ -271,6 +314,8 @@ test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
 test_mul_ds(a,L,V,mesh)
+# test_solve_local(a,L)#TODO:solver does not converge
+# test_inverse_local(a)#TODO: something wrong here as well
 
 #continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5,5)
@@ -286,6 +331,8 @@ L = f * v * ds
 test_assemble_matrix(a)
 test_negative(a)
 test_add(a)
+# test_solve_local(a,L)#TODO:solver does not converge
+# test_inverse_local(a)#TODO:something wrong here as well
 
 #test for assembly of blocks of mixed systems 
 #(here for lowest order RT-DG discretisation)
@@ -304,14 +351,15 @@ u = TrialFunction(V)
 v = TestFunction(V)
 F = (u_*div(v*u))*dx
 
-#test_assemble2form(F) 
+#test_transpose(a)
 
 
 ###############################################
-#TODO: get the solve and inv into loopy
+#TODO: fix inverse and solve on facet integrals
 #TODO: assymetric problem test
 #TODO: write test for subdomain integrals as well
 #TODO: make argument generation nicer
 #TODO: fix dependency generation for transpose on facets
+#TODO: should Tensor(L) be working - yes, needs a fix
 
 print("\n\nAll tests passed.")

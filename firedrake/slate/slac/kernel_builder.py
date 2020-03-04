@@ -447,8 +447,6 @@ class LocalLoopyKernelBuilder(object):
         self.create_index=partial(create_index,
                                    namer=map("i{}".format, itertools.count()),ctx=self)
         outermost=True
-        inverse=OrderedDict()
-        factor=OrderedDict()
         #a first compilation is already hapenning here
         #but only for tensors and assembled vectors
         for tensor in expression_dag:
@@ -465,22 +463,6 @@ class LocalLoopyKernelBuilder(object):
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
             
-            if isinstance(tensor, slate.Inverse):
-                indices = self.create_index(tensor.shape,tensor)
-                gem_indices = self.gem_indices[tensor]
-                inverse.setdefault(tensor, gem.Indexed(gem.Variable("I%d" %len(inverse), tensor.shape), gem_indices))
-                gem_loopy_dict.setdefault(inverse[tensor], loopy.TemporaryVariable(inverse[tensor].children[0].name,
-                                           shape=tensor.shape,
-                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-             
-            if isinstance(tensor, slate.Factorization):
-                indices = self.create_index(tensor.shape,tensor)
-                gem_indices = self.gem_indices[tensor]
-                factor.setdefault(tensor, gem.Indexed(gem.Variable("F%d" %len(factor), tensor.shape), gem_indices))
-                gem_loopy_dict.setdefault(factor[tensor], loopy.TemporaryVariable(factor[tensor].children[0].name,
-                                           shape=tensor.shape,
-                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
 
@@ -537,8 +519,6 @@ class LocalLoopyKernelBuilder(object):
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
-        # self.inverse=inverse
-        # self.factor=factor
         self._setup()
 
     @cached_property
@@ -609,7 +589,6 @@ class LocalLoopyKernelBuilder(object):
 
                 #populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
-                print(kinfo.kernel)
                 subkernel_indices=list(*templated_subkernels[0].loop_priority)#do I ever need these?
                 include_dirs.extend(kinfo.kernel._include_dirs)
 
