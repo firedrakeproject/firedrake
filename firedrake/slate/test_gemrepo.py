@@ -273,6 +273,22 @@ def test_solve_local(a,L):
     assert np.allclose(u.dat.data,u_comp.dat.data), "Test for local solve failed"
 
 
+def marybarker_solve_curl_curl(mesh, f, degree, with_tensor=False):
+    V_element = FiniteElement("N1curl", mesh.ufl_cell(), degree)
+    V = FunctionSpace(mesh, V_element)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(curl(u), curl(v))*dx
+    L = inner(f, v)*dx
+
+    if with_tensor:
+        A = Tensor(a)
+        B = Tensor(L)
+        w = A.inv * B
+        u_h = assemble(w) 
+        # does not throw an error if degree > 4 anymore
+
 ###########
 print("Run test for slate to loopy compilation.\n\n")
 
@@ -341,6 +357,10 @@ test_blocks()
 #test of block assembly of mixed system defined on extruded mesh
 test_layers()
 
+# issue raised by marybarker
+mesh = UnitTetrahedronMesh()
+marybarker_solve_curl_curl(mesh, Constant((1,1,1)), 5, True)
+
 #TODO: continuous advection problem 
 n = 5
 mesh = UnitSquareMesh(n,n)
@@ -354,12 +374,13 @@ F = (u_*div(v*u))*dx
 #test_transpose(a)
 
 
+
+
 ###############################################
 #TODO: fix inverse and solve on facet integrals
 #TODO: assymetric problem test
 #TODO: write test for subdomain integrals as well
 #TODO: make argument generation nicer
 #TODO: fix dependency generation for transpose on facets
-#TODO: should Tensor(L) be working - yes, needs a fix
 
 print("\n\nAll tests passed.")

@@ -7,6 +7,7 @@ import itertools
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
+from firedrake.constant import Constant
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
@@ -441,6 +442,7 @@ class LocalLoopyKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
+        extra_coefficients = OrderedDict()
         self.loopy_indices=OrderedDict()
         self.gem_indices=OrderedDict()
         #stole this from lawrence
@@ -482,8 +484,7 @@ class LocalLoopyKernelBuilder(object):
                     gem_indices=self.gem_indices[tensor]
 
                     # Local temporary
-                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)
-                    
+                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)    
                     gem_loopy_dict.setdefault(local_temp,loopy.TemporaryVariable(local_temp.children[0].name,
                                            shape=tensor.shape,
                                            dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
@@ -511,6 +512,19 @@ class LocalLoopyKernelBuilder(object):
             #         self.return_indices=gem_indices
             #     outermost=False
 
+            # collect all rest coefficients (e.g. of Tensor(L))
+            for i, c in enumerate(expression.coefficients()):
+                # Ensure coefficient temporaries aren't duplicated
+                if c not in seen_coeff and type(c)==Constant:
+                    if type(c.ufl_element()) == MixedElement:
+                        for j, c_ in enumerate(c.split()):
+                            name = "w_{}_{}".format(i, j)
+                            extra_coefficients.setdefault(c_, name)
+                            seen_coeff.add(c_)
+                    else:
+                        name = "w_{}".format(i)
+                        extra_coefficients.setdefault(c, name)
+                        seen_coeff.add(c)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -519,6 +533,7 @@ class LocalLoopyKernelBuilder(object):
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
+        self.extra_coefficients=extra_coefficients
         self._setup()
 
     @cached_property
@@ -629,9 +644,10 @@ class LocalLoopyKernelBuilder(object):
                                         self.cell_size_arg))
 
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                kernel_data.extend([(c, self.coefficient_vecs[c])
+                kernel_data.extend([(c, self.extra_coefficients[c])
                                     for c in itertools.chain(*(c.split()
                                                             for c in local_coefficients))])
+
 
                 #the kernel data eas variables which are vectors (e.g. coords)
                 #in order to feed them into the scalar languages

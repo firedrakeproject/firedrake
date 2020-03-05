@@ -621,6 +621,7 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     arg=loopy.GlobalArg("output",shape=builder.expression.shape,dtype="double")
     args.append(arg)
 
+    ######TODO the global argument generation must be made nicer
     if len(builder.args)>0:
         arg=loopy.GlobalArg("coords",shape=(builder.args[0],),dtype="double")
         args.append(arg)
@@ -637,6 +638,12 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
         args.append(loopy.GlobalArg(builder.cell_facets_arg,
                                             shape=(builder.num_facets,2),
                                             dtype=np.uint8))  
+    for v,k in builder.extra_coefficients.items():
+        args.append(loopy.GlobalArg(k,
+                                    shape=v.ufl_shape,
+                                    dtype=np.uint8))  
+
+    ############
 
     #creation of return variables for slate loopy
     if  (type(builder.expression)==slate.Tensor or type(builder.expression)==slate.Block): 
