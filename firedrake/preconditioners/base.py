@@ -59,6 +59,27 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         from firedrake.dmhooks import get_appctx
         return get_appctx(pc.getDM()).appctx
 
+    @staticmethod
+    def new_snes_ctx(pc, op, bcs, mat_type, fcp=None):
+        """ Create a new SNES contex for nested preconditioning
+        """
+        from firedrake.variational_solver import NonlinearVariationalProblem
+        from firedrake.function import Function
+        from firedrake.ufl_expr import action
+        from firedrake.dmhooks import get_appctx
+        from firedrake.solving_utils import _SNESContext
+
+        dm = pc.getDM()
+        old_appctx = get_appctx(dm).appctx
+        u = Function(op.arguments()[-1].function_space())
+        F = action(op, u)
+        nprob = NonlinearVariationalProblem(F, u,
+                                            bcs=bcs,
+                                            J=op,
+                                            form_compiler_parameters=fcp)
+        nctx = _SNESContext(nprob, mat_type, mat_type, old_appctx)
+        return nctx
+
 
 class PCBase(PCSNESBase):
 

@@ -62,7 +62,6 @@ class GTMGPC(PCBase):
                                                               form_compiler_parameters=fcp,
                                                               mat_type=fine_mat_type)
             self._assemble_fine_op()
-            self.fine_op.force_evaluation()
             fine_petscmat = self.fine_op.petscmat
         else:
             fine_petscmat = P
@@ -104,7 +103,6 @@ class GTMGPC(PCBase):
                                                             bcs=coarse_space_bcs,
                                                             form_compiler_parameters=fcp)
         self._assemble_coarse_op()
-        self.coarse_op.force_evaluation()
         coarse_opmat = self.coarse_op.petscmat
 
         # Set nullspace if provided
@@ -122,7 +120,6 @@ class GTMGPC(PCBase):
             fine_space = ctx.J.arguments()[0].function_space()
             interpolator = Interpolator(TestFunction(coarse_space), fine_space)
             interpolation_matrix = interpolator.callable()
-            interpolation_matrix._force_evaluation()
             interp_petscmat = interpolation_matrix.handle
 
         # We set up a PCMG object that uses the constructed interpolation
@@ -138,22 +135,12 @@ class GTMGPC(PCBase):
         pcmg.setMGInterpolation(1, interp_petscmat)
         pcmg.setOperators(A=fine_petscmat, P=fine_petscmat)
 
-        # We set a DM and an appropriate SNESContext for the coarse solver
-        # so we can do multigrid or patch solves.
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.function import Function
-        from firedrake.ufl_expr import action
-
-        dm = pc.getDM()
-        octx = dmhooks.get_appctx(dm)
-        coarse_tmp = Function(coarse_space)
-        F = action(coarse_operator, coarse_tmp)
-        nprob = NonlinearVariationalProblem(F, coarse_tmp,
-                                            bcs=coarse_space_bcs,
-                                            J=coarse_operator,
-                                            form_compiler_parameters=fcp)
-        nctx = _SNESContext(nprob, coarse_mat_type, coarse_mat_type, octx.appctx)
-        self._ctx_ref = nctx
+        # Create new appctx
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          coarse_operator,
+                                          coarse_space_bcs,
+                                          coarse_mat_type,
+                                          fcp)
 
         coarse_solver = pcmg.getMGCoarseSolve()
         coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
@@ -174,10 +161,8 @@ class GTMGPC(PCBase):
     def update(self, pc):
         if hasattr(self, "fine_op"):
             self._assemble_fine_op()
-            self.fine_op.force_evaluation()
 
         self._assemble_coarse_op()
-        self.coarse_op.force_evaluation()
         self.pc.setUp()
 
     def apply(self, pc, X, Y):

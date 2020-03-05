@@ -231,20 +231,11 @@ class HybridizationPC(SCBase):
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
         # Create a SNESContext for the DM associated with the trace problem
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.ufl_expr import action
-
-        # Pull out dm from the original mixed system to get the original context
-        dm = pc.getDM()
-        octx = dmhooks.get_appctx(dm)
-        tmp = Function(TraceSpace)
-        F = action(schur_comp, tmp)
-        nproblem = NonlinearVariationalProblem(F, tmp, bcs=trace_bcs,
-                                               J=schur_comp,
-                                               form_compiler_parameters=self.ctx.fc_params)
-        nctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
-        self._ctx_ref = nctx
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          schur_comp,
+                                          trace_bcs,
+                                          mat_type,
+                                          self.ctx.fc_params)
 
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm
