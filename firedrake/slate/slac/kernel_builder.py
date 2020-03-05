@@ -2,7 +2,6 @@ import numpy as np
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
-from functools import singledispatch
 import itertools
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
@@ -39,7 +38,8 @@ Context information for creating coefficient temporaries.
 :param local_temp: The local temporary for the coefficient vector.
 """
 
-SCALAR_TYPE="double"
+SCALAR_TYPE = "double"
+
 
 class LocalKernelBuilder(object):
     """The primary helper class for constructing cell-local linear
@@ -141,7 +141,7 @@ class LocalKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
         self.ref_counter = counter
-        self.expression_dag = expression_dag 
+        self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self._setup()
 
@@ -230,7 +230,7 @@ class LocalKernelBuilder(object):
         This function also collects any information regarding orientations
         and extra include directories.
         """
-        transformer=Transformer()
+        transformer = Transformer()
         include_dirs = []
         templated_subkernels = []
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
@@ -350,9 +350,8 @@ class LocalKernelBuilder(object):
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
-                                          tsfc_parameters=self.tsfc_parameters,coffee=True)
+                                          tsfc_parameters=self.tsfc_parameters, coffee=True)
                     for i, expr in enumerate(self.temps)]
-
 
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
@@ -392,7 +391,6 @@ class LocalKernelBuilder(object):
 
 class LocalLoopyKernelBuilder(object):
 
-
     coordinates_arg = "coords"
     cell_facets_arg = "cell_facets"
     local_facet_array_arg = "facet_array"
@@ -400,8 +398,6 @@ class LocalLoopyKernelBuilder(object):
     cell_size_arg = "cell_sizes"
     result_arg = "result"
     cell_orientations_arg = "orientations"
-    
-
 
     # Supported integral types
     supported_integral_types = [
@@ -437,34 +433,33 @@ class LocalLoopyKernelBuilder(object):
 
         # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
-        gem_loopy_dict=OrderedDict()
+        gem_loopy_dict = OrderedDict()
         coeff_vecs = OrderedDict()
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
         extra_coefficients = OrderedDict()
-        self.loopy_indices=OrderedDict()
-        self.gem_indices=OrderedDict()
-        #stole this from lawrence
-        self.create_index=partial(create_index,
-                                   namer=map("i{}".format, itertools.count()),ctx=self)
-        outermost=True
-        #a first compilation is already hapenning here
-        #but only for tensors and assembled vectors
+        self.loopy_indices = OrderedDict()
+        self.gem_indices = OrderedDict()
+        # stole this from lawrence
+        self.create_index = partial(create_index,
+                                    namer=map("i{}".format, itertools.count()), ctx=self)
+        # a first compilation is already hapenning here
+        # but only for tensors and assembled vectors
         for tensor in expression_dag:
             counter.update(tensor.operands)
-            
+
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
 
-                indices =self.create_index(tensor.shape,tensor)
-                gem_indices=self.gem_indices[tensor]
-                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" %len(temps),tensor.shape),gem_indices))
-                #TODO this was probably a bad design decision. discuss this.
-                gem_loopy_dict.setdefault(temps[tensor],loopy.TemporaryVariable(temps[tensor].children[0].name,
-                                           shape=tensor.shape,
-                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-            
+                # indices = self.create_index(tensor.shape, tensor)
+                gem_indices = self.gem_indices[tensor]
+                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps), tensor.shape), gem_indices))
+                # TODO this was probably a bad design decision. discuss this.
+                gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].children[0].name,
+                                          shape=tensor.shape,
+                                          dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
+
             # 'AssembledVector's will always require a coefficient temporary.
             if isinstance(tensor, slate.AssembledVector):
 
@@ -480,14 +475,14 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
-                    indices =self.create_index(tensor.shape,tensor)
-                    gem_indices=self.gem_indices[tensor]
+                    # indices = self.create_index(tensor.shape, tensor)
+                    gem_indices = self.gem_indices[tensor]
 
                     # Local temporary
-                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff),tensor.shape),gem_indices)    
-                    gem_loopy_dict.setdefault(local_temp,loopy.TemporaryVariable(local_temp.children[0].name,
-                                           shape=tensor.shape,
-                                           dtype=SCALAR_TYPE,address_space=loopy.AddressSpace.LOCAL))
+                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff), tensor.shape), gem_indices)
+                    gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.children[0].name,
+                                              shape=tensor.shape,
+                                              dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
 
                     offset = 0
                     for i, shape in enumerate(shapes):
@@ -507,7 +502,7 @@ class LocalLoopyKernelBuilder(object):
             #     try:
             #         self.return_indices=gem_indices
             #     except:
-            #         indices =self.create_index(tensor.shape,tensor)
+            #         indices =self.create_index(tensor.shape, tensor)
             #         gem_indices=self.gem_indices[tensor]
             #         self.return_indices=gem_indices
             #     outermost=False
@@ -515,7 +510,7 @@ class LocalLoopyKernelBuilder(object):
             # collect all rest coefficients (e.g. of Tensor(L))
             for i, c in enumerate(expression.coefficients()):
                 # Ensure coefficient temporaries aren't duplicated
-                if c not in seen_coeff and type(c)==Constant:
+                if c not in seen_coeff and type(c) == Constant:
                     if type(c.ufl_element()) == MixedElement:
                         for j, c_ in enumerate(c.split()):
                             name = "w_{}_{}".format(i, j)
@@ -529,11 +524,11 @@ class LocalLoopyKernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
-        self.gem_loopy_dict=gem_loopy_dict
+        self.gem_loopy_dict = gem_loopy_dict
         self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
-        self.extra_coefficients=extra_coefficients
+        self.extra_coefficients = extra_coefficients
         self._setup()
 
     @cached_property
@@ -544,13 +539,12 @@ class LocalLoopyKernelBuilder(object):
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
-                                          tsfc_parameters=self.tsfc_parameters,coffee=False)
+                                          tsfc_parameters=self.tsfc_parameters, coffee=False)
                     for i, expr in enumerate(self.temps)]
 
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
         return cxt_kernels
-
 
     def _setup(self):
         """A setup method to initialize all the local assembly
@@ -558,33 +552,32 @@ class LocalLoopyKernelBuilder(object):
         This function also collects any information regarding orientations
         and extra include directories.
         """
-        #transformer = TransformerToLoopy()
+        # transformer = TransformerToLoopy()
         include_dirs = []
         templated_subkernels = []
 
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
-        subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
+        # subdomain_calls = OrderedDict([(sd, []) for sd in self.supported_subdomain_types])
         coords = None
         needs_cell_orientations = False
         needs_cell_sizes = False
-        needs_cell_facets=False
-        needs_mesh_layers=False
-        subkernel_indices=OrderedDict([(it, []) for it in self.supported_integral_types])
-        args_extents=[]
+        needs_cell_facets = False
+        needs_mesh_layers = False
+        args_extents = []
 
-        num_facets=0
-        #Maps integral type to subdomain key
-        subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
-                         "exterior_facet_vert": "subdomains_exterior_facet",
-                         "interior_facet": "subdomains_interior_facet",
-                         "interior_facet_vert": "subdomains_interior_facet"}
+        num_facets = 0
+        # Maps integral type to subdomain key
+        # subdomain_map = {"exterior_facet": "subdomains_exterior_facet",
+        #                  "exterior_facet_vert": "subdomains_exterior_facet",
+        #                  "interior_facet": "subdomains_interior_facet",
+        #                  "interior_facet_vert": "subdomains_interior_facet"}
 
-        #for all terminal tensors
-        for pos,cxt_kernel in enumerate(self.context_kernels):
+        # for all terminal tensors
+        for pos, cxt_kernel in enumerate(self.context_kernels):
             coefficients = cxt_kernel.coefficients
             integral_type = cxt_kernel.original_integral_type
-            tensor= cxt_kernel.tensor
-            temp=self.temps[tensor]
+            tensor = cxt_kernel.tensor
+            temp = self.temps[tensor]
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -600,37 +593,36 @@ class LocalLoopyKernelBuilder(object):
             for inner in cxt_kernel.tsfc_kernels:
                 kinfo = inner.kinfo
                 reads = []
-                inames=[]
+                inames = []
 
-                #populate subkernel call to tsfc
+                # populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
-                subkernel_indices=list(*templated_subkernels[0].loop_priority)#do I ever need these?
                 include_dirs.extend(kinfo.kernel._include_dirs)
 
-                #generation of output variable of loopy kernel
+                # generation of output variable of loopy kernel
                 if tensor.is_mixed:
                     # For the mixed case, the output is a slice of the matrix/vector
                     block_index = inner.indices
-                    extent=()
-                    offset=()
+                    extent = ()
+                    offset = ()
 
-                    #e.g. for rank 2 mixed tensor you get two extents,offsets
+                    # e.g. for rank 2 mixed tensor you get two extents, offsets
                     for i, j in enumerate(block_index):
-                        extent+=(tensor.shapes[i][j],)
-                        offset+=(sum(tensor.shapes[i][:j]),)
-                    idx = self.create_index(extent,block_index)
+                        extent += (tensor.shapes[i][j],)
+                        offset += (sum(tensor.shapes[i][:j]),)
+                    idx = self.create_index(extent, block_index)
 
-                    slices=()
+                    slices = ()
                     for i, j in enumerate(block_index):
-                            slices+=(pym.Sum((offset[i],idx[i])),)
+                        slices += (pym.Sum((offset[i], idx[i])),)
 
                     output = SubArrayRef(idx,
-                                        pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
+                                         pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
                 else:
-                    indices=self.loopy_indices[tensor]
-                    output = SubArrayRef(indices,pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
-                        
-                #kernel data contains the parameters fed into the subkernel
+                    indices = self.loopy_indices[tensor]
+                    output = SubArrayRef(indices, pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
+
+                # kernel data contains the parameters fed into the subkernel
                 kernel_data = [(mesh.coordinates,
                                 self.coordinates_arg)]
                 if kinfo.oriented:
@@ -646,53 +638,51 @@ class LocalLoopyKernelBuilder(object):
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
                 kernel_data.extend([(c, self.extra_coefficients[c])
                                     for c in itertools.chain(*(c.split()
-                                                            for c in local_coefficients))])
+                                                             for c in local_coefficients))])
 
-
-                #the kernel data eas variables which are vectors (e.g. coords)
-                #in order to feed them into the scalar languages
-                #they have to be subarrayrefed (fed element by element)
+                # the kernel data eas variables which are vectors (e.g. coords)
+                # in order to feed them into the scalar languages
+                # they have to be subarrayrefed (fed element by element)
                 for c, name in kernel_data:
                     extent = index_extent(c)
                     if c not in self.loopy_indices:
-                        idx =self.create_index(extent,c)
-                    idx=self.loopy_indices[c]
+                        idx = self.create_index(extent, c)
+                    idx = self.loopy_indices[c]
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
                     args_extents.append(extent)
 
-                #append more arguments to subkernel for different integral types
+                # append more arguments to subkernel for different integral types
                 if integral_type == "cell":
                     predicates = None
                     if kinfo.subdomain_id != "otherwise":
                         raise NotImplementedError("No subdomain markers for cells yet")
-                
+
                 elif integral_type in {"interior_facet",
-                                   "interior_facet_vert",
-                                   "exterior_facet",
-                                   "exterior_facet_vert"}:
-                    #number of recerence cell facets
+                                       "interior_facet_vert",
+                                       "exterior_facet",
+                                       "exterior_facet_vert"}:
+                    # number of recerence cell facets
                     if mesh.cell_set._extruded:
                         num_facets = mesh._base_mesh.ufl_cell().num_facets()
                     else:
                         num_facets = mesh.ufl_cell().num_facets()
 
-                    #index for loop over cell faces of reference cell
+                    # index for loop over cell faces of reference cell
                     if self.cell_facets_arg not in self.loopy_indices:
-                        fidx = self.create_index((num_facets,),self.cell_facets_arg)
+                        fidx = self.create_index((num_facets,), self.cell_facets_arg)
 
-                    #cell is interior or exterior
+                    # cell is interior or exterior
                     needs_cell_facets = True
                     if integral_type.startswith("interior_facet"):
                         select = 1
                     else:
                         select = 0
-                    cell_facets = pym.Variable(self.cell_facets_arg)
 
                     if self.cell_facets_arg+"_sum" not in self.loopy_indices:
-                        i = self.create_index((1,),self.cell_facets_arg+"_sum")
+                        i = self.create_index((1,), self.cell_facets_arg+"_sum")
                     predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
-                    
+
                     # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
                     # "otherwise" is treated incorrectly as "everywhere"
                     # However, this replicates an existing slate bug.
@@ -700,13 +690,13 @@ class LocalLoopyKernelBuilder(object):
                         predicates.append("cell_facets["+fidx[0]+",1]=="+kinfo.subdomain_id)
 
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
-                                           (pym.Sum((i[0],fidx[0]))))
+                                              (pym.Sum((i[0], fidx[0]))))
                     reads.append(SubArrayRef(i, subscript))
                     inames.append(fidx[0].name)
                 elif integral_type in {"interior_facet_horiz_top",
-                                    "interior_facet_horiz_bottom",
-                                    "exterior_facet_top",
-                                    "exterior_facet_bottom"}:
+                                       "interior_facet_horiz_bottom",
+                                       "exterior_facet_top",
+                                       "exterior_facet_bottom"}:
 
                     needs_mesh_layers = True
 
@@ -714,50 +704,54 @@ class LocalLoopyKernelBuilder(object):
                     # TODO: Variable layers
                     nlayer = tensor.ufl_domain().layers
                     which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
-                            "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                            "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
-                            "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+                             "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                             "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                             "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
                     predicates = frozenset([which])
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
-              
-                #reads are the variables being fed into the subkernel
-                #later on assemby calls will be needed for the kitting instruction 
-                #when merging the outer (slate) kernel with the inner (ufl) kernel
+
+                # reads are the variables being fed into the subkernel
+                # later on assemby calls will be needed for the kitting instruction
+                # when merging the outer (slate) kernel with the inner (ufl) kernel
                 assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
-                                            pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
-                                            predicates=predicates,within_inames=frozenset(inames),id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
+                                                                           pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
+                                                                           predicates=predicates,
+                                                                           within_inames=frozenset(inames),
+                                                                           id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
-        self.needs_cell_orientations = needs_cell_orientations#instead of oriented
+        self.needs_cell_orientations = needs_cell_orientations  # instead of oriented
         self.needs_cell_sizes = needs_cell_sizes
-        self.needs_cell_facets= needs_cell_facets
-        self.needs_mesh_layers= needs_mesh_layers
-        self.num_facets=num_facets 
-        #self.oriented =kinfo.oriented
-        self.args=args_extents
+        self.needs_cell_facets = needs_cell_facets
+        self.needs_mesh_layers = needs_mesh_layers
+        self.num_facets = num_facets
+        # self.oriented =kinfo.oriented
+        self.args = args_extents
 
-#every time an index is created it is saved in a list (gem as well as loopy)
-#saved as tuples
-def create_index(extent,key, namer,ctx):
-    if isinstance(extent,tuple) and len(extent)==2:
-        name1,name2 = next(namer),next(namer)
-        ret1,ret2=pym.Variable(name1),pym.Variable(name2)
-        ctx.loopy_indices.setdefault(key,(ret1,ret2))
-        ctx.gem_indices.setdefault(key,(gem.Index(name1,int(extent[0])),gem.Index(name2,int(extent[1]))))
-        return tuple((ret1,ret2))
+
+# every time an index is created it is saved in a list (gem as well as loopy)
+# saved as tuples
+def create_index(extent, key, namer, ctx):
+    if isinstance(extent, tuple) and len(extent) == 2:
+        name1, name2 = next(namer), next(namer)
+        ret1, ret2 = pym.Variable(name1), pym.Variable(name2)
+        ctx.loopy_indices.setdefault(key, (ret1, ret2))
+        ctx.gem_indices.setdefault(key, (gem.Index(name1, int(extent[0])), gem.Index(name2, int(extent[1]))))
+        return tuple((ret1, ret2))
     else:
         if isinstance(extent, tuple):
-            extent=extent[0]
+            extent = extent[0]
         name = next(namer)
-        ret=pym.Variable(name)
-        ctx.loopy_indices.setdefault(key,(ret,))
-        ctx.gem_indices.setdefault(key,(gem.Index(name,int(extent)),))
+        ret = pym.Variable(name)
+        ctx.loopy_indices.setdefault(key, (ret,))
+        ctx.gem_indices.setdefault(key, (gem.Index(name, int(extent)), ))
         return tuple((ret,))
 
-#calculation of the range on an index
+
+# calculation of the range on an index
 def index_extent(coefficient):
     element = coefficient.ufl_element()
     if element.family() == "Real":
