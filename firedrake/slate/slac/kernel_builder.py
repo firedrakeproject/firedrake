@@ -452,7 +452,7 @@ class LocalLoopyKernelBuilder(object):
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
 
-                # indices = self.create_index(tensor.shape, tensor)
+                self.create_index(tensor.shape, tensor)
                 gem_indices = self.gem_indices[tensor]
                 temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps), tensor.shape), gem_indices))
                 # TODO this was probably a bad design decision. discuss this.
@@ -475,7 +475,7 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
-                    # indices = self.create_index(tensor.shape, tensor)
+                    indices = self.create_index(tensor.shape, tensor)
                     gem_indices = self.gem_indices[tensor]
 
                     # Local temporary

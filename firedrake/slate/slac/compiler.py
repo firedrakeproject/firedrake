@@ -849,8 +849,7 @@ def get_solve_callable(loopy_merged):
 
         def generate_preambles(self, target):
             assert isinstance(target, CTarget)
-            code = """
-                #include <string.h>\n
+            code = """#include <string.h>\n
                 #include <stdio.h>\n
                 #include <stdlib.h>\n
 

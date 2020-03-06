@@ -1,4 +1,3 @@
-
 from firedrake import *
 import math
 from firedrake.formmanipulation import split_form
