@@ -251,15 +251,60 @@ product of elements of degree 4 and 4.
 Plotting with `matplotlib`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Plotting 1D and 2D functions could be as easy as calling the built-in plot
-function :func:`plot <firedrake.plot.plot>` with the :class:`~.Function` you wish to
-plot.
+Firedrake includes support for plotting meshes and functions using matplotlib_.
+The API for plotting mimics that of matplotlib as much as possible. For example
+the functions :func:`tripcolor <firedrake.plot.tripcolor>`, :func:`tricontour
+<firedrake.plot.tricontour>`, and so forth, all behave more or less like their
+counterparts in matplotlib, and actually call them under the hood. The only
+difference is that the Firedrake functions include an extra optional argument
+``axes`` to specify the matplotlib :class:`Axes <matplotlib.axis.Axes>` object
+to draw on. When using matplotlib by itself these methods are methods of the
+Axes object. Otherwise the usage is identical. For example, the following code
+would make a filled contour plot of the function ``u`` using the inferno
+colormap, with contours drawn at 0.0, 0.02, ..., 1.0, and add a colorbar to the
+figure.
 
-Currently, firedrake supports plotting 1D and 2D functions, this is made
-possible with an optional dependency matplotlib package.
+   .. code-block:: python
 
-To install matplotlib_, please look at the installation instructions of
-matplotlib.
+      import matplotlib.pyplot as plt
+      import numpy as np
+      mesh = UnitSquareMesh(10, 10)
+      V = FunctionSpace(mesh, "CG", 1)
+      u = Function(V)
+      x = SpatialCoordinate(mesh)
+      u.interpolate(x[0] + x[1])
+      fig, axes = plt.subplots()
+      levels = np.linspace(0, 1, 51)
+      contours = tricontourf(u, levels=levels, axes=axes, cmap="inferno")
+      axes.set_aspect("equal")
+      fig.colorbar(contours)
+      fig.show()
+
+For vector fields, triplot and tricontour will show the magnitude of function.
+To see the direction as well, you can instead call the
+:func:`quiver <firedrake.plot.quiver>` function, which again works the same as
+its counterpart in matplotlib.
+
+The function :func:`triplot <firedrake.plot.triplot>` has one major departure
+from matplotlib to make finite element analysis easier. The different segments
+of the boundary are shown with different colors in order to make it easy to
+determine the numeric ID of each boundary segment. Mistaking which segments of
+the boundary should have Dirichlet or Neumann boundary conditions is a common
+source of errors in applications. To see a legend explaining the colors, you can
+add a legend like so:
+
+   .. code-block:: python
+
+      mesh = Mesh(mesh_filename)
+      import matplotlib.pyplot as plt
+      fig, axes = plt.subplots()
+      triplot(mesh, axes=axes)
+      axes.legend()
+      fig.show()
+
+The numeric IDs shown in the legend are the same as those stored internally in
+the mesh, so for example if you added physical lines using gmsh the numbering
+is the same.
 
 For 1D functions with degree less than 4, the plot of the function would be
 exact using Bezier curves. For higher order 1D functions, the plot would be the
@@ -267,22 +312,8 @@ linear approximation by sampling points of the function. The number of sample
 points per element could be specfied to when calling :func:`plot
 <firedrake.plot.plot>`.
 
-For multiple 1D functions, for example, in the case of time-dependent functions
-at different times. They could be plotted together by passing the list of
-function when calling the function :func:`plot <firedrake.plot.plot>`. The returned
-figure will contain a slider and an autoplay button so that it could be viewed
-in a animated fashion. The plus and minus buttons can change the speed of the
-animation.
-
-When used in Jupyter Notebook, plotting multiple 1D functions using additional
-keyword argument ``interactive=True`` when calling the function 
-:func:`plot <firedrake.plot.plot>` will generate an interactive slider for
-selecting the figures. 
-
-For 2D functions, both surface plots and contour plots are supported. By
-default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
-colour map of coolwarm. Contour plotting could be enabled by passing the keyword
-argument ``contour=True``.
+To install matplotlib_, please look at the installation instructions of
+matplotlib.
 
 
 .. _Paraview: http://www.paraview.org
