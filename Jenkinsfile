@@ -40,7 +40,7 @@ pipeline {
 python $(which firedrake-clean)
 python -m pip install pytest-cov pytest-xdist
 python -m pip list
-'''
+'' '
           }
         }
       }
