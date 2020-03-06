@@ -24,7 +24,7 @@ def test_scalar_constant_assign():
 def test_constant_assign_mismatch(init, new_vals):
     c = Constant(init)
     for v in new_vals:
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             c.assign(v)
 
 

@@ -9,6 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
+from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -41,6 +42,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(object):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
+    @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
@@ -92,9 +94,10 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(OptionsManager):
+class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
+    @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, **kwargs):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
@@ -231,6 +234,7 @@ class NonlinearVariationalSolver(OptionsManager):
         """
         self._ctx.transfer_manager = manager
 
+    @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
@@ -276,7 +280,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         r"""
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`.Function` to solve for
+        :param u: the :class:`.Function` to which the solution will be assigned
         :param bcs: the boundary conditions (optional)
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be
