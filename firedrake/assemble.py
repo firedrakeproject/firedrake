@@ -557,9 +557,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             o = m.cell_sizes
             args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
 
-        for n in coeff_map:
+        for i, n in enumerate(coeff_map):
             c = coefficients[n]
-            enabled_parts = coeff_parts[c]
+            enabled_parts = coeff_parts[i]
             if enabled_parts:
                 assert c.mixed()
                 split = tuple(c.split()[part] for part in enabled_parts)

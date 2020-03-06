@@ -95,7 +95,6 @@ class TSFCKernel(Cached):
             # processes will never race on this file.
             os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
             with gzip.open(tempfile, 'wb') as f:
-                print("valval::::::", val)
                 pickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
