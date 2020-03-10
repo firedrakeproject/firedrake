@@ -77,7 +77,7 @@ hand sides of our equation respectively::
   L = f * v * dx
 
 Finally we solve the equation. We redefine `u` to be a function
-holding the solution:: 
+holding the solution::
 
   u = Function(V)
 
@@ -96,9 +96,9 @@ to a file::
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
-We could use the built in plot function of firedrake by calling 
-:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
-matplotlib.pyplot should be installed and imported::
+We could use the built-in plotting functions of firedrake by calling
+:func:`tripcolor <firedrake.plot.tripcolor>` to make a pseudo-color plot.
+Before that, matplotlib.pyplot should be installed and imported::
 
   try:
     import matplotlib.pyplot as plt
@@ -106,15 +106,20 @@ matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
-    plot(u)
+    fig, axes = plt.subplots()
+    colors = tripcolor(u, axes=axes)
+    fig.colorbar(colors)
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 
-For a contour plot, it could be plotted by adding an additional key word
-argument::
+The plotting functions in Firedrake mimic those of matplotlib; to produce a
+contour plot instead of a pseudocolor plot, we can call
+:func:`tricontour <firedrake.plot.tricontour>` instead::
 
   try:
-    plot(u, contour=True)
+    fig, axes = plt.subplots()
+    contours = tricontour(u, axes=axes)
+    fig.colorbar(contours)
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 
