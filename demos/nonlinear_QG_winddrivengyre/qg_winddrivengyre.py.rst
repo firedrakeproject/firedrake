@@ -219,7 +219,7 @@ elliptic solver, ::
   nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
-we can plot it, ::
+we can plot it using the :func:`tripcolor <firedrake.plot.tripcolor>` function ::
 
   try:
       import matplotlib.pyplot as plt
@@ -227,7 +227,9 @@ we can plot it, ::
       warning("Matplotlib not imported")
 
   try:
-      plot(psi_non)
+      fig, axes = plt.subplots()
+      colors = tripcolor(psi_non, axes=axes)
+      fig.colorbar(colors)
   except Exception as e:
       warning("Cannot plot figure. Error msg '%s'" % e)
 
@@ -247,7 +249,9 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   difference = assemble(psi_lin - psi_non)
 
   try:
-      plot(difference)
+      fig, axes = plt.supblots()
+      colors = tripcolor(difference, axes=axes)
+      fig.colorbar(colors)
   except Exception as e:
       warning("Cannot plot figure. Error msg '%s'" % e)
 
