@@ -34,8 +34,7 @@ class ConstantMixin(OverloadedType):
                 other = args[0]
                 if not isinstance(other, OverloadedType):
                     other = create_overloaded_object(ndarray(other))
-
-                block = ConstantAssignBlock(self, other)
+                block = ConstantAssignBlock(other)
                 tape = get_working_tape()
                 tape.add_block(block)
 
