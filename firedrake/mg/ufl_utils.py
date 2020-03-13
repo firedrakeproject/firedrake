@@ -177,7 +177,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         expr._child = weakref.proxy(new)
 
         def inject_on_restrict(fine, mrestrict, rscale, inject, coarse):
-            print("Inside our restrict hook!!!")
+            #print("Inside our restrict hook!!!")
             finectx = firedrake.dmhooks.get_appctx(fine)
 
             coeffs = set(finectx.F.coefficients()).union(set(finectx.J.coefficients()))
@@ -185,14 +185,14 @@ def coarsen_function(expr, self, coefficient_mapping=None):
                 coeffs = coeffs.union(finectx.Jp.coefficients())
 
             for coeff in coeffs:
-                print("Considering coeff = %s" % coeff)
+                #print("Considering coeff = %s" % coeff)
                 if isinstance(coeff, firedrake.Function):
                     if hasattr(coeff, '_child'):
-                        print("Injecting %s -> %s" % (coeff, coeff._child))
+                        #print("Injecting %s -> %s" % (coeff, coeff._child))
                         manager.inject(coeff, coeff._child)
 
             import sys; sys.stdout.flush()
-        print("Adding hook to DM with prefix %s for %s -> %s" % (dm.getOptionsPrefix(), expr, new))
+        #print("Adding hook to DM with prefix %s for %s -> %s" % (dm.getOptionsPrefix(), expr, new))
         dm.addCoarsenHook(None, inject_on_restrict)
 
 
