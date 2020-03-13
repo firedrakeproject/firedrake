@@ -2652,7 +2652,7 @@ class MixedMap(Map, ObjectCached):
 
     @cached_property
     def _kernel_args_(self):
-        return tuple(itertools.chain(*(m._kernel_args_ for m in self)))
+        return tuple(itertools.chain(*(m._kernel_args_ for m in self if m is not None)))
 
     @cached_property
     def _argtypes_(self):
