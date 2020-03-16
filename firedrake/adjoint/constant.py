@@ -1,7 +1,6 @@
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
-from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
@@ -33,7 +32,8 @@ class ConstantMixin(OverloadedType):
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
-                    other = create_overloaded_object(ndarray(other))
+                    other = create_overloaded_object(other)
+
                 block = ConstantAssignBlock(other)
                 tape = get_working_tape()
                 tape.add_block(block)
