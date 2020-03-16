@@ -169,6 +169,7 @@ class SlateTranslator():
     def __init__(self, builder):
         self.builder = builder
         self.decomp_dict = OrderedDict()
+        self.assembledvectors_count = 0
 
     def slate_to_gem_translate(self):
         translated_nodes = OrderedDict()
@@ -203,7 +204,10 @@ class SlateTranslator():
 
     @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
-        return self.builder.coefficient_vecs[self.builder.expression.shape[0]][0].local_temp  # TODO is this accessed right?
+        self.assembledvectors_count += 1
+        coeffs = self.builder.coefficient_vecs[self.builder.expression.shape[0]]
+        get = len(coeffs) - self.assembledvectors_count
+        return coeffs[get].local_temp  # TODO is this accessed right?
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self, tensor, node_dict):
@@ -475,18 +479,18 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
 
     # generate initilisation instructions for all coefficent temporaries
     for k, v in builder.coefficient_vecs.items():
-        loopy_tensor = builder.gem_loopy_dict[v[0].local_temp]
-        loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
-        indices = builder.loopy_indices[v[0].vector]
-        inames = {var.name for var in indices}
-        # TODO:Is this robust?
-        inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff"), indices), id="init%d" % c, within_inames=frozenset(inames)))
-        c += 1
+        for coeff_no, coeff_info in enumerate(v):
+            loopy_tensor = builder.gem_loopy_dict[coeff_info.local_temp]
+            loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
+            indices = builder.loopy_indices[coeff_info.vector]
+            inames = {var.name for var in indices}
+            inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
+            c += 1
 
     # generate temp e.g. for plexmesh_exterior_local_facet_number (maps from global to local facets)
     if builder.needs_cell_facets:
         loopy_outer.temporary_variables["facet_array"] = lp.TemporaryVariable(builder.local_facet_array_arg,
-                                                                              shape=(builder.num_facets,),
+                                                                              shape=(builder.num_facets, 2),
                                                                               dtype=np.uint32,
                                                                               address_space=lp.AddressSpace.LOCAL,
                                                                               read_only=True,
@@ -499,29 +503,51 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
 
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     noi_outer = len(loopy_outer.instructions)
-    noi_inits = len(inits)
-    # add dependencies dynamically
-    if len(loopy_outer.instructions) > 1:
-        for i in range(len(kitting_insn)):
-            # add dep from first insn of outer kernel to all subkernels
-            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+    # noi_inits = len(inits)
+    # # add dependencies dynamically
+    # if len(loopy_outer.instructions) > 1:
+    #     for i in range(len(kitting_insn)):
+    #         # add dep from first insn of outer kernel to all subkernels
+    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
 
-            # dep from subkernel to the according init
-            # loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
-            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id, "id:"+loopy_merged.instructions[i].id)
+    #         # dep from subkernel to the according init
+    #         # loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
+    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id, "id:"+loopy_merged.instructions[i].id)
 
-    elif not len(kitting_insn) == 0:
-        for i, assembly_call in enumerate(kitting_insn):
-            # add dep from first insn of outer kernel to the subkernel in first loop
-            # then from subkernel to subkernel
-            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-i].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+    # elif not len(kitting_insn) == 0:
+    #     for i, assembly_call in enumerate(kitting_insn):
+    #         # add dep from first insn of outer kernel to the subkernel in first loop
+    #         # then from subkernel to subkernel
+    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-i].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
 
-    # dep from first subkernel to the according init# TODO do we need this?
-    loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-len(kitting_insn)].id, "id:"+loopy_merged.instructions[0].id)
+    # # dep from first subkernel to the according init# TODO do we need this?
+    # loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-len(kitting_insn)].id, "id:"+loopy_merged.instructions[0].id)
 
-    # link to initilisaton of vectemps, TODO: this is not robust
-    for k, v in builder.coefficient_vecs.items():
-        loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+len(builder.temps)].id, "id:"+loopy_merged.instructions[len(builder.temps)].id)
+    # # link to initilisaton of vectemps, TODO: this is not robust
+    # for k, v in builder.coefficient_vecs.items():
+    #     loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+len(builder.temps)].id, "id:"+loopy_merged.instructions[len(builder.temps)].id)
+    def add_sequential_dependencies(knl):
+        new_insns = []
+        prev_insn = None
+        for insn in knl.instructions:
+            depon = insn.depends_on
+            if depon is None:
+                depon = frozenset()
+
+            if prev_insn is not None:
+                depon = depon | frozenset((prev_insn.id,))
+
+            insn = insn.copy(
+                depends_on=depon,
+                depends_on_is_final=True)
+
+            new_insns.append(insn)
+
+            prev_insn = insn
+
+        return knl.copy(instructions=new_insns)
+
+    loopy_merged = add_sequential_dependencies(loopy_merged)
 
     # remove priority generate from tsfc compile call
     for insn in loopy_merged.instructions[-noi_outer:]:
@@ -544,7 +570,6 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
                 yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
     domains = list(create_domains(builder.gem_indices.values()))
     loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
-
     # generate program from kernel, register inner kernel and inline inner kernel
     prg = make_program(loopy_merged)
     for loopy_inner in loopy_inner_list:

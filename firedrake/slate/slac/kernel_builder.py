@@ -7,6 +7,7 @@ import itertools
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
 from firedrake.constant import Constant
+from firedrake.function import Function
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
@@ -475,7 +476,7 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         shapes = [dimension(function.ufl_element())]
 
-                    indices = self.create_index(tensor.shape, tensor)
+                    self.create_index(tensor.shape, tensor)
                     gem_indices = self.gem_indices[tensor]
 
                     # Local temporary
@@ -508,18 +509,18 @@ class LocalLoopyKernelBuilder(object):
             #     outermost=False
 
             # collect all rest coefficients (e.g. of Tensor(L))
-            for i, c in enumerate(expression.coefficients()):
-                # Ensure coefficient temporaries aren't duplicated
-                if c not in seen_coeff and type(c) == Constant:
-                    if type(c.ufl_element()) == MixedElement:
-                        for j, c_ in enumerate(c.split()):
-                            name = "w_{}_{}".format(i, j)
-                            extra_coefficients.setdefault(c_, name)
-                            seen_coeff.add(c_)
-                    else:
-                        name = "w_{}".format(i)
-                        extra_coefficients.setdefault(c, name)
-                        seen_coeff.add(c)
+        for i, c in enumerate(expression.coefficients()):
+            # Ensure coefficient temporaries aren't duplicated
+            if c not in seen_coeff and (type(c) == Constant or type(c) == Function):
+                if type(c.ufl_element()) == MixedElement:
+                    for j, c_ in enumerate(c.split()):
+                        name = "w_{}_{}".format(i, j)
+                        extra_coefficients.setdefault(c_, name)
+                        seen_coeff.add(c_)
+                else:
+                    name = "w_{}".format(i)
+                    extra_coefficients.setdefault(c, name)
+                    seen_coeff.add(c)
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -563,7 +564,7 @@ class LocalLoopyKernelBuilder(object):
         needs_cell_sizes = False
         needs_cell_facets = False
         needs_mesh_layers = False
-        args_extents = []
+        args_extents = OrderedDict([])
 
         num_facets = 0
         # Maps integral type to subdomain key
@@ -637,8 +638,7 @@ class LocalLoopyKernelBuilder(object):
 
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
                 kernel_data.extend([(c, self.extra_coefficients[c])
-                                    for c in itertools.chain(*(c.split()
-                                                             for c in local_coefficients))])
+                                    for c in local_coefficients])
 
                 # the kernel data eas variables which are vectors (e.g. coords)
                 # in order to feed them into the scalar languages
@@ -650,7 +650,7 @@ class LocalLoopyKernelBuilder(object):
                     idx = self.loopy_indices[c]
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
-                    args_extents.append(extent)
+                    args_extents.setdefault(name, extent)
 
                 # append more arguments to subkernel for different integral types
                 if integral_type == "cell":
@@ -729,7 +729,7 @@ class LocalLoopyKernelBuilder(object):
         self.needs_mesh_layers = needs_mesh_layers
         self.num_facets = num_facets
         # self.oriented =kinfo.oriented
-        self.args = args_extents
+        self.args_extents = args_extents
 
 
 # every time an index is created it is saved in a list (gem as well as loopy)
@@ -742,8 +742,10 @@ def create_index(extent, key, namer, ctx):
         ctx.gem_indices.setdefault(key, (gem.Index(name1, int(extent[0])), gem.Index(name2, int(extent[1]))))
         return tuple((ret1, ret2))
     else:
-        if isinstance(extent, tuple):
+        if isinstance(extent, tuple) and extent != ():
             extent = extent[0]
+        elif isinstance(extent, tuple) and extent == ():
+            extent = 0
         name = next(namer)
         ret = pym.Variable(name)
         ctx.loopy_indices.setdefault(key, (ret,))

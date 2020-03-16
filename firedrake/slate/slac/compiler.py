@@ -76,12 +76,11 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        # TODO: comment in that initalised slate kernels are considered
         # if self._initialized:
         #     return
         # TODO: introduce coffe option here
         self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
-        self._initialized = True
+        self._initialized = False
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
@@ -620,25 +619,28 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     args.append(arg)
 
     # ### TODO the global argument generation must be made nicer
-    if len(builder.args) > 0:
-        arg = loopy.GlobalArg("coords", shape=(builder.args[0],), dtype="double")
+    if len(builder.args_extents) > 0:
+        arg = loopy.GlobalArg("coords", shape=(builder.args_extents[builder.coordinates_arg],), dtype="double")
         args.append(arg)
     else:
-        arg = loopy.GlobalArg("coords", shape=(6,), dtype="double")
+        arg = loopy.GlobalArg("coords", shape=(builder.expression.shape[0],), dtype="double")
         args.append(arg)
 
     if len(builder.coefficient_vecs) != 0:
-        arg = loopy.GlobalArg("coeff", shape=builder.coefficient_vecs[builder.expression.shape[0]][0].shape, dtype="double")
-        args.append(arg)
+        for i in range(len(builder.coefficient_vecs[builder.expression.shape[0]])):
+            get = len(builder.coefficient_vecs[builder.expression.shape[0]]) - i - 1
+            arg = loopy.GlobalArg("coeff"+str(get), shape=builder.coefficient_vecs[builder.expression.shape[0]][get].shape, dtype="double")
+            args.append(arg)
+
+    for v, k in builder.extra_coefficients.items():
+        args.append(loopy.GlobalArg(k,
+                                    shape=builder.args_extents[k],
+                                    dtype="double"))
 
     # arg for is exterior (==0)/interior (==1) facet or not
     if builder.needs_cell_facets:
         args.append(loopy.GlobalArg(builder.cell_facets_arg,
                                     shape=(builder.num_facets, 2),
-                                    dtype=np.uint8))
-    for v, k in builder.extra_coefficients.items():
-        args.append(loopy.GlobalArg(k,
-                                    shape=v.ufl_shape,
                                     dtype=np.uint8))
 
     ############
