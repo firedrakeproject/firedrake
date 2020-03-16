@@ -2656,11 +2656,11 @@ class MixedMap(Map, ObjectCached):
 
     @cached_property
     def _argtypes_(self):
-        return tuple(itertools.chain(*(m._argtypes_ for m in self)))
+        return tuple(itertools.chain(*(m._argtypes_ for m in self if m is not None)))
 
     @cached_property
     def _wrapper_cache_key_(self):
-        return tuple(m._wrapper_cache_key_ for m in self)
+        return tuple(m._wrapper_cache_key_ for m in self if m is not None)
 
     @cached_property
     def split(self):
