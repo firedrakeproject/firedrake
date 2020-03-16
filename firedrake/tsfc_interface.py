@@ -40,6 +40,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subdomain_id",
                                      "domain_number",
                                      "coefficient_map",
+                                     "filter_map",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -99,7 +100,7 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def _cache_key(cls, form, name, parameters, number_map, filter_number_map, interface, coffee=False, diagonal=False):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -107,17 +108,19 @@ class TSFCKernel(Cached):
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
+                    + str(filter_number_map)
                     + str(type(interface))
                     + str(coffee)
                     + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, filter_number_map, interface, coffee=False, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
+        :arg filter_number_map: a map from local filter numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
@@ -132,14 +135,16 @@ class TSFCKernel(Cached):
             opts = default_parameters["coffee"]
             ast = kernel.ast
             ast = ast if not assemble_inverse else _inverse(ast)
-            # Unwind coefficient numbering
+            # Unwind coefficient/filter numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
+            filter_numbers = tuple(filter_number_map[c] for c in kernel.filter_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
+                                      filter_map=filter_numbers,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))
@@ -202,9 +207,9 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         pass
 
     kernels = []
-    # A map from all form coefficients to their number.
-    coefficient_numbers = dict((c, n)
-                               for (n, c) in enumerate(form.coefficients()))
+    # A map from all form coefficients/filters to their number.
+    coefficient_numbers = dict((c, n) for (n, c) in enumerate(form.coefficients()))
+    filter_numbers = dict((f, n) for (n, f) in enumerate(form.filters()))
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -215,12 +220,14 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
         iterable = ([(0, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
-        # Map local coefficient numbers (as seen inside the
-        # compiler) to the global coefficient numbers
+        # Map local coefficient/filter numbers (as seen inside the
+        # compiler) to the global coefficient/filter numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
+        filter_number_map = dict((n, filter_numbers[f])
+                                 for (n, f) in enumerate(f.filters()))
         kinfos = TSFCKernel(f, name + "".join(map(str, idx)), parameters,
-                            number_map, interface, coffee, diagonal).kernels
+                            number_map, filter_number_map, interface, coffee, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

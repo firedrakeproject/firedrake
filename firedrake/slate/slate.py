@@ -167,6 +167,10 @@ class TensorBase(object, metaclass=ABCMeta):
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
 
+    @abstractmethod
+    def filters(self):
+        """Returns a tuple of filters associated with the tensor."""
+
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
         in the tensor.
@@ -387,6 +391,10 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
+    def filters(self):
+        """Returns a tuple of filters associated with the tensor."""
+        return ()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -529,6 +537,11 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
+    def filters(self):
+        """Returns a tuple of filters associated with the tensor."""
+        tensor, = self.operands
+        return tensor.filters()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -614,6 +627,11 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
         return tensor.coefficients()
+
+    def filters(self):
+        """Returns a tuple of filters associated with the tensor."""
+        tensor, = self.operands
+        return tensor.filters()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -704,6 +722,10 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
+    def filters(self):
+        """Returns a tuple of filters associated with the tensor."""
+        return self.form.filters()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -747,6 +769,11 @@ class TensorOp(TensorBase):
         """Returns the expected coefficients of the resulting tensor."""
         coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+    def filters(self):
+        """Returns the expected filters of the resulting tensor."""
+        fltrs = [op.filters() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*fltrs)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
