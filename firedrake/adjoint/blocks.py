@@ -167,6 +167,63 @@ class MeshInputBlock(Block):
         return mesh.coordinates
 
 
+class FunctionSplitBlock(Block, Backend):
+    def __init__(self, func, idx):
+        super().__init__()
+        self.add_dependency(func)
+        self.idx = idx
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
+                               prepared=None):
+        eval_adj = self.backend.Function(block_variable.output.function_space())
+        eval_adj.sub(self.idx).assign(adj_inputs[0].function)
+        return eval_adj.vector()
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
+                               prepared=None):
+        return self.backend.Function.sub(tlm_inputs[0], self.idx)
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        eval_hessian = self.backend.Function(block_variable.output.function_space())
+        eval_hessian.sub(self.idx).assign(hessian_inputs[0].function)
+        return eval_hessian.vector()
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        return self.backend.Function.sub(inputs[0], self.idx)
+
+
+class FunctionMergeBlock(Block, Backend):
+    def __init__(self, func, idx):
+        super().__init__()
+        self.add_dependency(func)
+        self.idx = idx
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
+                               prepared=None):
+        return adj_inputs[0]
+
+    def evaluate_tlm(self):
+        tlm_input = self.get_dependencies()[0].tlm_value
+        if tlm_input is None:
+            return
+        output = self.get_outputs()[0]
+        fs = output.output.function_space()
+        f = self.backend.Function(fs)
+        output.add_tlm_output(self.backend.Function.assign(f.sub(self.idx), tlm_input))
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        return hessian_inputs[0]
+
+    def recompute(self):
+        dep = self.get_dependencies()[0].checkpoint
+        output = self.get_outputs()[0].checkpoint
+        self.backend.Function.assign(self.backend.Function.sub(output, self.idx), dep)
+
+
 class MeshOutputBlock(Block):
     """
     Block which is called when the coordinates of a mesh are changed.
