@@ -337,7 +337,7 @@ def _from_cell_list(dim, cells, coords, comm):
     return plex
 
 
-class MeshTopology(object):
+class MeshTopology(ufl.TopologicalMesh):
     """A representation of mesh topology."""
 
     @timed_function("CreateMesh")
@@ -437,7 +437,7 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
+        super().__init__(ufl.Cell(_cells[dim][nfacets]))
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -511,10 +511,6 @@ class MeshTopology(object):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
-
-    def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
 
     @utils.cached_property
     def cell_closure(self):
@@ -827,7 +823,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        #self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        ufl.TopologicalMesh.__init__(self, ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self._plex,
