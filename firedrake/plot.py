@@ -164,8 +164,11 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    triangulation, vals = _two_dimension_triangle_func_val(function,
-                                                           num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function,
+                                                               num_sample_points)
+
+    x, y = coords[:, 0], coords[:, 1]
+    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
 
     method = getattr(axes, method_name)
     return method(triangulation, vals, *args, **kwargs)
@@ -212,15 +215,17 @@ def trisurf(function, *args, **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(projection='3d')
 
+    mesh = function.ufl_domain()
     if len(function.ufl_shape) == 1:
-        mesh = function.ufl_domain()
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    triangulation, vals = _two_dimension_triangle_func_val(function,
-                                                           num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function,
+                                                               num_sample_points)
+    x, y = coords[:, 0], coords[:, 1]
+    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
 
     _kwargs = {"antialiased": False, "edgecolor": "none", "shade": False,
                "cmap": plt.rcParams["image.cmap"]}
@@ -389,7 +394,8 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
        matches it reasonably well.
     """
     from math import log
-    cell = function.function_space().mesh().ufl_cell()
+    mesh = function.function_space().mesh()
+    cell = mesh.ufl_cell()
     if cell == Cell('triangle'):
         x = np.array([0, 0, 1])
         y = np.array([0, 1, 0])
@@ -404,22 +410,19 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     sub_triangles = int(log(num_sample_points, 4))
     tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
-    x_ref = tri.x
-    y_ref = tri.y
-    num_verts = triangles.max() + 1
-    num_cells = function.function_space().cell_node_list.shape[0]
-    ref_points = np.dstack([x_ref, y_ref]).reshape(-1, 2)
+
+    ref_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
     z_vals = _calculate_values(function, ref_points, 2)
-    coords_vals = _calculate_values(function.function_space().
-                                    mesh().coordinates,
-                                    ref_points, 2)
-    Z = z_vals.reshape(-1)
-    X = coords_vals.reshape(-1, 2).T[0]
-    Y = coords_vals.reshape(-1, 2).T[1]
+    coords_vals = _calculate_values(mesh.coordinates, ref_points, 2)
+
+    num_verts = ref_points.shape[0]
+    num_cells = function.function_space().cell_node_list.shape[0]
     add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_verts
     all_triangles = (triangles + add_idx).reshape(-1, 3)
-    triangulation = matplotlib.tri.Triangulation(X, Y, triangles=all_triangles)
-    return triangulation, Z
+
+    Z = z_vals.reshape(-1)
+    X = coords_vals.reshape(-1, mesh.geometric_dimension())
+    return X, Z, all_triangles
 
 
 def _bezier_calculate_points(function):
