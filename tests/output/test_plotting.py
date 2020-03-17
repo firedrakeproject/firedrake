@@ -168,7 +168,7 @@ def test_triplot_3d():
     assert len(legend.get_texts()) == 6
 
 
-def test_3d_surface_plot():
+def test_trisurf():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
     f = Function(V)
@@ -178,5 +178,31 @@ def test_3d_surface_plot():
     fig = plt.figure()
     axes = fig.add_subplot(projection='3d')
     assert isinstance(axes, Axes3D)
+    collection = trisurf(f, axes=axes)
+    assert collection is not None
+
+
+def test_trisurf3d():
+    mesh = UnitIcosahedralSphereMesh(2)
+    V = FunctionSpace(mesh, "CG", 2)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0] * x[1] * x[2])
+
+    fig = plt.figure()
+    axes = fig.add_subplot(projection='3d')
+    collection = trisurf(f, axes=axes)
+    assert collection is not None
+
+
+def test_trisurf3d_quad():
+    mesh = UnitCubedSphereMesh(2)
+    V = FunctionSpace(mesh, "CG", 2)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0] * x[1] * x[2])
+
+    fig = plt.figure()
+    axes = fig.add_subplot(projection='3d')
     collection = trisurf(f, axes=axes)
     assert collection is not None

@@ -213,6 +213,27 @@ def tripcolor(function, *args, **kwargs):
     return _plot_2d_field("tripcolor", function, *args, **kwargs)
 
 
+def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs):
+    num_sample_points = kwargs.pop("num_sample_points", 10)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function,
+                                                               num_sample_points)
+    vertices = coords[triangles]
+    collection = Poly3DCollection(vertices, *args, **kwargs)
+
+    avg_vals = vals[triangles].mean(axis=1)
+    collection.set_array(avg_vals)
+    if (vmin is not None) or (vmax is not None):
+        collection.set_clim(vmin, vmax)
+    if norm is not None:
+        collection.set_norm(norm)
+
+    axes.add_collection(collection)
+    # TODO: see what the has_data thing does from MPL
+    axes.auto_scale_xyz(coords[:, 0], coords[:, 1], coords[:, 2])
+
+    return collection
+
+
 def trisurf(function, *args, **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
@@ -229,6 +250,9 @@ def trisurf(function, *args, **kwargs):
         axes = figure.add_subplot(projection='3d')
 
     mesh = function.ufl_domain()
+    if mesh.geometric_dimension() == 3:
+        return _trisurf_3d(axes, function, *args, **kwargs)
+
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
@@ -396,10 +420,10 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     from math import log
     mesh = function.function_space().mesh()
     cell = mesh.ufl_cell()
-    if cell == Cell('triangle'):
+    if cell.cellname() == "triangle":
         x = np.array([0, 0, 1])
         y = np.array([0, 1, 0])
-    elif cell == Cell('quadrilateral'):
+    elif cell.cellname() == "quadrilateral":
         x = np.array([0, 0, 1, 1])
         y = np.array([0, 1, 0, 1])
     else:
