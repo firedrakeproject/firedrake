@@ -228,8 +228,7 @@ def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs
         collection.set_norm(norm)
 
     axes.add_collection(collection)
-    # TODO: see what the has_data thing does from MPL
-    axes.auto_scale_xyz(coords[:, 0], coords[:, 1], coords[:, 2])
+    _autoscale_view(axes, coords)
 
     return collection
 
