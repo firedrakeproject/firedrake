@@ -249,9 +249,13 @@ def trisurf(function, *args, **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(projection='3d')
 
+    _kwargs = {"antialiased": False, "edgecolor": "none",
+               "cmap": plt.rcParams["image.cmap"]}
+    _kwargs.update(kwargs)
+
     mesh = function.ufl_domain()
     if mesh.geometric_dimension() == 3:
-        return _trisurf_3d(axes, function, *args, **kwargs)
+        return _trisurf_3d(axes, function, *args, **_kwargs)
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements()[0]
@@ -263,11 +267,7 @@ def trisurf(function, *args, **kwargs):
                                                                num_sample_points)
     x, y = coords[:, 0], coords[:, 1]
     triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
-
-    _kwargs = {"antialiased": False, "edgecolor": "none", "shade": False,
-               "cmap": plt.rcParams["image.cmap"]}
-    _kwargs.update(kwargs)
-
+    _kwargs.update({"shade": False})
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
 
 
