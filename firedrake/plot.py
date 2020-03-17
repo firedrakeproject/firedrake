@@ -200,6 +200,19 @@ def tricontour(function, *args, **kwargs):
     return _plot_2d_field("tricontour", function, *args, **kwargs)
 
 
+def tripcolor(function, *args, **kwargs):
+    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
+
+    If the input function is a vector field, the magnitude will be plotted.
+
+    :arg function: the function to plot
+    :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
+    """
+    return _plot_2d_field("tripcolor", function, *args, **kwargs)
+
+
 def trisurf(function, *args, **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
@@ -232,19 +245,6 @@ def trisurf(function, *args, **kwargs):
     _kwargs.update(kwargs)
 
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
-
-
-def tripcolor(function, *args, **kwargs):
-    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
-
-    If the input function is a vector field, the magnitude will be plotted.
-
-    :arg function: the function to plot
-    :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
-    :arg kwargs: same as for matplotlib
-    :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
-    """
-    return _plot_2d_field("tripcolor", function, *args, **kwargs)
 
 
 def quiver(function, **kwargs):
