@@ -139,7 +139,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def cell_set(self):
         r"""The :class:`pyop2.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
-        return self.function_space()._mesh.cell_set
+        return self.function_space().mesh().cell_set
 
     @property
     def node_set(self):

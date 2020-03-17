@@ -425,6 +425,7 @@ class MeshTopology(ufl.TopologicalMesh):
             plex.distribute(overlap=0)
 
         dim = plex.getDimension()
+        #gdim = plex.getCoordinateDim()
 
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
@@ -438,6 +439,7 @@ class MeshTopology(ufl.TopologicalMesh):
 
         self._grown_halos = False
         super().__init__(ufl.Cell(_cells[dim][nfacets]))
+        #super().__init__(ufl.Cell(_cells[dim][nfacets], geometric_dimension=gdim))
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
