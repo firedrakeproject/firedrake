@@ -443,12 +443,13 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
 
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
-        expressions = fem.compile_ufl(expression, **config)
+        expressions = [gem.index_sum(e, quad_rule.point_set.indices)
+                       for e in fem.compile_ufl(expression, **config)]
         dual_expressions.append(expressions)
 
-    import IPython; IPython.embed()
-
-    ir, = fem.compile_ufl(expression, point_sum=False, **config)
+    basis_indices = (gem.Index(), )
+    ir = gem.ListTensor(dual_expressions)
+    ir = gem.partial_indexed(ir, basis_indices)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape
@@ -457,7 +458,7 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
         ir = gem.Indexed(ir, tensor_indices)
 
     # Build kernel body
-    return_indices = point_set.indices + tensor_indices + tuple(chain(*argument_multiindices))
+    return_indices = basis_indices + tensor_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
     if coffee:
@@ -468,7 +469,7 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
-    point_index, = point_set.indices
+    point_index, = basis_indices
 
     # Handle kernel interface requirements
     builder.register_requirements([ir])
