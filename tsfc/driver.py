@@ -21,7 +21,7 @@ import gem.impero_utils as impero_utils
 from FIAT.reference_element import TensorProductCell
 
 from finat.point_set import PointSet
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
+from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
 
 from tsfc import fem, ufl_utils
 from tsfc.fiatinterface import as_fiat_cell
@@ -362,6 +362,118 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     # Build kernel tuple
     return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
 
+
+def compile_expression_dual_evaluation(expression, dual_functionals, coordinates, interface=None,
+                                 parameters=None, coffee=True):
+    """Compiles a UFL expression to be evaluated against specified
+    dual functionals. Useful for interpolating UFL expressions into
+    e.g. N1curl spaces.
+
+    :arg expression: UFL expression
+    :arg dual_functionals: FIAT dual functionals
+    :arg coordinates: the coordinate function
+    :arg interface: backend module for the kernel interface
+    :arg parameters: parameters object
+    :arg coffee: compile coffee kernel instead of loopy kernel
+    """
+    import coffee.base as ast
+    import loopy as lp
+
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+
+    # Determine whether in complex mode
+    complex_mode = is_complex(parameters["scalar_type"])
+
+    # Apply UFL preprocessing
+    expression = ufl_utils.preprocess_expression(expression,
+                                                 complex_mode=complex_mode)
+
+    # Initialise kernel builder
+    if interface is None:
+        if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
+            interface = firedrake_interface_coffee.ExpressionKernelBuilder
+        else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+            interface = firedrake_interface_loopy.ExpressionKernelBuilder
+
+    builder = interface(parameters["scalar_type"])
+    arguments = extract_arguments(expression)
+    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
+
+    # Replace coordinates (if any)
+    domain = expression.ufl_domain()
+    if domain:
+        assert coordinates.ufl_domain() == domain
+        builder.domain_coordinate[domain] = coordinates
+        builder.set_cell_sizes(domain)
+
+    # Collect required coefficients
+    coefficients = extract_coefficients(expression)
+    if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
+        coefficients = [coordinates] + coefficients
+    builder.set_coefficients(coefficients)
+
+    # Split mixed coefficients
+    expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
+
+    # Translate to GEM
+    kernel_cfg = dict(interface=builder,
+                     ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                     precision=parameters["precision"],
+                     integration_dim=coordinates.ufl_domain().ufl_cell().topological_dimension(),
+                     argument_multiindices=argument_multiindices)
+
+    dual_expressions = []
+    for dual in dual_functionals:
+        # Extract associated quadrature rule representation
+        # Make a quad_rule
+
+        quad_points = [*dual.pt_dict.keys()]
+        # get it working for scalar functions first; how do we deal with components??
+        weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
+        quad_rule = QuadratureRule(PointSet(quad_points), weights)
+
+        config = kernel_cfg.copy()
+        config.update(quadrature_rule=quad_rule)
+        expressions = fem.compile_ufl(expression, **config)
+        dual_expressions.append(expressions)
+
+    import IPython; IPython.embed()
+
+    ir, = fem.compile_ufl(expression, point_sum=False, **config)
+
+    # Deal with non-scalar expressions
+    value_shape = ir.shape
+    tensor_indices = tuple(gem.Index() for s in value_shape)
+    if value_shape:
+        ir = gem.Indexed(ir, tensor_indices)
+
+    # Build kernel body
+    return_indices = point_set.indices + tensor_indices + tuple(chain(*argument_multiindices))
+    return_shape = tuple(i.extent for i in return_indices)
+    return_var = gem.Variable('A', return_shape)
+    if coffee:
+        return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
+    else:
+        return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
+
+    return_expr = gem.Indexed(return_var, return_indices)
+    ir, = impero_utils.preprocess_gem([ir])
+    impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
+    point_index, = point_set.indices
+
+    # Handle kernel interface requirements
+    builder.register_requirements([ir])
+    # Build kernel tuple
+    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
 
 def lower_integral_type(fiat_cell, integral_type):
     """Lower integral type into the dimension of the integration
