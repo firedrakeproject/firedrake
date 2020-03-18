@@ -104,7 +104,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
-        super().__init__(lhs, rhs, func, bcs, **kwargs)
+        super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
             for coeff in self.problem_J.coefficients():
