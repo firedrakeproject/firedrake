@@ -401,7 +401,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         result = lambda: tensor.data[0]
 
     coefficients = f.coefficients()
-    filters = f.filters()
+    topological_coefficients = f.topological_coefficients()
     domains = f.ufl_domains()
 
     # These will be used to correctly interpret the "otherwise"
@@ -425,7 +425,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
-        fltr_map = kinfo.filter_map
+        topo_coeff_map = kinfo.topological_coefficient_map
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -462,7 +462,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         # Now build arguments for the par_loop
         kwargs = {}
-        # Some integrals require non-coefficient/non-filter arguments at the
+        # Some integrals require non-coefficient/non-topological-coefficient arguments at the
         # end (facet number information).
         extra_args = []
         # Decoration for applying to matrix maps in extruded case
@@ -536,8 +536,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for c_ in c.split():
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
-        for n in fltr_map:
-            c = filters[n]
+        for n in topo_coeff_map:
+            c = topological_coefficients[n]
             for c_ in c.split():
                 m_ = get_map(c_)
                 print("m_::::", m_)

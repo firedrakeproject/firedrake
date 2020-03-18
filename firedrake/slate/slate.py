@@ -168,8 +168,8 @@ class TensorBase(object, metaclass=ABCMeta):
         """Returns a tuple of coefficients associated with the tensor."""
 
     @abstractmethod
-    def filters(self):
-        """Returns a tuple of filters associated with the tensor."""
+    def topological_coefficients(self):
+        """Returns a tuple of topological_coefficients associated with the tensor."""
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -391,8 +391,8 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
-    def filters(self):
-        """Returns a tuple of filters associated with the tensor."""
+    def topological_coefficients(self):
+        """Returns a tuple of topological_coefficients associated with the tensor."""
         return ()
 
     def ufl_domains(self):
@@ -537,10 +537,10 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
-    def filters(self):
-        """Returns a tuple of filters associated with the tensor."""
+    def topological_coefficients(self):
+        """Returns a tuple of topological_coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.filters()
+        return tensor.topological_coefficients()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -628,10 +628,10 @@ class Factorization(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
-    def filters(self):
-        """Returns a tuple of filters associated with the tensor."""
+    def topological_coefficients(self):
+        """Returns a tuple of topological_coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.filters()
+        return tensor.topological_coefficients()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -722,9 +722,9 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
-    def filters(self):
-        """Returns a tuple of filters associated with the tensor."""
-        return self.form.filters()
+    def topological_coefficients(self):
+        """Returns a tuple of topological_coefficients associated with the tensor."""
+        return self.form.topological_coefficients()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -770,9 +770,9 @@ class TensorOp(TensorBase):
         coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
-    def filters(self):
-        """Returns the expected filters of the resulting tensor."""
-        fltrs = [op.filters() for op in self.operands]
+    def topological_coefficients(self):
+        """Returns the expected topological_coefficients of the resulting tensor."""
+        fltrs = [op.topological_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*fltrs)))
 
     def ufl_domains(self):
