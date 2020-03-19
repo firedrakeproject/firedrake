@@ -150,7 +150,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=False,
+                       oriented=builder.needs_cell_orientations,
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),
