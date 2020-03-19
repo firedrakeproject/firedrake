@@ -19,6 +19,7 @@ from islpy import BasicSet
 import numpy as np
 import islpy as isl
 import pymbolic.primitives as pym
+import itertools
 
 
 class RemoveRestrictions(MultiFunction):
@@ -217,7 +218,7 @@ class SlateTranslator():
             self.builder.create_index(A.shape, A)
             _A_indices = self.builder.gem_indices[A]
             _A = self.get_tensor_withnewidx(_A, _A_indices)
-        if not type(B) == Indexed or not _A.multiindex == _B.multiindex:
+        if not type(_B) == Indexed or not _A.multiindex == _B.multiindex:
             _B = self.get_tensor_withnewidx(_B, tuple(_A.multiindex))
         new_indices = _A.multiindex
         return Indexed(ComponentTensor(Sum(_A, _B), new_indices), new_indices)
@@ -243,7 +244,7 @@ class SlateTranslator():
         assert var_A.multiindex, "Slate translation failure: Node should be an Indexed, but is"+type(var_A)
         A_indices = var_A.multiindex
 
-        # New indices are necessary in case as Tensor gets multiplied with itself.ß
+        # New indices are necessary in case as Tensor gets multiplied with itself.
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
 
@@ -269,30 +270,69 @@ class SlateTranslator():
     def slate_to_gem_blocks(self, tensor, node_dict):
 
         A, = tensor.operands
+        node = node_dict[A]
+        dim2idxs = [[], []]
 
-        Aoffset = ()
-        extent = ()
-        block = tensor._indices
-        # i points to the block matrices
-        # idx points to the shape of that block matrix in all dimensions
-        for i, idx in enumerate(block):
-            Aoffset += (sum(A.shapes[i][:idx]), )
-            extent += (A.shapes[i][idx], )
+        if type(tensor._indices[0]) == int:
+            loop = [tensor._indices]
+        else:
+            loop = itertools.product(*tensor._indices)
 
-        # reusage of already generated indices for the tensor
-        self.builder.create_index(tensor.shape, tensor)
-        gem_index = self.builder.gem_indices[tensor]
+        # also treats a range in blocks
+        # A = [00, 01, 02; 10, 11, 12; 20, 21, 22]
+        # ret = A[2:3, 2:3][0,1] -> A[2,3]
+        # comp = (range())
+        for c, block in enumerate(loop):
+            # i points to the block matrices
+            # idx points to the shape of that block matrix in all dimensions
+            Aoffset = ()
+            extent = ()
+            for i, idx in enumerate(block):
 
-        # move the original index by an offset
-        # to reference into the subblock of the tensor which
-        # dim2idxs is of form ((offset, ((index, stride), ) ... ), (offset, ((index, stride), ) ...))
-        dim2idxs = ()
-        for i, idx in enumerate(block):
-            idxs = ()
-            idxs += ((gem_index[i], 1), )
-            dim2idxs += ((Aoffset[i], idxs), )
-        block = FlexiblyIndexed(node_dict[A].children[0], dim2idxs)
-        return block
+                # move the original index by an offset
+                # to reference into the subblock of the tensor which
+                # dim2idxs is of form ((offset, ((index, stride), ) ... ), (offset, ((index, stride), ) ...))
+                # ((1, ((i, 12), (j, 4), (k, 1))), (0, ())) ->  variable[1 + i*12 + j*4 + k][0]
+                # dim2idx[dim][0]-> offset
+                # dim2idx[dim][1]-> (index, stride)
+                if c == 0:
+                    Aoffset += (sum(A.shapes[i][:idx]), )
+                    extent += (A.shapes[i][idx], )
+
+                elif len(dim2idxs[i][1]) < block[i]:
+                    extent += (A.shapes[i][idx], )
+
+            # TODO I think this only works when the blocks have the same size
+            # otherwise block needs to produce multiple indices
+            # and in block(block) the right index needs to be picked up from the inside
+            if c == 0:
+                key = tensor
+                self.builder.create_index(extent, key)
+                gem_index = self.builder.gem_indices[key]
+
+                for i, idx in enumerate(gem_index):
+                    idxs = ((gem_index[i], 1), )
+                    dim2idxs[i].extend([Aoffset[i], idxs])
+            # elif not type(node) == FlexiblyIndexed:
+            #     key = str(tensor) + str(block) + str(i)
+            #     self.builder.create_index(extent, key)
+            #     gem_index = self.builder.gem_indices[key]
+
+            #     idxs = ((gem_index[0], 1), )
+            #     dim2idxs[0][1] += idxs
+                # idxs = ((gem_index[1], 1), )
+                # dim2idxs[1][1] += idxs
+
+        if type(node) == FlexiblyIndexed:
+            for i, idx in enumerate(gem_index):
+                dim2idxs[i][0] += node_dict[A].dim2idxs[i][0]
+                dim2idxs[i] = tuple(dim2idxs[i])
+            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
+        else:
+            for i, idx in enumerate(gem_index):
+                dim2idxs[i] = tuple(dim2idxs[i])
+            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
+        return ret
 
     def get_tensor_withnewidx(self, var, idx):
         if type(var) == Indexed:
