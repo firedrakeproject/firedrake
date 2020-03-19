@@ -466,9 +466,17 @@ class File(object):
 
     def _write_vtu(self, *functions):
         from firedrake.function import Function
+
+        # Check if the user has requested to write out a plain mesh
+        if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
+            from firedrake.functionspace import FunctionSpace
+            mesh = functions[0]
+            V = FunctionSpace(mesh, "CG", 1)
+            functions = [Function(V)]
+
         for f in functions:
             if not isinstance(f, Function):
-                raise ValueError("Can only output Functions, not %r" % type(f))
+                raise ValueError("Can only output Functions or a single mesh, not %r" % type(f))
         meshes = tuple(f.ufl_domain() for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
