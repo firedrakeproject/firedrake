@@ -636,6 +636,7 @@ class LocalLoopyKernelBuilder(object):
                     kernel_data.append((mesh.cell_sizes,
                                         self.cell_size_arg))
 
+                # FIXME this does not work if the coefficient coming from tsfc is indexed in the slate expression
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
                 kernel_data.extend([(c, self.extra_coefficients[c])
                                     for c in local_coefficients])
@@ -681,6 +682,8 @@ class LocalLoopyKernelBuilder(object):
 
                     if self.cell_facets_arg+"_sum" not in self.loopy_indices:
                         i = self.create_index((1,), self.cell_facets_arg+"_sum")
+                    else:
+                        i = self.loopy_indices[self.cell_facets_arg+"_sum"]
                     predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
 
                     # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
@@ -723,12 +726,11 @@ class LocalLoopyKernelBuilder(object):
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = list(set(include_dirs))
-        self.needs_cell_orientations = needs_cell_orientations  # instead of oriented
+        self.needs_cell_orientations = needs_cell_orientations
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets = needs_cell_facets
         self.needs_mesh_layers = needs_mesh_layers
         self.num_facets = num_facets
-        # self.oriented =kinfo.oriented
         self.args_extents = args_extents
 
 
@@ -744,8 +746,6 @@ def create_index(extent, key, namer, ctx):
     else:
         if isinstance(extent, tuple) and extent != ():
             extent = extent[0]
-        elif isinstance(extent, tuple) and extent == ():
-            extent = 0
         name = next(namer)
         ret = pym.Variable(name)
         ctx.loopy_indices.setdefault(key, (ret,))
