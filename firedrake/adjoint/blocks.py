@@ -36,10 +36,6 @@ class AssembleBlock(blocks.AssembleBlock, Backend):
     pass
 
 
-#class FunctionSplitBlock(blocks.FunctionSplitBlock, Backend):
-#    pass
-
-
 def solve_init_params(self, args, kwargs, varform):
     if len(self.forward_args) <= 0:
         self.forward_args = args
