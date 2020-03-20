@@ -242,27 +242,29 @@ class SlateTranslator():
         var_A, var_B = node_dict[A], node_dict[B]  # gem representations
 
         assert var_A.multiindex, "Slate translation failure: Node should be an Indexed, but is"+type(var_A)
-        A_indices = var_A.multiindex
 
         # New indices are necessary in case as Tensor gets multiplied with itself.
+        self.builder.create_index(A.shape, str(A)+"new")
+        new_indices = self.builder.gem_indices[str(A)+"new"]
+
         self.builder.create_index(tensor.shape, tensor)
-        new_indices = self.builder.gem_indices[tensor]
+        out_indices = self.builder.gem_indices[tensor]
 
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, (new_indices[0], A_indices[1]))
-            var_B = self.get_tensor_withnewidx(var_B, (A_indices[1], new_indices[1]))
+            var_A = self.get_tensor_withnewidx(var_A, new_indices)
+            var_B = self.get_tensor_withnewidx(var_B, new_indices)
 
             prod = Product(var_A, var_B)
-            sum = IndexSum(prod, (A_indices[1],))
-            return self.get_tensor_withnewidx(sum, new_indices)
+            sum = IndexSum(prod, (new_indices[1],))
+            return self.get_tensor_withnewidx(sum, out_indices)
 
         elif len(A.shape) > len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, (new_indices[0], A_indices[1]))
-            var_B = self.get_tensor_withnewidx(var_B, (A_indices[1],))
+            var_A = self.get_tensor_withnewidx(var_A, new_indices)
+            var_B = self.get_tensor_withnewidx(var_B, (new_indices[1],))
 
             prod = Product(var_A, var_B)
-            sum = IndexSum(prod, (A_indices[1],))
-            return self.get_tensor_withnewidx(sum, new_indices)
+            sum = IndexSum(prod, (new_indices[1],))
+            return self.get_tensor_withnewidx(sum, out_indices)
         else:
             return[]
 
@@ -336,10 +338,21 @@ class SlateTranslator():
 
     def get_tensor_withnewidx(self, var, idx):
         if type(var) == Indexed:
-            var = var.children[0]
-            var = Indexed(var, idx)
+            if var.free_indices == idx:
+                # no unnecessary generation of Indexed(ComponentTensor)
+                var = Indexed(var.children[0], idx)
+            else:
+                free_indices_sorted = tuple()
+                for index in var.multiindex:
+                    if index in var.free_indices:
+                        free_indices_sorted += (index, )
+                # special case for IndexSum generating an Indexed with scalar multiindex
+                # e.g. occurs for DG0
+                if free_indices_sorted == ():
+                    free_indices_sorted = var.free_indices
+                var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
         elif type(var) == IndexSum:
-            var = Indexed(ComponentTensor(var, idx), idx)
+            var = Indexed(ComponentTensor(var, var.free_indices), idx)
         elif type(var) == FlexiblyIndexed:
             pass
         else:
@@ -522,7 +535,7 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
         for coeff_no, coeff_info in enumerate(v):
             loopy_tensor = builder.gem_loopy_dict[coeff_info.local_temp]
             loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
-            indices = builder.loopy_indices[coeff_info.vector]
+            indices = builder.create_index(coeff_info.shape, str(coeff_info.vector)+"_init")
             inames = {var.name for var in indices}
             inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
             c += 1
@@ -543,7 +556,6 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
 
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
     noi_outer = len(loopy_outer.instructions)
-    # noi_inits = len(inits)
     # # add dependencies dynamically
     # if len(loopy_outer.instructions) > 1:
     #     for i in range(len(kitting_insn)):
@@ -615,5 +627,4 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     for loopy_inner in loopy_inner_list:
         prg = register_callable_kernel(prg, loopy_inner)
         prg = inline_callable_kernel(prg, loopy_inner.name)
-
     return prg
