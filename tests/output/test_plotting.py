@@ -176,7 +176,7 @@ def test_trisurf():
     f.interpolate(x[0] ** 2 + x[1] ** 2)
 
     fig = plt.figure()
-    axes = fig.add_subplot(projection='3d')
+    axes = fig.add_subplot(111, projection='3d')
     assert isinstance(axes, Axes3D)
     collection = trisurf(f, axes=axes)
     assert collection is not None
@@ -190,7 +190,7 @@ def test_trisurf3d():
     f.interpolate(x[0] * x[1] * x[2])
 
     fig = plt.figure()
-    axes = fig.add_subplot(projection='3d')
+    axes = fig.add_subplot(111, projection='3d')
     collection = trisurf(f, axes=axes)
     assert collection is not None
 
@@ -203,6 +203,6 @@ def test_trisurf3d_quad():
     f.interpolate(x[0] * x[1] * x[2])
 
     fig = plt.figure()
-    axes = fig.add_subplot(projection='3d')
+    axes = fig.add_subplot(111, projection='3d')
     collection = trisurf(f, axes=axes)
     assert collection is not None
