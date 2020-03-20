@@ -11,7 +11,8 @@ from firedrake import utils
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'CellSize', 'FacetNormal']
+           'action', 'CellSize', 'FacetNormal',
+           'Filtered']
 
 
 class Argument(ufl.argument.Argument):
@@ -247,3 +248,14 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+class Filtered(ufl.Filtered):
+    """Wrapper for `ufl.Filtered` operator.
+
+    :arg form_argument: the :class:`.Argument` to apply filter to.
+    :arg fltr: the :class:`CoordinatelessFunction` object that 
+       specifies dofs to be filtered out or scaled.
+    """
+    def __init__(self, form_argument, fltr):
+        super().__init__(form_argument, fltr)

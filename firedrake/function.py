@@ -20,7 +20,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'PointNotInDomainError']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointNotInDomainError']
 
 
 class _CFunction(ctypes.Structure):
@@ -64,7 +64,7 @@ class CoordinatelessFunction(ufl.TopologicalCoefficient):
         self.comm = function_space.comm
         self._function_space = function_space
         self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or 'coordinateless_function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, vector.Vector):
