@@ -1,57 +1,185 @@
 import pytest
 from firedrake import *
+from firedrake import ufl_expr
+from pyop2 import op2
+import numpy as np
 
 
-def test_filter_one_form():
+def test_filter_one_form_lagrange():
 
     mesh = UnitSquareMesh(2, 2)
 
     V = FunctionSpace(mesh, 'CG', 1)
     v = TestFunction(V)
 
-    tV = FunctionSpace(mesh.topology, 'CG', 1)
-    fltr = CoordinatelessFunction(tV)
-
     x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x) * cos(2 * pi * y))
+    nodes = V.boundary_nodes(1, "topological")
+    subset = op2.Subset(V.node_set, nodes)
+    fltr = Function(V).assign(1., subset=subset)
 
-    rhs = assemble(f * v * dx(degree=4))
-    #rhs = assemble(f * Filtered(v, fltr) * dx(degree=4))
-    #bc = DirichletBC(V, g, 1)
+    rhs0 = assemble(f * v * dx)
+    rhs1 = assemble(f * Filtered(v, fltr) * dx)
+
+    expected = np.multiply(rhs0.dat.data, fltr.dat.data)
+
+    assert np.allclose(rhs1.dat.data, expected)
 
 
-    print(rhs.dat.data)
-
-"""
-def test_filter_poisson():
+def test_filter_one_form_bdm():
 
     mesh = UnitSquareMesh(2, 2)
+
+    V = FunctionSpace(mesh, 'BDM', 1)
+    v = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).project(as_vector([8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5),
+                                       8.0 * pi * pi * cos(2 * pi *x + pi/7) * cos(2 * pi * y + pi/11)]))
+
+    nodes = V.boundary_nodes(1, "topological")
+    subset = op2.Subset(V.node_set, nodes)
+    fltr = Function(V).assign(Function(V).project(as_vector([1., 2.])), subset=subset)
+
+    rhs0 = assemble(inner(f, v) * dx)
+    rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
+
+    expected = np.multiply(rhs0.dat.data, fltr.dat.data)
+
+    assert np.allclose(rhs1.dat.data, expected)
+
+
+def test_filter_two_form_lagrange():
+
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
 
     V = FunctionSpace(mesh, 'CG', 1)
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    tV = FunctionSpace(mesh.topology, 'CG', 1)
-    fltr = CoordinatelessFunction(tV)
+    nodes = V.boundary_nodes(1, "topological")
+    subset = op2.Subset(V.node_set, nodes)
+    fltr_b = Function(V).assign(1., subset=subset)
+    fltr_d = Function(V).interpolate(1. - fltr_b)
 
-    x, y = SpatialCoordinate(mesh)
+    v_d = Filtered(v, fltr_d)
+    v_b = Filtered(v, fltr_b)
+    u_d = Filtered(u, fltr_d)
+    u_b = Filtered(u, fltr_b)
+
+    # Mass matrix
+    a = dot(grad(u), grad(v)) * dx
+    A = assemble(a)
+    expected = np.array([[ 2/3, -1/6, -1/3, -1/6],
+                         [-1/6,  2/3, -1/6, -1/3],
+                         [-1/3, -1/6, 2/3, -1/6],
+                         [-1/6, -1/3, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
+    # Mass matrix (remove boundary rows)
+    a = dot(grad(u), grad(v_d)) * dx
+    A = assemble(a)
+    expected = np.array([[0, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [-1/3, -1/6, 2/3, -1/6],
+                         [-1/6, -1/3, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
+    # Mass matrix (remove boundary rows/cols)
+    a = dot(grad(u_d), grad(v_d)) * dx
+    A = assemble(a)
+    expected = np.array([[0, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 2/3, -1/6],
+                         [0, 0, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
+    # Mass matrix (remove boundary rows/cols)
+    # Boundary mass matrix
+    a = dot(grad(u_d), grad(v_d)) * dx + u * v_b * ds(1)
+    A = assemble(a)
+    expected = np.array([[1/3, 1/6, 0, 0],
+                         [1/6, 1/3, 0, 0],
+                         [0, 0, 2/3, -1/6],
+                         [0, 0, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
+    # Mass matrix (remove boundary rows/cols)
+    # Boundary mass matrix
+    # Test action/derivative
+    a = dot(grad(u_d), grad(v_d)) * dx + u * v_b * ds(1)
+    u_ = Function(V)
+    a = ufl_expr.action(a, u_)
+    a = ufl_expr.derivative(a, u_)
+    A = assemble(a)
+    expected = np.array([[1/3, 1/6, 0, 0],
+                         [1/6, 1/3, 0, 0],
+                         [0, 0, 2/3, -1/6],
+                         [0, 0, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
+
+
+    from tsfc.fiatinterface import as_fiat_cell
+    from finat.quadrature import make_quadrature
+    fiat_cell = as_fiat_cell(mesh.ufl_cell())
+    integration_cell = fiat_cell.construct_subelement(2)
+    quadrature_degree = 2
+    quad_rule = make_quadrature(integration_cell, quadrature_degree)
+    a = dot(grad(u_d), grad(v_d)) * dx + u * v_b * ds(1, scheme = quad_rule)
+    A = assemble(a)
+    expected = np.array([[1/3, 1/6, 0, 0],
+                         [1/6, 1/3, 0, 0],
+                         [0, 0, 2/3, -1/6],
+                         [0, 0, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+    
+
+
+def test_filter_poisson():
+
+    mesh = UnitSquareMesh(2**8, 2**8)
+
+    V = FunctionSpace(mesh, 'CG', 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
 
     # Analytical solution
+    x, y = SpatialCoordinate(mesh)
     g = Function(V).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
-
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x) * cos(2 * pi * y))
 
-    a = dot(grad(v), grad(u)) * dx
-    L = f * v * dx
+    # Solve with DirichletBC
+    a0 = dot(grad(v), grad(u)) * dx
+    L0 = f * v * dx
+    bc = DirichletBC(V, g, [1, 2, 3, 4])
+    u0 = Function(V)
+    solve(a0 == L0, u0, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
-    bc = DirichletBC(V, g, 1)
+    # Solve with Filtered; no DirichletBC
+    nodes = V.boundary_nodes([1, 2, 3, 4], "topological")
+    subset = op2.Subset(V.node_set, nodes)
+    fltr_b = Function(V).assign(1., subset=subset)
+    fltr_d = Function(V).interpolate(1. - fltr_b)
 
-    u = Function(V)
+    v_d = Filtered(v, fltr_d)
+    v_b = Filtered(v, fltr_b)
+    u_d = Filtered(u, fltr_d)
+    u_b = Filtered(u, fltr_b)
+    g_b = Filtered(g, fltr_b)
 
-    solve(a == L, u, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    #a1 = dot(grad(v_d), grad(u)) * dx + u * v_b * ds
+    #L1 = f * v_d * dx + g * v_b *ds
 
-    assert(sqrt(assemble(dot(u - g, u - g) * dx)) < 1e-19)
-"""
+    a1 = dot(grad(u_d), grad(v_d)) * dx + u_b * v_b * ds
+    L1 = f * v_d * dx - dot(grad(g_b), grad(v_d)) * dx + g * v_b * ds
+
+    u1 = Function(V)
+    solve(a1 == L1, u1, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+
+    # Assert u1 == u0
+    assert(sqrt(assemble(dot(u1 - u0, u1 - u0) * dx)) < 1e-15)
+    assert(sqrt(assemble(dot(u1 - g, u1 - g) * dx)) < 1e-4)
 
 

@@ -6,6 +6,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
 from firedrake import utils
+from firedrake.function import CoordinatelessFunction, Function
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -253,9 +254,16 @@ def FacetNormal(mesh):
 class Filtered(ufl.Filtered):
     """Wrapper for `ufl.Filtered` operator.
 
-    :arg form_argument: the :class:`.Argument` to apply filter to.
-    :arg fltr: the :class:`CoordinatelessFunction` object that 
-       specifies dofs to be filtered out or scaled.
+    :arg form_argument: the :class:`~.Argument` or :class:`~.Function`
+       to apply filter to.
+    :arg fltr: the :class:`~.CoordinatelessFunction` (or possibly
+       :class:`~.Function`) that specifies dofs filters or scales.
     """
     def __init__(self, form_argument, fltr):
+        if isinstance(fltr, Function):
+            fltr = fltr.topological
+        if not isinstance(fltr, CoordinatelessFunction):
+            raise TypeError("Must provide `Filtered` with \
+                            `CoordinatelessFunction` or `Function`, \
+                             not %s" % fltr.__class__.__name__)
         super().__init__(form_argument, fltr)

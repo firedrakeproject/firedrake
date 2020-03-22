@@ -178,6 +178,35 @@ class CoordinatelessFunction(ufl.TopologicalCoefficient):
         is defined."""
         return self._function_space
 
+    @utils.known_pyop2_safe
+    def assign(self, expr, subset=None):
+        r"""Set the :class:`Function` value to the pointwise value of
+        expr. expr may only contain :class:`Function`\s on the same
+        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`.FunctionSpace` then::
+
+          f += 2 * g
+
+        will add twice `g` to `f`.
+
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
+        """
+
+        if isinstance(expr, (CoordinatelessFunction, Function)) and \
+           expr.function_space().topological == self.function_space().topological:
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.Assign(self, expr), subset)
+        return self
+
     def name(self):
         r"""Return the name of this :class:`Function`"""
         return self._name
