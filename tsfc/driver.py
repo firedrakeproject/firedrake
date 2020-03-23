@@ -483,19 +483,18 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                 quad_points_comp = [q for q in quad_points if dual.pt_dict[q][0][1] == () or comp in [w[1][0] for w in dual.pt_dict[q]]]
                 weights_comp = []
                 for q in quad_points_comp:
-                    weights_comp.append([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or comp == w[1][0] ])
+                    weights_comp.extend([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or comp == w[1][0] ])
                 if len(quad_points_comp) > 0:
                     quad_rule = QuadratureRule(PointSet(quad_points_comp), weights_comp)
                     config = kernel_cfg.copy()
                     config.update(quadrature_rule=quad_rule)
                     expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                               for e in fem.compile_ufl(exp, **config)]
+                                   for e in fem.compile_ufl(ufl.classes.QuadratureWeight(exp.ufl_domain())*exp, **config)]
                     dual_expression.extend(expressions)
 
             i = gem.Index()
             dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
             dual_expressions.append(dual_expr)
-            #[dual_expressions.append(dual_expr) for dual_expr in dual_expression]
 
     # Case 3: tensors
     elif len(expression.ufl_shape) == 2:
@@ -531,6 +530,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     builder.register_requirements([ir])
     # Build kernel tuple
     return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
+
 
 def lower_integral_type(fiat_cell, integral_type):
     """Lower integral type into the dimension of the integration
