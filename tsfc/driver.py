@@ -12,7 +12,7 @@ from numpy import asarray
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.geometry import Jacobian
+from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
@@ -402,8 +402,13 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         mesh = expression.ufl_domain()
         J = Jacobian(mesh)
         expression = J.T * expression
+    elif mapping == "contravariant piola":
+        mesh = expression.ufl_domain()
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        expression = detJ * K * expression
     else:
-        raise NotImplementedError
+        raise NotImplementedError("Don't know how to handle mapping type " + mapping)
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
