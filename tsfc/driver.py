@@ -12,6 +12,7 @@ from numpy import asarray
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
+from ufl.geometry import Jacobian
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
@@ -389,6 +390,20 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
 
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
+
+    # Find out which mapping to apply
+    mappings = set(to_element.mapping())
+    if len(mappings) != 1:
+        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
+    mapping = mappings.pop()
+    if mapping == "affine":
+        pass  # do nothing
+    elif mapping == "covariant piola":
+        mesh = expression.ufl_domain()
+        J = Jacobian(mesh)
+        expression = J.T * expression
+    else:
+        raise NotImplementedError
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
