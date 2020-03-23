@@ -465,12 +465,13 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
                     config.update(quadrature_rule=quad_rule)
                     expressions = [gem.index_sum(e, quad_rule.point_set.indices)
                                for e in fem.compile_ufl(exp, **config)]
-                    dual_expression.append(expressions)
+                    dual_expression.extend(expressions)
+                    #dual_expression.append(expressions)
 
-            #index = gem.Index()
-            #dual_expr = gem.index_sum(gem.ListTensor([x[0][index] for x in dual_expression]), (index,))
-            #dual_expressions.append(dual_expr)
-            [dual_expressions.append(dual_expr) for dual_expr in dual_expression]
+            i = gem.Index()
+            dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
+            dual_expressions.append(dual_expr)
+            #[dual_expressions.append(dual_expr) for dual_expr in dual_expression]
 
     # Case 3: tensors
     elif len(expression.ufl_shape) == 2:
