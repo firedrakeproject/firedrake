@@ -214,26 +214,34 @@ class SlateTranslator():
     def slate_to_gem_add(self, tensor, node_dict):
         A, B = tensor.operands  # slate tensors
         _A, _B = node_dict[A], node_dict[B]  # gem representations
-        if not type(_A) == Indexed:
-            self.builder.create_index(A.shape, A)
-            _A_indices = self.builder.gem_indices[A]
-            _A = self.get_tensor_withnewidx(_A, _A_indices)
-        if not type(_B) == Indexed or not _A.multiindex == _B.multiindex:
-            _B = self.get_tensor_withnewidx(_B, tuple(_A.multiindex))
-        new_indices = _A.multiindex
-        return Indexed(ComponentTensor(Sum(_A, _B), new_indices), new_indices)
+        self.builder.create_index(A.shape, str(A)+"newadd")
+        new_indices = self.builder.gem_indices[str(A)+"newadd"]
+        self.builder.create_index(tensor.shape, tensor)
+        out_indices = self.builder.gem_indices[tensor]
+        _A = self.get_tensor_withnewidx(_A, new_indices)
+        _B = self.get_tensor_withnewidx(_B, new_indices)
+        return Indexed(ComponentTensor(Sum(_A, _B), new_indices), out_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Negative)
     def slate_to_gem_negative(self, tensor, node_dict):
         A, = tensor.operands
-        new_indices = node_dict[A].multiindex
-        return Indexed(ComponentTensor(Product(Literal(-1), node_dict[A]), new_indices), new_indices)
+        self.builder.create_index(A.shape, str(A)+"newneg")
+        new_indices = self.builder.gem_indices[str(A)+"newneg"]
+        self.builder.create_index(tensor.shape, tensor)
+        out_indices = self.builder.gem_indices[tensor]
+        var_A = self.get_tensor_withnewidx(node_dict[A], new_indices)
+        return Indexed(ComponentTensor(Product(Literal(-1), var_A), new_indices), out_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self, tensor, node_dict):
         A, = tensor.operands
-        A_indices = node_dict[A].multiindex
-        ret = Indexed(node_dict[A].children[0], A_indices[::-1])
+        _A = node_dict[A]
+        self.builder.create_index(A.shape, str(A)+"newtrans")
+        new_indices = self.builder.gem_indices[str(A)+"newtrans"]
+        self.builder.create_index(tensor.shape, tensor)
+        out_indices = self.builder.gem_indices[tensor]
+        var_A = self.get_tensor_withnewidx(_A, new_indices[::-1])
+        ret = Indexed(ComponentTensor(var_A, new_indices), out_indices)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Mul)
@@ -245,25 +253,27 @@ class SlateTranslator():
 
         # New indices are necessary in case as Tensor gets multiplied with itself.
         self.builder.create_index(A.shape, str(A)+"new")
-        new_indices = self.builder.gem_indices[str(A)+"new"]
+        new_indices_A = self.builder.gem_indices[str(A)+"new"]
+        self.builder.create_index(B.shape, str(B)+"new")
+        new_indices_B = self.builder.gem_indices[str(B)+"new"]
 
         self.builder.create_index(tensor.shape, tensor)
         out_indices = self.builder.gem_indices[tensor]
 
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, new_indices)
-            var_B = self.get_tensor_withnewidx(var_B, new_indices)
+            var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
+            var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1], new_indices_B[1]))
 
             prod = Product(var_A, var_B)
-            sum = IndexSum(prod, (new_indices[1],))
+            sum = IndexSum(prod, (new_indices_A[1],))
             return self.get_tensor_withnewidx(sum, out_indices)
 
         elif len(A.shape) > len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, new_indices)
-            var_B = self.get_tensor_withnewidx(var_B, (new_indices[1],))
+            var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
+            var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1],))
 
             prod = Product(var_A, var_B)
-            sum = IndexSum(prod, (new_indices[1],))
+            sum = IndexSum(prod, (new_indices_A[1],))
             return self.get_tensor_withnewidx(sum, out_indices)
         else:
             return[]
@@ -378,12 +388,14 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
     def slate_to_gem_inverse(self, tensor, node_dict):
         A, = tensor.operands
-        self.builder.create_index(A.shape, str(tensor)+"reads")
-        A_indices = self.builder.gem_indices[str(tensor)+"reads"]
+        self.builder.create_index(A.shape, str(A)+"reads")
+        A_indices = self.builder.gem_indices[str(A)+"reads"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
+        self.builder.create_index(tensor.shape, str(tensor)+"out")
+        out_indices = self.builder.gem_indices[str(tensor)+"out"]
         ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
-        ret = Indexed(Inverse(ret, new_indices), new_indices)
+        ret = Indexed(Inverse(ret, new_indices), out_indices)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Factorization)
