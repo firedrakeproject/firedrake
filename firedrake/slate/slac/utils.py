@@ -523,7 +523,8 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     c = 0
     for slate_tensor, gem_indexed in builder.temps.items():
         # create new indices for inits and save with indexed (gem) key instead of slate tensor
-        indices = builder.create_index(slate_tensor.shape, gem_indexed)
+        shape = builder.shape(slate_tensor)
+        indices = builder.create_index(shape, gem_indexed)
         loopy_tensor = builder.gem_loopy_dict[gem_indexed]
         indices = builder.loopy_indices[gem_indexed]
         inames = {var.name for var in indices}

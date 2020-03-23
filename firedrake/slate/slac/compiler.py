@@ -615,8 +615,15 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         arg = builder.gem_loopy_dict[v]
         args.append(arg)
 
-    arg = loopy.GlobalArg("output", shape=builder.expression.shape, dtype="double")
+    # creation of return variables for slate loopy
+    shape = builder.shape(builder.expression)
+    arg = loopy.GlobalArg("output", shape=shape, dtype="double")
     args.append(arg)
+    if (type(builder.expression) == slate.Tensor or type(builder.expression) == slate.Block):
+        idx = builder.gem_indices[builder.expression]
+    else:
+        idx = traversed_gem_expr_dag[0].multiindex
+    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     # ### TODO the global argument generation must be made nicer
     if len(builder.args_extents) > 0:
@@ -644,17 +651,6 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
                                     dtype=np.uint8))
 
     ############
-
-    # creation of return variables for slate loopy
-    if (type(builder.expression) == slate.Tensor or type(builder.expression) == slate.Block):
-        idx = builder.gem_indices[builder.expression]
-        shape = builder.expression.shape
-    else:
-        idx = traversed_gem_expr_dag[0].multiindex
-        shape = builder.expression.shape
-
-    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
-
     # TODO: preprocessing of gem for removing unneccesary component tensors
     # print("not peprocessed",traversed_gem_expr_dag)
     # traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
