@@ -3,6 +3,7 @@ import operator
 import string
 import time
 import sys
+import copy
 from functools import reduce
 from itertools import chain
 
@@ -363,14 +364,14 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
 
 
-def compile_expression_dual_evaluation(expression, dual_functionals, coordinates, interface=None,
+def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
                                  parameters=None, coffee=True):
     """Compiles a UFL expression to be evaluated against specified
     dual functionals. Useful for interpolating UFL expressions into
     e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg dual_functionals: FIAT dual functionals
+    :arg to_element: FiniteElement for the target space
     :arg coordinates: the coordinate function
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
@@ -437,7 +438,8 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
 
     # Case 1: scalars
     if len(expression.ufl_shape) == 0:
-        for dual in dual_functionals:
+        assert to_element.value_shape() == ()
+        for dual in to_element.dual_basis():
             quad_points = [*dual.pt_dict.keys()]
             weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
             quad_rule = QuadratureRule(PointSet(quad_points), weights)
@@ -450,6 +452,29 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
 
     # Case 2: vectors
     elif len(expression.ufl_shape) == 1:
+
+        # check we have a [scalar]^d or vector element
+        assert len(to_element.value_shape()) in [0, 1]
+
+        # if we have a native vector element, just use those dual functionals
+        if len(to_element.value_shape()) == 1:
+            dual_functionals = to_element.dual_basis()
+        # otherwise, implement broadcasting semantics
+        else:
+            orig_functionals = to_element.dual_basis()
+            dual_functionals = []
+            for dual in orig_functionals:
+                for component in range(len(expression)):
+                    # reconstruct the functional, but with an index
+                    new_dual = copy.copy(dual)
+                    new_pt_dict = {}
+                    for quad_pt in dual.pt_dict:
+                        weights = [x[0] for x in dual.pt_dict[quad_pt]]
+                        new_weights_and_indices = [(weight, (component,)) for weight in weights]
+                        new_pt_dict[quad_pt] = new_weights_and_indices
+                    new_dual.pt_dict = new_pt_dict
+                    dual_functionals.append(new_dual)
+
         for dual in dual_functionals:
             quad_points = [*dual.pt_dict.keys()]
             dual_expression = []
@@ -466,7 +491,6 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
                     expressions = [gem.index_sum(e, quad_rule.point_set.indices)
                                for e in fem.compile_ufl(exp, **config)]
                     dual_expression.extend(expressions)
-                    #dual_expression.append(expressions)
 
             i = gem.Index()
             dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
