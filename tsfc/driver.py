@@ -392,10 +392,11 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     complex_mode = is_complex(parameters["scalar_type"])
 
     # Find out which mapping to apply
-    mappings = set(to_element.mapping())
-    if len(mappings) != 1:
+    try:
+        mapping, = set(to_element.mapping())
+    except ValueError:
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
-    mapping = mappings.pop()
+
     if mapping == "affine":
         pass  # do nothing
     elif mapping == "covariant piola":
