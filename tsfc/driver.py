@@ -432,20 +432,51 @@ def compile_expression_dual_evaluation(expression, dual_functionals, coordinates
                      argument_multiindices=argument_multiindices)
 
     dual_expressions = []
-    for dual in dual_functionals:
-        # Extract associated quadrature rule representation
-        # Make a quad_rule
 
-        quad_points = [*dual.pt_dict.keys()]
-        # get it working for scalar functions first; how do we deal with components??
-        weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
-        quad_rule = QuadratureRule(PointSet(quad_points), weights)
+    # We need to do different things based on the shape of the expression, unfortunately
 
-        config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule)
-        expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                       for e in fem.compile_ufl(expression, **config)]
-        dual_expressions.append(expressions)
+    # Case 1: scalars
+    if len(expression.ufl_shape) == 0:
+        for dual in dual_functionals:
+            quad_points = [*dual.pt_dict.keys()]
+            weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
+            quad_rule = QuadratureRule(PointSet(quad_points), weights)
+
+            config = kernel_cfg.copy()
+            config.update(quadrature_rule=quad_rule)
+            expressions = [gem.index_sum(e, quad_rule.point_set.indices)
+                           for e in fem.compile_ufl(expression, **config)]
+            dual_expressions.append(expressions)
+
+    # Case 2: vectors
+    elif len(expression.ufl_shape) == 1:
+        for dual in dual_functionals:
+            quad_points = [*dual.pt_dict.keys()]
+            dual_expression = []
+
+            for comp, exp in enumerate(expression):
+                quad_points_comp = [q for q in quad_points if dual.pt_dict[q][0][1] == () or comp in [w[1][0] for w in dual.pt_dict[q]]]
+                weights_comp = []
+                for q in quad_points_comp:
+                    weights_comp.append([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or comp == w[1][0] ])
+                if len(quad_points_comp) > 0:
+                    quad_rule = QuadratureRule(PointSet(quad_points_comp), weights_comp)
+                    config = kernel_cfg.copy()
+                    config.update(quadrature_rule=quad_rule)
+                    expressions = [gem.index_sum(e, quad_rule.point_set.indices)
+                               for e in fem.compile_ufl(exp, **config)]
+                    dual_expression.append(expressions)
+
+            #index = gem.Index()
+            #dual_expr = gem.index_sum(gem.ListTensor([x[0][index] for x in dual_expression]), (index,))
+            #dual_expressions.append(dual_expr)
+            [dual_expressions.append(dual_expr) for dual_expr in dual_expression]
+
+    # Case 3: tensors
+    elif len(expression.ufl_shape) == 2:
+        raise NotImplementedError
+    else:
+        raise ValueError("Only know how to interpolate expressions in 1-3 dimensions")
 
     basis_indices = (gem.Index(), )
     ir = gem.ListTensor(dual_expressions)
