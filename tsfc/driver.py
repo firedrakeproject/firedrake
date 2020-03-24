@@ -461,7 +461,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     if len(expression.ufl_shape) == 0:
         assert to_element.value_shape() == ()
         for dual in to_element.dual_basis():
-            quad_points = [*dual.pt_dict.keys()]
+            quad_points = [*sorted(dual.pt_dict.keys())]
             weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
             quad_rule = QuadratureRule(PointSet(quad_points), weights)
 
@@ -489,7 +489,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                     # reconstruct the functional, but with an index
                     new_dual = copy.copy(dual)
                     new_pt_dict = {}
-                    for quad_pt in dual.pt_dict:
+                    for quad_pt in sorted(dual.pt_dict):
                         weights = [x[0] for x in dual.pt_dict[quad_pt]]
                         new_weights_and_indices = [(weight, (component,)) for weight in weights]
                         new_pt_dict[quad_pt] = new_weights_and_indices
@@ -497,7 +497,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                     dual_functionals.append(new_dual)
 
         for dual in dual_functionals:
-            quad_points = [*dual.pt_dict.keys()]
+            quad_points = [*sorted(dual.pt_dict.keys())]
             dual_expression = []
 
             for comp, exp in enumerate(expression):
