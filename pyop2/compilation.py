@@ -257,7 +257,7 @@ class Compiler(object):
             matching = self.comm.allreduce(basename, op=_check_op)
             if matching != basename:
                 # Dump all src code to disk for debugging
-                output = os.path.join(cachedir, "mismatching-kernels")
+                output = os.path.join(configuration["cache_dir"], "mismatching-kernels")
                 srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
                 if self.comm.rank == 0:
                     os.makedirs(output, exist_ok=True)
