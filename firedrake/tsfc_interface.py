@@ -41,6 +41,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "domain_number",
                                      "coefficient_map",
                                      "topological_coefficient_map",
+                                     "topological_coefficient_parts",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -138,6 +139,7 @@ class TSFCKernel(Cached):
             # Unwind coefficient/topological coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             topological_coefficient_numbers = tuple(topological_coefficient_number_map[c] for c in kernel.topological_coefficient_numbers)
+            topological_coefficient_parts = kernel.topological_coefficient_parts
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
@@ -145,6 +147,7 @@ class TSFCKernel(Cached):
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
                                       topological_coefficient_map=topological_coefficient_numbers,
+                                      topological_coefficient_parts=topological_coefficient_parts,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))

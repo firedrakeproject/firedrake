@@ -50,6 +50,33 @@ def test_filter_one_form_bdm():
     assert np.allclose(rhs1.dat.data, expected)
 
 
+def test_filter_one_form_mixed():
+
+    mesh = UnitSquareMesh(2, 2)
+
+    BDM = FunctionSpace(mesh, 'BDM', 1)
+    CG = FunctionSpace(mesh, 'CG', 1)
+
+    V = BDM * CG
+    v = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).project(as_vector([8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5),
+                                       8.0 * pi * pi * cos(2 * pi *x + pi/7) * cos(2 * pi * y + pi/11),
+                                       8.0 * pi * pi * cos(2 * pi *x + pi/13) * cos(2 * pi * y + pi/17)]))
+
+    fltr = Function(V)
+    nodes = CG.boundary_nodes(1, "topological")
+    subset = op2.Subset(CG.node_set, nodes)
+    fltr.sub(1).assign(1., subset=subset)
+
+    rhs0 = assemble(inner(f, v) * dx)
+    #rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
+
+    print(rhs0.dat.data)
+    #print(rhs1.dat.data)
+
+
 def test_filter_two_form_lagrange():
 
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
@@ -118,23 +145,6 @@ def test_filter_two_form_lagrange():
                          [0, 0, 2/3, -1/6],
                          [0, 0, -1/6, 2/3]])
     assert(np.allclose(A.M.values, expected))
-
-
-
-    from tsfc.fiatinterface import as_fiat_cell
-    from finat.quadrature import make_quadrature
-    fiat_cell = as_fiat_cell(mesh.ufl_cell())
-    integration_cell = fiat_cell.construct_subelement(2)
-    quadrature_degree = 2
-    quad_rule = make_quadrature(integration_cell, quadrature_degree)
-    a = dot(grad(u_d), grad(v_d)) * dx + u * v_b * ds(1, scheme = quad_rule)
-    A = assemble(a)
-    expected = np.array([[1/3, 1/6, 0, 0],
-                         [1/6, 1/3, 0, 0],
-                         [0, 0, 2/3, -1/6],
-                         [0, 0, -1/6, 2/3]])
-    assert(np.allclose(A.M.values, expected))
-    
 
 
 def test_filter_poisson():

@@ -426,6 +426,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
         topo_coeff_map = kinfo.topological_coefficient_map
+        topo_coeff_parts = kinfo.topological_coefficient_parts
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -536,9 +537,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for c_ in c.split():
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
-        for n in topo_coeff_map:
+        for i, n in enumerate(topo_coeff_map):
             c = topological_coefficients[n]
-            for c_ in c.split():
+            enabled_parts = topo_coeff_parts[i]
+            if enabled_parts:
+                _split = tuple(c.split()[part] for part in enabled_parts)
+            else:
+                _split = c.split()
+            for c_ in _split:
                 m_ = get_map(c_)
                 print("m_::::", m_)
                 args.append(c_.dat(op2.READ, m_))

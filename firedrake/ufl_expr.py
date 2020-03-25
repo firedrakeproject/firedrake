@@ -262,8 +262,8 @@ class Filtered(ufl.Filtered):
     def __init__(self, form_argument, fltr):
         if isinstance(fltr, Function):
             fltr = fltr.topological
-        if not isinstance(fltr, CoordinatelessFunction):
-            raise TypeError("Must provide `Filtered` with \
-                            `CoordinatelessFunction` or `Function`, \
-                             not %s" % fltr.__class__.__name__)
+        #if not isinstance(fltr, CoordinatelessFunction):
+        #    raise TypeError("Must provide `Filtered` with \
+        #                    `CoordinatelessFunction` or `Function`, \
+        #                     not %s" % fltr.__class__.__name__)
         super().__init__(form_argument, fltr)

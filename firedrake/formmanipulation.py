@@ -114,6 +114,69 @@ class ExtractSubBlock(MultiFunction):
         return self._arg_cache.setdefault(o, as_vector(args))
 
 
+class SplitFilter(MultiFunction):
+
+    """Split filters in a form."""
+
+    def split(self, form, argument_indices):
+        """Split filters.
+
+        :arg form: the form in which to split filters.
+        :arg argument_indices: indices of test and trial spaces to extract.
+            This should be 0-, 1-, or 2-tuple (whose length is the
+            same as the number of arguments as the ``form``) whose
+            entries are either an integer index, or else an iterable
+            of indices.
+
+        Returns a new :class:`ufl.classes.Form` with split filters.
+        """
+        args = form.arguments()
+        self._arg_cache = {}
+        self.blocks = dict(enumerate(argument_indices))
+        if len(args) == 0:
+            # Functional can't be split
+            return form
+        if all(len(a.function_space()) == 1 for a in args):
+            assert (len(idx) == 1 for idx in self.blocks.values())
+            assert (idx[0] == 0 for idx in self.blocks.values())
+            return form
+        f = map_integrand_dags(self, form)
+        return f
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def filtered(self, o):
+        from ufl import split
+        from firedrake import ufl_expr
+        t = o.ufl_operands[0]
+        if not isinstance(t, Argument):
+            # Only split filters that are applied to the argument.
+            return o
+
+        if o in self._arg_cache:
+            return self._arg_cache[o]
+
+        fltr = o.ufl_operands[1]
+
+        indices = self.blocks[t.number()]
+
+        try:
+            indices = tuple(indices)
+            nidx = len(indices)
+        except TypeError:
+            # Only one index provided.
+            indices = (indices, )
+            nidx = 1
+
+        _split = split(fltr)
+
+        if nidx == 1:
+            f = _split[indices[0]]
+        else:
+            raise NotImplementedError("Filters on MixedFunctionSpace must be reshaped.")
+        return self._arg_cache.setdefault(o, ufl_expr.Filtered(t, f))
+
+
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
@@ -146,13 +209,16 @@ def split_form(form, diagonal=False):
     stages.
     """
     splitter = ExtractSubBlock()
+    filter_splitter = SplitFilter()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     if diagonal:
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
-        f = splitter.split(form, idx)
+        # Split filter before breaking argument
+        f = filter_splitter.split(form, idx)
+        f = splitter.split(f, idx)
         if len(f.integrals()) > 0:
             if diagonal:
                 i, j = idx

@@ -384,22 +384,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
+        :arg r: a :class:`.Function` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
-            nodes are set to the value ``u-bc``.  Supplying ``u`` has
-            no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function`. If ``u`` is absent, then the boundary
-            condition nodes of ``r`` are set to the boundary condition
-            values.
-
-
-        If ``r`` is a :class:`.Matrix`, it will be assembled with a 1
-        on diagonals where the boundary condition applies and 0 in the
-        corresponding rows and columns.
-
+            nodes are set to the value ``u-bc``. If ``u`` is absent,
+            then the boundary condition nodes of ``r`` are set to the
+            boundary condition values.
         """
 
         if isinstance(r, matrix.MatrixBase):
