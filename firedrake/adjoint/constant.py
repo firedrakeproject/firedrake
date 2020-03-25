@@ -143,8 +143,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.values() if values is None else values
-        # Import conflicts if this is imported in the beginning of the file
-        from firedrake.pointwise_operators import PointnetWeights
-        if isinstance(self, PointnetWeights):
-            return type(self)(self.extop)
         return type(self)(numpy.reshape(values, self.ufl_shape))

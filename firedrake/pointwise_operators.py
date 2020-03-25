@@ -18,7 +18,6 @@ from firedrake.ufl_expr import adjoint
 from firedrake.constant import Constant
 from firedrake import utils, functionspaceimpl
 from firedrake.adjoint import PointwiseOperatorsMixin
-from firedrake.adjoint.blocks import PointwiseOperatorBlock, Backend
 from pyop2.datatypes import ScalarType
 
 
@@ -90,6 +89,7 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         dNdq_adj = transpose(dNdq)
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
+
 
     def _adjoint(self, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
@@ -550,18 +550,17 @@ class PointnetOperator(AbstractPointwiseOperator):
      """
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):#PointnetWeights):
-            #import ipdb;ipdb.set_trace()
             print("Fix this (excessive operands)")
             weights = self
             operands += (Constant(0),)#(PointnetWeights(self),)
-            #import ipdb;ipdb.set_trace()
-            if isinstance(derivatives, tuple):
-                # Type exception is caught later
+            if isinstance(derivatives, tuple): # Type exception is caught later
                 derivatives += (0,)
-                #import ipdb;ipdb.set_trace()
+
         AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+
 
         # Checks
         if not 'ncontrols' in self.operator_data.keys():
@@ -588,6 +587,7 @@ class PointnetOperator(AbstractPointwiseOperator):
     def controls(self):
         return dict(zip(self._controls, tuple(self.ufl_operands[i] for i in self._controls)))
 
+
     #    "Compute the gradient of the neural net output with respect to the inputs."
     #    raise NotImplementedError(self.__class__.compute_grad_inputs)
 
@@ -596,59 +596,51 @@ class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, initialized=True):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
-
+        """
         if not isinstance(self.ufl_operands[-1], Constant):
             raise ValueError("Expecting a Constant as last argument for the weights")
-        if not initialized:
-            self._init_weights()
+        """
+
+        # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
+        self.model.double()
+        #torch.set_default_dtype(torch.float64)
 
         # Check
-        #try:
-        #    import torch
-        #except ImportError:
-        #    raise ImportError("Error when trying to import PyTorch")
+        try:
+            import torch
+        except ImportError:
+            raise ImportError("Error when trying to import PyTorch")
+
+
+    @utils.cached_property
+    def ml_backend(self):
+        import torch
+        return torch
 
     def compute_derivatives(self, N, x, model_tape=False):
         """Compute the gradient of the network wrt inputs"""
-        import torch
-        #op = self.interpolate(self.ufl_operands[0])
-        #torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
-        #model_output = self.evaluate().data.data
-        
-        """
-        res = []
-        import ipdb; ipdb.set_trace()
-        for i, e in enumerate(x):#(torch_op):
-            xi = torch.unsqueeze(e, 0)
-            yi = N[i]
-            res.append(torch.autograd.grad(yi, xi)[0])
-        """
-
         if self.derivatives == (0,)*len(self.ufl_operands):
-            #import ipdb;ipdb.set_trace()
+            N = N.squeeze(1)
             if model_tape:
                 return N
             return N.detach()
+        elif self.derivatives[-1] == 1:
+            import ipdb; ipdb.set_trace()
+            return self.ml_backend.zeros(len(x))
 
-        #return torch.autograd.grad([o for o in N], x)[0]# retain_graph=True)[0]
-        """
-        res = []
-        for i, e in enumerate(x):
-            res.append(torch.autograd.grad(N[i], x, retain_graph=True)[0][i])
-        return torch.tensor(res)
-        """
-        return torch.autograd.grad(N, x, grad_outputs=[x], retain_graph=True)[0]
-
+        gradient = self.ml_backend.autograd.grad(list(N), x, retain_graph=True)[0]
+        return gradient.squeeze(1)
 
     def evaluate(self, model_tape=False):
-        import torch
         model = self.model
-        #import ipdb; ipdb.set_trace()
-        mw_dtype = model.weight.data.dtype
-        weights_op = torch.tensor(self.ufl_operands[-1].dat.data, dtype = mw_dtype)
-        model.weight.data = weights_op.unsqueeze(0)
+
+        # Criterion to check if in backprop mode, better way to do that?
+        if self.ufl_operands[-1].dat.data.any():
+            if self.ml_backend.tensor(self.ufl_operands[-1].dat.data) != model.weight.data:
+                weights_op = self.ml_backend.tensor(self.ufl_operands[-1].dat.data)
+                self._assign_weights(weights_op.unsqueeze(0))
 
         # Explictly set the eval mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
@@ -656,28 +648,21 @@ class PytorchOperator(PointnetOperator):
 
         space = self.ufl_function_space()
         # Prendre cas general ou plus de 1 operand
-        op = Function(space).interpolate(self.ufl_operands[0])#self.interpolate(self.ufl_operands[0])
-        #torch_op = torch.tensor(op.dat.data, dtype=torch.float32, requires_grad=True)
-        #model_input = torch.unsqueeze(torch_op, 0)
+        op = Function(space).interpolate(self.ufl_operands[0])
 
+
+        torch_op = self.ml_backend.tensor(op.dat.data, requires_grad=True)
+        torch_op = self.ml_backend.unsqueeze(torch_op, 1)
+
+        # Vectorized forward pass
+        val = model(torch_op)
+        res = self.compute_derivatives(val, torch_op, model_tape)
+
+        # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
         if model_tape:
-            result = []
-            #import ipdb; ipdb.set_trace()
-            for i, e in enumerate(op.dat.data):
-                torch_op = torch.tensor(e, dtype=torch.float32, requires_grad=True)
-                model_input = torch.unsqueeze(torch_op, 0)
-                val = model(model_input)
-                result += [self.compute_derivatives(val.squeeze(0), torch_op, model_tape)]
-            return result
-
+            return res
         result = Function(space)
-
-        #import ipdb; ipdb.set_trace()
-        for i, e in enumerate(op.dat.data):
-            torch_op = torch.tensor(e, dtype=torch.float32, requires_grad=True)
-            model_input = torch.unsqueeze(torch_op, 0)
-            val = model(model_input)
-            result.dat.data[i] = self.compute_derivatives(val.squeeze(0), torch_op, model_tape)
+        result.dat.data[:] = res
 
         # Explictly set the train mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
@@ -685,69 +670,23 @@ class PytorchOperator(PointnetOperator):
 
         return self.assign(result)
 
-        """
-        import torch
-        model = self.model.eval()
-        space = self.ufl_function_space()
-        # Prendre cas general ou plus de 1 operand
-        op = Function(space).interpolate(self.ufl_operands[0])#self.interpolate(self.ufl_operands[0])
-        #torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
-        torch_op = torch.tensor(op.dat.data, dtype=torch.float32, requires_grad=True)
-        model_input = torch.unsqueeze(torch_op, 0)
-        #model_input = model_input.reshape(1,*torch_op.shape)
-        result = Function(space)
-        val = model(model_input)#.detach()#.numpy()#.squeeze(0)
-        #result.dat.data[:] = val.squeeze(0)
-        result.dat.data[:] = self.compute_derivatives(val.squeeze(0), torch_op)
-        #import ipdb; ipdb.set_trace()
-        return self.assign(result)
-        """
-
-        """
-        def compute_derivatives(N, x):
-            ""Compute the gradient of the network wrt inputs""
-            return torch.autograd.grad([o for o in N], x, retain_graph=True)[0]
-
-        def evaluate(torch_op):
-            model = model_net.eval()
-            model_input = torch.unsqueeze(torch_op, 0)
-            val = model(model_input)
-            return compute_derivatives(val.squeeze(0), torch_op)
-
-        """
-        """
-        import torch
-        model = self.model.eval()
-        op = self.interpolate(self.ufl_operands[0])
-        torch_op = torch.from_numpy(op.dat.data).type(torch.FloatTensor)
-        model_input = torch.unsqueeze(torch_op, 0)
-        #model_input = model_input.reshape(1,*torch_op.shape)
-        result = Function(self.ufl_function_space())
-        for i, e in enumerate(torch_op):
-            model_input = torch.unsqueeze(e, 0)
-            result.dat.data[i] = model(model_input).detach().numpy()
-        return self.assign(result)
-        """
-
     def _init_weights(self):
-        #import ipdb; ipdb.set_trace()
         self.ufl_operands[-1].dat.data = self.get_weights()
+
+    def _assign_weights(self, weights):
+        self.model.weight.data = weights
 
     def get_weights(self):
         return self.model.weight.data
 
     def adjoint_action(self, x, idx):
-        if isinstance(self.ufl_operands[idx], Constant):
-            import torch
+        if idx == len(self.ufl_operands) - 1:
             res = Function(self.function_space())
             outputs = self.evaluate(model_tape=True)
             weights = self.model.weight
             for i, e in enumerate(outputs):
-                e = e.view(-1, 1)  # Reshape outputs
-                v = torch.tensor(x.dat.data[i]).view(-1,1)  # Reshape x
-                #import ipdb; ipdb.set_trace()
-                res.dat.data[i] = torch.autograd.grad(e, weights, grad_outputs=[v], retain_graph=True)[0]
-            import ipdb; ipdb.set_trace()
+                v = self.ml_backend.tensor(x.dat.data[i])
+                res.dat.data[i] = self.ml_backend.autograd.grad(e, weights, grad_outputs=[v], retain_graph=True)[0]
             return res.vector()
         return AbstractPointwiseOperator.adjoint_action(self, x, idx)
 
@@ -778,36 +717,6 @@ class KerasOperator(PointnetOperator):
         #    from tensorflow import keras
         #except ImportError:
         #    raise ImportError("Error when trying to import tensorflow.keras")
-
-
-class PointnetWeights(Constant):#, ConstantMixin):
-
-    def __init__(self, arg, domain=None):
-        # Set arbitrarily the value to zero
-        val = as_ufl(1)
-        super(PointnetWeights, self).__init__(val, domain)
-
-        # Checks
-        if not isinstance(arg, PointnetOperator):
-            raise TypeError("Expecting a PointnetOperator and not %s", arg)
-
-        self.extop = arg
-        self._weights = None
-
-    @property
-    def weights(self):
-        if self._weights is None:
-            self._weights = self.extop.model.weight.data
-        return self._weights
-
-    def assign_weights(self, W):
-        self._weights = W
-
-    def __str__(self):
-        "Default repr string construction for PointwiseOperator operators."
-        # This should work for most cases
-        r = 'PointnetWeights(%s, %s)' % (self.extop, self.count())
-        return r
 
 
 def point_expr(point_expr, function_space):
@@ -863,7 +772,7 @@ def neuralnet(model, function_space, ncontrols=1):
 
     if isinstance(model, torch_module):
         operator_data = {'framework': 'PyTorch', 'model': model, 'ncontrols': ncontrols}
-        return partial(PytorchOperator, function_space=function_space, operator_data=operator_data, initialized=False)
+        return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
     elif isinstance(model, tensorflow_module):
         operator_data = {'framework': 'TensorFlow', 'model': model, 'ncontrols': ncontrols}
         return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
@@ -892,6 +801,7 @@ def weights(*args):
     res = []
     for e in args:
         w = e.ufl_operands[-1]
+        w.dat.data = e.get_weights()
         if not isinstance(w, Constant): #PointnetWeights):
             raise TypeError("Expecting a PointnetWeights and not $s", w)
         res += [w]
