@@ -8,6 +8,7 @@ from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
 from firedrake.constant import Constant
 from firedrake.function import Function
+from ufl.coefficient import Coefficient
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
@@ -514,7 +515,8 @@ class LocalLoopyKernelBuilder(object):
             # collect all rest coefficients (e.g. of Tensor(L))
         for i, c in enumerate(expression.coefficients()):
             # Ensure coefficient temporaries aren't duplicated
-            if c not in seen_coeff and (type(c) == Constant or type(c) == Function):
+            print(type(c))
+            if c not in seen_coeff and (type(c) == Constant or type(c) == Function or type(c) == Coefficient):
                 if type(c.ufl_element()) == MixedElement:
                     for j, c_ in enumerate(c.split()):
                         name = "w_{}_{}".format(i, j)
@@ -755,9 +757,9 @@ def create_index(extent, key, namer, ctx):
         ctx.gem_indices.setdefault(key, (gem.Index(name1, int(extent[0])), gem.Index(name2, int(extent[1]))))
         return tuple((ret1, ret2))
     else:
-        if isinstance(extent, tuple):  # indices for vector
+        if isinstance(extent, tuple) and len(extent) > 0:  # indices for vector
             extent = extent[0]
-        elif extent == ():  # indices for scalar tensors
+        elif isinstance(extent, tuple) and len(extent) == 0:  # indices for scalar tensors
             extent = 1
         name = next(namer)
         ret = pym.Variable(name)
