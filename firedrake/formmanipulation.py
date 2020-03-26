@@ -153,27 +153,35 @@ class SplitFilter(MultiFunction):
             # Only split filters that are applied to the argument.
             return o
 
+        V = t.function_space()
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
         if o in self._arg_cache:
             return self._arg_cache[o]
 
         fltr = o.ufl_operands[1]
 
+        V_is = V.split()
         indices = self.blocks[t.number()]
 
         try:
             indices = tuple(indices)
-            nidx = len(indices)
         except TypeError:
             # Only one index provided.
             indices = (indices, )
-            nidx = 1
 
         _split = split(fltr)
 
-        if nidx == 1:
-            f = _split[indices[0]]
-        else:
-            raise NotImplementedError("Filters on MixedFunctionSpace must be reshaped.")
+        f = []
+        for i in indices:
+            _f = _split[i]
+            if isinstance(_f, list):
+                f.extend(_f)
+            else:
+                f.append(_f)
+        f = as_vector(f)
         return self._arg_cache.setdefault(o, ufl_expr.Filtered(t, f))
 
 
