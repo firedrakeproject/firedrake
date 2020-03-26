@@ -519,7 +519,69 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
 
     # Case 3: tensors
     elif len(expression.ufl_shape) == 2:
-        raise NotImplementedError
+        # check we have a [scalar]^d or vector element
+        assert len(to_element.value_shape()) in [0, 1, 2]
+
+        # if we have a native vector element, just use those dual functionals
+        if len(to_element.value_shape()) == 2:
+            dual_functionals = to_element.dual_basis()
+        # otherwise, implement broadcasting semantics
+        elif len(to_element.value_shape()) == 1:
+            orig_functionals = to_element.dual_basis()
+            dual_functionals = []
+
+            for dual in orig_functionals:
+                for comp1 in range(expression.ufl_shape[0]):
+                        for comp2 in range(expression.ufl_shape[1]):
+                        # reconstruct the functional, but with an index
+                            new_dual = copy.copy(dual)
+                            new_pt_dict = {}
+                            for quad_pt in dual.pt_dict:
+                                pt_dict_el = [x for x in dual.pt_dict[quad_pt]]
+                                new_weights_and_indices = [(pt_dict_el[comp1][0], (comp1, comp2))]
+                                new_pt_dict[quad_pt] = new_weights_and_indices
+                            new_dual.pt_dict = new_pt_dict
+                            dual_functionals.append(new_dual)
+
+        elif len(to_element.value_shape()) == 0:
+            orig_functionals = to_element.dual_basis()
+            dual_functionals = []
+
+            for dual in orig_functionals:
+                for comp1 in range(expression.ufl_shape[0]):
+                    for comp2 in range(expression.ufl_shape[1]):
+                        # reconstruct the functional, but with an index
+                        new_dual = copy.copy(dual)
+                        new_pt_dict = {}
+                        for quad_pt in dual.pt_dict:
+                            weights = [x[0] for x in dual.pt_dict[quad_pt]]
+                            new_weights_and_indices = [(weight, (comp1, comp2)) for weight in weights]
+                            new_pt_dict[quad_pt] = new_weights_and_indices
+                        new_dual.pt_dict = new_pt_dict
+                        dual_functionals.append(new_dual)
+
+        for dual in dual_functionals:
+            quad_points = [*dual.pt_dict.keys()]
+            dual_expression = []
+
+            for comp1 in range(expression.ufl_shape[0]):
+                for comp2 in range(expression.ufl_shape[1]):
+                    exp = expression[comp1, comp2]
+                    quad_points_comp = [q for q in quad_points if dual.pt_dict[q][0][1] == () or (comp1, comp2) in [w[1] for w in dual.pt_dict[q]]]
+                    weights_comp = []
+                    for q in quad_points_comp:
+                        weights_comp.extend([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or (comp1, comp2) == w[1] ])
+                    if len(quad_points_comp) > 0:
+                        quad_rule = QuadratureRule(PointSet(quad_points_comp), weights_comp)
+                        config = kernel_cfg.copy()
+                        config.update(quadrature_rule=quad_rule)
+                        expressions = [gem.index_sum(e, quad_rule.point_set.indices)
+                                       for e in fem.compile_ufl(ufl.classes.QuadratureWeight(exp.ufl_domain())*exp, **config)]
+                        dual_expression.extend(expressions)
+
+            i = gem.Index()
+            dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
+            dual_expressions.append(dual_expr)
     else:
         raise ValueError("Only know how to interpolate expressions in 1-3 dimensions")
 
