@@ -66,15 +66,19 @@ def test_filter_one_form_mixed():
                                        8.0 * pi * pi * cos(2 * pi *x + pi/13) * cos(2 * pi * y + pi/17)]))
 
     fltr = Function(V)
+    nodes = BDM.boundary_nodes(1, "topological")
+    subset = op2.Subset(BDM.node_set, nodes)
+    fltr.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=subset)
     nodes = CG.boundary_nodes(1, "topological")
     subset = op2.Subset(CG.node_set, nodes)
     fltr.sub(1).assign(1., subset=subset)
 
     rhs0 = assemble(inner(f, v) * dx)
-    #rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
+    rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
 
-    print(rhs0.dat.data)
-    #print(rhs1.dat.data)
+    for i in range(len(V)):
+        expected = np.multiply(rhs0.dat.data[i], fltr.dat.data[i])
+        assert np.allclose(rhs1.dat.data[i], expected)
 
 
 def test_filter_two_form_lagrange():
