@@ -76,11 +76,11 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        # if self._initialized:
-        #     return
+        if self._initialized:
+            return
         # TODO: introduce coffe option here
         self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
-        self._initialized = False
+        self._initialized = True
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
