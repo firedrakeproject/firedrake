@@ -249,8 +249,6 @@ class SlateTranslator():
         A, B = tensor.operands
         var_A, var_B = node_dict[A], node_dict[B]  # gem representations
 
-        assert var_A.multiindex, "Slate translation failure: Node should be an Indexed, but is"+type(var_A)
-
         # New indices are necessary in case as Tensor gets multiplied with itself.
         self.builder.create_index(A.shape, str(A)+"new")
         new_indices_A = self.builder.gem_indices[str(A)+"new"]
@@ -637,7 +635,9 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
     # generate program from kernel, register inner kernel and inline inner kernel
     prg = make_program(loopy_merged)
+    print(loopy_merged)
     for loopy_inner in loopy_inner_list:
         prg = register_callable_kernel(prg, loopy_inner)
         prg = inline_callable_kernel(prg, loopy_inner.name)
+        print(prg.root_kernel)
     return prg
