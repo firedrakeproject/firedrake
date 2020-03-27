@@ -26,7 +26,8 @@ CoefficientInfo = namedtuple("CoefficientInfo",
                               "offset_index",
                               "shape",
                               "vector",
-                              "local_temp"])
+                              "local_temp",
+                              "function"])
 CoefficientInfo.__doc__ = """\
 Context information for creating coefficient temporaries.
 
@@ -477,8 +478,10 @@ class LocalLoopyKernelBuilder(object):
                 if function not in seen_coeff:
                     if type(function.ufl_element()) == MixedElement:
                         shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
+                        f = function.split()
                     else:
                         shapes = [dimension(function.ufl_element())]
+                        f = function
 
                     self.create_index(tensor.shape, tensor)
                     gem_indices = self.gem_indices[tensor]
@@ -495,7 +498,8 @@ class LocalLoopyKernelBuilder(object):
                                                 offset_index=offset,
                                                 shape=tensor.shape,
                                                 vector=tensor,
-                                                local_temp=local_temp)
+                                                local_temp=local_temp,
+                                                function=f)
                         coeff_vecs.setdefault(shape, []).append(cinfo)
                         offset += shape
 

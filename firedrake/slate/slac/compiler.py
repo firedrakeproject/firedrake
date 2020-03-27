@@ -633,11 +633,29 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         arg = loopy.GlobalArg("coords", shape=(builder.expression.shape[0],), dtype="double")
         args.append(arg)
 
-    if len(builder.coefficient_vecs) != 0:
-        for i in range(len(builder.coefficient_vecs[builder.expression.shape[0]])):
-            get = len(builder.coefficient_vecs[builder.expression.shape[0]]) - i - 1
-            arg = loopy.GlobalArg("coeff"+str(get), shape=builder.coefficient_vecs[builder.expression.shape[0]][get].shape, dtype="double")
-            args.append(arg)
+    if builder.needs_cell_orientations:
+        args.append(loopy.GlobalArg("orientations", shape=(builder.args_extents[builder.cell_orientations_arg],), dtype="double"))
+
+    if builder.needs_cell_sizes:
+        args.append(loopy.GlobalArg("cell_sizes", shape=(builder.args_extents[builder.cell_size_arg],), dtype="double"))
+
+    coeff_shape_list = []
+    coeff_function_list = []
+    for v in builder.coefficient_vecs.values():
+        for coeff_info in v:
+            coeff_shape_list.append(coeff_info.shape)
+            coeff_function_list.append(coeff_info.vector._function)
+
+    get = 0
+    for c in builder.expression.coefficients():
+        try:
+            indices = [i for i, x in enumerate(coeff_function_list) if x == c]
+            for func_index in indices:
+                arg = loopy.GlobalArg("coeff"+str(get), shape=coeff_shape_list[func_index], dtype="double")
+                args.append(arg)
+                get += 1
+        except ValueError:
+            pass
 
     for v, k in builder.extra_coefficients.items():
         args.append(loopy.GlobalArg(k,
@@ -649,6 +667,9 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         args.append(loopy.GlobalArg(builder.cell_facets_arg,
                                     shape=(builder.num_facets, 2),
                                     dtype=np.uint8))
+
+    if builder.needs_mesh_layers:
+        args.append(loopy.GlobalArg("layer", shape=(), dtype="double"))
 
     ############
     # TODO: preprocessing of gem for removing unneccesary component tensors

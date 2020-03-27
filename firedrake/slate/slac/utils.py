@@ -205,10 +205,16 @@ class SlateTranslator():
 
     @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
-        self.assembledvectors_count += 1
-        coeffs = self.builder.coefficient_vecs[self.builder.expression.shape[0]]
-        get = len(coeffs) - self.assembledvectors_count
-        return coeffs[get].local_temp  # TODO is this accessed right?
+        ret = None
+        if len(tensor.shapes) == 1:
+            coeffs = self.builder.coefficient_vecs[tensor.shapes[0][0]]
+            for coeff in coeffs:
+                if coeff.vector == tensor:
+                    assert ret is None, "This vector as already been assembled."
+                    ret = coeff.local_temp
+        else:
+            assert "Assembled vector on mixed form are not supported yet"
+        return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self, tensor, node_dict):
@@ -542,14 +548,29 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
         c += 1
 
     # generate initilisation instructions for all coefficent temporaries
-    for k, v in builder.coefficient_vecs.items():
-        for coeff_no, coeff_info in enumerate(v):
-            loopy_tensor = builder.gem_loopy_dict[coeff_info.local_temp]
-            loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
-            indices = builder.create_index(coeff_info.shape, str(coeff_info.vector)+"_init")
-            inames = {var.name for var in indices}
-            inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
-            c += 1
+    coeff_shape_list = []
+    coeff_function_list = []
+    coeff_tensor_list = []
+    for v in builder.coefficient_vecs.values():
+        for coeff_info in v:
+            coeff_shape_list.append(coeff_info.shape)
+            coeff_function_list.append(coeff_info.vector._function)
+            coeff_tensor_list.append(coeff_info.local_temp)
+
+    coeff_no = 0
+    for ordered_coeff in builder.expression.coefficients():
+        try:
+            indices = [i for i, x in enumerate(coeff_function_list) if x == ordered_coeff]
+            for func_index in indices:
+                loopy_tensor = builder.gem_loopy_dict[coeff_tensor_list[func_index]]
+                loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
+                indices = builder.create_index(coeff_shape_list[func_index], str(coeff_info)+"_init"+str(coeff_no))
+                inames = {var.name for var in indices}
+                inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
+                c += 1
+                coeff_no += 1
+        except ValueError:
+            pass
 
     # generate temp e.g. for plexmesh_exterior_local_facet_number (maps from global to local facets)
     if builder.needs_cell_facets:
