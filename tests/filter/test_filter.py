@@ -150,6 +150,22 @@ def test_filter_two_form_lagrange():
                          [0, 0, -1/6, 2/3]])
     assert(np.allclose(A.M.values, expected))
 
+    # Mass matrix (remove boundary rows/cols)
+    # Boundary mass matrix
+    # Test action/derivative
+    # derivative with du=Filtered(...)
+    a = dot(grad(u), grad(v_d)) * dx
+    u_ = Function(V)
+    a = ufl_expr.action(a, u_)
+    a = ufl_expr.derivative(a, u_, du=u_d)
+    a += u * v_b * ds(1)
+    A = assemble(a)
+    expected = np.array([[1/3, 1/6, 0, 0],
+                         [1/6, 1/3, 0, 0],
+                         [0, 0, 2/3, -1/6],
+                         [0, 0, -1/6, 2/3]])
+    assert(np.allclose(A.M.values, expected))
+
 
 def test_filter_poisson():
 
