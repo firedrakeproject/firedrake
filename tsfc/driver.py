@@ -408,6 +408,15 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
         expression = detJ * K * expression
+    elif mapping == "double covariant piola":
+        mesh = expression.ufl_domain()
+        J = Jacobian(mesh)
+        expression = J.T * expression * J
+    elif mapping == "double contravariant piola":
+        mesh = expression.ufl_domain()
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        expression = (detJ)**2 * K * expression * K.T
     else:
         raise NotImplementedError("Don't know how to handle mapping type " + mapping)
 
