@@ -522,7 +522,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         # check we have a [scalar]^d or vector element
         assert len(to_element.value_shape()) in [0, 1, 2]
 
-        # if we have a native vector element, just use those dual functionals
+        # if we have a native tensor element, just use those dual functionals
         if len(to_element.value_shape()) == 2:
             dual_functionals = to_element.dual_basis()
         # otherwise, implement broadcasting semantics
@@ -532,16 +532,16 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
 
             for dual in orig_functionals:
                 for comp1 in range(expression.ufl_shape[0]):
-                        for comp2 in range(expression.ufl_shape[1]):
-                        # reconstruct the functional, but with an index
-                            new_dual = copy.copy(dual)
-                            new_pt_dict = {}
-                            for quad_pt in dual.pt_dict:
-                                pt_dict_el = [x for x in dual.pt_dict[quad_pt]]
-                                new_weights_and_indices = [(pt_dict_el[comp1][0], (comp1, comp2))]
-                                new_pt_dict[quad_pt] = new_weights_and_indices
-                            new_dual.pt_dict = new_pt_dict
-                            dual_functionals.append(new_dual)
+                    new_dual = copy.copy(dual)
+                    new_pt_dict = {}
+                    for quad_pt in sorted(dual.pt_dict):
+                        old_weights_and_indices = dual.pt_dict[quad_pt]
+                        new_weights_and_indices = []
+                        for (weight, index) in old_weights_and_indices:
+                            new_weights_and_indices.append((weight, (comp1, index[0])))
+                        new_pt_dict[quad_pt] = new_weights_and_indices
+                    new_dual.pt_dict = new_pt_dict
+                    dual_functionals.append(new_dual)
 
         elif len(to_element.value_shape()) == 0:
             orig_functionals = to_element.dual_basis()
@@ -553,7 +553,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                         # reconstruct the functional, but with an index
                         new_dual = copy.copy(dual)
                         new_pt_dict = {}
-                        for quad_pt in dual.pt_dict:
+                        for quad_pt in sorted(dual.pt_dict):
                             weights = [x[0] for x in dual.pt_dict[quad_pt]]
                             new_weights_and_indices = [(weight, (comp1, comp2)) for weight in weights]
                             new_pt_dict[quad_pt] = new_weights_and_indices
