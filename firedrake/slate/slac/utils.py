@@ -250,13 +250,13 @@ class SlateTranslator():
         var_A, var_B = node_dict[A], node_dict[B]  # gem representations
 
         # New indices are necessary in case as Tensor gets multiplied with itself.
-        self.builder.create_index(A.shape, str(A)+"new")
-        new_indices_A = self.builder.gem_indices[str(A)+"new"]
-        self.builder.create_index(B.shape, str(B)+"new")
-        new_indices_B = self.builder.gem_indices[str(B)+"new"]
+        self.builder.create_index(A.shape, str(A)+"newmulA"+str(tensor))
+        new_indices_A = self.builder.gem_indices[str(A)+"newmulA"+str(tensor)]
+        self.builder.create_index(B.shape, str(B)+"newmulB"+str(tensor))
+        new_indices_B = self.builder.gem_indices[str(B)+"newmulB"+str(tensor)]
 
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
+        self.builder.create_index(tensor.shape, str(tensor)+str(A)+str(B))
+        out_indices = self.builder.gem_indices[str(tensor)+str(A)+str(B)]
 
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
             var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
