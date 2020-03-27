@@ -768,24 +768,9 @@ def get_inv_callable(loopy_merged):
                     memcpy(Awork,A,N*N*sizeof(PetscScalar));\n
                     int row, columns;\n
                     for (int row=0; row<3; row++)\n
-                    {\n
-                        for(int columns=0; columns<3; columns++)\n
-                            {\n
-                            fprintf(stderr,\"matbef%f     \", Awork[(row+1)*(columns+1)-1]);\n
-                            }\n
-                        fprintf(stderr,\"\\n\");\n
-                    }\n
                     LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);\n
                     if(info==0)\n
                         LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);\n
-                    for (int row=0; row<3; row++)\n
-                    {\n
-                        for(int columns=0; columns<3; columns++)\n
-                            {\n
-                            fprintf(stderr,\"matafter%f     \", Awork[(row+1)*(columns+1)-1]);\n
-                            }\n
-                        fprintf(stderr,\"\\n\");\n
-                    }\n
                     if(info!=0)\n
                         fprintf(stderr,\"hi\");\n
                 }\n

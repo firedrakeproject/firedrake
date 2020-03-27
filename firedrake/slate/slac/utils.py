@@ -374,8 +374,6 @@ class SlateTranslator():
             if free_indices_sorted == ():
                 free_indices_sorted = var.free_indices[::-1]
             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-        elif type(var) == IndexSum:
-            var = Indexed(ComponentTensor(var, var.free_indices), idx)
         elif type(var) == FlexiblyIndexed:
             pass
         else:
@@ -665,9 +663,7 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
     # generate program from kernel, register inner kernel and inline inner kernel
     prg = make_program(loopy_merged)
-    print(loopy_merged)
     for loopy_inner in loopy_inner_list:
         prg = register_callable_kernel(prg, loopy_inner)
         prg = inline_callable_kernel(prg, loopy_inner.name)
-        print(prg.root_kernel)
     return prg
