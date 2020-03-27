@@ -361,10 +361,19 @@ class SlateTranslator():
                     if index in var.free_indices:
                         free_indices_sorted += (index, )
                 # special case for IndexSum generating an Indexed with scalar multiindex
-                # e.g. occurs for DG0
-                if free_indices_sorted == ():
-                    free_indices_sorted = var.free_indices
+                # # e.g. occurs for DG0
+                for index in var.free_indices:
+                    if index not in free_indices_sorted:
+                        free_indices_sorted += (index, )
                 var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
+        elif type(var) == IndexSum:
+            free_indices_sorted = tuple()
+            for i, index in enumerate(var.free_indices):
+                if index not in free_indices_sorted and var.children[0].children[i].multiindex[i] == index:
+                    free_indices_sorted += (index, )
+            if free_indices_sorted == ():
+                free_indices_sorted = var.free_indices[::-1]
+            var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
         elif type(var) == IndexSum:
             var = Indexed(ComponentTensor(var, var.free_indices), idx)
         elif type(var) == FlexiblyIndexed:
