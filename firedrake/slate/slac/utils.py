@@ -378,10 +378,10 @@ class SlateTranslator():
     def slate_to_gem_solve(self, tensor, node_dict):
         fac, B = tensor.operands  # TODO is first operand always factorization?
         A, = fac.operands
-        self.builder.create_index(A.shape, str(tensor)+"reads")
-        A_indices = self.builder.gem_indices[str(tensor)+"reads"]
-        self.builder.create_index(B.shape, str(tensor)+"readsb")
-        B_indices = self.builder.gem_indices[str(tensor)+"readsb"]
+        self.builder.create_index(A.shape, str(tensor)+"readssolve")
+        A_indices = self.builder.gem_indices[str(tensor)+"readssolve"]
+        self.builder.create_index(B.shape, str(tensor)+"readsbsolve")
+        B_indices = self.builder.gem_indices[str(tensor)+"readsbsolve"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
         ret_A = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
@@ -392,12 +392,12 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
     def slate_to_gem_inverse(self, tensor, node_dict):
         A, = tensor.operands
-        self.builder.create_index(A.shape, str(A)+"reads")
-        A_indices = self.builder.gem_indices[str(A)+"reads"]
+        self.builder.create_index(A.shape, str(A)+"readsinv")
+        A_indices = self.builder.gem_indices[str(A)+"readsinv"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
-        self.builder.create_index(tensor.shape, str(tensor)+"out")
-        out_indices = self.builder.gem_indices[str(tensor)+"out"]
+        self.builder.create_index(tensor.shape, str(tensor)+"outinv")
+        out_indices = self.builder.gem_indices[str(tensor)+"outinv"]
         ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
         ret = Indexed(Inverse(ret, new_indices), out_indices)
         return ret

@@ -627,7 +627,7 @@ class LocalLoopyKernelBuilder(object):
                     for i, j in enumerate(block_index):
                         extent += (tensor.shapes[i][j],)
                         offset += (sum(tensor.shapes[i][:j]),)
-                    idx = self.create_index(extent, block_index)
+                    idx = self.create_index(extent, "block_idx"+kinfo.kernel.name)
 
                     slices = ()
                     for i, j in enumerate(block_index):
@@ -636,7 +636,8 @@ class LocalLoopyKernelBuilder(object):
                     output = SubArrayRef(idx,
                                          pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
                 else:
-                    indices = self.loopy_indices[tensor]
+                    self.create_index(tensor.shape, str(tensor)+"subcall")
+                    indices = self.loopy_indices[str(tensor)+"subcall"]
                     output = SubArrayRef(indices, pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
                     # inames.append(indices[0].name)
 
@@ -687,8 +688,8 @@ class LocalLoopyKernelBuilder(object):
                         num_facets = mesh.ufl_cell().num_facets()
 
                     # index for loop over cell faces of reference cell
-                    if self.cell_facets_arg not in self.loopy_indices:
-                        fidx = self.create_index((num_facets,), self.cell_facets_arg)
+                    if str(self.cell_facets_arg)+inner.kinfo.kernel.name not in self.loopy_indices:
+                        fidx = self.create_index((num_facets,), str(self.cell_facets_arg)+inner.kinfo.kernel.name)
 
                     # cell is interior or exterior
                     needs_cell_facets = True
@@ -697,8 +698,8 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         select = 0
 
-                    if self.cell_facets_arg+"_sum" not in self.loopy_indices:
-                        i = self.create_index((1,), self.cell_facets_arg+"_sum")
+                    if self.cell_facets_arg+"_sum"+inner.kinfo.kernel.name not in self.loopy_indices:
+                        i = self.create_index((1,), self.cell_facets_arg+"_sum"+inner.kinfo.kernel.name)
                     else:
                         i = self.loopy_indices[self.cell_facets_arg+"_sum"]
                     predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
@@ -707,7 +708,7 @@ class LocalLoopyKernelBuilder(object):
                     # "otherwise" is treated incorrectly as "everywhere"
                     # However, this replicates an existing slate bug.
                     if kinfo.subdomain_id != "otherwise":
-                        predicates.append("cell_facets["+fidx[0]+",1]=="+kinfo.subdomain_id)
+                        predicates.append("cell_facets["+str(fidx[0])+",1]=="+str(kinfo.subdomain_id))
 
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
                                               (pym.Sum((i[0], fidx[0]))))
