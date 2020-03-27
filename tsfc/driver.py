@@ -570,7 +570,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                         dual_functionals.append(new_dual)
 
         for dual in dual_functionals:
-            quad_points = [*dual.pt_dict.keys()]
+            quad_points = [*sorted(dual.pt_dict.keys())]
             dual_expression = []
 
             for comp1 in range(expression.ufl_shape[0]):
