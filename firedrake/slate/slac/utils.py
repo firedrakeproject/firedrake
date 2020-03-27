@@ -246,8 +246,8 @@ class SlateTranslator():
         new_indices = self.builder.gem_indices[str(A)+"newtrans"]
         self.builder.create_index(tensor.shape, tensor)
         out_indices = self.builder.gem_indices[tensor]
-        var_A = self.get_tensor_withnewidx(_A, new_indices[::-1])
-        ret = Indexed(ComponentTensor(var_A, new_indices), out_indices)
+        var_A = self.get_tensor_withnewidx(_A, new_indices)
+        ret = Indexed(ComponentTensor(var_A, new_indices[::-1]), out_indices)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Mul)
