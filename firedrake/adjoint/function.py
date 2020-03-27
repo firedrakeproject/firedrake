@@ -53,13 +53,13 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 output = tuple(firedrake.Function(output[i].function_space(),
-                               output[i],
-                               block_class=FunctionSplitBlock,
-                               _ad_floating_active=True,
-                               _ad_args=[self, i],
-                               _ad_output_args=[i],
-                               output_block_class=FunctionMergeBlock,
-                               _ad_outputs=[self])
+                                                  output[i],
+                                                  block_class=FunctionSplitBlock,
+                                                  _ad_floating_active=True,
+                                                  _ad_args=[self, i],
+                                                  _ad_output_args=[i],
+                                                  output_block_class=FunctionMergeBlock,
+                                                  _ad_outputs=[self])
                                for i in range(num_sub_spaces))
             return output
         return wrapper
