@@ -20,6 +20,8 @@ funcspaces = [
     ("N1div", "vector", "0"),
     ("N2div", "vector", "0"),
     ("BDM", "tensor", "1"),
+    ("N1curl", "tensor", "1"),
+    ("N1div", "tensor", "1"),
     ("Regge", "tensor", "0"),
 ]
 
@@ -37,7 +39,7 @@ def test_interpolate_vs_project(space, exp_type, functionspace_type, dim):
     if functionspace_type == "0":
         V = FunctionSpace(mesh, space, 2)
     elif functionspace_type == "1":
-        V = VectorFunctionSpace(mesh, space, 1)
+        V = VectorFunctionSpace(mesh, space, 2)
     elif functionspace_type == "2":
         V = TensorFunctionSpace(mesh, space, 1)
 
