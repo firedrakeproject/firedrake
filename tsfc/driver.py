@@ -16,6 +16,7 @@ from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
+from ufl.tensors import as_tensor
 
 import gem
 import gem.impero_utils as impero_utils
@@ -399,6 +400,15 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
 
     if mapping == "affine":
         pass  # do nothing
+    elif mapping == "covariant piola" and len(expression.ufl_shape) == 2:
+        mesh = expression.ufl_domain()
+        J = Jacobian(mesh)
+        expression = as_tensor([J.T * expression[i, :] for i in range(expression.ufl_shape[0])])
+    elif mapping == "contravariant piola" and len(expression.ufl_shape) == 2:
+        mesh = expression.ufl_domain()
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        expression = as_tensor([detJ * K * expression[i, :] for i in range(expression.ufl_shape[0])])
     elif mapping == "covariant piola":
         mesh = expression.ufl_domain()
         J = Jacobian(mesh)
