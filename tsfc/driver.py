@@ -429,6 +429,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     complex_mode = is_complex(parameters["scalar_type"])
 
     expression = apply_mapping(expression, to_element)
+    expression = ufl.classes.QuadratureWeight(expression.ufl_domain())*expression
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
                                                  complex_mode=complex_mode)
@@ -466,54 +467,41 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
 
     # Translate to GEM
     kernel_cfg = dict(interface=builder,
-                     ufl_cell=coordinates.ufl_domain().ufl_cell(),
-                     precision=parameters["precision"],
-                     integration_dim=coordinates.ufl_domain().ufl_cell().topological_dimension(),
-                     argument_multiindices=argument_multiindices)
+                      ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                      precision=parameters["precision"],
+                      integration_dim=coordinates.ufl_domain().ufl_cell().topological_dimension(),
+                      argument_multiindices=argument_multiindices,
+                      index_cache={})
 
-    dual_expressions = []
+    if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
+        raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
     # We need to do different things based on the shape of the expression, unfortunately
-
-    # Case 1: scalars
-    if len(expression.ufl_shape) == 0:
-        assert to_element.value_shape() == ()
+    if to_element.value_shape() == ():
+        # scalar sub-element
+        qpoints = []
+        qweights = []
+        # Everything is just a point evaluation.
         for dual in to_element.dual_basis():
-            quad_points = [*sorted(dual.pt_dict.keys())]
-            weights = [dual.pt_dict[pt][0][0] for pt in quad_points]
-            quad_rule = QuadratureRule(PointSet(quad_points), weights)
-
-            config = kernel_cfg.copy()
-            config.update(quadrature_rule=quad_rule)
-            expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                           for e in fem.compile_ufl(expression, **config)]
-            dual_expressions.append(expressions)
-
+            ptdict = dual.get_point_dict()
+            qpoint, = ptdict.keys()
+            (qweight, component), = ptdict[qpoint]
+            assert component == ()
+            qpoints.append(qpoint)
+            qweights.append(qweight)
+        quad_rule = QuadratureRule(PointSet(qpoints), qweights)
+        config = kernel_cfg.copy()
+        config.update(quadrature_rule=quad_rule)
+        expr, = fem.compile_ufl(expression, **config)
+        shape_indices = tuple(gem.Index() for _ in expr.shape)
+        expr = gem.Indexed(expr, shape_indices)
+        dual_expressions = gem.ComponentTensor(expr, quad_rule.point_set.indices + shape_indices)
     # Case 2: vectors
     elif len(expression.ufl_shape) == 1:
-
-        # check we have a [scalar]^d or vector element
-        assert len(to_element.value_shape()) in [0, 1]
-
-        # if we have a native vector element, just use those dual functionals
-        if len(to_element.value_shape()) == 1:
-            dual_functionals = to_element.dual_basis()
-        # otherwise, implement broadcasting semantics
-        else:
-            orig_functionals = to_element.dual_basis()
-            dual_functionals = []
-            for dual in orig_functionals:
-                for component in range(len(expression)):
-                    # reconstruct the functional, but with an index
-                    new_dual = copy.copy(dual)
-                    new_pt_dict = {}
-                    for quad_pt in sorted(dual.pt_dict):
-                        weights = [x[0] for x in dual.pt_dict[quad_pt]]
-                        new_weights_and_indices = [(weight, (component,)) for weight in weights]
-                        new_pt_dict[quad_pt] = new_weights_and_indices
-                    new_dual.pt_dict = new_pt_dict
-                    dual_functionals.append(new_dual)
-
+        # check we have a vector element
+        assert to_element.value_shape() == 1
+        dual_functionals = to_element.dual_basis()
+        dual_expressions = []
         for dual in dual_functionals:
             quad_points = [*sorted(dual.pt_dict.keys())]
             dual_expression = []
@@ -528,18 +516,20 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                     config = kernel_cfg.copy()
                     config.update(quadrature_rule=quad_rule)
                     expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                                   for e in fem.compile_ufl(ufl.classes.QuadratureWeight(exp.ufl_domain())*exp, **config)]
+                                   for e in fem.compile_ufl(exp, **config)]
                     dual_expression.extend(expressions)
 
             i = gem.Index()
             dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
             dual_expressions.append(dual_expr)
+        dual_expressions = gem.ListTensor(dual_expressions)
 
     # Case 3: tensors
     elif len(expression.ufl_shape) == 2:
         # check we have a [scalar]^d or vector element
-        assert len(to_element.value_shape()) in [0, 1, 2]
+        assert len(to_element.value_shape()) in [1, 2]
 
+        dual_expressions = []
         # if we have a native tensor element, just use those dual functionals
         if len(to_element.value_shape()) == 2:
             dual_functionals = to_element.dual_basis()
@@ -560,24 +550,6 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                         new_pt_dict[quad_pt] = new_weights_and_indices
                     new_dual.pt_dict = new_pt_dict
                     dual_functionals.append(new_dual)
-
-        elif len(to_element.value_shape()) == 0:
-            orig_functionals = to_element.dual_basis()
-            dual_functionals = []
-
-            for dual in orig_functionals:
-                for comp1 in range(expression.ufl_shape[0]):
-                    for comp2 in range(expression.ufl_shape[1]):
-                        # reconstruct the functional, but with an index
-                        new_dual = copy.copy(dual)
-                        new_pt_dict = {}
-                        for quad_pt in sorted(dual.pt_dict):
-                            weights = [x[0] for x in dual.pt_dict[quad_pt]]
-                            new_weights_and_indices = [(weight, (comp1, comp2)) for weight in weights]
-                            new_pt_dict[quad_pt] = new_weights_and_indices
-                        new_dual.pt_dict = new_pt_dict
-                        dual_functionals.append(new_dual)
-
         for dual in dual_functionals:
             quad_points = [*sorted(dual.pt_dict.keys())]
             dual_expression = []
@@ -594,18 +566,18 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                         config = kernel_cfg.copy()
                         config.update(quadrature_rule=quad_rule)
                         expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                                       for e in fem.compile_ufl(ufl.classes.QuadratureWeight(exp.ufl_domain())*exp, **config)]
+                                       for e in fem.compile_ufl(exp, **config)]
                         dual_expression.extend(expressions)
 
             i = gem.Index()
             dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
             dual_expressions.append(dual_expr)
+        dual_expressions = gem.ListTensor(dual_expressions)
     else:
         raise ValueError("Only know how to interpolate expressions in 1-3 dimensions")
 
     basis_indices = (gem.Index(), )
-    ir = gem.ListTensor(dual_expressions)
-    ir = gem.partial_indexed(ir, basis_indices)
+    ir = gem.partial_indexed(dual_expressions, basis_indices)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape
