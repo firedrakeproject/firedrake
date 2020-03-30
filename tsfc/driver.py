@@ -366,8 +366,44 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
 
 
+def apply_mapping(expression, to_element):
+    # Find out which mapping to apply
+    try:
+        mapping, = set(to_element.mapping())
+    except ValueError:
+        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
+
+    mesh = expression.ufl_domain()
+    rank = len(expression.ufl_shape)
+    if mapping == "affine":
+        return expression
+    elif mapping == "covariant piola":
+        J = Jacobian(mesh)
+        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
+        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
+        return as_tensor(J.T[j, k] * expression, (*i, j))
+    elif mapping == "contravariant piola":
+        mesh = expression.ufl_domain()
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
+        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
+        return as_tensor(detJ * K[j, k] * expression, (*i, j))
+    elif mapping == "double covariant piola" and rank == 2:
+        mesh = expression.ufl_domain()
+        J = Jacobian(mesh)
+        return J.T * expression * J
+    elif mapping == "double contravariant piola" and rank == 2:
+        mesh = expression.ufl_domain()
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        return (detJ)**2 * K * expression * K.T
+    else:
+        raise NotImplementedError("Don't know how to handle mapping type %s for expression of rank %d" % (mapping, rank))
+
+
 def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
-                                 parameters=None, coffee=True):
+                                       parameters=None, coffee=True):
     """Compiles a UFL expression to be evaluated against specified
     dual functionals. Useful for interpolating UFL expressions into
     e.g. N1curl spaces.
@@ -392,44 +428,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
 
-    # Find out which mapping to apply
-    try:
-        mapping, = set(to_element.mapping())
-    except ValueError:
-        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
-
-    if mapping == "affine":
-        pass  # do nothing
-    elif mapping == "covariant piola" and len(expression.ufl_shape) == 2:
-        mesh = expression.ufl_domain()
-        J = Jacobian(mesh)
-        expression = as_tensor([J.T * expression[i, :] for i in range(expression.ufl_shape[0])])
-    elif mapping == "contravariant piola" and len(expression.ufl_shape) == 2:
-        mesh = expression.ufl_domain()
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        expression = as_tensor([detJ * K * expression[i, :] for i in range(expression.ufl_shape[0])])
-    elif mapping == "covariant piola":
-        mesh = expression.ufl_domain()
-        J = Jacobian(mesh)
-        expression = J.T * expression
-    elif mapping == "contravariant piola":
-        mesh = expression.ufl_domain()
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        expression = detJ * K * expression
-    elif mapping == "double covariant piola":
-        mesh = expression.ufl_domain()
-        J = Jacobian(mesh)
-        expression = J.T * expression * J
-    elif mapping == "double contravariant piola":
-        mesh = expression.ufl_domain()
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        expression = (detJ)**2 * K * expression * K.T
-    else:
-        raise NotImplementedError("Don't know how to handle mapping type " + mapping)
-
+    expression = apply_mapping(expression, to_element)
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
                                                  complex_mode=complex_mode)
