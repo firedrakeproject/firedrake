@@ -24,7 +24,7 @@ from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, SlateTranslator,merge_loopy
-from firedrake.slate.view_gem_dag import view_gem_dag
+from firedrake.slate.view_gem_dag import view_gem_dag, GraphType
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -653,17 +653,11 @@ def gem_to_loopy(traversed_gem_expr_dag,builder):
     #creation of return variables for slate loopy
     ret_vars=[gem.Indexed(gem.Variable("output",builder.expression.shape),builder.return_indices)]
 
-    #@TODO: preprocessing of gem for removing unneccesary component tensors
-    #print("not peprocessed",traversed_gem_expr_dag)
-    #traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
-    #print("preprocessed",traversed_gem_expr_dag)
-    #print(traversed_gem_expr_dag[1])
-    #traversed_gem_expr_dag=traversed_gem_expr_dag[1]
-
+    # TODO: Preprocess gem to remove unneccesary component tensors and temporaries
     print("\n==not peprocessed: ",traversed_gem_expr_dag)
-    view_gem_dag(traversed_gem_expr_dag, filename='transpose_before', condensed=False)
-    traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
-    view_gem_dag(traversed_gem_expr_dag, filename='transpose_after', condensed=False)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_before')
+    #traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_after')
     print("==preprocessed:",traversed_gem_expr_dag)
     print('\n')
 
