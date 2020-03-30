@@ -220,8 +220,8 @@ class SlateTranslator():
     def slate_to_gem_add(self, tensor, node_dict):
         A, B = tensor.operands  # slate tensors
         _A, _B = node_dict[A], node_dict[B]  # gem representations
-        self.builder.create_index(A.shape, str(A)+"newadd")
-        new_indices = self.builder.gem_indices[str(A)+"newadd"]
+        self.builder.create_index(A.shape, str(A)+"newadd"+str(B))
+        new_indices = self.builder.gem_indices[str(A)+"newadd"+str(B)]
         self.builder.create_index(tensor.shape, tensor)
         out_indices = self.builder.gem_indices[tensor]
         _A = self.get_tensor_withnewidx(_A, new_indices)
