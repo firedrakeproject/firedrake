@@ -657,7 +657,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         except ValueError:
             pass
 
-    for v, k in builder.extra_coefficients.items():
+    for v, k in builder.extra_coefficients:
         args.append(loopy.GlobalArg(k,
                                     shape=builder.args_extents[k],
                                     dtype="double"))

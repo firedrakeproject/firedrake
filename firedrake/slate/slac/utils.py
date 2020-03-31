@@ -206,14 +206,28 @@ class SlateTranslator():
     @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
         ret = None
-        if len(tensor.shapes) == 1:
+        if len(tensor.shapes) == 1 and not tensor.is_mixed:  # tensor not mixed
             coeffs = self.builder.coefficient_vecs[tensor.shapes[0][0]]
             for coeff in coeffs:
                 if coeff.vector == tensor:
                     assert ret is None, "This vector as already been assembled."
                     ret = coeff.local_temp
         else:
-            assert "Assembled vector on mixed form are not supported yet"
+            # For mixed tensors we need the following for populating AssembledVectors.
+            # FOR (i1=0; i1<node_extent; i1++):
+            #  FOR (j1=0; j1<dof_extent; j1++):
+            #      VT0[offset + (dof_extent * i1), j1] = w_0_0[i1][j1]
+            #      VT1[offset + (dof_extent * i1), j1] = w_1_0[i1][j1]
+            #
+            dim2idxs = []
+            for dofs, cinfo_list in self.builder.coefficient_vecs.items():
+                for i, cinfo in enumerate(cinfo_list):
+                    if cinfo.vector == tensor:
+                        var = cinfo.local_temp.children[0]
+                        self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
+                        index = self.builder.gem_indices[str(cinfo)+"mixed"]
+                        dim2idxs.append(tuple([cinfo.offset_index, ((index[0], 1), )]))
+            ret = FlexiblyIndexed(var, dim2idxs)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Add)

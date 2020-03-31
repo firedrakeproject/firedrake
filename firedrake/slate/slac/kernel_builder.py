@@ -441,7 +441,7 @@ class LocalLoopyKernelBuilder(object):
         seen_coeff = set()
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
-        extra_coefficients = OrderedDict()
+        extra_coefficients = []
         self.loopy_indices = OrderedDict()
         self.gem_indices = OrderedDict()
         # stole this from lawrence
@@ -496,7 +496,7 @@ class LocalLoopyKernelBuilder(object):
                     for i, shape in enumerate(shapes):
                         cinfo = CoefficientInfo(space_index=i,
                                                 offset_index=offset,
-                                                shape=tensor.shape,
+                                                shape=shape,
                                                 vector=tensor,
                                                 local_temp=local_temp,
                                                 function=f)
@@ -524,11 +524,11 @@ class LocalLoopyKernelBuilder(object):
                 if type(c.ufl_element()) == MixedElement:
                     for j, c_ in enumerate(c.split()):
                         name = "w_{}_{}".format(i, j)
-                        extra_coefficients.setdefault(c_, name)
-                        seen_coeff.add(c_)
+                        extra_coefficients.extend([(c_, name)])
+                        seen_coeff.add(c)
                 else:
                     name = "w_{}".format(i)
-                    extra_coefficients.setdefault(c, name)
+                    extra_coefficients.extend([(c, name)])
                     seen_coeff.add(c)
 
         self.expression = expression
@@ -654,10 +654,23 @@ class LocalLoopyKernelBuilder(object):
                     kernel_data.append((mesh.cell_sizes,
                                         self.cell_size_arg))
 
-                # FIXME this does not work if the coefficient coming from tsfc is indexed in the slate expression
+                # TODO split is always generating new function
+                # and I don't know how to pick
+                # the right local coeffs from the extra coeffs th
+                # if they are define on a Mixed Element
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                kernel_data.extend([(c, self.extra_coefficients[c])
-                                    for c in local_coefficients])
+                coeffs = []
+                for c in local_coefficients:
+                    if type(c.ufl_element()) == MixedElement:
+                        for j, c_ in enumerate(c.split()):
+                            coeffs.append(c_)
+                    else:
+                        coeffs.append(c)
+
+                # pick the right local coeffs from extra coeffs
+                for c, name in self.extra_coefficients:
+                    if c in coeffs:
+                        kernel_data.extend([(c, name)])
 
                 # the kernel data eats variables which are vectors (e.g. coords)
                 # in order to feed them into the scalar languages
