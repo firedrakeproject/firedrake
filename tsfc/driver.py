@@ -3,11 +3,10 @@ import operator
 import string
 import time
 import sys
-import copy
 from functools import reduce
 from itertools import chain
 
-from numpy import asarray
+from numpy import asarray, allclose
 
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -24,7 +23,7 @@ import gem.impero_utils as impero_utils
 from FIAT.reference_element import TensorProductCell
 
 from finat.point_set import PointSet
-from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
+from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
 from tsfc.fiatinterface import as_fiat_cell
@@ -403,13 +402,13 @@ def apply_mapping(expression, to_element):
 
 
 def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
-                                       parameters=None, coffee=True):
-    """Compiles a UFL expression to be evaluated against specified
-    dual functionals. Useful for interpolating UFL expressions into
-    e.g. N1curl spaces.
+                                       parameters=None, coffee=False):
+    """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
+
+    Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg to_element: FiniteElement for the target space
+    :arg to_element: A FIAT FiniteElement for the target space
     :arg coordinates: the coordinate function
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
@@ -417,6 +416,8 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     """
     import coffee.base as ast
     import loopy as lp
+    if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
+        raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
     if parameters is None:
         parameters = default_parameters()
@@ -429,7 +430,6 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     complex_mode = is_complex(parameters["scalar_type"])
 
     expression = apply_mapping(expression, to_element)
-    expression = ufl.classes.QuadratureWeight(expression.ufl_domain())*expression
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
                                                  complex_mode=complex_mode)
@@ -469,124 +469,65 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     kernel_cfg = dict(interface=builder,
                       ufl_cell=coordinates.ufl_domain().ufl_cell(),
                       precision=parameters["precision"],
-                      integration_dim=coordinates.ufl_domain().ufl_cell().topological_dimension(),
                       argument_multiindices=argument_multiindices,
                       index_cache={})
 
-    if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
-        raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
-
-    # We need to do different things based on the shape of the expression, unfortunately
-    if to_element.value_shape() == ():
-        # scalar sub-element
+    if len(to_element.value_shape()) == 0:
+        # This is an optimisation for point-evaluation nodes which
+        # should go away once FInAT offers the interface properly
         qpoints = []
-        qweights = []
         # Everything is just a point evaluation.
         for dual in to_element.dual_basis():
             ptdict = dual.get_point_dict()
             qpoint, = ptdict.keys()
             (qweight, component), = ptdict[qpoint]
+            assert allclose(qweight, 1.0)
             assert component == ()
             qpoints.append(qpoint)
-            qweights.append(qweight)
-        quad_rule = QuadratureRule(PointSet(qpoints), qweights)
+        point_set = PointSet(qpoints)
         config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule)
-        expr, = fem.compile_ufl(expression, **config)
+        config.update(point_set=point_set)
+        expr, = fem.compile_ufl(expression, **config, point_sum=False)
         shape_indices = tuple(gem.Index() for _ in expr.shape)
-        expr = gem.Indexed(expr, shape_indices)
-        dual_expressions = gem.ComponentTensor(expr, quad_rule.point_set.indices + shape_indices)
-    # Case 2: vectors
-    elif len(expression.ufl_shape) == 1:
-        # check we have a vector element
-        assert to_element.value_shape() == 1
-        dual_functionals = to_element.dual_basis()
-        dual_expressions = []
-        for dual in dual_functionals:
-            quad_points = [*sorted(dual.pt_dict.keys())]
-            dual_expression = []
-
-            for comp, exp in enumerate(expression):
-                quad_points_comp = [q for q in quad_points if dual.pt_dict[q][0][1] == () or comp in [w[1][0] for w in dual.pt_dict[q]]]
-                weights_comp = []
-                for q in quad_points_comp:
-                    weights_comp.extend([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or comp == w[1][0] ])
-                if len(quad_points_comp) > 0:
-                    quad_rule = QuadratureRule(PointSet(quad_points_comp), weights_comp)
-                    config = kernel_cfg.copy()
-                    config.update(quadrature_rule=quad_rule)
-                    expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                                   for e in fem.compile_ufl(exp, **config)]
-                    dual_expression.extend(expressions)
-
-            i = gem.Index()
-            dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
-            dual_expressions.append(dual_expr)
-        dual_expressions = gem.ListTensor(dual_expressions)
-
-    # Case 3: tensors
-    elif len(expression.ufl_shape) == 2:
-        # check we have a [scalar]^d or vector element
-        assert len(to_element.value_shape()) in [1, 2]
-
-        dual_expressions = []
-        # if we have a native tensor element, just use those dual functionals
-        if len(to_element.value_shape()) == 2:
-            dual_functionals = to_element.dual_basis()
-        # otherwise, implement broadcasting semantics
-        elif len(to_element.value_shape()) == 1:
-            orig_functionals = to_element.dual_basis()
-            dual_functionals = []
-
-            for dual in orig_functionals:
-                for comp1 in range(expression.ufl_shape[0]):
-                    new_dual = copy.copy(dual)
-                    new_pt_dict = {}
-                    for quad_pt in sorted(dual.pt_dict):
-                        old_weights_and_indices = dual.pt_dict[quad_pt]
-                        new_weights_and_indices = []
-                        for (weight, index) in old_weights_and_indices:
-                            new_weights_and_indices.append((weight, (comp1, index[0])))
-                        new_pt_dict[quad_pt] = new_weights_and_indices
-                    new_dual.pt_dict = new_pt_dict
-                    dual_functionals.append(new_dual)
-        for dual in dual_functionals:
-            quad_points = [*sorted(dual.pt_dict.keys())]
-            dual_expression = []
-
-            for comp1 in range(expression.ufl_shape[0]):
-                for comp2 in range(expression.ufl_shape[1]):
-                    exp = expression[comp1, comp2]
-                    quad_points_comp = [q for q in quad_points if dual.pt_dict[q][0][1] == () or (comp1, comp2) in [w[1] for w in dual.pt_dict[q]]]
-                    weights_comp = []
-                    for q in quad_points_comp:
-                        weights_comp.extend([w[0] for w in dual.pt_dict[q] if dual.pt_dict[q][0][1] == () or (comp1, comp2) == w[1] ])
-                    if len(quad_points_comp) > 0:
-                        quad_rule = QuadratureRule(PointSet(quad_points_comp), weights_comp)
-                        config = kernel_cfg.copy()
-                        config.update(quadrature_rule=quad_rule)
-                        expressions = [gem.index_sum(e, quad_rule.point_set.indices)
-                                       for e in fem.compile_ufl(exp, **config)]
-                        dual_expression.extend(expressions)
-
-            i = gem.Index()
-            dual_expr = gem.index_sum(gem.ListTensor(dual_expression)[i], (i, ))
-            dual_expressions.append(dual_expr)
-        dual_expressions = gem.ListTensor(dual_expressions)
+        basis_indices = point_set.indices
+        ir = gem.Indexed(expr, shape_indices)
     else:
-        raise ValueError("Only know how to interpolate expressions in 1-3 dimensions")
-
-    basis_indices = (gem.Index(), )
-    ir = gem.partial_indexed(dual_expressions, basis_indices)
-
-    # Deal with non-scalar expressions
-    value_shape = ir.shape
-    tensor_indices = tuple(gem.Index() for s in value_shape)
-    if value_shape:
-        ir = gem.Indexed(ir, tensor_indices)
+        # This is general code but is more unrolled than necssary.
+        dual_functionals = to_element.dual_basis()
+        dual_expressions = []   # one for each functional
+        broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape())
+        shape_indices = tuple(gem.Index() for _ in expression.ufl_shape[:broadcast_shape])
+        expr_cache = {}         # Sharing of evaluation of the expression at points
+        for dual in dual_functionals:
+            pts = tuple(sorted(dual.get_point_dict().keys()))
+            try:
+                expr, point_set = expr_cache[pts]
+            except KeyError:
+                point_set = PointSet(pts)
+                config = kernel_cfg.copy()
+                config.update(point_set=point_set)
+                expr, = fem.compile_ufl(expression, **config, point_sum=False)
+                expr = gem.partial_indexed(expr, shape_indices)
+                expr_cache[pts] = expr, point_set
+            weights = collections.defaultdict(list)
+            for p in pts:
+                for (w, cmp) in dual.get_point_dict()[p]:
+                    weights[cmp].append(w)
+            qexprs = gem.Zero()
+            for cmp in sorted(weights):
+                qweights = gem.Literal(weights[cmp])
+                qexpr = gem.Indexed(expr, cmp)
+                qexpr = gem.index_sum(gem.Indexed(qweights, point_set.indices)*qexpr,
+                                      point_set.indices)
+                qexprs = gem.Sum(qexprs, qexpr)
+            assert qexprs.shape == ()
+            assert set(qexprs.free_indices) == set(chain(shape_indices, *argument_multiindices))
+            dual_expressions.append(qexprs)
+        basis_indices = (gem.Index(), )
+        ir = gem.Indexed(gem.ListTensor(dual_expressions), basis_indices)
 
     # Build kernel body
-    return_indices = basis_indices + tensor_indices + tuple(chain(*argument_multiindices))
+    return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
     if coffee:
@@ -595,14 +536,16 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
 
     return_expr = gem.Indexed(return_var, return_indices)
+
+    # TODO: one should apply some GEM optimisations as in assembly,
+    # but we don't for now.
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
-    point_index, = basis_indices
-
+    index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([ir])
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
+    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], index_names)
 
 
 def lower_integral_type(fiat_cell, integral_type):
