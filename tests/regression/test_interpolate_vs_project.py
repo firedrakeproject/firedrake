@@ -2,60 +2,54 @@ import numpy as np
 import pytest
 from firedrake import *
 
-'''
-format for funcspaces = (space, exp_type, functionspace_type)
-choices for exp_type: "scalar", "vector", "tensor"
-choices for functionspac_type:
- "0" -> FunctionSpace
- "1" -> VectorFunctionSpace
- "2" -> TensorFunctionSpace
-'''
 
-funcspaces = [
-    ("CG", "scalar", "0"),
-    ("CG", "vector", "1"),
-    ("CG", "tensor", "2"),
-    ("N1curl", "vector", "0"),
-    ("N2curl", "vector", "0"),
-    ("N1div", "vector", "0"),
-    ("N2div", "vector", "0"),
-    ("BDM", "tensor", "1"),
-    ("N1curl", "tensor", "1"),
-    ("N1div", "tensor", "1"),
-    ("Regge", "tensor", "0"),
-]
+@pytest.fixture(params=["square", "cube"], scope="module")
+def mesh(request):
+    if request.param == "square":
+        return SquareMesh(2, 2, 2)
+    elif request.param == "cube":
+        return CubeMesh(2, 2, 2, 2)
 
 
-@pytest.mark.parametrize("space , exp_type, functionspace_type", funcspaces)
-@pytest.mark.parametrize("dim", [2, 3])
-def test_interpolate_vs_project(space, exp_type, functionspace_type, dim):
+@pytest.fixture(params=[("CG", 2, FunctionSpace),
+                        ("CG", 2, VectorFunctionSpace),
+                        ("CG", 2, TensorFunctionSpace),
+                        ("N1curl", 2, FunctionSpace),
+                        ("N2curl", 2, FunctionSpace),
+                        ("N1div", 2, FunctionSpace),
+                        ("N2div", 2, FunctionSpace),
+                        ("BDM", 2, VectorFunctionSpace),
+                        ("N1curl", 2, VectorFunctionSpace),
+                        ("N1div", 2, VectorFunctionSpace),
+                        ("Regge", 1, FunctionSpace)],
+                ids=lambda x: "%s(%s%s)" % (x[2].__name__, x[0], x[1]))
+def V(request, mesh):
+    space, degree, typ = request.param
+    return typ(mesh, space, degree)
+
+
+def test_interpolate_vs_project(V):
+    mesh = V.ufl_domain()
+    dim = mesh.geometric_dimension()
     if dim == 2:
-        mesh = SquareMesh(2, 2, 2)
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
-        mesh = CubeMesh(2, 2, 2, 2)
         x, y, z = SpatialCoordinate(mesh)
 
-    if functionspace_type == "0":
-        V = FunctionSpace(mesh, space, 2)
-    elif functionspace_type == "1":
-        V = VectorFunctionSpace(mesh, space, 2)
-    elif functionspace_type == "2":
-        V = TensorFunctionSpace(mesh, space, 1)
-
+    shape = V.ufl_element().value_shape()
     if dim == 2:
-        if exp_type == "scalar":
+        if len(shape) == 0:
             expression = x + y
-        elif exp_type == "vector":
+        elif len(shape) == 1:
             expression = as_vector([x, y])
-        elif exp_type == "tensor":
+        elif len(shape) == 2:
             expression = as_tensor(([x, y], [x, y]))
     elif dim == 3:
-        if exp_type == "scalar":
+        if len(shape) == 0:
             expression = x + y + z
-        elif exp_type == "vector":
+        elif len(shape) == 1:
             expression = as_vector([x, y, z])
-        elif exp_type == "tensor":
+        elif len(shape) == 2:
             expression = as_tensor(([x, y, z], [x, y, z], [x, y, z]))
 
     f = interpolate(expression, V)
