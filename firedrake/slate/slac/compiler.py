@@ -634,7 +634,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         args.append(arg)
 
     if builder.needs_cell_orientations:
-        args.append(loopy.GlobalArg("orientations", shape=(builder.args_extents[builder.cell_orientations_arg],), dtype="double"))
+        args.append(loopy.GlobalArg("orientations", shape=(builder.args_extents[builder.cell_orientations_arg],), dtype=np.int32))
 
     if builder.needs_cell_sizes:
         args.append(loopy.GlobalArg("cell_sizes", shape=(builder.args_extents[builder.cell_size_arg],), dtype="double"))
@@ -669,7 +669,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
                                     dtype=np.uint8))
 
     if builder.needs_mesh_layers:
-        args.append(loopy.GlobalArg("layer", shape=(), dtype="double"))
+        args.append(loopy.GlobalArg("layer", shape=(1,), dtype=np.int8))
 
     ############
     # TODO: preprocessing of gem for removing unneccesary component tensors
@@ -766,8 +766,6 @@ def get_inv_callable(loopy_merged):
                     PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));\n
                     PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));\n
                     memcpy(Awork,A,N*N*sizeof(PetscScalar));\n
-                    int row, columns;\n
-                    for (int row=0; row<3; row++)\n
                     LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);\n
                     if(info==0)\n
                         LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);\n

@@ -669,7 +669,8 @@ class LocalLoopyKernelBuilder(object):
                         if type(c.ufl_element()) == MixedElement:
                             # split is always generating new function
                             # procrastinated the split until last possibility
-                            # even though that means that extra
+                            # even though that means that extra coefficients
+                            # contais the mixed cofficient twice
                             for j, c_ in enumerate(c.split()):
                                 if str(j) == name[-1]:
                                     kernel_data.extend([(c_, name)])
@@ -741,11 +742,11 @@ class LocalLoopyKernelBuilder(object):
                     layer = pym.Variable(self.layer_arg)
                     # TODO: Variable layers
                     nlayer = tensor.ufl_domain().layers
-                    which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
-                             "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                             "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
-                             "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
-                    predicates = frozenset([which])
+                    which = {"interior_facet_horiz_top": str(layer[0])+"<"+str(nlayer-1),
+                             "interior_facet_horiz_bottom": str(layer[0])+">"+str(0),
+                             "exterior_facet_top": str(layer[0])+"=="+str(nlayer-1),
+                             "exterior_facet_bottom": str(layer[0])+"=="+str(0)}[integral_type]
+                    predicates = [which]
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
 
