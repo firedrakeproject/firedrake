@@ -213,3 +213,128 @@ def test_filter_poisson():
     assert(sqrt(assemble(dot(u1 - g, u1 - g) * dx)) < 1e-4)
 
 
+def test_filter_stokes():
+    # Modified a demo problem found at:
+    # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-geometric-multigrid.ipynb
+
+    degree = 8
+
+    solver_parameters={"ksp_type": "gmres",
+                       "pc_type": "ilu",
+                       #"pc_factor_shift_type": "inblocks",
+                       #"ksp_monitor": None,
+                       "pmat_type": "aij"}
+
+    # Unrotated domain
+    mesh = RectangleMesh(15, 10, 1.5, 1)
+    
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+    
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+    
+    nu = Constant(1)
+    x, y = SpatialCoordinate(mesh)
+    
+    t = conditional(y < 0.5, y - 1/4, y - 3/4)
+    gbar = conditional(Or(And(1/6 < y,
+                              y < 1/3),
+                          And(2/3 < y,
+                              y < 5/6)),
+                       1, 
+                       0)
+
+    value = as_vector([gbar*(1 - (12*t)**2), 0])
+    bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)),
+           DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
+    
+    a = (nu * inner(grad(u), grad(v)) - p * div(v) + q * div(u)) * dx(degree=degree)
+    L = inner(Constant((0, 0)), v) * dx(degree=degree)
+    wh0 = Function(W)
+
+    solve(a == L, wh0, bcs=bcs, solver_parameters=solver_parameters)
+
+    # Rotated
+    mesh = RectangleMesh(15, 10, 1.5, 1)
+    Vc = mesh.coordinates.function_space()
+    x, y = SpatialCoordinate(mesh)
+    theta = pi / 3
+    f = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
+                                            sin(theta) * x + cos(theta) * y]))
+    mesh.coordinates.assign(f)
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+    
+    #u, p = TrialFunctions(W)
+    #v, q = TestFunctions(W)
+    
+    nu = Constant(1)
+    x, y = SpatialCoordinate(mesh)
+
+    r = -sin(theta) * x + cos(theta) * y
+    t = conditional(r < 0.5, r - 1/4, r - 3/4)
+    gbar = conditional(Or(And(1/6 < r,
+                              r < 1/3),
+                          And(2/3 < r,
+                              r < 5/6)),
+                       1, 
+                       0)
+
+    gbarx = gbar*(1 - (12*t)**2)
+    value = as_vector([cos(theta) * gbarx, sin(theta) * gbarx])
+    bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
+    
+    nodes = V.boundary_nodes((3, 4), "topological")
+    subset = op2.Subset(V.node_set, nodes)
+    fltr0 = Function(W)
+    fltr0.assign(Constant([1., 1., 1]))
+    fltr0.sub(0).assign(Function(V).interpolate(Constant([cos(theta), sin(theta)])), subset=subset)
+    fltr1 = Function(W)
+    fltr1.sub(0).assign(Function(V).interpolate(Constant([-sin(theta), cos(theta)])), subset=subset)
+
+    
+    # Domain equations
+    ud, pd = split(Filtered(TrialFunction(W), fltr0))
+    vd, qd = split(Filtered(TestFunction(W), fltr0))
+
+    # Boundary equations
+    ub, pb = split(Filtered(TrialFunction(W), fltr1))
+    vb, qb = split(Filtered(TestFunction(W), fltr1))
+
+    a = (nu * inner(grad(ud), grad(vd)) - pd * div(vd) + div(ud) * qd) * dx(degree=degree) + dot(ub, vb) * ds
+    L = inner(Constant((0, 0)), vd) * dx(degree=degree)
+    wh1 = Function(W)
+
+    solve(a == L, wh1, bcs=bcs, solver_parameters=solver_parameters)
+
+
+    u0, p0 = wh0.split()
+    u1, p1 = wh1.split()
+
+    ux0 = u0.dat.data[:, [0]]
+    uy0 = u0.dat.data[:, [1]]
+    u0 = np.concatenate((cos(theta) * ux0 - sin(theta) * uy0,
+                         sin(theta) * ux0 + cos(theta) * uy0), axis=1)
+
+    print(np.linalg.norm(u1.dat.data - u0)/np.linalg.norm(u0))
+    print(np.linalg.norm(p1.dat.data - p0.dat.data)/np.linalg.norm(p0.dat.data))
+
+    import matplotlib.pyplot as plt
+    u, p = wh1.split()
+    fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
+    arrows = quiver(u, axes=axes[0])
+    axes[0].set_aspect("equal")
+    axes[0].set_title("Velocity")
+    fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
+
+    triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
+    axes[1].set_aspect("equal")
+    axes[1].set_title("Pressure")
+    fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+
+    plt.savefig('temp.pdf')
+

@@ -5,9 +5,11 @@ import collections
 from ufl import as_vector
 from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.analysis import extract_type
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from firedrake.ufl_expr import Argument
+from firedrake.function import Function
 
 
 class ExtractSubBlock(MultiFunction):
@@ -148,7 +150,14 @@ class SplitFilter(MultiFunction):
     def filtered(self, o):
         from ufl import split
         from firedrake import ufl_expr
-        t = o.ufl_operands[0]
+        t = set()
+        t.update(extract_type(o.ufl_operands[0], Argument))
+        t.update(extract_type(o.ufl_operands[0], Function))
+        t = tuple(t)
+        if len(t) != 1:
+            raise RuntimeError("`Filered` must act on one and only one Argument/Function.")
+
+        t = t[0]        
         if not isinstance(t, Argument):
             # Only split filters that are applied to the argument.
             return o
@@ -182,7 +191,7 @@ class SplitFilter(MultiFunction):
             else:
                 f.append(_f)
         f = as_vector(f)
-        return self._arg_cache.setdefault(o, ufl_expr.Filtered(t, f))
+        return self._arg_cache.setdefault(o, ufl_expr.Filtered(o.ufl_operands[0], f))
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
