@@ -442,6 +442,7 @@ class LocalLoopyKernelBuilder(object):
         expression_dag = list(traverse_dags([expression]))
         counter = Counter([expression])
         extra_coefficients = []
+        self.args_extents = OrderedDict([])
         self.loopy_indices = OrderedDict()
         self.gem_indices = OrderedDict()
         # stole this from lawrence
@@ -516,20 +517,27 @@ class LocalLoopyKernelBuilder(object):
             #         self.return_indices=gem_indices
             #     outermost=False
 
-            # collect all rest coefficients (e.g. of Tensor(L))
+        # collect all rest coefficients (e.g. of Tensor(L))
         for i, c in enumerate(expression.coefficients()):
             # Ensure coefficient temporaries aren't duplicated
-            print(type(c))
             if c not in seen_coeff and (type(c) == Constant or type(c) == Function or type(c) == Coefficient):
-                if type(c.ufl_element()) == MixedElement:
+                element = c.ufl_element()
+                if type(element) == MixedElement:
+                    shapes = [create_element(el).space_dimension() for el in element.sub_elements()]
                     for j, c_ in enumerate(c.split()):
                         name = "w_{}_{}".format(i, j)
-                        extra_coefficients.extend([(c_, name)])
+                        extra_coefficients.extend([(c, name)])
                         seen_coeff.add(c)
+                        self.args_extents.setdefault(name, shapes[j])
                 else:
                     name = "w_{}".format(i)
+                    if type(c) == Constant:
+                        shapes = [(1,)]
+                    else:
+                        shapes = [create_element(element).space_dimension()]
                     extra_coefficients.extend([(c, name)])
                     seen_coeff.add(c)
+                    self.args_extents.setdefault(name, shapes[0])
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
@@ -580,7 +588,6 @@ class LocalLoopyKernelBuilder(object):
         needs_cell_sizes = False
         needs_cell_facets = False
         needs_mesh_layers = False
-        args_extents = OrderedDict([])
 
         num_facets = 0
         # Maps integral type to subdomain key
@@ -654,23 +661,20 @@ class LocalLoopyKernelBuilder(object):
                     kernel_data.append((mesh.cell_sizes,
                                         self.cell_size_arg))
 
-                # TODO split is always generating new function
-                # and I don't know how to pick
-                # the right local coeffs from the extra coeffs th
-                # if they are define on a Mixed Element
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                coeffs = []
-                for c in local_coefficients:
-                    if type(c.ufl_element()) == MixedElement:
-                        for j, c_ in enumerate(c.split()):
-                            coeffs.append(c_)
-                    else:
-                        coeffs.append(c)
 
                 # pick the right local coeffs from extra coeffs
                 for c, name in self.extra_coefficients:
-                    if c in coeffs:
-                        kernel_data.extend([(c, name)])
+                    if c in local_coefficients:
+                        if type(c.ufl_element()) == MixedElement:
+                            # split is always generating new function
+                            # procrastinated the split until last possibility
+                            # even though that means that extra
+                            for j, c_ in enumerate(c.split()):
+                                if str(j) == name[-1]:
+                                    kernel_data.extend([(c_, name)])
+                        else:
+                            kernel_data.extend([(c, name)])
 
                 # the kernel data eats variables which are vectors (e.g. coords)
                 # in order to feed them into the scalar languages
@@ -682,7 +686,7 @@ class LocalLoopyKernelBuilder(object):
                     idx = self.loopy_indices[c]
                     argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
                     reads.append(argument)
-                    args_extents.setdefault(name, extent)
+                    self.args_extents.setdefault(name, extent)
 
                 # append more arguments to subkernel for different integral types
                 if integral_type == "cell":
@@ -762,7 +766,6 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_facets = needs_cell_facets
         self.needs_mesh_layers = needs_mesh_layers
         self.num_facets = num_facets
-        self.args_extents = args_extents
 
 
 # every time an index is created it is saved in a list (gem as well as loopy)
