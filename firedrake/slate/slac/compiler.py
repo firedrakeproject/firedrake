@@ -76,9 +76,11 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        if self._initialized:
-            return
+        #if self._initialized:
+            #print('slate kernel __init__, initialized')
+        #    return
         # TODO: introduce coffe option here
+        print('slate kernel __init__, NOT initialized')
         self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
@@ -127,14 +129,20 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     print("BUILDER DONE")
 
     # stage1: slate to gem....
+    print('\n====Slate to GEM===')
     gem_expr = slate_to_gem(builder)
+    print('gem_expr: ', gem_expr)
 
     # stage 2: gem to loopy...
+    print('\n====Loopy outer===')
     loopy_outer = gem_to_loopy(gem_expr, builder)
+    print('loopy_outer:', loopy_outer)
 
     # stage 3: merge loopys...
+    print('\n====Loopy inner===')
     loopy_inner_list = builder.templated_subkernels
 
+    #print('\n====Loopy merge===')
     loopy_merged = merge_loopy(loopy_outer, loopy_inner_list, builder)  # builder owns the callinstruction
     print("LOOPY KERNEL GLUED")
 
@@ -598,6 +606,7 @@ def parenthesize(arg, prec=None, parent=None):
 # tensor and assembled vectors are already run through by now
 # they are acessed by the translator
 def slate_to_gem(builder, prec=None):
+    print('\nbuilder: ', builder)
     traversed_gem_dag = SlateTranslator(builder).slate_to_gem_translate()
     return list([traversed_gem_dag])
 
@@ -605,6 +614,7 @@ def slate_to_gem(builder, prec=None):
 # STAGE 2
 # converts the gem expression dag into imperoc
 def gem_to_loopy(traversed_gem_expr_dag, builder):
+    print('in gem to loopy')
     # STAGE 2A:
     # slate to impero_c
 

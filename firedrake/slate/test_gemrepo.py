@@ -63,7 +63,7 @@ def test_add(a):
     add_A_comp = assemble(a+a+a)
     for i in range(add_A.M.handle.getSize()[0]):
         for j in range(add_A.M.handle.getSize()[1]):
-            assert math.isclose(add_A.M.handle.getValues(i, j), add_A_comp.M.handle.getValues(i, j)), "Test for stacked adding of a two tensor failed"
+            assert math.isclose(add_A.M.handle.getValues(i, j), add_A_comp.M.handle.getValues(i, j), abs_tol=1e-14), "Test for stacked adding of a two tensor failed"
 
 
 def test_negative(a):
@@ -321,6 +321,8 @@ def marybarker_solve_curl_curl(mesh, f, degree, with_tensor=False):
 Run test script
 """
 print("Run test for slate to loopy compilation.\n\n")
+
+print("test123")
 
 # discontinuous Helmholtz equation on cell integrals
 mesh = UnitSquareMesh(5, 5)
