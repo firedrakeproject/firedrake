@@ -30,6 +30,7 @@ from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
+from gem.view_gem_dag import view_gem_dag
 from gem import impero_utils
 
 from itertools import chain
@@ -681,13 +682,13 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     if builder.needs_mesh_layers:
         args.append(loopy.GlobalArg("layer", shape=(), dtype="double"))
 
-    ############
-    # TODO: preprocessing of gem for removing unneccesary component tensors
-    # print("not peprocessed",traversed_gem_expr_dag)
-    # traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
-    # print("preprocessed",traversed_gem_expr_dag)
-    # print(traversed_gem_expr_dag[1])
-    # traversed_gem_expr_dag=traversed_gem_expr_dag[1]
+    # Preprocess of gem for removing unneccesary component tensors and temporaries
+    print("\n==not peprocessed: ",traversed_gem_expr_dag)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_before')
+    #traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
+    view_gem_dag(traversed_gem_expr_dag, filename='transpose_after')
+    print("==preprocessed:",traversed_gem_expr_dag)
+    print('\n')
 
     # glue assignments to return variable
     assignments = list(zip(ret_vars, traversed_gem_expr_dag))
