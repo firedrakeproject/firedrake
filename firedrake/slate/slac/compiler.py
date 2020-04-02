@@ -669,7 +669,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
                                     dtype=np.int8))
 
     if builder.needs_mesh_layers:
-        args.append(loopy.GlobalArg("layer", shape=(1,), dtype=np.int8))
+        args.append(loopy.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
 
     ############
     # TODO: preprocessing of gem for removing unneccesary component tensors

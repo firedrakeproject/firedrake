@@ -741,11 +741,11 @@ class LocalLoopyKernelBuilder(object):
 
                     layer = pym.Variable(self.layer_arg)
                     # TODO: Variable layers
-                    nlayer = tensor.ufl_domain().layers
-                    which = {"interior_facet_horiz_top": str(layer[0])+"<"+str(nlayer-1),
-                             "interior_facet_horiz_bottom": str(layer[0])+">"+str(0),
-                             "exterior_facet_top": str(layer[0])+"=="+str(nlayer-1),
-                             "exterior_facet_bottom": str(layer[0])+"=="+str(0)}[integral_type]
+                    nlayer = tensor.ufl_domain().layers-1
+                    which = {"interior_facet_horiz_top": str(layer)+"<"+str(nlayer-1),
+                             "interior_facet_horiz_bottom": str(layer)+">"+str(0),
+                             "exterior_facet_top": str(layer)+"=="+str(nlayer-1),
+                             "exterior_facet_bottom": str(layer)+"=="+str(0)}[integral_type]
                     predicates = [which]
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
