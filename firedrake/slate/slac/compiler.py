@@ -666,7 +666,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     if builder.needs_cell_facets:
         args.append(loopy.GlobalArg(builder.cell_facets_arg,
                                     shape=(builder.num_facets, 2),
-                                    dtype=np.uint8))
+                                    dtype=np.int8))
 
     if builder.needs_mesh_layers:
         args.append(loopy.GlobalArg("layer", shape=(1,), dtype=np.int8))
@@ -755,26 +755,26 @@ def get_inv_callable(loopy_merged):
         def generate_preambles(self, target):
             assert isinstance(target, CTarget)
             inverse_preamble = """
-                #include <string.h>\n
-                #include <stdio.h>\n
-                #include <stdlib.h>\n
-                #ifndef Inverse_HPP\n
-                #define Inverse_HPP\n
-                void inverse_(PetscScalar* A, PetscBLASInt N)\n
-                {\n
-                    PetscBLASInt info;\n
-                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));\n
-                    PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));\n
-                    memcpy(Awork,A,N*N*sizeof(PetscScalar));\n
-                    LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);\n
-                    if(info==0)\n
-                        LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);\n
-                    if(info!=0)\n
-                        fprintf(stderr,\"hi\");\n
-                }\n
-                #endif\n
+                #include <string.h>
+                #include <stdio.h>
+                #include <stdlib.h>
+                #ifndef Inverse_HPP
+                #define Inverse_HPP
+                void inverse_(PetscScalar* A, PetscBLASInt N)
+                {
+                    PetscBLASInt info;
+                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
+                    PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));
+                    memcpy(Awork,A,N*N*sizeof(PetscScalar));
+                    LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);
+                    if(info==0)
+                        LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);
+                    if(info!=0)
+                        fprintf(stderr,\"Getri throws nonzero info.\");
+                }
+                #endif
             """
-            yield("lapack", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+inverse_preamble)
+            yield("lapack_inverse", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+inverse_preamble)
             return
 
     def inv_fn_lookup(target, identifier):
@@ -851,27 +851,27 @@ def get_solve_callable(loopy_merged):
 
         def generate_preambles(self, target):
             assert isinstance(target, CTarget)
-            code = """#include <string.h>\n
-                #include <stdio.h>\n
-                #include <stdlib.h>\n
+            code = """#include <string.h>
+                #include <stdio.h>
+                #include <stdlib.h>
 
-                #ifndef solve_HPP\n
-                #define solve_HPP\n
+                #ifndef Solve_HPP
+                #define Solve_HPP
 
-                void solve_(PetscScalar* A,PetscScalar* B, PetscBLASInt N)\n
-                {\n
-                    PetscBLASInt info;\n
-                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));\n
-                    PetscBLASInt NRHS;\n
-                    NRHS=1;\n
-                    LAPACKgesv_(&N,&NRHS,A,&N,ipiv,B,&N,&info);\n
-                    if(info!=0)\n
-                        fprintf(stderr,\"The inverse of the matrix was unsuccesful.\");\n
-                }\n
-                #endif\n
+                void solve_(PetscScalar* A,PetscScalar* B, PetscBLASInt N)
+                {
+                    PetscBLASInt info;
+                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
+                    PetscBLASInt NRHS;
+                    NRHS=1;
+                    LAPACKgesv_(&N,&NRHS,A,&N,ipiv,B,&N,&info);
+                    if(info!=0)
+                        fprintf(stderr,\"Gesv throws nonzero info.\");
+                }
+                #endif
             """
 
-            yield("lapack", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+code)
+            yield("lapack_solve", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+code)
             return
 
     def fac_fn_lookup(target, identifier):
