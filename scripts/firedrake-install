@@ -1082,7 +1082,7 @@ def create_compiler_env(cc, cxx, f90):
         env["CFLAGS"] = " ".join((os.environ.get("CFLAGS", ""),
                                   "-L" + os.path.join(*get_petsc_dir(), "lib"),
                                   "-I" + os.path.join(*get_petsc_dir(), "include")))
-        env["PYOP2_LDFLAGS"] = " ".join((os.environ.get("PYOP2_LDFLAGS", "-llapack"))
+        env["PYOP2_LDFLAGS"] = " ".join((os.environ.get("PYOP2_LDFLAGS", "-llapack")))
     if cxx:
         env["MPICXX"] = cxx
         env["MPI_CXX_COMPILER"] = cxx
