@@ -5,7 +5,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 FlexiblyIndexed, Solve, Inverse)
+                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view)
 
 
 from functools import singledispatch, update_wrapper
@@ -303,15 +303,18 @@ class SlateTranslator():
         node = node_dict[A]
         dim2idxs = [[], []]
 
-        if type(tensor._indices[0]) == int:
-            loop = [tensor._indices]
-        else:
-            loop = itertools.product(*tensor._indices)
+        # rangification
+        indices = ()
+        for index in tensor._indices:
+            if type(index) == int:
+                indices += (range(index, index+1), )
+            else:
+                indices += (index, )
+        loop = itertools.product(*indices)
 
         # also treats a range in blocks
         # A = [00, 01, 02; 10, 11, 12; 20, 21, 22]
         # ret = A[2:3, 2:3][0,1] -> A[2,3]
-        # comp = (range())
         for c, block in enumerate(loop):
             # i points to the block matrices
             # idx points to the shape of that block matrix in all dimensions
@@ -326,10 +329,17 @@ class SlateTranslator():
                 # dim2idx[dim][0]-> offset
                 # dim2idx[dim][1]-> (index, stride)
                 if c == 0:
-                    Aoffset += (sum(A.shapes[i][:idx]), )
-                    extent += (A.shapes[i][idx], )
+                    if isinstance(idx, int):
+                        Aoffset += (sum(A.shapes[i][:idx]), )
+                        extent += (A.shapes[i][idx], )
+                    elif isinstance(idx, range):
+                        if idx.start == 0:
+                            Aoffset += (0, )
+                        else:
+                            Aoffset += ((A.shapes[i][idx.start-1]), )
+                        extent += (sum(A.shapes[i][:idx.stop]), )
 
-                elif len(dim2idxs[i][1]) < block[i]:
+                elif len(dim2idxs[i][1]) < (indices[i].stop - indices[i].start):
                     extent += (A.shapes[i][idx], )
 
             # TODO I think this only works when the blocks have the same size
@@ -343,15 +353,19 @@ class SlateTranslator():
                 for i, idx in enumerate(gem_index):
                     idxs = ((gem_index[i], 1), )
                     dim2idxs[i].extend([Aoffset[i], idxs])
-            # elif not type(node) == FlexiblyIndexed:
-            #     key = str(tensor) + str(block) + str(i)
-            #     self.builder.create_index(extent, key)
-            #     gem_index = self.builder.gem_indices[key]
+            else:
+                key = str(tensor) + str(block) + str(i)
+                self.builder.create_index(extent, key)
+                gem_index = self.builder.gem_indices[key]
 
-            #     idxs = ((gem_index[0], 1), )
-            #     dim2idxs[0][1] += idxs
-                # idxs = ((gem_index[1], 1), )
-                # dim2idxs[1][1] += idxs
+                for i, idx in enumerate(gem_index):
+                    if len(dim2idxs[i][1]) < (indices[i].stop - indices[i].start) \
+                            and extent[i] == tensor.shapes[0][len(dim2idxs[i][1])]:
+                        idxs = ((gem_index[i], 1), )
+                        dim2idxs[i][1] += idxs
+                    elif len(gem_index) == 1 and len(dim2idxs[1][1]) < (indices[1].stop - indices[1].start):
+                        idxs = ((gem_index[0], 1), )
+                        dim2idxs[1][1] += idxs
 
         if type(node) == FlexiblyIndexed:
             for i, idx in enumerate(gem_index):
@@ -383,13 +397,21 @@ class SlateTranslator():
         elif type(var) == IndexSum:
             free_indices_sorted = tuple()
             for i, index in enumerate(var.free_indices):
-                if index not in free_indices_sorted and var.children[0].children[i].multiindex[i] == index:
+                if type(var.children[0].children[i]) == FlexiblyIndexed:
+                    ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
+                else:
+                    ordered_indexed = var.children[0].children[i].multiindex[i]
+                if index not in free_indices_sorted and index == ordered_indexed:
                     free_indices_sorted += (index, )
             if free_indices_sorted == ():
                 free_indices_sorted = var.free_indices[::-1]
             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
         elif type(var) == FlexiblyIndexed:
-            pass
+            variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
+            dim2idxs_new = ()
+            for i, dim in enumerate(dim2idxs):
+                dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
+            var = FlexiblyIndexed(variable, dim2idxs_new)
         else:
             assert "Variable type is "+str(type(var))+". Must be Indexed."
         return var
@@ -572,11 +594,13 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     coeff_shape_list = []
     coeff_function_list = []
     coeff_tensor_list = []
+    coeff_offset_list = []
     for v in builder.coefficient_vecs.values():
         for coeff_info in v:
             coeff_shape_list.append(coeff_info.shape)
             coeff_function_list.append(coeff_info.vector._function)
             coeff_tensor_list.append(coeff_info.local_temp)
+            coeff_offset_list.append(coeff_info.offset_index)
 
     coeff_no = 0
     for ordered_coeff in builder.expression.coefficients():
@@ -585,9 +609,10 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
             for func_index in indices:
                 loopy_tensor = builder.gem_loopy_dict[coeff_tensor_list[func_index]]
                 loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
-                indices = builder.create_index(coeff_shape_list[func_index], str(coeff_info)+"_init"+str(coeff_no))
+                indices = builder.create_index(coeff_shape_list[func_index], str(coeff_tensor_list[func_index])+"_init"+str(coeff_no))
+                builder.gem_indices[str(coeff_tensor_list[func_index])+"_init"+str(coeff_no)]
                 inames = {var.name for var in indices}
-                inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
+                inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), (pym.Sum((coeff_offset_list[func_index], indices[0])),)), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
                 c += 1
                 coeff_no += 1
         except ValueError:
