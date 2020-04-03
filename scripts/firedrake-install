@@ -1079,7 +1079,7 @@ def create_compiler_env(cc, cxx, f90):
         env["MPICC"] = cc
         env["MPI_C_COMPILER"] = cc
         env["CC"] = cc
-        Work around homebrew adding /usr/local/lib to the library search path.
+        # Work around homebrew adding /usr/local/lib to the library search path.
         env["CFLAGS"] = " ".join((os.environ.get("CFLAGS", ""),
                                   "-L" + os.path.join(*get_petsc_dir(), "lib"),
                                   "-I" + os.path.join(*get_petsc_dir(), "include")))
