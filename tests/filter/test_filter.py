@@ -212,121 +212,116 @@ def test_filter_poisson():
     assert(sqrt(assemble(dot(u1 - u0, u1 - u0) * dx)) < 1e-15)
     assert(sqrt(assemble(dot(u1 - g, u1 - g) * dx)) < 1e-4)
 
-
 def test_filter_stokes():
     # Modified a demo problem found at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-geometric-multigrid.ipynb
 
-    degree = 8
+    # Define common parts
+    mesh = RectangleMesh(15, 10, 1.5, 1)
+    
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    x, y = SpatialCoordinate(mesh)
+    nu = Constant(1)
+
+    def get_gbar(r):
+        t = conditional(r < 0.5, r - 1/4, r - 3/4)
+        gbar = conditional(Or(And(1/6 < r,
+                                  r < 1/3),
+                              And(2/3 < r,
+                                  r < 5/6)),
+                           1, 
+                           0)
+        return gbar * (1 - (12 * t)**2)
 
     solver_parameters={"ksp_type": "gmres",
                        "pc_type": "ilu",
-                       #"pc_factor_shift_type": "inblocks",
-                       #"ksp_monitor": None,
                        "pmat_type": "aij"}
 
     # Unrotated domain
-    mesh = RectangleMesh(15, 10, 1.5, 1)
-    
-    V = VectorFunctionSpace(mesh, "CG", 2)
-    Q = FunctionSpace(mesh, "CG", 1)
-    W = V * Q
-    
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
     
-    nu = Constant(1)
-    x, y = SpatialCoordinate(mesh)
-    
-    t = conditional(y < 0.5, y - 1/4, y - 3/4)
-    gbar = conditional(Or(And(1/6 < y,
-                              y < 1/3),
-                          And(2/3 < y,
-                              y < 5/6)),
-                       1, 
-                       0)
-
-    value = as_vector([gbar*(1 - (12*t)**2), 0])
+    value = as_vector([get_gbar(y), 0])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)),
            DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
-    
-    a = (nu * inner(grad(u), grad(v)) - p * div(v) + q * div(u)) * dx(degree=degree)
-    L = inner(Constant((0, 0)), v) * dx(degree=degree)
+    a = (nu * inner(grad(u), grad(v)) - p * div(v) - q * div(u)) * dx
+    L = inner(Constant((0, 0)), v) * dx
     wh0 = Function(W)
-
     solve(a == L, wh0, bcs=bcs, solver_parameters=solver_parameters)
 
-    # Rotated
-    mesh = RectangleMesh(15, 10, 1.5, 1)
+    # Rotated domain
+    theta = pi / 6
     Vc = mesh.coordinates.function_space()
-    x, y = SpatialCoordinate(mesh)
-    theta = pi / 3
     f = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
                                             sin(theta) * x + cos(theta) * y]))
     mesh.coordinates.assign(f)
-
-    V = VectorFunctionSpace(mesh, "CG", 2)
-    Q = FunctionSpace(mesh, "CG", 1)
-    W = V * Q
-    
-    #u, p = TrialFunctions(W)
-    #v, q = TestFunctions(W)
-    
-    nu = Constant(1)
-    x, y = SpatialCoordinate(mesh)
+    normal = Constant([-sin(theta), cos(theta)])
+    tangent = Constant([cos(theta), sin(theta)])
 
     r = -sin(theta) * x + cos(theta) * y
-    t = conditional(r < 0.5, r - 1/4, r - 3/4)
-    gbar = conditional(Or(And(1/6 < r,
-                              r < 1/3),
-                          And(2/3 < r,
-                              r < 5/6)),
-                       1, 
-                       0)
-
-    gbarx = gbar*(1 - (12*t)**2)
-    value = as_vector([cos(theta) * gbarx, sin(theta) * gbarx])
+    gbar = get_gbar(r)
+    value = as_vector([cos(theta) * gbar, sin(theta) * gbar])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
     
+    # Define filters
     nodes = V.boundary_nodes((3, 4), "topological")
     subset = op2.Subset(V.node_set, nodes)
+    nodes_p = Q.boundary_nodes((3, 4), "topological")
+    subset_p = op2.Subset(Q.node_set, nodes_p)
     fltr0 = Function(W)
     fltr0.assign(Constant([1., 1., 1]))
-    fltr0.sub(0).assign(Function(V).interpolate(Constant([cos(theta), sin(theta)])), subset=subset)
+    fltr0.sub(0).assign(Constant([0., 0.]), subset=subset)
     fltr1 = Function(W)
-    fltr1.sub(0).assign(Function(V).interpolate(Constant([-sin(theta), cos(theta)])), subset=subset)
+    fltr1.sub(0).assign(Constant([1., 1.]), subset=subset)
 
-    
-    # Domain equations
-    ud, pd = split(Filtered(TrialFunction(W), fltr0))
-    vd, qd = split(Filtered(TestFunction(W), fltr0))
+    # Trial/Test function
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    ubar, p = split(u)
 
-    # Boundary equations
-    ub, pb = split(Filtered(TrialFunction(W), fltr1))
-    vb, qb = split(Filtered(TestFunction(W), fltr1))
+    # Filter: domain
+    ubar0, p0 = split(Filtered(u, fltr0))
+    vbar0, q0 = split(Filtered(v, fltr0))
 
-    a = (nu * inner(grad(ud), grad(vd)) - pd * div(vd) + div(ud) * qd) * dx(degree=degree) + dot(ub, vb) * ds
-    L = inner(Constant((0, 0)), vd) * dx(degree=degree)
+    # Filter: boundary {3, 4}
+    ubar1, p1 = split(Filtered(u, fltr1))
+    vbar1, q1 = split(Filtered(v, fltr1))
+
+    # Filter: boundary {1, 2}
+    # not used; use DirichletBC
+
+    # Define form
+    ubar1t = dot(ubar1, tangent) * tangent
+    vbar1t = dot(vbar1, tangent) * tangent
+    # Unsymmetrised form
+    # a0 = (nu * inner(grad(ubar), grad(vbar0)) - p * div(vbar0) - div(ubar) * q0) * dx
+    # a1 = (nu * inner(grad(ubar), grad(vbar1t)) - p * div(vbar1t) - div(ubar) * q1) * dx + dot(ubar, normal) * dot(vbar1, normal) * ds
+    # Symmetrised form
+    #a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - (p0 + p1) * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
+    #a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - (p0 + p1) * div(vbar1t) - div(ubar0 + ubar1t) * q1) * dx + dot(ubar1, normal) * dot(vbar1, normal) * ds
+    a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - p0 * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
+    a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - p0 * div(vbar1t)) * dx + dot(ubar1, normal) * dot(vbar1, normal) * ds
+    a = a0 + a1
+    L = inner(Constant((0, 0)), vbar0) * dx
     wh1 = Function(W)
-
     solve(a == L, wh1, bcs=bcs, solver_parameters=solver_parameters)
 
+    # Postprocess
+    ubar_target, p_target = wh0.split()
+    ubar, p = wh1.split()
+    ubar_target_data = np.concatenate((cos(theta) * ubar_target.dat.data[:, [0]] - sin(theta) * ubar_target.dat.data[:, [1]],
+                                       sin(theta) * ubar_target.dat.data[:, [0]] + cos(theta) * ubar_target.dat.data[:, [1]]), axis=1)
+    assert(np.linalg.norm(ubar.dat.data - ubar_target_data)/np.linalg.norm(ubar_target_data) < 1e-14)
+    assert(np.linalg.norm(p.dat.data - p_target.dat.data)/np.linalg.norm(p_target.dat.data) < 1e-13)
 
-    u0, p0 = wh0.split()
-    u1, p1 = wh1.split()
-
-    ux0 = u0.dat.data[:, [0]]
-    uy0 = u0.dat.data[:, [1]]
-    u0 = np.concatenate((cos(theta) * ux0 - sin(theta) * uy0,
-                         sin(theta) * ux0 + cos(theta) * uy0), axis=1)
-
-    print(np.linalg.norm(u1.dat.data - u0)/np.linalg.norm(u0))
-    print(np.linalg.norm(p1.dat.data - p0.dat.data)/np.linalg.norm(p0.dat.data))
-
+    # Plot solution
     import matplotlib.pyplot as plt
-    u, p = wh1.split()
     fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
-    arrows = quiver(u, axes=axes[0])
+    arrows = quiver(ubar, axes=axes[0])
+    axes[0].set_xlim(-0.6, 1.8)
     axes[0].set_aspect("equal")
     axes[0].set_title("Velocity")
     fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
@@ -337,4 +332,3 @@ def test_filter_stokes():
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
     plt.savefig('temp.pdf')
-
