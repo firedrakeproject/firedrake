@@ -528,7 +528,7 @@ class LocalLoopyKernelBuilder(object):
                         name = "w_{}_{}".format(i, j)
                         extra_coefficients.extend([(c, name)])
                         seen_coeff.add(c)
-                        self.args_extents.setdefault(name, shapes[j])
+                        self.args_extents.setdefault(name, index_extent(c_))
                 else:
                     name = "w_{}".format(i)
                     if type(c) == Constant:
@@ -537,7 +537,7 @@ class LocalLoopyKernelBuilder(object):
                         shapes = [create_element(element).space_dimension()]
                     extra_coefficients.extend([(c, name)])
                     seen_coeff.add(c)
-                    self.args_extents.setdefault(name, shapes[0])
+                    self.args_extents.setdefault(name, index_extent(c))
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
