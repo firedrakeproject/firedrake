@@ -685,7 +685,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
 
     # STAGE 2B:
     # impero_c to loopy
-    precision = 6  # TODO
+    precision = 12  # TODO
     loopy_outer = generate_loopy(impero_c, args, precision, "double", "loopy_outer")
     return loopy_outer
 
