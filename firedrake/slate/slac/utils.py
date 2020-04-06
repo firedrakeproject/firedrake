@@ -408,6 +408,7 @@ class SlateTranslator():
             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
         elif type(var) == FlexiblyIndexed:
             variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
+            assert len(indexes)<=len(idx), "At the moment you cannot do operations like an inverse on a mixed tensor."
             dim2idxs_new = ()
             for i, dim in enumerate(dim2idxs):
                 dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
