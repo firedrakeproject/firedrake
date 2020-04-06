@@ -664,7 +664,8 @@ class LocalLoopyKernelBuilder(object):
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
 
                 # pick the right local coeffs from extra coeffs
-                for c, name in self.extra_coefficients:
+                coeff_vecs_list = [(v.function,v.local_temp.children[0].name) for w in self.coefficient_vecs.values() for v in w]
+                for c, name in (self.extra_coefficients + coeff_vecs_list):
                     if c in local_coefficients:
                         if type(c.ufl_element()) == MixedElement:
                             # split is always generating new function
