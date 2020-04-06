@@ -191,19 +191,18 @@ class PointexprOperator(AbstractPointwiseOperator):
         operands = self.ufl_operands
         operator = self.compute_derivatives()
         expr = as_ufl(operator(*operands))
-        #import ipdb; ipdb.set_trace()
         if expr.ufl_shape == () and expr != 0:
             var = VariableRuleset(self.ufl_operands[0])
             expr = expr*var._Id
         elif expr == 0:
             return self.assign(expr)
         return self.interpolate(expr)
+
     """
     def _adjoint(self, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
-        #import ipdb; ipdb.set_trace()
         dNdq_adj = transpose(dNdq)
         result = firedrake.assemble(dNdq_adj)
         return result
@@ -213,7 +212,6 @@ class PointexprOperator(AbstractPointwiseOperator):
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
         dNdq_adj = transpose(dNdq)
-        #import ipdb; ipdb.set_trace()
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
         #return dNdq_adj * x
@@ -287,8 +285,8 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
     def compute_derivatives(self, f):
         deriv_index = (0,) + self.derivatives
-        symb = (create_symbols(self.ufl_function_space().shape, 0),)
-        symb += tuple(create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
+        symb = (self._sympy_create_symbols(self.ufl_function_space().shape, 0),)
+        symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
         ufl_space = self.ufl_function_space()
         ufl_shape = self.ufl_shape
 
@@ -326,7 +324,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
                             d3fds0l = sp.lambdify(symb, d3fds0, modules='numpy')
                             d3fdsil = sp.lambdify(symb, d3fdsi, modules='numpy')
-                        else:
+                        elif di!= 2:
                             # The implicit differentiation order can be extended if needed
                             error("Implicit differentiation of order n is not handled for n>3")
 
@@ -353,6 +351,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
                         # ImpDiff : df/dy * dy/dx = df/dx
                         C = -B
+                        solve_multid = multidimensional_numpy_solve(A.shape)
                         InvA = solve_multid(A)
                         dydx = InvA*C
                         if di == 1:
@@ -381,7 +380,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
                                 # ImpDiff : (df/dy)*(d3y/dx) = -(d3f/dx)+(d2f/dy)*(d2y/dx)*(dy/dx)+(d3f/dy)*(dy/dx)**3
                                 C = - B3 + A2*d2ydx*dydx + A3*(dydx)**3
                                 res[j] = InvA*C
-
                 implicit_differentiation(self.dat.data)
                 if not all(v == 0 for v in deriv_index[:i]+deriv_index[i+1:]):
                     error("Cross-derivatives not handled : %s" % deriv_index)  # Needed feature ?
@@ -390,6 +388,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
     def evaluate(self):
         ufl_space = self.ufl_function_space()
+        shape = ufl_space.shape
         solver_params = self.solver_params.copy()  # To avoid breaking immutability
         nn = len(self.dat.data)
         f = self.operator_f
@@ -401,133 +400,191 @@ class PointsolveOperator(AbstractPointwiseOperator):
             return self.compute_derivatives(xstar)
 
         # Symbols construction
-        symb = (create_symbols(ufl_space.shape, 0),)
-        symb += tuple(create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
+        symb = (self._sympy_create_symbols(shape, 0),)
+        symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
 
         # Pre-processing to get the values of the initial guesses
         if 'x0' in solver_params.keys() and isinstance(solver_params['x0'], Expr):
-            solver_params_x0 = Function(ufl_space).interpolate(solver_params['x0']).dat.data
+            val_x0 = solver_params.pop('x0')
+            solver_params_x0 = Function(ufl_space).interpolate(val_x0).dat.data
         else:
             solver_params_x0 = self.dat.data
-        if 'x1' in solver_params.keys() and isinstance(solver_params['x1'], Expr):
-            solver_params_x1 = Function(ufl_space).interpolate(solver_params['x1']).dat.data
-        else:
-            solver_params_x1 = nn*[None]  # To avoid a "if" in the loop over the dofs
 
-        # Newton
+        # Prepare the arguments of f
         args = tuple(Function(ufl_space).interpolate(pi) for pi in self.ufl_operands)
         vals = tuple(coeff.dat.data for coeff in args)
-        pointwise_vals = tuple(dict(zip(f.__code__.co_varnames[1:], tuple(v[i] for v in vals))) for i in range(nn))
 
-        solver_params_fprime = []
-        solver_params_fprime2 = nn*[None]  # To avoid to have a if in the loop over the dofs
+        # We need to define appropriate symbols to impose the right shape on the inputs when lambdifying the sympy expressions
+        ops_f = (self._sympy_create_symbols(shape, 0, granular=False),)
+        ops_f += tuple(self._sympy_create_symbols(e.ufl_shape, i+1, granular=False)
+                       for i, e in enumerate(self.ufl_operands))
+        new_symb = tuple(e.free_symbols.pop() for e in ops_f)
+        new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy')
 
         # Computation of the jacobian
         if self.solver_name in ('newton', 'halley'):
             if 'fprime' not in solver_params.keys():
-                fprime = sp.diff(f(*symb), symb[0])
-                gprime = sp.lambdify(symb, fprime, modules='numpy')
-            else:
-                gprime = solver_params['fprime']
-            for i in range(nn):
-                def gprime_reshaped(x):
-                    xx = x.flatten()
-                    dg = partial(gprime, **dict(zip(gprime.__code__.co_varnames[1:], [v[i].flatten() for v in vals])))
-                    return np.squeeze(dg(xx))
-                solver_params_fprime += [gprime_reshaped]
+                fexpr = f(*symb)
+                df = self._sympy_inv_jacobian(symb[0], fexpr)
+                df = self._sympy_subs_symbols(symb, ops_f, df, shape)
+                fprime = sp.lambdify(new_symb, df, modules='numpy')
+                solver_params['fprime'] = fprime
 
         # Computation of the hessian
         if self.solver_name == 'halley':
             if 'fprime2' not in solver_params.keys():
-                fprime2 = sp.diff(f(*symb), symb[0], symb[0])
-                gprime2 = sp.lambdify(symb, fprime2, modules='numpy')
-            else:
-                gprime2 = solver_params['fprime2']
-            solver_params_fprime2 = []
-            for i in range(nn):
-                def gprime2_reshaped(x):
-                    xx = x.flatten()
-                    d2g = partial(gprime2, **dict(zip(gprime2.__code__.co_varnames[1:], [v[i].flatten() for v in vals])))
-                    return np.squeeze(d2g(xx))
-                solver_params_fprime2 += [gprime2_reshaped]
+                # TODO: use something like _sympy_inv_jacobian
+                d2f = sp.diff(f(*symb), symb[0], symb[0])
+                d2f = self._sympy_subs_symbols(symb, ops_f, d2f, shape)
+                fprime = sp.lambdify(new_symb, d2f, modules='numpy')
+                solver_params['fprime2'] = fprime2
 
-        # Reshaping of the input/output of the function that is going to be optimised
-        def f_lambdified_reshaped(x, **kwargs):
-            func_args = (x,) + tuple(kwargs.values())
-            xx = [e.flatten() for e in func_args]
-            f_lambd = sp.lambdify(symb, f(*symb), modules='numpy')
-            return np.squeeze(f_lambd(*xx))
-        fl = f_lambdified_reshaped
+        offset = ()
+        if len(shape) == 1:
+            # Expand the dimension
+            offset = (1,)
+        elif len(shape) >= 2:
+            # Sympy does not handle symbolic tensor inversion, so we need to operate on the numpy vector
+            df = solver_params['fprime']
+            solver_params['fprime'] = self._numpy_tensor_solve(new_f, solver_params['fprime'])
 
-        # Pointwise solver over the dofs
-        glob_iter_counter = []
-        for i in range(nn):
-            solver_params['fprime'] = solver_params_fprime[i]
-            solver_params['fprime2'] = solver_params_fprime2[i]
-            g = partial(fl, **pointwise_vals[i])
-            self.dat.data[i], iter_counter = self.solver(g, solver_params_x0[i], solver_params_x1[i], **solver_params)
-            glob_iter_counter += [iter_counter]
-        if self.disp:
-            max_iter_counter = max(glob_iter_counter)+1
-            print("\n The maximum number of iterations taken by the PointSolveOperator.solver is : %d " % max_iter_counter)
+        # Reshape
+        solver_params_x0 = solver_params_x0.reshape(*shape+offset, -1)
+        vals = tuple(e.reshape(*shape+offset, -1) for e in vals)
+
+        # Vectorized nonlinear solver (e.g. Newton, Halley...)
+        res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
+        self.dat.data[:] = res.reshape(-1, *shape)
+
         return self
 
-    def solver(self, *args, **kwargs):
+    def _sympy_inv_jacobian(self, x, F):
         """
-        Provide the solver : When the variable is a scalar, the optimize.newton function from scipy is used (it only handles the scalar case). In higher-dimensions, we provide an implementation of the Newton method.
-        This method can be overwritten to provide a more appropriate method for the pointwise solving.
+        Symbolically performs the inversion of the Jacobian of F
         """
-        g = args[0]
-        x0 = args[1]
-        x1 = args[2]
-        # To avoid having two x0, x1 arguments, the None is to avoid a KeyError
-        kwargs.pop('x0', None)
-        kwargs.pop('x1', None)
-        if len(self.ufl_shape) == 0:
-            res, out = optimize.newton(g, **kwargs, x0=x0, x1=x1, full_output=True)
-            return res, out.iterations
+        if isinstance(x, sp.Matrix) and x.shape[-1] == 1:
+            # Vector
+            jac = F.jacobian(x)
+            # Symbolically compute J_{F}^{-1}*F
+            df = jac.inv() * F
         else:
-            def newton_generalized(F, dF, x, tol, maxiter):
-                """
-                Solve nonlinear system F=0 by Newton's method.
-                dF : Jacobian of F
-                x : start value
-                Stopping criterion :  ||F||_{2} < eps.
-                """
-                it = 0
-                Fx = F(x)
-                normF = np.linalg.norm(Fx, ord=2)
-                while abs(normF) > tol and it < maxiter:
-                    delta = np.linalg.tensorsolve(dF(x), -Fx)  # tensorsolve is consistent with the case where x is a vector
-                    x = x + delta
-                    Fx = F(x)
-                    normF = np.linalg.norm(Fx, ord=2)
-                    it += 1
+            df = sp.diff(F, x)
+            if isinstance(x, sp.Symbol):
+                df = F/df
+        return df
 
-                if abs(normF) > tol:
-                    it = -1
-                return x, it
-            tol = kwargs.get('tol') or 1.48e-08
-            maxiter = kwargs.get('maxiter') or 50
-            jacobian = kwargs.get('fprime')
-            return newton_generalized(g, jacobian, x0, tol, maxiter)
+    def _numpy_tensor_solve(self, f, df):
+        def _tensor_solve_(X, *Y):
+            ndat = X.shape[-1]
+            f_X = f(X, *Y)
+            df_X = np.array(df(X, *Y))
+            # Change that
+            if shape*2 == df_X.shape:
+                 df_X = np.tile(np.expand_dims(df_X,-1), ndat)
+            dfinvf = np.array([np.linalg.tensorsolve(df_X[...,i], np.transpose(f_X[...,i])) for i in range(ndat)])
+            return np.transpose(dfinvf)
+        return _tensor_solve_
 
-    def copy(self, deepcopy=False):
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
-        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
-                          name=self.name(), dtype=self.dat.dtype,
-                          derivatives=self.derivatives,
-                          operator_data=self.operator_data, disp=self.disp)
+    def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50,
+           fprime2=None, x1=None, rtol=0.0,
+           full_output=False, disp=True):
+        """
+        A vectorized version of Newton, Halley, and secant methods for arrays
+        This version is a modification of the 'optimize.newton' function
+        from the scipy library which handles non-scalar cases.
+        """
+        # Explicitly copy `x0` as `p` will be modified inplace, but, the
+        # user's array should not be altered.
+        try:
+            p = np.array(x0, copy=True, dtype=float)
+        except TypeError:
+            # can't convert complex to float
+            p = np.array(x0, copy=True)
+
+        failures = np.ones_like(p, dtype=bool)
+        zero_val = np.zeros_like(p, dtype=bool)
+        nz_der = np.ones_like(failures)
+        if fprime is not None:
+            # Newton-Raphson method
+            for iteration in range(maxiter):
+                # first evaluate fval
+                fval = np.asarray(func(p, *args))
+                # If all fval are 0, all roots have been found, then terminate
+                if not fval.any():
+                    failures = fval.astype(bool)
+                    break
+                fder = np.asarray(fprime(p, *args))
+                nz_der = (fder != 0)
+                # stop iterating if all derivatives are zero
+                if not nz_der.any():
+                    break
+                # Newton step
+                dp = fder[nz_der]
+
+                if fprime2 is not None:
+                    fder2 = np.asarray(fprime2(p, *args))
+                    #dp = dp / (1.0 - 0.5 * dp * fder2[nz_der])
+                    dp = dp / (1.0 - 0.5 * dp * fder2[nz_der] / fder[nz_der])
+                # only update nonzero derivatives
+                p[nz_der] -= dp
+                failures[nz_der] = np.abs(dp) >= tol  # items not yet converged
+                # stop iterating if there aren't any failures, not incl zero der
+                if not failures[nz_der].any():
+                    zero_val = np.abs(fval) < tol
+                    break
+
+        zero_der = ~nz_der & failures  # don't include converged with zero-ders
+        if not zero_val.all():
+            if zero_der.any():
+                import warnings
+                all_or_some = 'all' if zero_der.all() else 'some'
+                msg = '{:s} derivatives were zero'.format(all_or_some)
+                warnings.warn(msg, RuntimeWarning)
+            elif failures.any():
+                import warnings
+                all_or_some = 'all' if failures.all() else 'some'
+                msg = '{0:s} failed to converge after {1:d} iterations'.format(all_or_some, maxiter)
+                if failures.all():
+                    raise RuntimeError(msg)
+                warnings.warn(msg, RuntimeWarning)
+
+        #if full_output:
+        #    result = namedtuple('result', ('root', 'converged', 'zero_der'))
+        #    p = result(p, ~failures, zero_der)
+
+        return p
+
+    def _sympy_create_symbols(self, xshape, i, granular=True):
+        if len(xshape) == 0:
+            return sp.symbols('s_'+str(i))
+        elif len(xshape) == 1:
+            if not granular:
+                return sp.Matrix(sp.MatrixSymbol('V_'+str(i), xshape[0], 1))
+            symb = sp.symbols('v'+str(i)+'_:%d' % xshape[0], real=True)
+            # sp.Matrix are more flexible for the representation of vector than sp.Array (e.g it enables to use norms)
+            return sp.Matrix(symb)
+        elif len(xshape) == 2:
+            if not granular:
+                return sp.Matrix(sp.MatrixSymbol('M_'+str(i), *xshape))
+            nm = xshape[0]*xshape[1]
+            symb = sp.symbols('m'+str(i)+'_:%d' % nm, real=True)
+            coeffs = [symb[i:i+xshape[1]] for i in range(0, nm, xshape[1])]
+            return sp.Matrix(coeffs)
+
+    def _sympy_subs_symbols(self, old, new, fprime, shape):
+        s1 = tuple(e[i]  for e in old for i in range(sum(shape)))
+        s2 = tuple(e[i]  for e in new for i in range(sum(shape)))
+        if hasattr(fprime, 'subs'):
+            return fprime.subs(dict(zip(s1, s2)))
+
+        T = sp.tensor.array.Array(fprime)
+        return T.subs(dict(zip(s1, s2)))
 
     """
     def _adjoint(self, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
-        #import ipdb; ipdb.set_trace()
         dNdq_adj = transpose(dNdq)
         result = firedrake.assemble(dNdq_adj)
         return result
@@ -537,7 +594,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq = dNdq.evaluate()
         dNdq_adj = transpose(dNdq)
-        #import ipdb; ipdb.set_trace()
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
         #return dNdq_adj * x
@@ -552,10 +608,12 @@ class PointnetOperator(AbstractPointwiseOperator):
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
 
         # Add the weights in the operands list and update the derivatives multiindex
-        if not isinstance(operands[-1], Constant):#PointnetWeights):
+        if not isinstance(operands[-1], Constant):
             print("Fix this (excessive operands)")
-            weights = self
-            operands += (Constant(0),)#(PointnetWeights(self),)
+            cw = Constant(0.)
+            weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
+            cw.dat.data = weights_val
+            operands += (cw,)
             if isinstance(derivatives, tuple): # Type exception is caught later
                 derivatives += (0,)
 
@@ -627,7 +685,6 @@ class PytorchOperator(PointnetOperator):
                 return N
             return N.detach()
         elif self.derivatives[-1] == 1:
-            import ipdb; ipdb.set_trace()
             return self.ml_backend.zeros(len(x))
 
         gradient = self.ml_backend.autograd.grad(list(N), x, retain_graph=True)[0]
@@ -637,10 +694,11 @@ class PytorchOperator(PointnetOperator):
         model = self.model
 
         # Criterion to check if in backprop mode, better way to do that?
-        if self.ufl_operands[-1].dat.data.any():
-            if self.ml_backend.tensor(self.ufl_operands[-1].dat.data) != model.weight.data:
-                weights_op = self.ml_backend.tensor(self.ufl_operands[-1].dat.data)
-                self._assign_weights(weights_op.unsqueeze(0))
+        #if self.ufl_operands[-1].dat.data.any():
+        if self.ml_backend.tensor(self.ufl_operands[-1].dat.data) != model.weight.data:
+            print("\n ERROR UPDATE!")
+            import ipdb; ipdb.set_trace()
+                #self._update_model_weights()
 
         # Explictly set the eval mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
@@ -676,8 +734,12 @@ class PytorchOperator(PointnetOperator):
     def _assign_weights(self, weights):
         self.model.weight.data = weights
 
+    def _update_model_weights(self):
+        weights_op = self.ml_backend.tensor(self.ufl_operands[-1].dat.data)
+        self._assign_weights(weights_op.unsqueeze(0))
+
     def get_weights(self):
-        return self.model.weight.data
+        return ml_get_weights(self.model, self.framework)
 
     def adjoint_action(self, x, idx):
         if idx == len(self.ufl_operands) - 1:
@@ -783,28 +845,20 @@ def neuralnet(model, function_space, ncontrols=1):
         error("Expecting one of the following library : PyTorch, TensorFlow or Keras and that the library has been installed")
 
 
-def create_symbols(xshape, i):
-    if len(xshape) == 0:
-        return sp.symbols('s_'+str(i))
-    elif len(xshape) == 1:
-        symb = sp.symbols('v'+str(i)+'_:%d' % xshape[0], real=True)
-        # sp.Matrix are more flexible for the representation of vector than sp.Array (e.g enables to use norms)
-        return sp.Matrix(symb)
-    elif len(xshape) == 2:
-        nm = xshape[0]*xshape[1]
-        symb = sp.symbols('m'+str(i)+'_:%d' % nm, real=True)
-        coeffs = [symb[i:i+xshape[1]] for i in range(0, nm, xshape[1])]
-        return sp.Matrix(coeffs)
-
-
 def weights(*args):
     res = []
     for e in args:
         w = e.ufl_operands[-1]
-        w.dat.data = e.get_weights()
+        #w.dat.data = e.get_weights()
         if not isinstance(w, Constant): #PointnetWeights):
             raise TypeError("Expecting a PointnetWeights and not $s", w)
         res += [w]
     if len(res) == 1:
         return res[0]
     return res
+
+def ml_get_weights(model, framework):
+    if framework == 'PyTorch':
+        return model.weight.data
+    else:
+        error(framework + " operator is not implemented yet.")
