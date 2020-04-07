@@ -47,7 +47,6 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
-            num_sub_spaces = self.ufl_element().num_sub_elements()
             with stop_annotating():
                 output = split(self, *args, **kwargs)
 
@@ -60,7 +59,7 @@ class FunctionMixin(FloatingType):
                                                   _ad_output_args=[i],
                                                   output_block_class=FunctionMergeBlock,
                                                   _ad_outputs=[self])
-                               for i in range(num_sub_spaces))
+                               for i in range(len(output)))
             return output
         return wrapper
 
