@@ -664,7 +664,7 @@ class LocalLoopyKernelBuilder(object):
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
 
                 # pick the right local coeffs from extra coeffs
-                coeff_vecs_list = [(v.function,v.local_temp.children[0].name) for w in self.coefficient_vecs.values() for v in w]
+                coeff_vecs_list = [(v.function, v.local_temp.children[0].name) for w in self.coefficient_vecs.values() for v in w]
                 for c, name in (self.extra_coefficients + coeff_vecs_list):
                     if c in local_coefficients:
                         if type(c.ufl_element()) == MixedElement:
@@ -771,24 +771,36 @@ class LocalLoopyKernelBuilder(object):
 
 
 # every time an index is created it is saved in a list (gem as well as loopy)
-# saved as tuples
+# saved as tuples or tuples of tuples
+# functon returns pymbolic Variables for the indices
 def create_index(extent, key, namer, ctx):
-    if isinstance(extent, tuple) and len(extent) == 2:  # indices for matrices
-        name1, name2 = next(namer), next(namer)
-        ret1, ret2 = pym.Variable(name1), pym.Variable(name2)
-        ctx.loopy_indices.setdefault(key, (ret1, ret2))
-        ctx.gem_indices.setdefault(key, (gem.Index(name1, int(extent[0])), gem.Index(name2, int(extent[1]))))
-        return tuple((ret1, ret2))
+    # for non mixed tensors int values are allowed as extent
+    if isinstance(extent, int) or isinstance(extent, np.int64):
+        extent = (extent, )
+    # indices for scalar tensors
+    if len(extent) == 0:
+        extent += (1, )
+    # stacked tuple -> mixed tensor -> loop over ext for vars
+    if isinstance(extent[0], tuple):
+        per_dim_per_var = [(), ()]
+        for ext_per_var in extent.values():
+            for i, per_dim in enumerate(_create_index(ext_per_var, key, namer, ctx)):
+                per_dim_per_var[i] += (per_dim, )
+    # non-mixed tensors
     else:
-        if isinstance(extent, tuple) and len(extent) > 0:  # indices for vector
-            extent = extent[0]
-        elif isinstance(extent, tuple) and len(extent) == 0:  # indices for scalar tensors
-            extent = 1
-        name = next(namer)
-        ret = pym.Variable(name)
-        ctx.loopy_indices.setdefault(key, (ret,))
-        ctx.gem_indices.setdefault(key, (gem.Index(name, int(extent)), ))
-        return tuple((ret,))
+        per_dim_per_var = []
+        per_dim_per_var += _create_index(extent, key, namer, ctx)
+    # keep track of generated indices
+    ctx.loopy_indices.setdefault(key, per_dim_per_var[0])
+    ctx.gem_indices.setdefault(key, per_dim_per_var[1])
+    return tuple(per_dim_per_var[0])
+
+
+def _create_index(ext_per_var, key, namer, ctx):
+    names = tuple(next(namer) for ext_per_dim in ext_per_var)
+    rets_per_dim = tuple(pym.Variable(name) for name in names)
+    indices_per_dim = tuple(gem.Index(names[i], int(ext_per_var[i])) for i in range(len(ext_per_var)))
+    return rets_per_dim, indices_per_dim
 
 
 # calculation of the range on an index

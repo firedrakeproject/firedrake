@@ -408,10 +408,11 @@ class SlateTranslator():
             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
         elif type(var) == FlexiblyIndexed:
             variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
-            assert len(indexes)<=len(idx), "At the moment you cannot do operations like an inverse on a mixed tensor."
             dim2idxs_new = ()
             for i, dim in enumerate(dim2idxs):
                 dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
+                # index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+                # dim2idxs_new += ((dim2idxs[i][0], index),)
             var = FlexiblyIndexed(variable, dim2idxs_new)
         else:
             assert "Variable type is "+str(type(var))+". Must be Indexed."
@@ -445,6 +446,17 @@ class SlateTranslator():
         ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
         ret = Indexed(Inverse(ret, new_indices), out_indices)
         return ret
+
+        # A, = tensor.operands
+        # self.builder.create_index(A.shapes, str(A)+"readsinv")
+        # A_indices = self.builder.gem_indices[str(A)+"readsinv"]
+        # new = self.get_tensor_withnewidx(node_dict[A], A_indices)
+        # ret0_idx = (A_indices[0][0],A_indices[1][0])
+        # ret0 = Inverse(ComponentTensor(new, ret0_idx), ret0_idx)
+        # ret1_idx = (A_indices[0][1],A_indices[1][1])
+        # ret1 = Inverse(ComponentTensor(Indexed(ret0, ret0_idx), ret1_idx), ret1_idx)
+        # ret = Indexed(ret1, ret1_idx)
+        # return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Factorization)
     def slate_to_gem_factorization(self, tensor, node_dict):
