@@ -320,6 +320,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     """
     import coffee.base as ast
     import loopy as lp
+    from FIAT.functional import PointEvaluation
     if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
         raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
@@ -376,7 +377,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                       argument_multiindices=argument_multiindices,
                       index_cache={})
 
-    if len(to_element.value_shape()) == 0:
+    if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
         # This is an optimisation for point-evaluation nodes which
         # should go away once FInAT offers the interface properly
         qpoints = []
@@ -397,12 +398,11 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         ir = gem.Indexed(expr, shape_indices)
     else:
         # This is general code but is more unrolled than necssary.
-        dual_functionals = to_element.dual_basis()
         dual_expressions = []   # one for each functional
         broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape())
         shape_indices = tuple(gem.Index() for _ in expression.ufl_shape[:broadcast_shape])
         expr_cache = {}         # Sharing of evaluation of the expression at points
-        for dual in dual_functionals:
+        for dual in to_element.dual_basis():
             pts = tuple(sorted(dual.get_point_dict().keys()))
             try:
                 expr, point_set = expr_cache[pts]
