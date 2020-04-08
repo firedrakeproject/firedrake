@@ -14,9 +14,9 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
-from loopy.kernel.create import add_sequential_dependencies
+from loopy.kernel.creation import add_sequential_dependencies
 from islpy import BasicSet
-from tsfc.gem.node import post_traversal
+from gem.node import post_traversal
 
 import numpy as np
 import islpy as isl
@@ -294,6 +294,39 @@ class SlateTranslator():
         else:
             return[]
 
+    # TODO Try to translate the slate inverse to gem FlexiblyIndexed
+    # @slate_to_gem.register(firedrake.slate.slate.Mul)
+    # def slate_to_gem_mul(self, tensor, node_dict):
+    #     A, B = tensor.operands
+    #     var_A, var_B = node_dict[A], node_dict[B]  # gem representations
+
+    #     # New indices are necessary in case as Tensor gets multiplied with itself.
+    #     self.builder.create_index(A.shapes, str(A)+"newmulA"+str(tensor))
+    #     new_indices_A = self.builder.gem_indices[str(A)+"newmulA"+str(tensor)]
+    #     self.builder.create_index(B.shapes, str(B)+"newmulB"+str(tensor))
+    #     new_indices_B = self.builder.gem_indices[str(B)+"newmulB"+str(tensor)]
+
+    #     self.builder.create_index(tensor.shapes, str(tensor)+str(A)+str(B))
+    #     out_indices = self.builder.gem_indices[str(tensor)+str(A)+str(B)]
+
+    #     if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
+    #         var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
+    #         var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1], new_indices_B[1]))
+
+    #         prod = Product(var_A, var_B)
+    #         sum = IndexSum(prod, new_indices_A[1])
+    #         return self.get_tensor_withnewidx(sum, out_indices)
+
+    #     elif len(A.shape) > len(B.shape) and A.shape[1] == B.shape[0]:
+    #         var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
+    #         var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1],))
+
+    #         prod = Product(var_A, var_B)
+    #         sum = IndexSum(prod, (new_indices_A[1],))
+    #         return self.get_tensor_withnewidx(sum, out_indices)
+    #     else:
+    #         return[]
+
     @slate_to_gem.register(firedrake.slate.slate.Block)
     def slate_to_gem_blocks(self, tensor, node_dict):
 
@@ -434,6 +467,50 @@ class SlateTranslator():
             assert "Variable type is "+str(type(var))+". Must be a scalar type."
         return var
 
+    # TODO change to suit flexiblyindexed
+    # def get_tensor_withnewidx(self, var, idx):
+    #     if type(var) == Indexed:
+    #         if var.free_indices == idx:
+    #             # no unnecessary generation of Indexed(ComponentTensor)
+    #             var = Indexed(var.children[0], idx)
+    #         else:
+    #             free_indices_sorted = tuple()
+    #             for index in var.multiindex:
+    #                 if index in var.free_indices:
+    #                     free_indices_sorted += (index, )
+    #             # special case for IndexSum generating an Indexed with scalar multiindex
+    #             # # e.g. occurs for DG0
+    #             for index in var.free_indices:
+    #                 if index not in free_indices_sorted:
+    #                     free_indices_sorted += (index, )
+    #             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
+    #     elif type(var) == IndexSum:
+    #         free_indices_sorted = tuple()
+    #         # for i, index in enumerate(var.free_indices):
+    #         #     if type(var.children[0].children[i]) == FlexiblyIndexed:
+    #         #         ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
+    #         #     else:
+    #         #         ordered_indexed = var.children[0].children[i].multiindex[i]
+    #         #     if index not in free_indices_sorted and index == ordered_indexed:
+    #         #         free_indices_sorted += (index, )
+    #         if free_indices_sorted == ():
+    #             free_indices_sorted = var.free_indices[::-1]
+    #         var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
+    #     elif type(var) == FlexiblyIndexed:
+    #         variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
+    #         dim2idxs_new = ()
+    #         for i, dim in enumerate(dim2idxs):
+    #             # dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
+    #             if isinstance(idx[i],tuple):
+    #                 index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+    #                 dim2idxs_new += ((dim2idxs[i][0], index),)
+    #             else:
+    #                 dim2idxs_new += ((dim2idxs[i][0], idx),)
+    #         var = FlexiblyIndexed(variable, dim2idxs_new)
+    #     else:
+    #         assert "Variable type is "+str(type(var))+". Must be Indexed."
+    #     return var
+
     @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self, tensor, node_dict):
         fac, B = tensor.operands  # TODO is first operand always factorization?
@@ -461,6 +538,27 @@ class SlateTranslator():
         ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
         ret = Indexed(Inverse(ret, new_indices), out_indices)
         return ret
+
+    # TODO Try to translate the slate inverse to gem FlexiblyIndexed
+    # @slate_to_gem.register(firedrake.slate.slate.Inverse)
+    # def slate_to_gem_inverse(self, tensor, node_dict):
+    #     A, = tensor.operands
+    #     self.builder.create_index(A.shapes, str(A)+"readsinv")
+    #     A_indices = self.builder.gem_indices[str(A)+"readsinv"]
+    #     A_multiindices = tuple(i for idx in A_indices for i in idx )
+    #     new = self.get_tensor_withnewidx(node_dict[A], A_indices)
+    #     self.builder.create_index(tensor.shapes, str(tensor)+"outinv")
+    #     idx = self.builder.gem_indices[str(tensor)+"outinv"]
+    #     inverseof = ComponentTensor(new, A_multiindices)
+    #     [], dim2idxs, [] = decompose_variable_view(inverseof)
+    #     dim2idxs_new = ()
+    #     for i, dim in enumerate(dim2idxs):
+    #         if isinstance(idx[i],tuple):
+    #             index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+    #             dim2idxs_new += ((dim2idxs[i][0], index),)
+    #     ret = Inverse(inverseof, multiindices)
+    #     ret = FlexiblyIndexed(ret, dim2idxs_new)
+    #     return ret
 
     # TODO how do we deal with surpressed factorization nodes,
     # maybe populate decompdict and pass through to loopy later?
