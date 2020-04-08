@@ -156,9 +156,9 @@ Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you find yourself in the unfortunate position that
-`firedrake-update` won't run because of a bug, and the bug has been
+``firedrake-update`` won't run because of a bug, and the bug has been
 fixed in Firedrake master, then the following procedure will rebuild
-`firedrake-update` using the latest version.
+``firedrake-update`` using the latest version.
 
 From the top directory of your Firedrake install,
 type::
