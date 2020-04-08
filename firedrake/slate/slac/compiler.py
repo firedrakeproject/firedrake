@@ -120,25 +120,24 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     Citations().register("Gibson2018")
 
-    # Create a builder for the Slate expression
+    # Create a loopy builder for the Slate expression,
+    # e.g. contains the loopy kernels coming from TSFC
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
     print("BUILDER DONE")
 
-    # stage1: slate to gem....
+    # Stage 1: slate to gem....
     gem_expr = slate_to_gem(builder)
 
-    # stage 2: gem to loopy...
+    # Stage 2a: gem to loopy...
     loopy_outer = gem_to_loopy(gem_expr, builder)
 
-    # stage 3: merge loopys...
-    loopy_inner_list = builder.templated_subkernels
-
-    loopy_merged = merge_loopy(loopy_outer, loopy_inner_list, builder)  # builder owns the callinstruction
+    # Stage 2b: merge loopys...
+    loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)  # builder owns the callinstruction
     print("LOOPY KERNEL GLUED")
 
-    # register callables
+    # Stage 2c: register callables...
     loopy_merged = get_inv_callable(loopy_merged)
     loopy_merged = get_solve_callable(loopy_merged)
 
@@ -146,7 +145,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code.replace('void slate_kernel', 'static void slate_kernel')
-    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs = ["-llapack"])
+    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -591,31 +590,31 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-# STAGE1
-# converts the slate expression dag of the LocalKernelBuilder
-# into a gem expression dag
-# both dag types are traversed into list
-# tensor and assembled vectors are already run through by now
-# they are acessed by the translator
 def slate_to_gem(builder, prec=None):
+    """ Method encapsulating stage 1.
+    Converts the slate expression dag of the LocalKernelBuilder into a gem expression dag.
+    Tensor and assembled vectors are already translated before this pass.
+    Their translations are owned by the builder.
+    """
+
     traversed_gem_dag = SlateTranslator(builder).slate_to_gem_translate()
     return list([traversed_gem_dag])
 
 
-# STAGE 2
-# converts the gem expression dag into imperoc
 def gem_to_loopy(traversed_gem_expr_dag, builder):
-    # STAGE 2A:
-    # slate to impero_c
+    """ Method encapsulating stage 2.
+    Converts the gem expression dag into imperoc first, and then further into loopy.
+    Outer_loopy contains loopy for slate.
+    """
+    # Part A: slate to impero_c
 
-    # add all tensor temporaries as arguments
-    # TODO:check if this is right for more than one temporary
+    # Add all tensor temporaries as arguments
     args = []  # loopy args for temporaries (tensors and assembled vectors) and arguments
     for k, v in builder.temps.items():
         arg = builder.gem_loopy_dict[v]
         args.append(arg)
 
-    # creation of return variables for slate loopy
+    # Creation of return variables for outer loopy
     shape = builder.shape(builder.expression)
     arg = loopy.GlobalArg("output", shape=shape, dtype="double")
     args.append(arg)
@@ -625,7 +624,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
-    # ### TODO the global argument generation must be made nicer
+    # TODO the global argument generation must be made nicer
     if len(builder.args_extents) > 0:
         arg = loopy.GlobalArg("coords", shape=(builder.args_extents[builder.coordinates_arg],), dtype="double")
         args.append(arg)
@@ -639,13 +638,16 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     if builder.needs_cell_sizes:
         args.append(loopy.GlobalArg("cell_sizes", shape=(builder.args_extents[builder.cell_size_arg],), dtype="double"))
 
+    # Add coefficients, where AssembledVectors sit on top to args.
+    # The fact that the coefficients need to go into the order of
+    # builder.expression.coefficients(), plus mixed coefficients,
+    # plus split always generating new functions, makes life a bit harder.
     coeff_shape_list = []
     coeff_function_list = []
     for v in builder.coefficient_vecs.values():
         for coeff_info in v:
             coeff_shape_list.append(coeff_info.shape)
             coeff_function_list.append(coeff_info.vector._function)
-
     get = 0
     for c in builder.expression.coefficients():
         try:
@@ -657,12 +659,13 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         except ValueError:
             pass
 
+    # Add all other cofficients
     for v, k in builder.extra_coefficients:
         args.append(loopy.GlobalArg(k,
                                     shape=builder.args_extents[k],
                                     dtype="double"))
 
-    # arg for is exterior (==0)/interior (==1) facet or not
+    # Arg for is exterior (==0)/interior (==1) facet or not
     if builder.needs_cell_facets:
         args.append(loopy.GlobalArg(builder.cell_facets_arg,
                                     shape=(builder.num_facets, 2),
@@ -683,15 +686,16 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     assignments = list(zip(ret_vars, traversed_gem_expr_dag))
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
-    # STAGE 2B:
-    # impero_c to loopy
-    precision = 12  # TODO
+    # Part B: impero_c to loopy
+    precision = 12
     loopy_outer = generate_loopy(impero_c, args, precision, "double", "loopy_outer")
     return loopy_outer
 
 
-# STAGE3
-# register external function calls
+# TODO: those should got into firedrake loopy!
+# STAGE 2c: register external function calls
+# the get_*_callable replaces the according callable
+# with the c-function which is defined in the preamble
 def get_inv_callable(loopy_merged):
     class INVCallable(loopy.ScalarCallable):
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
@@ -723,7 +727,6 @@ def get_inv_callable(loopy_merged):
             parameters.append(insn.assignees[0])
             par_dtypes.append(self.arg_id_to_dtype[0])
 
-            # no type casting in array calls.
             from loopy.expression import dtype_to_type_context
             from pymbolic.mapper.stringifier import PREC_NONE
             from loopy.symbolic import SubArrayRef
@@ -819,7 +822,6 @@ def get_solve_callable(loopy_merged):
             parameters.append(insn.assignees[0])
             par_dtypes.append(self.arg_id_to_dtype[0])
 
-            # no type casting in array calls.
             from loopy.expression import dtype_to_type_context
             from pymbolic.mapper.stringifier import PREC_NONE
             from loopy.symbolic import SubArrayRef
