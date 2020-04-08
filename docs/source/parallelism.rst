@@ -58,6 +58,12 @@ including these lines in your code:
     import gc
     gc.disable()
 
+.. warning::
+    Disabling the garbage collector may cause memory leaks. It is
+    possible to call the garbage collector manually using
+    :func:`.gc.collect` to avoid the issue, but this may in turn
+    lead to a deadlock.
+
 The garbage collector can be turned back on with this line:
 
 .. code-block:: python
