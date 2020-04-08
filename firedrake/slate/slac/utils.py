@@ -410,9 +410,11 @@ class SlateTranslator():
             variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
             dim2idxs_new = ()
             for i, dim in enumerate(dim2idxs):
-                dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
-                # index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
-                # dim2idxs_new += ((dim2idxs[i][0], index),)
+                if isinstance(idx[i], tuple):  # variable contains something mixed
+                    index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+                    dim2idxs_new += ((dim2idxs[i][0], index),)
+                else:  # variable contains something not mixed
+                    dim2idxs_new += ((dim2idxs[i][0], idx),)
             var = FlexiblyIndexed(variable, dim2idxs_new)
         else:
             assert "Variable type is "+str(type(var))+". Must be Indexed."
