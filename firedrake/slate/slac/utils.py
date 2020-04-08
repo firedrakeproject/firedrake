@@ -176,7 +176,6 @@ class SlateTranslator():
         translated_nodes = OrderedDict()
         traversed_dag = list(post_traversal([self.builder.expression]))
 
-        # TODO I dont think we need this loop
         # First traversal for resolving tensors and assembled vectors
         for tensor in traversed_dag:  # tensor hier is actually TensorBase
             if isinstance(tensor, sl.Tensor) or isinstance(tensor, sl.AssembledVector):
@@ -420,14 +419,14 @@ class SlateTranslator():
             var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
 
         elif type(var) == FlexiblyIndexed:
-            variable, dim2idxs, [] = decompose_variable_view(ComponentTensor(var, var.free_indices))
+            variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
             dim2idxs_new = ()
             for i, dim in enumerate(dim2idxs):
                 if isinstance(idx[i], tuple):  # variable contains something mixed
                     index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
                     dim2idxs_new += ((dim2idxs[i][0], index),)
                 else:  # variable contains something not mixed
-                    dim2idxs_new += ((dim2idxs[i][0], idx),)
+                    dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
             var = FlexiblyIndexed(variable, dim2idxs_new)
         else:
             assert "Variable type is "+str(type(var))+". Must be a scalar type."
