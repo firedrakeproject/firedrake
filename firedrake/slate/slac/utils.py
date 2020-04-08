@@ -16,7 +16,6 @@ from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
 from loopy.kernel.creation import add_sequential_dependencies
 from islpy import BasicSet
-from gem.node import post_traversal
 
 import numpy as np
 import islpy as isl
@@ -293,7 +292,7 @@ class SlateTranslator():
             return self.get_tensor_withnewidx(sum, out_indices)
         else:
             return[]
-            
+
     @slate_to_gem.register(firedrake.slate.slate.Block)
     def slate_to_gem_blocks(self, tensor, node_dict):
 
@@ -543,6 +542,32 @@ def topological_sort(exprs):
         depth_first_search(graph, n, visited, schedule)
 
     return schedule
+
+
+# Adapted from tsfc.gem.node.py
+def post_traversal(expression_dags):
+    """Post-order traversal of the nodes of expression DAGs."""
+    seen = set()
+    lifo = []
+    # Some roots might be same, but they must be visited only once.
+    # Keep the original ordering of roots, for deterministic code
+    # generation.
+    for root in expression_dags:
+        if root not in seen:
+            seen.add(root)
+            lifo.append((root, list(root.operands)))
+
+    while lifo:
+        node, deps = lifo[-1]
+        for i, dep in enumerate(deps):
+            if dep is not None and dep not in seen:
+                lifo.append((dep, list(dep.operands)))
+                deps[i] = None
+                break
+        else:
+            yield node
+            seen.add(node)
+            lifo.pop()
 
 
 def traverse_dags(exprs):
