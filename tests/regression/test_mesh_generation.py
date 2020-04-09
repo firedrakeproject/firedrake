@@ -44,6 +44,7 @@ def test_periodic_interval():
 def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
+
 def test_unit_disk():
     assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
 

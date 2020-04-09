@@ -675,8 +675,6 @@ def UnitDiskMesh(refinement_level=0, distribution_parameters=None, comm=COMM_WOR
     # mark boundary facets
     plex.createLabel(dmplex.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
-    coords = plex.getCoordinates()
-    coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
         for face in boundary_faces:
