@@ -424,7 +424,9 @@ class MeshTopology(object):
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
+        # assume the embedding space is the same as the geometric space
+        gdim = plex.getCoordinateDim()
 
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
@@ -437,7 +439,7 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
+        self._ufl_cell = ufl.Cell(_cells[tdim][nfacets], geometric_dimension=gdim)
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -470,7 +472,7 @@ class MeshTopology(object):
                                                                  reordering)
 
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
                 self._cell_numbering = self.create_section(entity_dofs)
