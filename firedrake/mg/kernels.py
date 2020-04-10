@@ -32,7 +32,7 @@ from firedrake.pointquery_utils import to_reference_coordinates as to_reference_
 from firedrake.utils import ScalarType_c
 
 
-def to_reference_coordinates(ufl_coordinate_element, parameters=None):
+def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=True):
     if parameters is None:
         parameters = tsfc.default_parameters()
     else:
@@ -44,6 +44,80 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
     cell = ufl_coordinate_element.cell()
+
+    if not coffee:
+        import loopy as lp
+        import numpy as np
+
+        vertices = numpy.array(element.cell.get_vertices())
+        X = numpy.average(vertices, axis=0)
+
+        init_vals = np.array([v for i, v in enumerate(X)])
+
+        point_kernel = to_reference_coordinates_body(ufl_coordinate_element, parameters, coffee=False)
+        knl = lp.make_kernel(
+            "{[it, i, ii, s, ss, j, k, m, num]: 0 <= it < max_iteration_count and 0 <= i,j,ii, k,m, s, ss < topological_dimension and 0 <= num < 2}",
+            """
+            for m
+                X[m] = tmp[m]
+            end
+            converged = 0
+            for it
+                <> ok = converged
+                if ok == 0
+                    for i
+                        dX[i] = 0.0
+                    end
+                    loopy_kernel_point([ii]: dX[ii], [num]: C[num], [s]: x0[s], [ss]: X[ss])
+                    <> sum = 0
+                    for j
+                        sum = sum + dX[j] * dX[j]
+                    end
+                    if sum < convergence_epsilon*convergence_epsilon
+                        converged = 1
+                    end
+                    for k
+                        X[k] = X[k] - dX[k]
+                    end
+                 end
+            end
+            """,
+            [
+                lp.GlobalArg("X, x0", dtype=np.double, shape=("topological_dimension",), is_output_only=False), # should be "topological_dimension"
+                lp.GlobalArg("C", np.double, shape=(2,)),
+                lp.TemporaryVariable("converged",
+                                     dtype=np.int8,
+                                     shape=(),
+                                     ),
+                lp.TemporaryVariable("x",
+                                     dtype=np.double,
+                                     shape=("geometric_dimension",),
+                                     initializer=None,
+                                     ),
+                lp.TemporaryVariable("dX",
+                                     dtype=np.double,
+                                     shape=("topological_dimension",),
+                                     ),
+                lp.TemporaryVariable("tmp",
+                                     initializer=init_vals,
+                                     shape=lp.auto,
+                                     address_space=lp.AddressSpace.PRIVATE,
+                                     read_only=True)
+
+            ],
+            name='to_reference_coords_kernel',
+            seq_dependencies=True,
+            target=lp.CudaTarget(extern_c=False))
+        max_iteration_count = 1 if is_affine(ufl_coordinate_element) else 16
+        knl = lp.fix_parameters(knl,
+                                max_iteration_count=max_iteration_count,
+                                convergence_epsilon=1e-12,
+                                geometric_dimension=cell.geometric_dimension(),
+                                topological_dimension=cell.topological_dimension())
+        knl = lp.register_callable_kernel(knl, point_kernel)
+        knl = lp.inline_callable_kernel(knl, point_kernel.name)
+        knl = knl.root_kernel
+        return knl
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
@@ -87,13 +161,13 @@ static inline void to_reference_coords_kernel(double *X, const double *x0, const
     return evaluate_template_c % code
 
 
-def compile_element(expression, dual_space=None, parameters=None,
+def compile_element(expression, dual_space=None, parameters=None, coffee=True,
                     name="evaluate"):
     """Generate code for point evaluations.
 
     :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
     :arg dual_space: if the expression has an argument, should we also distribute residual data?
-    :returns: Some coffee AST
+    :returns: Some coffee AST or loopy kernel
     """
     if parameters is None:
         parameters = default_parameters()
@@ -105,6 +179,16 @@ def compile_element(expression, dual_space=None, parameters=None,
     expression = tsfc.ufl_utils.preprocess_expression(expression)
 
     # # Collect required coefficients
+
+    ## Choose builder
+    import loopy as lp
+    if coffee:
+        import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
+        interface = firedrake_interface_coffee.KernelBuilderBase
+    else:
+        # Delayed import, loopy is a runtime dependency
+        import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+        interface = firedrake_interface_loopy.KernelBuilderBase
 
     try:
         arg, = extract_coefficients(expression)
@@ -127,13 +211,16 @@ def compile_element(expression, dual_space=None, parameters=None,
         coefficient = False
 
     # Replace coordinates (if any)
-    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType_c)
+    builder = interface(scalar_type=ScalarType_c)
     domain = expression.ufl_domain()
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
     point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
+
+    if not coffee:
+        poin_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -149,9 +236,16 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate UFL -> GEM
     if coefficient:
         assert dual_space is None
+        #if coffee:
         f_arg = [builder._coefficient(arg, "f")]
+        #else:
+        #fun_arg = [builder._coefficient(arg, "f")]
+        fun_arg = lp.GlobalArg("f", dtype=parameters["scalar_type"])
     else:
+        #if coffee:
         f_arg = []
+        #else:
+        fun_arg = []
     translator = tsfc.fem.Translator(context)
     result, = map_expr_dags(translator, [expression])
 
@@ -161,9 +255,13 @@ def compile_element(expression, dual_space=None, parameters=None,
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
             result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
             result = gem.Indexed(result, tensor_indices)
+            if not coffee:
+                return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=expression.ufl_shape, is_output_only=False)
         else:
             return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
             result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=(1,)))
+            if not coffee:
+                return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=(1,), is_output_only=False)
 
     else:
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
@@ -180,6 +278,8 @@ def compile_element(expression, dual_space=None, parameters=None,
             result = gem.Product(result, var)
 
         result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
+        if not coffee:
+            return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=finat_elem.index_shape, is_output_only=False)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -191,10 +291,22 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
 
-    # Build kernel tuple
-    kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
+    if coffee:
+        body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
+        kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
+
+    if not coffee:
+        #builder.register_requirements([result])
+        from tsfc.loopy import generate as generate_loopy
+        # Build kernel tuple
+        #builder.set_coefficients(builder.coefficient_map)
+        #kernel = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
+
+                                     # base_storage="base"#kernel_code_ret = generate_loopy(impero_c, [return_arg, fun_arg, poin_arg],  parameters["precision"], ScalarType_c)
+        kernel_code_ret = builder.construct_kernel(name, [return_arg, fun_arg, poin_arg], impero_c,  parameters["precision"])
+        #kernel2 = builder.construct_kernel(return_arg, impero_c, parameters["precision"], {result: 'f'})
+        return kernel_code_ret
 
     return kernel_code
 
@@ -212,14 +324,143 @@ def prolong_kernel(expression):
         return cache[key]
     except KeyError:
         mesh = coordinates.ufl_domain()
-        evaluate_kernel = compile_element(expression)
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        coffee = False
+        if not coffee:
+            evaluate_kernel = compile_element(expression, coffee=False)
+            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False)
+            element = create_element(expression.ufl_element())
+            eval_args = evaluate_kernel.args[:-1]
+            coords_element = create_element(coordinates.ufl_element())
+
+            import loopy as lp
+            import numpy as np
+
+            parent_knl = lp.make_kernel(
+                {"{[i, j, jj, c, celldistdim, k, p, q, ci, l]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+                 "1 <= celldistdim <= tdim and 0 <= k < coords_space_dim and 0 <= p, l < tdim and "
+                 "0<= q < coords_space_dim and 0 <= c, ci < 2}"},
+                """
+                Xref[1] = 0
+                cell = -1
+                error = 0
+                bestcell = -1
+                bestdist = 1e10
+                <> stop = 0
+                for i
+                    <> tmp = stop
+                    if tmp == 0
+                        <> tm = i * coords_space_dim
+                        for k
+                            Xci[k] = Xc[k + tm]
+                        end
+                        celldist = 2 * bestdist
+                        to_reference_coords_kernel([p]: Xref[p], [c]: X[c], [q]: Xci[q])
+                        <> check = 1
+                        for l
+                            check = check and (Xref[l] + constant >= 0) and (Xref[l] - constant <= 1)
+                        end
+                        if check
+                            cell = i
+                            stop = 1
+                        end
+                    end
+                    tmp = stop
+                    if tmp == 0
+                        celldist = Xref[0]
+                        for celldistdim
+                            <> temp = celldist
+                            if temp > Xref[celldistdim]
+                                celldist = Xref[celldistdim]
+                            end
+                        end
+                        celldist = celldist * (-1)
+                        <> temp1 = bestdist
+                        if celldist < temp1
+                            bestdist = celldist
+                            bestcell = i
+                        end
+                    end
+                end
+                <> tmp2 = cell
+                if tmp2 == -1
+                    if bestdist < 10
+                        cell = bestcell
+                    else
+                        error = 1
+                    end
+                end
+    
+                for ci
+                    coarsei[ci] = f[ci + cell * coarse_cell_inc]
+                end
+
+                loopy_kernel_evaluate([jj]: R[jj], [c]: coarsei[c], [p]: Xref[p])
+                """,
+                [
+                    lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
+                    lp.GlobalArg("f", np.double, shape=(2,)),
+                    lp.GlobalArg("X", np.double, shape=(2,)),
+                    lp.GlobalArg("Xc", np.double, shape=(2,)),
+                    lp.TemporaryVariable("cell",
+                                         dtype=np.int32,
+                                         shape=()),
+                    lp.TemporaryVariable("bestcell",
+                                         dtype=np.int32,
+                                         shape=()),
+                    lp.TemporaryVariable("error",
+                                         dtype=np.int8,
+                                         shape=()),
+                    lp.TemporaryVariable("bestdist",
+                                         dtype=np.double,
+                                         shape=()),
+                    lp.TemporaryVariable("celldist",
+                                         dtype=np.double,
+                                         shape=()),
+                    lp.TemporaryVariable("Xref",
+                                         dtype=np.double,
+                                         shape=("tdim + 1",), #should be tdim
+                                         #address_space=lp.AddressSpace.GLOBAL
+                                         ),
+                    lp.TemporaryVariable("Xci",
+                                         dtype=np.double,
+                                         shape=("coords_space_dim",), #should be coords_space_dim
+                                         #address_space=lp.AddressSpace.GLOBAL,
+                                         ),
+                    lp.TemporaryVariable("coarsei",
+                                         dtype=np.double,
+                                         shape=(2,),
+                                         #address_space=lp.AddressSpace.GLOBAL,
+                                        )
+                ],
+                name='loopy_kernel_prolong',
+                seq_dependencies=True,
+                target=lp.CudaTarget())
+
+            parent_knl = lp.fix_parameters(parent_knl,
+                                           ncandidate=hierarchy.fine_to_coarse_cells[levelf].shape[1],
+                                           tdim=mesh.topological_dimension(),
+                                           coords_space_dim=coords_element.space_dimension(),
+                                           constant=1e-8,
+                                           Rdim=int(numpy.prod(element.value_shape)),
+                                           coarse_cell_inc=element.space_dimension(),
+                                           num=2)
+
+            knl = lp.register_callable_kernel(parent_knl, to_reference_kernel)
+            knl = lp.register_callable_kernel(knl, evaluate_kernel)
+            knl = lp.inline_callable_kernel(knl, to_reference_kernel.name)
+            knl = lp.inline_callable_kernel(knl, evaluate_kernel.name)
+            knl = knl.root_kernel
+            smth = lp.generate_code(knl)
+            return cache.setdefault(key, op2.Kernel(knl, name="loopy_kernel_prolong"))
+
+        evaluate_kernel = compile_element(expression, coffee=True)
+        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=True)
         element = create_element(expression.ufl_element())
         eval_args = evaluate_kernel.args[:-1]
         coords_element = create_element(coordinates.ufl_element())
-
         args = eval_args[-1].gencode(not_scope=True)
         R, coarse = (a.sym.symbol for a in eval_args)
+
         my_kernel = """
         %(to_reference)s
         %(evaluate)s

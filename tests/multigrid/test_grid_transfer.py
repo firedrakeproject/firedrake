@@ -185,3 +185,26 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
         run_prolongation(hierarchy, vector, space, degrees)
+
+def test_easy_prolong():
+    space = "CG"
+    degree = 1
+    vector = False
+    mesh = UnitIntervalMesh(3)
+    hierarchy = MeshHierarchy(mesh, 2)
+    Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+
+    mesh = hierarchy[0]
+    V = FunctionSpace(mesh, Ve)
+
+    actual = interpolate(exact_primal(mesh, vector, degree), V)
+
+    #for mesh in hierarchy[1:]:
+
+    mesh = hierarchy[1:][0]
+    V = FunctionSpace(mesh, Ve)
+    expect = interpolate(exact_primal(mesh, vector, degree), V)
+    tmp = Function(V)
+    prolong(actual, tmp)
+    actual = tmp
+    assert numpy.allclose(expect.dat.data, actual.dat.data)

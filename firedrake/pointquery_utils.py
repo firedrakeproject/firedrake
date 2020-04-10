@@ -95,7 +95,7 @@ def init_X(fiat_cell, parameters):
     return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
 
-def to_reference_coordinates(ufl_coordinate_element, parameters):
+def to_reference_coordinates(ufl_coordinate_element, parameters, coffee=True):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
     domain = ufl.Mesh(ufl_coordinate_element)
@@ -110,13 +110,24 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr)
     expr = ufl_utils.simplify_abs(expr)
 
-    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
+    import loopy as lp
+    if coffee:
+        builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
+    else:
+        # Delayed import, loopy is a runtime dependency
+        import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+        builder = firedrake_interface_loopy.KernelBuilderBase(scalar_type=ScalarType_c)
+
     builder.domain_coordinate[domain] = C
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
+    if not coffee:
+        poin_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=(dim,))
+        C_arg = lp.GlobalArg("C", dtype=parameters["scalar_type"])
+        x0_arg = lp.GlobalArg("x0", dtype=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
@@ -140,9 +151,18 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     # Translate to COFFEE
     ir = impero_utils.preprocess_gem(ir)
     return_variable = gem.Variable('dX', (dim,))
+    if not coffee:
+        return_arg = lp.GlobalArg("dX", dtype=parameters["scalar_type"], shape=(dim,), is_output_only=False)
+
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
+
+    if not coffee:
+        kernel_code_ret = builder.construct_kernel("point", [return_arg, C_arg, x0_arg, poin_arg], impero_c,  parameters["precision"])
+        return kernel_code_ret
+
+
     body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
     body.open_scope = False
 
