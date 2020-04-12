@@ -30,7 +30,7 @@ from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
-from gem.view_gem_dag import view_gem_dag
+from gem.view_gem_dag import GraphType, view_gem_dag
 from gem import impero_utils
 
 from itertools import chain
@@ -78,10 +78,8 @@ class SlateKernel(TSFCKernel):
 
     def __init__(self, expr, tsfc_parameters):
         #if self._initialized:
-            #print('slate kernel __init__, initialized')
         #    return
         # TODO: introduce coffe option here
-        print('slate kernel __init__, NOT initialized')
         self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
@@ -112,6 +110,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         return cache.setdefault(key, kernel)
 
 
+def get_temp_mem(loopy_kernel):
+    """Get memory in bytes of temporaries in loopy kernel"""
+    return sum(
+        temp.nbytes for temp in loopy_kernel.temporary_variables.values()
+    )
+
+
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
     # TODO: Get PyOP2 to write into mixed dats
@@ -130,14 +135,14 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     print("BUILDER DONE")
 
     # stage1: slate to gem....
-    print('\n====Slate to GEM===')
     gem_expr = slate_to_gem(builder)
-    print('gem_expr: ', gem_expr)
 
     # stage 2: gem to loopy...
     print('\n====Loopy outer===')
     loopy_outer = gem_to_loopy(gem_expr, builder)
-    print('loopy_outer:', loopy_outer)
+    print('Temp memory: ', get_temp_mem(loopy_outer))
+    #print('loopy_outer:', loopy_outer)
+
 
     # stage 3: merge loopys...
     print('\n====Loopy inner===')
@@ -607,7 +612,6 @@ def parenthesize(arg, prec=None, parent=None):
 # tensor and assembled vectors are already run through by now
 # they are acessed by the translator
 def slate_to_gem(builder, prec=None):
-    print('\nbuilder: ', builder)
     traversed_gem_dag = SlateTranslator(builder).slate_to_gem_translate()
     return list([traversed_gem_dag])
 
@@ -615,7 +619,6 @@ def slate_to_gem(builder, prec=None):
 # STAGE 2
 # converts the gem expression dag into imperoc
 def gem_to_loopy(traversed_gem_expr_dag, builder):
-    print('in gem to loopy')
     # STAGE 2A:
     # slate to impero_c
 
@@ -684,10 +687,10 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
 
     # Preprocess of gem for removing unneccesary component tensors and temporaries
     print("\n==not peprocessed: ",traversed_gem_expr_dag)
-    view_gem_dag(traversed_gem_expr_dag, filename='transpose_before')
-    #traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag, remove_useless_temps=True)
-    view_gem_dag(traversed_gem_expr_dag, filename='transpose_after')
-    print("==preprocessed:",traversed_gem_expr_dag)
+    # view_gem_dag(traversed_gem_expr_dag, filename='before', graph_type=GraphType.DAG)
+    # traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
+    # view_gem_dag(traversed_gem_expr_dag, filename='after', graph_type=GraphType.DAG)
+    print("\n==preprocessed:",traversed_gem_expr_dag)
     print('\n')
 
     # glue assignments to return variable
