@@ -523,6 +523,35 @@ class Set(object):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
 
+    def _check_operands(self, other):
+        if type(other) is Set:
+            if other is not self:
+                raise ValueError("Uable to perform set operations between two unrelated sets: %s and %s." % (self, other))
+        elif type(other) is Subset:
+            if self is not other._superset:
+                raise TypeError("Superset mismatch: self (%s) != other._superset (%s)" % (self, other._superset))
+        else:
+            raise TypeError("Unable to perform set operations between `Set` and %s." % (type(other), ))
+
+    def intersection(self, other):
+        self._check_operands(other)
+        return other
+
+    def union(self, other):
+        self._check_operands(other)
+        return self
+
+    def difference(self, other):
+        self._check_operands(other)
+        if other is self:
+            return Subset(self, [])
+        else:
+            return type(other)(self, np.setdiff1d(np.asarray(range(self.total_size), dtype=IntType), other._indices))
+
+    def symmetric_difference(self, other):
+        self._check_operands(other)
+        return self.difference(other)
+
 
 class GlobalSet(Set):
 
@@ -777,6 +806,44 @@ class Subset(ExtrudedSet):
             return self._superset.layers_array
         else:
             return self._superset.layers_array[self.indices, ...]
+
+    def _check_operands(self, other):
+        if type(other) is Set:
+            if other is not self._superset:
+                raise TypeError("Superset mismatch: self._superset (%s) != other (%s)" % (self._superset, other))
+        elif type(other) is Subset:
+            if self._superset is not other._superset:
+                raise TypeError("Unable to perform set operation between subsets of mismatching supersets (%s != %s)" % (self._superset, other._superset))
+        else:
+            raise TypeError("Unable to perform set operations between `Subset` and %s." % (type(other), ))
+
+    def intersection(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return self
+        else:
+            return type(self)(self._superset, np.intersect1d(self._indices, other._indices))
+
+    def union(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return other
+        else:
+            return type(self)(self._superset, np.union1d(self._indices, other._indices))
+
+    def difference(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return Subset(other, [])
+        else:
+            return type(self)(self._superset, np.setdiff1d(self._indices, other._indices))
+
+    def symmetric_difference(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return other.symmetric_difference(self)
+        else:
+            return type(self)(self._superset, np.setxor1d(self._indices, other._indices))
 
 
 class SetPartition(object):
