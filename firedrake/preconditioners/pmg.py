@@ -1,4 +1,4 @@
-from ufl import MixedElement, FiniteElement
+from ufl import MixedElement, FiniteElement, VectorElement, TensorElement
 from ufl.algorithms import map_integrands
 
 from firedrake.petsc import PETSc
@@ -12,7 +12,7 @@ import firedrake
 class PMGPC(PCBase):
     @staticmethod
     def coarsen_element(ele):
-        if isinstance(ele, MixedElement):
+        if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
             raise NotImplementedError("Implement this method yourself")
 
         degree = ele.degree()
@@ -31,7 +31,7 @@ class PMGPC(PCBase):
             new_ele = VectorElement(family, ele.cell(), degree // 2, dim=shape[0])
         else:
             new_ele = TensorElement(family, ele.cell(), degree // 2, shape=shape,
-                                            symmetry=ele.symmetry())
+                                    symmetry=ele.symmetry())
         return new_ele
 
     def initialize(self, pc):
