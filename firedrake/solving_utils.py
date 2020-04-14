@@ -152,8 +152,19 @@ class _SNESContext(object):
 
     @property
     def transfer_manager(self):
+        """This allows the transfer manager to be set from options, e.g.
+
+        solver_parameters = {"ksp_type": "cg",
+                             "pc_type": "mg",
+                             "mg_transfer_manager": __name__ + ".manager"}
+
+        The value for "mg_transfer_manager" can either be a specific instantiated
+        object, or a function or class name. In the latter case it will be invoked
+        with no arguments to instantiate the object.
+        """
         if self._transfer_manager is None:
             opts = PETSc.Options()
+            assert self.options_prefix is not None
             prefix = self.options_prefix or ""
             if opts.hasName(prefix + "mg_transfer_manager"):
                 managername = opts[prefix + "mg_transfer_manager"]

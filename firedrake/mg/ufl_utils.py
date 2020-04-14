@@ -281,20 +281,13 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
     from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-    from firedrake.dmhooks import add_hook, get_parent, SetupHooks, push_attr
+    from firedrake.dmhooks import add_hook, get_parent
     from itertools import chain
     for val in chain(coefficient_mapping.values(), (bc._original_val for bc in problem.bcs)):
         if isinstance(val, firedrake.function.Function):
             V = val.function_space()
             coarseneddm = V.dm
-            parentdm = get_parent(coarseneddm)
-
-            # Need to make sure parentdm has a __setup_hooks__,
-            # this can happen if e.g. a BC value is assigned on Z.sub(0)
-            stack = parentdm.getAttr("__setup_hooks__")
-            if stack is None:
-                hooks = SetupHooks()
-                push_attr("__setup_hooks__", parentdm, hooks)
+            parentdm = get_parent(context._problem.u.function_space().dm)
 
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
