@@ -23,7 +23,15 @@ class PMGPC(PCBase):
         elif degree == 1:
             raise ValueError
 
-        new_ele = FiniteElement(family, ele.cell(), degree // 2)
+        shape = ele.value_shape()
+
+        if len(shape) == 0:
+            new_ele = FiniteElement(family, ele.cell(), degree // 2)
+        elif len(shape) == 1:
+            new_ele = VectorElement(family, ele.cell(), degree // 2, dim=shape[0])
+        else:
+            new_ele = TensorElement(family, ele.cell(), degree // 2, shape=shape,
+                                            symmetry=ele.symmetry())
         return new_ele
 
     def initialize(self, pc):
