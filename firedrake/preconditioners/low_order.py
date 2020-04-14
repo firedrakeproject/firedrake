@@ -9,7 +9,7 @@ import firedrake
 from pyop2 import op2
 
 
-__all__ = ("P1PC", )
+__all__ = ("P1PC", "ArgumentReplacer", "restriction_matrix")
 
 
 class ArgumentReplacer(MultiFunction):
