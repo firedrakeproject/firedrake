@@ -1,10 +1,13 @@
+from functools import partial
+
 from ufl import MixedElement, FiniteElement, VectorElement, TensorElement
 from ufl.algorithms import map_integrands
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.low_order import ArgumentReplacer, restriction_matrix
-from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx
+from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
+from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.solving_utils import _SNESContext
 import firedrake
 
@@ -66,7 +69,12 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
-        push_appctx(pdm, ctx)
+
+        parent = get_parent(odm)
+        add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
+                 call_setup=True)
 
         ppc = PETSc.PC().create()
         ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
@@ -96,6 +104,10 @@ class PMGPC(PCBase):
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
         cu = firedrake.Function(cV)
+
+        parent = get_parent(fdm)
+        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+                 call_setup=True)
 
         mapper = ArgumentReplacer({test: firedrake.TestFunction(cV),
                                    trial: firedrake.TrialFunction(cV),
@@ -131,8 +143,9 @@ class PMGPC(PCBase):
                             options_prefix=fctx.options_prefix,
                             transfer_manager=fctx.transfer_manager)
 
-        # FIXME teardown cleanup
-        push_appctx(cdm, cctx)
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
+                 call_setup=True)
+
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCoarsen(self.coarsen)
         cdm.setCreateInterpolation(self.create_interpolation)
@@ -149,8 +162,8 @@ class PMGPC(PCBase):
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
 
-        assert cV.ufl_element().family() == "Lagrange"
-        assert fV.ufl_element().family() == "Lagrange"
+        assert cV.ufl_element().family() in ["Lagrange", "Discontinous Lagrange"]
+        assert fV.ufl_element().family() in ["Lagrange", "Discontinous Lagrange"]
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
