@@ -270,6 +270,50 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
 
 
 def apply_mapping(expression, to_element):
+    """
+    This applies the appropriate transformation to the
+    given expression for interpolation to a specific
+    element, according to the manner in which it maps
+    from the reference cell.
+
+    The following is borrowed from the UFC documentation:
+
+    Let g be a field defined on a physical domain T with physical
+    coordinates x. Let T_0 be a reference domain with coordinates
+    X. Assume that F: T_0 -> T such that
+
+      x = F(X)
+
+    Let J be the Jacobian of F, i.e J = dx/dX and let K denote the
+    inverse of the Jacobian K = J^{-1}. Then we (currently) have the
+    following four types of mappings:
+
+    'affine' mapping for g:
+
+      G(X) = g(x)
+
+    For vector fields g:
+
+    'contravariant piola' mapping for g:
+
+      G(X) = det(J) K g(x)   i.e  G_i(X) = det(J) K_ij g_j(x)
+
+    'covariant piola' mapping for g:
+
+      G(X) = J^T g(x)          i.e  G_i(X) = J^T_ij g(x) = J_ji g_j(x)
+
+    'double covariant piola' mapping for g:
+
+      G(X) = J^T g(x) J     i.e. G_il(X) = J_ji g_jk(x) J_kl
+
+    'double contravariant piola' mapping for g:
+
+      G(X) = det(J)^2 K g(x) K^T  i.e. G_il(X)=(detJ)^2 K_ij g_jk K_lk
+
+    If 'contravariant piola' or 'covariant piola' are applied to a
+    matrix-valued function, the appropriate mappings are applied row-by-row.
+    """
+
     # Find out which mapping to apply
     try:
         mapping, = set(to_element.mapping())
