@@ -161,6 +161,9 @@ class _SNESContext(object):
         The value for "mg_transfer_manager" can either be a specific instantiated
         object, or a function or class name. In the latter case it will be invoked
         with no arguments to instantiate the object.
+
+        If "snes_type": "fas" is used, the relevant option is "fas_transfer_manager",
+        with the same semantics.
         """
         if self._transfer_manager is None:
             opts = PETSc.Options()
