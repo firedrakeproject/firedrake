@@ -68,6 +68,7 @@ supported_elements = {
     "DPC": finat.DPC,
     "S": finat.Serendipity,
     "SminusF": finat.TrimmedSerendipityFace,
+    "SminusDiv": finat.TrimmedSerendipityDiv,
     "SminusE": finat.TrimmedSerendipityEdge,
     "DPC L2": finat.DPC,
     "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
