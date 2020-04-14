@@ -6,12 +6,14 @@ classes for attaching extra information to instances of these.
 
 from collections import OrderedDict
 
+import functools
 import numpy
 
 import finat
 import ufl
 
 from pyop2 import op2
+from pyop2.utils import as_tuple
 from tsfc.finatinterface import create_element
 
 from firedrake.functionspacedata import get_shared_data
@@ -486,6 +488,44 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
                              "exterior_facet_node",
                              self.offset)
 
+    def nodes(self, name="cell", derivative_order=None):
+        r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
+
+        :arg name: the entity name to extract nodes associated with.
+        :arg derivative_order: the derivative order to extract nodes of;
+           this should only be set when using the following elements:
+           * Hermite
+           *...
+        :returns: A numpy array of nodes of interest.
+        """
+        #check doc string
+        if name == "cell":
+            entity_set = self.mesh().cell_set
+        elif name == "interior_facet":
+            entity_set = self.mesh().interior_facets.set
+        elif name == "exterior_facet":
+            entity_set = self.mesh().exterior_facets.set
+        else:
+            raise TypeError("Unknown entity name.")
+        if derivative_order:
+            node_list = self._shared_data.entity_node_lists_per_derivative_order[derivative_order][entity_set]
+        else:
+            node_list = self._shared_data.entity_node_lists[entity_set]
+        return numpy.unique(node_list[:])
+
+    def node_subset(self, name="cell", derivative_order=None):
+        r"""Return the :class:`op2.Subset` for the `name` nodes of derivative order `derivative_order`.
+
+        :arg name: the entity name.
+        :arg derivative_order: the derivative order of interrest;
+           this should only be set when using the following elements:
+           * Hermite
+           *...
+        :returns: A :class:`op2.Subset`.
+        """
+        nodes = self.nodes(name=name, derivative_order=derivative_order)
+        return op2.Subset(self.node_set, nodes)
+
     def boundary_nodes(self, sub_domain, method):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
@@ -497,6 +537,37 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
         See also :class:`~.DirichletBC` for details of the arguments.
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
+
+    def boundary_node_subset(self, sub_domain, method="topological"):
+        r"""Return the :class:`op2.Subset` for the boundary_nodes.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :arg method: the method for determining boundary nodes.
+        :returns: A :class:`op2.Subset` associated with the boundary_nodes.
+        """
+        if isinstance(sub_domain, str):
+            nodes = self.boundary_nodes(sub_domain, method)
+        else:
+            # Convert int to tuple
+            sub_domain = as_tuple(sub_domain)
+            sub_domain = [as_tuple(s) for s in sub_domain]
+            nodes = []
+            for s in sub_domain:
+                # s is of one of the following formats:
+                # facet: (i, )
+                # edge: (i, j)
+                # vertex: (i, j, k)
+
+                # take intersection of facet nodes, and add it to nodes
+                # TODO: Agry. Do this with plex instead of numpy.
+                nodes1 = []
+                for ss in s:
+                    # intersection of facets
+                    nodes1.append(self.boundary_nodes(ss, method))
+                nodes1 = functools.reduce(numpy.intersect1d, nodes1)
+                nodes.append(nodes1)
+            nodes = numpy.concatenate(tuple(nodes))
+        return op2.Subset(self.node_set, nodes)
 
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.

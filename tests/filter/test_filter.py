@@ -1,7 +1,6 @@
 import pytest
 from firedrake import *
 from firedrake import ufl_expr
-from pyop2 import op2
 import numpy as np
 
 
@@ -15,9 +14,7 @@ def test_filter_one_form_lagrange():
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    nodes = V.boundary_nodes(1, "topological")
-    subset = op2.Subset(V.node_set, nodes)
-    fltr = Function(V).assign(1., subset=subset)
+    fltr = Function(V).assign(1., subset=V.boundary_node_subset((1, )))
 
     rhs0 = assemble(f * v * dx)
     rhs1 = assemble(f * Filtered(v, fltr) * dx)
@@ -38,9 +35,7 @@ def test_filter_one_form_bdm():
     f = Function(V).project(as_vector([8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5),
                                        8.0 * pi * pi * cos(2 * pi *x + pi/7) * cos(2 * pi * y + pi/11)]))
 
-    nodes = V.boundary_nodes(1, "topological")
-    subset = op2.Subset(V.node_set, nodes)
-    fltr = Function(V).assign(Function(V).project(as_vector([1., 2.])), subset=subset)
+    fltr = Function(V).assign(Function(V).project(as_vector([1., 2.])), subset=V.boundary_node_subset((1, )))
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
@@ -66,12 +61,8 @@ def test_filter_one_form_mixed():
                                        8.0 * pi * pi * cos(2 * pi *x + pi/13) * cos(2 * pi * y + pi/17)]))
 
     fltr = Function(V)
-    nodes = BDM.boundary_nodes(1, "topological")
-    subset = op2.Subset(BDM.node_set, nodes)
-    fltr.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=subset)
-    nodes = CG.boundary_nodes(1, "topological")
-    subset = op2.Subset(CG.node_set, nodes)
-    fltr.sub(1).assign(1., subset=subset)
+    fltr.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=BDM.boundary_node_subset((1, )))
+    fltr.sub(1).assign(Constant(1.), subset=CG.boundary_node_subset((1, )))
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
@@ -89,10 +80,9 @@ def test_filter_two_form_lagrange():
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    nodes = V.boundary_nodes(1, "topological")
-    subset = op2.Subset(V.node_set, nodes)
-    fltr_b = Function(V).assign(1., subset=subset)
-    fltr_d = Function(V).interpolate(1. - fltr_b)
+    subset_1 = V.boundary_node_subset((1, ))
+    fltr_b = Function(V).assign(Constant(1.), subset=subset_1)
+    fltr_d = Function(V).assign(Constant(1.), subset=V.node_set.difference(subset_1))
 
     v_d = Filtered(v, fltr_d)
     v_b = Filtered(v, fltr_b)
@@ -188,10 +178,9 @@ def test_filter_poisson():
     solve(a0 == L0, u0, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Solve with Filtered; no DirichletBC
-    nodes = V.boundary_nodes([1, 2, 3, 4], "topological")
-    subset = op2.Subset(V.node_set, nodes)
-    fltr_b = Function(V).assign(1., subset=subset)
-    fltr_d = Function(V).interpolate(1. - fltr_b)
+    subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
+    fltr_b = Function(V).assign(Constant(1.), subset=subset_1234)
+    fltr_d = Function(V).assign(Constant(1.), subset=V.node_set.difference(subset_1234))
 
     v_d = Filtered(v, fltr_d)
     v_b = Filtered(v, fltr_b)
@@ -267,15 +256,12 @@ def test_filter_stokes():
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
     
     # Define filters
-    nodes = V.boundary_nodes((3, 4), "topological")
-    subset = op2.Subset(V.node_set, nodes)
-    nodes_p = Q.boundary_nodes((3, 4), "topological")
-    subset_p = op2.Subset(Q.node_set, nodes_p)
+    subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
     fltr0.assign(Constant([1., 1., 1]))
-    fltr0.sub(0).assign(Constant([0., 0.]), subset=subset)
+    fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
     fltr1 = Function(W)
-    fltr1.sub(0).assign(Constant([1., 1.]), subset=subset)
+    fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
 
     # Trial/Test function
     u = TrialFunction(W)
@@ -332,3 +318,139 @@ def test_filter_stokes():
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
     plt.savefig('temp.pdf')
+
+def _poisson(n, el_type, degree, perturb):
+    mesh = UnitSquareMesh(2**n, 2**n)
+    if perturb:
+        V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+        eps = Constant(1 / 2**(n+1))
+
+        x, y = SpatialCoordinate(mesh)
+        new = Function(V).interpolate(as_vector([x + eps*sin(8*pi*x)*sin(8*pi*y),
+                                                 y - eps*sin(8*pi*x)*sin(8*pi*y)]))
+        mesh = Mesh(new)
+
+    V = FunctionSpace(mesh, el_type, degree)
+    x, y = SpatialCoordinate(V.mesh())
+
+    # Define variational problem
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    sol = Function(V)
+
+    eta = as_vector([0., 1.])
+    xi = as_vector([1., 0.])
+
+    f = Function(V)
+    f.project(8.0 * pi * pi * sin(x * pi * 2) * sin(y * pi * 2))
+
+    # Define op2.subsets to be used when defining filters
+    subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
+    subset_12 = V.boundary_node_subset((1, 2))
+    subset_34 = V.boundary_node_subset((3, 4))
+    subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
+    subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
+
+    # Define filters
+    function0 = Function(V).project(x)
+    function1 = Function(V).project(y)
+    # -- domain nodes
+    fltr0 = Function(V)
+    fltr0.assign(Constant(1.))
+    fltr0.assign(Constant(0.), subset=subset_1234)
+    # -- boundary normal derivative nodes
+    fltr1 = Function(V)
+    fltr1.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    fltr1.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
+    # -- boundary tangent derivative nodes 
+    fltr2 = Function(V)
+    fltr2.assign(function1, subset=subset_12.intersection(subset_deriv))
+    fltr2.assign(function0, subset=subset_34.intersection(subset_deriv))
+    # -- boundary value nodes
+    fltr3 = Function(V)
+    fltr3.assign(Constant(1.), subset=subset_1234)
+
+    # Filter test function
+    v0 = Filtered(v, fltr0)
+    v1 = Filtered(v, fltr1)
+    v2 = Filtered(v, fltr2)
+    v3 = Filtered(v, fltr3)
+
+    # normal and tangential components are not separable, 
+    # have to do it algebraically
+
+
+    """
+    normal = FacetNormal(mesh)
+    alpha = 100
+    h = 1./(2**n)
+    a = dot(grad(v), grad(u)) * dx - dot(grad(u), normal) * v * ds - dot(grad(v), normal) * u * ds + alpha / h * u * v * ds
+    L = f * v * dx
+
+    """
+    a = dot(grad(v0 + v1), grad(u)) * dx + \
+        dot(grad(v2), eta) * dot(grad(u), eta) * ds((1, 2)) + \
+        dot(grad(v2), xi) * dot(grad(u), xi) * ds((3, 4)) + \
+        v3 * u * ds((1, 2, 3, 4))
+
+    L = f * (v0+v1) * dx
+
+    parameters = {
+        "mat_type": "aij",
+        "snes_monitor": None,
+        #"snes_test_jacobian": True,
+        #"snes_test_jacobian_display": True,
+        "ksp_type": 'preonly',
+        "pc_type": 'lu'
+        #"ksp_type": "gmres",
+        #"ksp_rtol": 1.e-12,
+        #"ksp_atol": 1.e-12,
+        #"ksp_max_it": 500000,
+        #"pc_type": "asm"
+    }
+    solve(a == L, sol, bcs=[], solver_parameters=parameters)
+
+
+    #print(sol.dat.data)
+
+    # Analytical solution
+    exact = sin(2 * pi * x) * sin(2 * pi * y)
+    f.project(exact)
+    err = sqrt(assemble(dot(sol - f, sol - f) * dx))
+    print(err)
+    berr = sqrt(assemble(dot(sol - exact, sol - exact) * ds))
+    print(berr)
+    """
+    # Plot solution
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(ncols=1, sharex=True, sharey=True)
+    triangles = tripcolor(sol, axes=axes, cmap='coolwarm')
+    axes.set_aspect("equal")
+    axes.set_title("Pressure")
+    fig.colorbar(triangles, ax=axes[0], fraction=0.032, pad=0.02)
+
+    plt.savefig('temphermite.pdf')
+    """
+    return err, berr
+
+def test_filter_poisson_zany():
+    #err, berr = _poisson(5, 'Hermite', 3, True)
+    #assert(berr < 1e-8)
+    """
+    for el, deg, convrate in [('CG', 3, 4),
+                              ('CG', 4, 5),
+                              ('CG', 5, 6)]:
+    for el, deg, convrate in [('Hermite', 3, 3.8),
+                              ('Bell', 5, 4.8),
+                              ('Argyris', 5, 4.8)]:
+        diff = np.array([poisson(i, el, deg, True) for i in range(3, 8)])
+        conv = np.log2(diff[:-1] / diff[1:])
+        print(conv)
+        #assert (np.array(conv) > convrate).all()
+    """
+    for el, deg, convrate in [('Hermite', 3, 3.8),]:
+        diff = np.array([_poisson(i, el, deg, True)[0] for i in range(3, 8)])
+        conv = np.log2(diff[:-1] / diff[1:])
+        print(conv)
+        #assert (np.array(conv) > convrate).all()

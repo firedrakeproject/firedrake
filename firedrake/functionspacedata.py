@@ -158,6 +158,35 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     return magic()
 
 
+def get_entity_node_lists_per_derivative_order(mesh, entity_node_lists, entity_subdofs):
+    """Get the map from mesh entity sets to function space nodes.
+
+    :arg mesh: The mesh to use.
+    :arg key: a (entity_dofs, real_tensorproduct) tuple.
+    :arg entity_dofs: FInAT entity dofs.
+    :arg global_numbering: The PETSc Section describing node layout
+        (see :func:`get_global_numbering`).
+    :arg offsets: layer offsets for each entity (maybe ignored).
+    :returns: A dict mapping mesh entity sets to numpy arrays of
+        function space nodes.
+    """
+    subdofs = []
+    for key, val in entity_subdofs.items():
+        for _, v in val.items():
+            subdofs.extend(v)
+    subdofs = sorted(subdofs)
+
+    class magic(dict):
+        def __missing__(self, key):
+            if key is mesh.interior_facets.set:
+                n = entity_node_lists[key].shape[1] // 2
+                return self.setdefault(key, entity_node_lists[key][:, subdofs.extend([n + i for i in subdofs])])
+            else:
+                return self.setdefault(key, entity_node_lists[key][:, subdofs])
+
+    return magic()
+
+
 @cached
 def get_map_cache(mesh, key):
     """Get the map cache for this mesh.
@@ -389,12 +418,17 @@ class FunctionSpaceData(object):
        attached to topological entities.
     """
     __slots__ = ("map_cache", "entity_node_lists",
+                 "entity_node_lists_per_derivative_order",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
     def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
+        if isinstance(finat_element, (finat.Hermite, finat.Bell, finat.Argyris)):
+            entity_dofs_per_derivative_order = finat_element.entity_dofs_per_derivative_order()
+        else:
+            entity_dofs_per_derivative_order = None
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
         # Create the PetscSection mapping topological entities to functionspace nodes
@@ -413,6 +447,12 @@ class FunctionSpaceData(object):
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
+        if entity_dofs_per_derivative_order:
+            self.entity_node_lists_per_derivative_order = {}
+            for deriv_order, entity_subdofs in entity_dofs_per_derivative_order.items():
+                self.entity_node_lists_per_derivative_order[deriv_order] = get_entity_node_lists_per_derivative_order(mesh, self.entity_node_lists, entity_subdofs)
+        else:
+            self.entity_node_lists_per_derivative_order = None
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
