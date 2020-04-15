@@ -5,7 +5,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view, Variable, reshape)
+                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view, Variable)
 
 
 from functools import singledispatch, update_wrapper
@@ -219,43 +219,18 @@ class SlateTranslator():
                     assert ret is None, "This vector as already been assembled."
                     idx = self.builder.gem_indices[tensor]
                     ret = ComponentTensor(self.get_tensor_withnewidx(coeff.local_temp, idx), idx)
-        # Mixed assembled vectors need to be translated into FlexiblyIndexed
-        # This is similar to blocks
         else:
-            dim2idxs = []
-            out = ()
-            for j, (dofs, cinfo_list) in enumerate(self.builder.coefficient_vecs.items()):
+            tensor_found = False
+            for dofs, cinfo_list in self.builder.coefficient_vecs.items():
                 for i, cinfo in enumerate(cinfo_list):
-                    if j == 0 or j==1:
-                        if cinfo.vector == tensor:
-                            var = cinfo.local_temp
-                            self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
-                            index = self.builder.gem_indices[str(cinfo)+"mixed"]
-                            out += (index[0],)
-                            dim2idxs.append(tuple([cinfo.offset_index, ((index[0], 1), )]))
-            ret = FlexiblyIndexed(var, dim2idxs)
-            ret = ComponentTensor(ret, out)
+                    if cinfo.vector == tensor and not tensor_found:
+                        var = cinfo.local_temp
+                        self.builder.create_index(tensor.shape, str(cinfo)+"mixed")
+                        index = self.builder.gem_indices[str(cinfo)+"mixed"]
+                        tensor_found = True
+            ret = Indexed(var, index)
+            ret = ComponentTensor(ret, index)
         return ret
-
-            # dim2idxs = []
-            # indices = ()
-            # out = ()
-            # offset = 1000
-            # for dofs, cinfo_list in self.builder.coefficient_vecs.items():
-            #     for i, cinfo in enumerate(cinfo_list):
-            #         offset_ = cinfo_list[0].offset_index
-            #         if offset_ < offset:
-            #             offset = offset_
-            #         self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
-            #         index = self.builder.gem_indices[str(cinfo)+"mixed"]
-            #         if cinfo.vector == tensor:
-            #             var = cinfo.local_temp
-            #             indices += ((index[i],1), )
-            #             out += (index[i],)
-
-            # dim2idxs.append(tuple([offset, indices]))
-            # ret = FlexiblyIndexed(var, dim2idxs)
-            # ret = ComponentTensor(ret, out)
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self, tensor, node_dict):
@@ -404,61 +379,10 @@ class SlateTranslator():
         pull up a scalar variable to a tensor thing with this indices
         - index it with new indices :arg idx.
         """
-        # if type(var) == Indexed:
-        #     # No unnecessary generation of Indexed(ComponentTensor)
-        #     if var.free_indices == idx:
-        #         var = Indexed(var.children[0], idx)
-        #     else:
-        #         # Sort free indices by the multiindex
-        #         free_indices_sorted = tuple()
-        #         for index in var.multiindex:
-        #             if index in var.free_indices:
-        #                 free_indices_sorted += (index, )
-        #         # Special case for IndexSum generating an Indexed with scalar multiindex
-        #         # e.g. occurs for DG0
-        #         # picks up free indices with are not in multiindex
-        #         for index in var.free_indices:
-        #             if index not in free_indices_sorted:
-        #                 free_indices_sorted += (index, )
-        #         # return Indexed with new indices
-        #         var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-
-        # if type(var) == IndexSum:
-        #     # TODO this might not be robust
-        #     # Sort free indices
-        #     free_indices_sorted = tuple()
-        #     for i, index in enumerate(var.free_indices):
-        #         if type(var.children[0].children[i]) == FlexiblyIndexed:
-        #             ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
-        #         else:
-        #             ordered_indexed = var.children[0].children[i].multiindex[i]
-        #         if index not in free_indices_sorted and index == ordered_indexed:
-        #             free_indices_sorted += (index, )
-        #     # Sometimes free indices are just reversed
-        #     if free_indices_sorted == ():
-        #         free_indices_sorted = var.free_indices[::-1]
-        #     # return Indexed with new indices
-        #     var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-
-        # if type(var) == FlexiblyIndexed:
-        #     variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
-        #     dim2idxs_new = ()
-        #     for i, dim in enumerate(dim2idxs):
-        #         if isinstance(idx[i], tuple):  # variable contains something mixed
-        #             index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
-        #             dim2idxs_new += ((dim2idxs[i][0], index),)
-        #         else:  # variable contains something not mixed
-        #             dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
-        #     var = FlexiblyIndexed(variable, dim2idxs_new)
-
         if type(var) == Variable or type(var) == ComponentTensor or type(var) == Inverse or type(var) == Solve:
             if var.children != ():
                 if type(var.children[0]) == FlexiblyIndexed:
                     variable, dim2idxs, indexes = decompose_variable_view(var)
-                    # for index in indexes:
-                    #     if index.extent == idx[0].extent:
-                    #         new_var = ComponentTensor(var.children[0],index)
-                    # variable, dim2idxs, indexes = decompose_variable_view(new_var)
                     dim2idxs_new = ()
                     for i, dim in enumerate(dim2idxs):
                         if isinstance(idx[i], tuple):  # variable contains something mixed
@@ -468,10 +392,10 @@ class SlateTranslator():
                             dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
                     var = FlexiblyIndexed(variable, dim2idxs_new)
                 else:
-                    var = Indexed(var,idx)
+                    var = Indexed(var, idx)
             else:
-                var = Indexed(var,idx)
-        
+                var = Indexed(var, idx)
+
         else:
             assert True, "Variable type is "+str(type(var))+". Must be a type that has shape."
         return var
