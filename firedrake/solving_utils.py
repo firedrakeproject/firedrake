@@ -167,7 +167,6 @@ class _SNESContext(object):
         """
         if self._transfer_manager is None:
             opts = PETSc.Options()
-            assert self.options_prefix is not None
             prefix = self.options_prefix or ""
             if opts.hasName(prefix + "mg_transfer_manager"):
                 managername = opts[prefix + "mg_transfer_manager"]
