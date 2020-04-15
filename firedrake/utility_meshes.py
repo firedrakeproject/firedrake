@@ -644,7 +644,7 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
     return m
 
 
-def UnitDiskMesh(refinement_level=0, distribution_parameters=None, comm=COMM_WORLD):
+def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of the unit disk in 2D
 
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
@@ -691,7 +691,7 @@ def UnitDiskMesh(refinement_level=0, distribution_parameters=None, comm=COMM_WOR
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
