@@ -82,6 +82,19 @@ class PMGPC(PCBase):
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
         ppc.incrementTabLevel(1, parent=pc)
+
+        # PETSc unfortunately requires us to make an ugly hack.
+        # We would like to use GMG for the coarse solve, at least
+        # sometimes. But PETSc will use this p-DM's getRefineLevels()
+        # instead of the getRefineLevels() of the MeshHierarchy to
+        # decide how many levels it should use for PCMG applied to
+        # the p-MG's coarse problem. So we need to set an option
+        # for the user, if they haven't already; I don't know any
+        # other way to get PETSc to know this at the right time.
+        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+        if "mg_coarse_pc_mg_levels" not in opts:
+            opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+
         ppc.setFromOptions()
         ppc.setUp()
         self.ppc = ppc

@@ -3,7 +3,7 @@ from firedrake import *
 
 def test_p_multigrid_scalar():
     base = UnitSquareMesh(2, 2)
-    mh = MeshHierarchy(base, 2)
+    mh = MeshHierarchy(base, 1)
     mesh = mh[-1]
 
     V = FunctionSpace(mesh, "CG", 4)
@@ -46,7 +46,9 @@ def test_p_multigrid_scalar():
     solver.solve()
 
     assert solver.snes.ksp.its <= 5
-    assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 3
+    ppc = solver.snes.ksp.pc.getPythonContext().ppc
+    assert ppc.getMGLevels() == 3
+    assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
 
 
 def test_p_multigrid_vector():
