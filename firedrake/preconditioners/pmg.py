@@ -1,6 +1,6 @@
 from functools import partial
 
-from ufl import MixedElement, FiniteElement, VectorElement, TensorElement
+from ufl import MixedElement, FiniteElement, VectorElement, TensorElement, replace
 from ufl.algorithms import map_integrands
 
 from firedrake.petsc import PETSc
@@ -81,6 +81,7 @@ class PMGPC(PCBase):
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
+        ppc.incrementTabLevel(1, parent=pc)
         ppc.setFromOptions()
         ppc.setUp()
         self.ppc = ppc
@@ -110,10 +111,10 @@ class PMGPC(PCBase):
                  call_setup=True)
 
         mapper = ArgumentReplacer({test: firedrake.TestFunction(cV),
-                                   trial: firedrake.TrialFunction(cV),
-                                   fu: cu})
+                                   trial: firedrake.TrialFunction(cV)})
         cJ = map_integrands.map_integrand_dags(mapper, fctx.J)
         cF = map_integrands.map_integrand_dags(mapper, fctx.F)
+        cF = replace(cF, {fu: cu})
         if fctx.Jp is not None:
             cJp = map_integrands.map_integrand_dags(mapper, fctx.Jp)
         else:
@@ -147,8 +148,16 @@ class PMGPC(PCBase):
                  call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
-        cdm.setCoarsen(self.coarsen)
         cdm.setCreateInterpolation(self.create_interpolation)
+
+        # If we're the coarsest grid of the p-hierarchy, don't
+        # overwrite the coarsen routine; this is so that you can
+        # use geometric multigrid for the p-coarse problem
+        try:
+            self.coarsen_element(cele)
+            cdm.setCoarsen(self.coarsen)
+        except ValueError:
+            pass
 
         return cdm
 

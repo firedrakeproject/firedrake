@@ -2,9 +2,11 @@ from firedrake import *
 
 
 def test_p_multigrid_scalar():
-    mesh = UnitSquareMesh(2, 2)
+    base = UnitSquareMesh(2, 2)
+    mh = MeshHierarchy(base, 2)
+    mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", 8)
+    V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)
     v = TestFunction(V)
@@ -12,29 +14,39 @@ def test_p_multigrid_scalar():
     bcs = DirichletBC(V, 0, "on_boundary")
 
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+
+    relax = {"ksp_type": "chebyshev",
+             "ksp_monitor_true_residual": None,
+             "ksp_norm_type": "unpreconditioned",
+             "ksp_max_it": 3,
+             "pc_type": "jacobi"}
+
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
           "ksp_type": "fgmres",
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          "pmg_pc_mg_type": "full",
-          "pmg_mg_levels_ksp_type": "chebyshev",
-          "pmg_mg_levels_ksp_monitor_true_residual": None,
-          "pmg_mg_levels_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_levels_ksp_max_it": 3,
-          "pmg_mg_levels_pc_type": "jacobi",
+          "pmg_pc_mg_type": "multiplicative",
+          "pmg_mg_levels": relax,
           "pmg_mg_coarse_ksp_type": "richardson",
           "pmg_mg_coarse_ksp_max_it": 1,
           "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
           "pmg_mg_coarse_ksp_monitor": None,
-          "pmg_mg_coarse_pc_type": "lu"}
+          "pmg_mg_coarse_pc_type": "mg",
+          "pmg_mg_coarse_pc_mg_type": "multiplicative",
+          "pmg_mg_coarse_mg_levels": relax,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
+          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
+          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
+          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_pc_type": "gamg"}
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
 
-    assert solver.snes.ksp.its <= 20
-    assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 4
+    assert solver.snes.ksp.its <= 5
+    assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 3
 
 
 def test_p_multigrid_vector():
