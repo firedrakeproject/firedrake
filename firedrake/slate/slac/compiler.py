@@ -618,13 +618,16 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     shape = builder.shape(builder.expression)
     arg = loopy.GlobalArg("output", shape=shape, dtype="double")
     args.append(arg)
-    if (type(builder.expression) == slate.Tensor or type(builder.expression) == slate.Block):
-        idx = builder.gem_indices[builder.expression]
+    if (type(builder.expression) == slate.Tensor\
+        or type(builder.expression) == slate.AssembledVector\
+        or type(builder.expression) == slate.Block):
+        idx = builder.gem_indices[str(builder.expression)+"out"]
     else:
         idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     # TODO the global argument generation must be made nicer
+    # Maybe this can be done in the builder?
     if len(builder.args_extents) > 0:
         arg = loopy.GlobalArg("coords", shape=(builder.args_extents[builder.coordinates_arg],), dtype="double")
         args.append(arg)

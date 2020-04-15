@@ -5,7 +5,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view)  # , reshape)
+                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view, Variable, reshape)
 
 
 from functools import singledispatch, update_wrapper
@@ -188,8 +188,13 @@ class SlateTranslator():
                 translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
 
         # Last root contains the whole tree
-        tree = self.slate_to_gem(traversed_dag[len(traversed_dag)-1], translated_nodes)
-        return tree
+        last_tensor = traversed_dag[len(traversed_dag)-1]
+        last_loopy_tensor = self.slate_to_gem(last_tensor, translated_nodes)
+        self.builder.create_index(last_loopy_tensor.shape, str(last_tensor)+"out")
+        out_indices = self.builder.gem_indices[str(last_tensor)+"out"]
+        if not (type(last_loopy_tensor) == Indexed or type(last_loopy_tensor) == FlexiblyIndexed):
+            last_loopy_tensor = Indexed(last_loopy_tensor, out_indices)
+        return last_loopy_tensor
 
     @classsingledispatch
     def slate_to_gem(self, tensor, node_dict):
@@ -200,7 +205,8 @@ class SlateTranslator():
 
     @slate_to_gem.register(firedrake.slate.slate.Tensor)
     def slate_to_gem_tensor(self, tensor, node_dict):
-        return self.builder.temps[tensor]
+        idx = self.builder.gem_indices[tensor]
+        return ComponentTensor(self.get_tensor_withnewidx(self.builder.temps[tensor], idx), idx)
 
     @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
@@ -211,20 +217,45 @@ class SlateTranslator():
             for coeff in coeffs:
                 if coeff.vector == tensor:
                     assert ret is None, "This vector as already been assembled."
-                    ret = coeff.local_temp
+                    idx = self.builder.gem_indices[tensor]
+                    ret = ComponentTensor(self.get_tensor_withnewidx(coeff.local_temp, idx), idx)
         # Mixed assembled vectors need to be translated into FlexiblyIndexed
         # This is similar to blocks
         else:
             dim2idxs = []
-            for dofs, cinfo_list in self.builder.coefficient_vecs.items():
+            out = ()
+            for j, (dofs, cinfo_list) in enumerate(self.builder.coefficient_vecs.items()):
                 for i, cinfo in enumerate(cinfo_list):
-                    if cinfo.vector == tensor:
-                        var = cinfo.local_temp.children[0]
-                        self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
-                        index = self.builder.gem_indices[str(cinfo)+"mixed"]
-                        dim2idxs.append(tuple([cinfo.offset_index, ((index[0], 1), )]))
+                    if j == 0 or j==1:
+                        if cinfo.vector == tensor:
+                            var = cinfo.local_temp
+                            self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
+                            index = self.builder.gem_indices[str(cinfo)+"mixed"]
+                            out += (index[0],)
+                            dim2idxs.append(tuple([cinfo.offset_index, ((index[0], 1), )]))
             ret = FlexiblyIndexed(var, dim2idxs)
+            ret = ComponentTensor(ret, out)
         return ret
+
+            # dim2idxs = []
+            # indices = ()
+            # out = ()
+            # offset = 1000
+            # for dofs, cinfo_list in self.builder.coefficient_vecs.items():
+            #     for i, cinfo in enumerate(cinfo_list):
+            #         offset_ = cinfo_list[0].offset_index
+            #         if offset_ < offset:
+            #             offset = offset_
+            #         self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
+            #         index = self.builder.gem_indices[str(cinfo)+"mixed"]
+            #         if cinfo.vector == tensor:
+            #             var = cinfo.local_temp
+            #             indices += ((index[i],1), )
+            #             out += (index[i],)
+
+            # dim2idxs.append(tuple([offset, indices]))
+            # ret = FlexiblyIndexed(var, dim2idxs)
+            # ret = ComponentTensor(ret, out)
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
     def slate_to_gem_add(self, tensor, node_dict):
@@ -232,21 +263,17 @@ class SlateTranslator():
         _A, _B = node_dict[A], node_dict[B]  # gem representations
         self.builder.create_index(A.shape, str(A)+"newadd"+str(B))
         new_indices = self.builder.gem_indices[str(A)+"newadd"+str(B)]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
         _A = self.get_tensor_withnewidx(_A, new_indices)
         _B = self.get_tensor_withnewidx(_B, new_indices)
-        return Indexed(ComponentTensor(Sum(_A, _B), new_indices), out_indices)
+        return ComponentTensor(Sum(_A, _B), new_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Negative)
     def slate_to_gem_negative(self, tensor, node_dict):
         A, = tensor.operands
         self.builder.create_index(A.shape, str(A)+"newneg")
         new_indices = self.builder.gem_indices[str(A)+"newneg"]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
         var_A = self.get_tensor_withnewidx(node_dict[A], new_indices)
-        return Indexed(ComponentTensor(Product(Literal(-1), var_A), new_indices), out_indices)
+        return ComponentTensor(Product(Literal(-1), var_A), new_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self, tensor, node_dict):
@@ -254,10 +281,8 @@ class SlateTranslator():
         _A = node_dict[A]
         self.builder.create_index(A.shape, str(A)+"newtrans")
         new_indices = self.builder.gem_indices[str(A)+"newtrans"]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
         var_A = self.get_tensor_withnewidx(_A, new_indices)
-        ret = Indexed(ComponentTensor(var_A, new_indices[::-1]), out_indices)
+        ret = ComponentTensor(var_A, new_indices[::-1])
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Mul)
@@ -271,16 +296,13 @@ class SlateTranslator():
         self.builder.create_index(B.shape, str(B)+"newmulB"+str(tensor))
         new_indices_B = self.builder.gem_indices[str(B)+"newmulB"+str(tensor)]
 
-        self.builder.create_index(tensor.shape, str(tensor)+str(A)+str(B))
-        out_indices = self.builder.gem_indices[str(tensor)+str(A)+str(B)]
-
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
             var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
             var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1], new_indices_B[1]))
 
             prod = Product(var_A, var_B)
             sum = IndexSum(prod, (new_indices_A[1],))
-            return self.get_tensor_withnewidx(sum, out_indices)
+            return ComponentTensor(sum, (new_indices_A[0], new_indices_B[1]))
 
         elif len(A.shape) > len(B.shape) and A.shape[1] == B.shape[0]:
             var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
@@ -288,7 +310,7 @@ class SlateTranslator():
 
             prod = Product(var_A, var_B)
             sum = IndexSum(prod, (new_indices_A[1],))
-            return self.get_tensor_withnewidx(sum, out_indices)
+            return ComponentTensor(sum, (new_indices_A[0],))
         else:
             return[]
 
@@ -367,11 +389,11 @@ class SlateTranslator():
             for i, idx in enumerate(gem_index):
                 dim2idxs[i][0] += node_dict[A].dim2idxs[i][0]
                 dim2idxs[i] = tuple(dim2idxs[i])
-            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
+            ret = ComponentTensor(FlexiblyIndexed(node_dict[A], tuple(dim2idxs)), gem_index)
         else:
             for i, idx in enumerate(gem_index):
                 dim2idxs[i] = tuple(dim2idxs[i])
-            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
+            ret = ComponentTensor(FlexiblyIndexed(node_dict[A], tuple(dim2idxs)), gem_index)
         return ret
 
     def get_tensor_withnewidx(self, var, idx):
@@ -382,54 +404,76 @@ class SlateTranslator():
         pull up a scalar variable to a tensor thing with this indices
         - index it with new indices :arg idx.
         """
-        if type(var) == Indexed:
-            # No unnecessary generation of Indexed(ComponentTensor)
-            if var.free_indices == idx:
-                var = Indexed(var.children[0], idx)
-            else:
-                # Sort free indices by the multiindex
-                free_indices_sorted = tuple()
-                for index in var.multiindex:
-                    if index in var.free_indices:
-                        free_indices_sorted += (index, )
-                # Special case for IndexSum generating an Indexed with scalar multiindex
-                # e.g. occurs for DG0
-                # picks up free indices with are not in multiindex
-                for index in var.free_indices:
-                    if index not in free_indices_sorted:
-                        free_indices_sorted += (index, )
-                # return Indexed with new indices
-                var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
+        # if type(var) == Indexed:
+        #     # No unnecessary generation of Indexed(ComponentTensor)
+        #     if var.free_indices == idx:
+        #         var = Indexed(var.children[0], idx)
+        #     else:
+        #         # Sort free indices by the multiindex
+        #         free_indices_sorted = tuple()
+        #         for index in var.multiindex:
+        #             if index in var.free_indices:
+        #                 free_indices_sorted += (index, )
+        #         # Special case for IndexSum generating an Indexed with scalar multiindex
+        #         # e.g. occurs for DG0
+        #         # picks up free indices with are not in multiindex
+        #         for index in var.free_indices:
+        #             if index not in free_indices_sorted:
+        #                 free_indices_sorted += (index, )
+        #         # return Indexed with new indices
+        #         var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
 
-        elif type(var) == IndexSum:
-            # TODO this might not be robust
-            # Sort free indices
-            free_indices_sorted = tuple()
-            for i, index in enumerate(var.free_indices):
-                if type(var.children[0].children[i]) == FlexiblyIndexed:
-                    ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
+        # if type(var) == IndexSum:
+        #     # TODO this might not be robust
+        #     # Sort free indices
+        #     free_indices_sorted = tuple()
+        #     for i, index in enumerate(var.free_indices):
+        #         if type(var.children[0].children[i]) == FlexiblyIndexed:
+        #             ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
+        #         else:
+        #             ordered_indexed = var.children[0].children[i].multiindex[i]
+        #         if index not in free_indices_sorted and index == ordered_indexed:
+        #             free_indices_sorted += (index, )
+        #     # Sometimes free indices are just reversed
+        #     if free_indices_sorted == ():
+        #         free_indices_sorted = var.free_indices[::-1]
+        #     # return Indexed with new indices
+        #     var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
+
+        # if type(var) == FlexiblyIndexed:
+        #     variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
+        #     dim2idxs_new = ()
+        #     for i, dim in enumerate(dim2idxs):
+        #         if isinstance(idx[i], tuple):  # variable contains something mixed
+        #             index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+        #             dim2idxs_new += ((dim2idxs[i][0], index),)
+        #         else:  # variable contains something not mixed
+        #             dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
+        #     var = FlexiblyIndexed(variable, dim2idxs_new)
+
+        if type(var) == Variable or type(var) == ComponentTensor or type(var) == Inverse or type(var) == Solve:
+            if var.children != ():
+                if type(var.children[0]) == FlexiblyIndexed:
+                    variable, dim2idxs, indexes = decompose_variable_view(var)
+                    # for index in indexes:
+                    #     if index.extent == idx[0].extent:
+                    #         new_var = ComponentTensor(var.children[0],index)
+                    # variable, dim2idxs, indexes = decompose_variable_view(new_var)
+                    dim2idxs_new = ()
+                    for i, dim in enumerate(dim2idxs):
+                        if isinstance(idx[i], tuple):  # variable contains something mixed
+                            index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
+                            dim2idxs_new += ((dim2idxs[i][0], index),)
+                        else:  # variable contains something not mixed
+                            dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
+                    var = FlexiblyIndexed(variable, dim2idxs_new)
                 else:
-                    ordered_indexed = var.children[0].children[i].multiindex[i]
-                if index not in free_indices_sorted and index == ordered_indexed:
-                    free_indices_sorted += (index, )
-            # Sometimes free indices are just reversed
-            if free_indices_sorted == ():
-                free_indices_sorted = var.free_indices[::-1]
-            # return Indexed with new indices
-            var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-
-        elif type(var) == FlexiblyIndexed:
-            variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
-            dim2idxs_new = ()
-            for i, dim in enumerate(dim2idxs):
-                if isinstance(idx[i], tuple):  # variable contains something mixed
-                    index = tuple((idx_per_dim, 1) for idx_per_dim in idx[i])
-                    dim2idxs_new += ((dim2idxs[i][0], index),)
-                else:  # variable contains something not mixed
-                    dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
-            var = FlexiblyIndexed(variable, dim2idxs_new)
+                    var = Indexed(var,idx)
+            else:
+                var = Indexed(var,idx)
+        
         else:
-            assert "Variable type is "+str(type(var))+". Must be a scalar type."
+            assert True, "Variable type is "+str(type(var))+". Must be a type that has shape."
         return var
 
     @slate_to_gem.register(firedrake.slate.slate.Solve)
@@ -444,7 +488,7 @@ class SlateTranslator():
         new_indices = self.builder.gem_indices[tensor]
         ret_A = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
         ret_B = ComponentTensor(self.get_tensor_withnewidx(node_dict[B], B_indices), B_indices)
-        ret = Indexed(Solve(ret_A, ret_B, new_indices), new_indices)
+        ret = Solve(ret_A, ret_B, new_indices)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
@@ -454,10 +498,8 @@ class SlateTranslator():
         A_indices = self.builder.gem_indices[str(A)+"readsinv"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
-        self.builder.create_index(tensor.shape, str(tensor)+"outinv")
-        out_indices = self.builder.gem_indices[str(tensor)+"outinv"]
         ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
-        ret = Indexed(Inverse(ret, new_indices), out_indices)
+        ret = Inverse(ret, new_indices)
         return ret
 
     # TODO how do we deal with surpressed factorization nodes,

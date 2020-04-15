@@ -472,8 +472,8 @@ class LocalLoopyKernelBuilder(object):
                 self.create_index(shape, tensor)
                 gem_indices = self.gem_indices[tensor]
 
-                temps.setdefault(tensor, gem.Indexed(gem.Variable("T%d" % len(temps), shape), gem_indices))
-                gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].children[0].name,
+                temps.setdefault(tensor, gem.Variable("T%d" % len(temps), shape))
+                gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].name,
                                           shape=shape,
                                           dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
 
@@ -496,8 +496,8 @@ class LocalLoopyKernelBuilder(object):
                     self.create_index(tensor.shape, tensor)
                     gem_indices = self.gem_indices[tensor]
 
-                    local_temp = gem.Indexed(gem.Variable("VecTemp%d" % len(seen_coeff), tensor.shape), gem_indices)
-                    gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.children[0].name,
+                    local_temp = gem.Variable("VecTemp%d" % len(seen_coeff), tensor.shape)
+                    gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.name,
                                               shape=tensor.shape,
                                               dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
 
@@ -649,7 +649,7 @@ class LocalLoopyKernelBuilder(object):
 
                 # Pick the right local coeffs from extra coeffs
                 local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                coeff_vecs_list = [(v.function, v.local_temp.children[0].name) for w in self.coefficient_vecs.values() for v in w]
+                coeff_vecs_list = [(v.function, v.local_temp.name) for w in self.coefficient_vecs.values() for v in w]
                 for c, name in (self.extra_coefficients + coeff_vecs_list):
                     if c in local_coefficients:
                         if type(c.ufl_element()) == MixedElement:
