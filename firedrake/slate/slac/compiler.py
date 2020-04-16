@@ -781,7 +781,6 @@ def get_inv_callable(loopy_merged):
                     PetscBLASInt info;
                     PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
                     PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));
-                    memcpy(Awork,A,N*N*sizeof(PetscScalar));
                     LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);
                     if(info==0)
                         LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);
