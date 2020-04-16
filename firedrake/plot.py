@@ -16,6 +16,26 @@ __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor
            "quiver"]
 
 
+def _select_scalar_type(plot_function):
+    """ Decorator to pick scalar type used for plotting. """
+    def wrapper(function, *args, **kwargs):
+        function_data = function.vector().array()
+        _scalar_type = kwargs.pop('scalar_type', 'real')
+        if function_data.dtype.kind == "c":
+            if _scalar_type == 'real':
+                function_to_plot = Function(function.function_space(), function_data.real)
+            elif _scalar_type == 'imag':
+                function_to_plot = Function(function.function_space(), function_data.imag)
+            else:
+                raise TypeError("`scalar_type` must be `real`(default) or `imag`.")
+            plot_function(function_to_plot, *args, **kwargs)
+        else:
+            if _scalar_type != 'real':
+                raise TypeError("Provided function is real: _sclar_type must be real.")
+            plot_function(function, *args, **kwargs)
+    return wrapper
+
+
 def _autoscale_view(axes, coords):
     axes.autoscale_view()
 
@@ -77,9 +97,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if axes is None:
         figure = plt.figure()
         if gdim == 3:
-            axes = figure.add_subplot(111, projection='3d')
+            axes = figure.add_subplot(projection='3d')
         else:
-            axes = figure.add_subplot(111)
+            axes = figure.add_subplot()
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
@@ -155,220 +175,23 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111)
+        axes = figure.add_subplot()
 
     if len(function.ufl_shape) == 1:
         mesh = function.ufl_domain()
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
-    #<<<<<<< HEAD
-    if gdim == 3:
-        axes.add_collection3d(lines)
-    else:
-        if not surface:
-            points = np.unique(vertices.reshape(-1, gdim), axis=0)
-            points = Circles([10] * points.shape[0],
-                             offsets=points,
-                             transOffset=axes.transData,
-                             edgecolors="black", facecolors="black")
-            axes.add_collection(points)
-        axes.add_collection(lines)
-    for setter, idx in zip(["set_xlim",
-                            "set_ylim",
-                            "set_zlim"],
-                           range(coords.shape[1])):
-        try:
-            setter = getattr(axes, setter)
-        except AttributeError:
-            continue
-        amin = coords[:, idx].min()
-        amax = coords[:, idx].max()
-        extra = (amax - amin) / 20
-        if extra == 0.0:
-            # 1D interval
-            extra = 0.5
-        amin -= extra
-        amax += extra
-        setter(amin, amax)
-    if gdim < 3:
-        axes.set_aspect("equal")
-    return axes
 
-
-def prepare_functions(function, real=False):
-    function_data = function.vector().array()
-    if function_data.dtype.kind == "c":
-        real_part = Function(function.function_space(), function_data.real)
-        if real:
-            functions = (real_part,)
-        else:
-            imaginary_part = Function(function.function_space(), function_data.imag)
-            real_part.rename(function.name() + " (real part)")
-            imaginary_part.rename(function.name() + " (imaginary part)")
-            functions = (real_part, imaginary_part)
-    else:
-        functions = (function, )
-    return functions
-
-
-def plot(function_or_mesh,
-         num_sample_points=10,
-         axes=None,
-         plot3d=False,
-         real=False,
-         **kwargs):
-    r"""Plot a Firedrake object.
-
-    :arg function_or_mesh: The :class:`~.Function` or :func:`~.Mesh`
-         to plot.  An iterable of :class:`~.Function`\s may also be
-         provided, in which case an animated plot will be available.
-    :arg num_sample_points: Number of Sample points per element, ignored if
-        degree < 4 where an exact Bezier curve will be used instead of
-        sampling at points.  For 2D plots, the number of sampling
-        points per element will not exactly this value.  Instead, it
-        is used as a guide to the number of subdivisions to use when
-        triangulating the surface.
-    :arg axes: Axes to be plotted on
-    :kwarg plot3d: For 2D plotting, use matplotlib 3D functionality? (slow)
-    :kwarg contour: For 2D plotting, True for a contour plot
-    :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
-        piece-wise linear
-    :kwarg auto_resample: For 1D plotting for functions with degree >= 4,
-        resample automatically when zoomed
-    :kwarg interactive: For 1D plotting for multiple functions, use an
-        interactive inferface in Jupyter Notebook
-    :kwarg colors: for meshes, the colour to use for the edges
-        (passed to constructor of LineCollection)
-    :arg kwargs: Additional keyword arguments passed to
-        ``matplotlib.plot``.
-    """
-    # Sanitise input
-    if isinstance(function_or_mesh, MeshGeometry):
-        # Mesh...
-        return plot_mesh(function_or_mesh, axes=axes, **kwargs)
-    if not isinstance(function_or_mesh, Function):
-        # Maybe an iterable?
-        functions = tuple(function_or_mesh)
-        if not all(isinstance(f, Function) for f in functions):
-            raise TypeError("Expected Function, Mesh, or iterable of Functions, not %r",
-                            type(function_or_mesh))
-        return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
-    # Single Function...
-    function = function_or_mesh
-    functions = prepare_functions(function, real)
-    if not real:
-        plots = []
-        for function in functions:
-            p = plot(function, num_sample_points, axes=axes, plot3d=plot3d, real=True, **kwargs)
-            p.set_title(function.name())
-            plots.append(p)
-        return plots
-    else:
-        function, = functions
-
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib import cm
-    except ImportError:
-        raise RuntimeError("Matplotlib not importable, is it installed?")
-    gdim = function.ufl_domain().geometric_dimension()
-    tdim = function.ufl_domain().topological_dimension()
-    if tdim != gdim:
-        raise NotImplementedError("Not supported for topological dimension (%d) != geometric dimension (%d)",
-                                  tdim, gdim)
-    if gdim == 1:
-        if function.ufl_shape != ():
-            raise NotImplementedError("Plotting vector-valued functions is not supported")
-        if function.ufl_element().degree() < 4:
-            return bezier_plot(function, axes, **kwargs)
-        bezier = kwargs.pop('bezier', False)
-        auto_resample = kwargs.pop('auto_resample', False)
-        if bezier:
-            num_sample_points = (num_sample_points // 3) * 3 + 1 \
-                if num_sample_points >= 4 else 4
-        points = calculate_one_dim_points(function, num_sample_points)
-        cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
-        if axes is None:
-            axes = plt.subplot(111)
-
-        def update_points(axes):
-            import numpy.ma as ma
-            axes.set_autoscale_on(False)
-            x_begin = axes.transData.inverted() \
-                .transform(axes.transAxes.transform((0, 0)))[0]
-            x_end = axes.transData.inverted() \
-                .transform(axes.transAxes.transform((1, 0)))[0]
-            x_range = np.array([x_begin, x_end])
-            cell_intersect = np.empty([cell_boundary.shape[0]])
-            for i in range(cell_boundary.shape[0]):
-                cell_intersect[i] = _detect_intersection(x_range,
-                                                         cell_boundary[i])
-            width = plt.gcf().get_size_inches()[0] * plt.gcf().dpi
-            cell_mask = 1 - cell_intersect
-            cell_width = cell_boundary[:, 1] - cell_boundary[:, 0]
-            total_cell_width = ma.masked_array(cell_width,
-                                               mask=cell_mask).sum()
-            num_points = int(width / cell_intersect.sum()
-                             * total_cell_width / (x_end-x_begin))
-            if bezier:
-                num_points = (num_points // 3) * 3 + 1 \
-                    if num_points >= 4 else 4
-            points = calculate_one_dim_points(function, num_points, cell_mask)
-            axes.cla()
-            if bezier:
-                interp_bezier(points,
-                              int(cell_intersect.sum()),
-                              axes, **kwargs)
-            else:
-                piecewise_linear(points, axes, **kwargs)
-            axes.set_xlim(x_range)
-            axes.callbacks.connect('xlim_changed', update_points)
-
-        if auto_resample:
-            axes.callbacks.connect('xlim_changed', update_points)
-        if bezier:
-            return interp_bezier(points,
-                                 function.function_space().mesh().num_cells(),
-                                 axes, **kwargs)
-        return piecewise_linear(points, axes, **kwargs)
-    elif gdim == 2:
-        if len(function.ufl_shape) > 1:
-            raise NotImplementedError("Plotting tensor valued functions not supported")
-        if len(function.ufl_shape) == 1:
-            # Vector-valued, produce a quiver plot interpolated at the
-            # mesh coordinates
-            coords = function.ufl_domain().coordinates.dat.data_ro
-            X, Y = coords.T
-            vals = np.asarray(function.at(coords, tolerance=1e-10))
-            C = np.linalg.norm(vals, axis=1)
-            U, V = vals.T
-            if axes is None:
-                fig = plt.figure()
-                axes = fig.add_subplot(111)
-            cmap = kwargs.pop("cmap", cm.coolwarm)
-            pivot = kwargs.pop("pivot", "mid")
-            mappable = axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
-            plt.colorbar(mappable)
-            return axes
-        return two_dimension_plot(function, num_sample_points,
-                                  axes, plot3d=plot3d, contour=kwargs.pop("contour", False),
-                                  **kwargs)
-    else:
-        raise NotImplementedError("Plotting functions with geometric dimension %d unsupported",
-                                  gdim)
-    #=======
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
-
-    x, y = coords[:, 0], coords[:, 1]
-    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
+    triangulation, vals = _two_dimension_triangle_func_val(function,
+                                                           num_sample_points)
 
     method = getattr(axes, method_name)
     return method(triangulation, vals, *args, **kwargs)
 
 
+@_select_scalar_type
 def tricontourf(function, *args, **kwargs):
     r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -381,8 +204,8 @@ def tricontourf(function, *args, **kwargs):
     """
     return _plot_2d_field("tricontourf", function, *args, **kwargs)
 
-#>>>>>>> master
 
+@_select_scalar_type
 def tricontour(function, *args, **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -396,39 +219,7 @@ def tricontour(function, *args, **kwargs):
     return _plot_2d_field("tricontour", function, *args, **kwargs)
 
 
-def tripcolor(function, *args, **kwargs):
-    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
-
-    If the input function is a vector field, the magnitude will be plotted.
-
-    :arg function: the function to plot
-    :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
-    :arg kwargs: same as for matplotlib
-    :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
-    """
-    return _plot_2d_field("tripcolor", function, *args, **kwargs)
-
-
-def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs):
-    num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
-    vertices = coords[triangles]
-    collection = Poly3DCollection(vertices, *args, **kwargs)
-
-    avg_vals = vals[triangles].mean(axis=1)
-    collection.set_array(avg_vals)
-    if (vmin is not None) or (vmax is not None):
-        collection.set_clim(vmin, vmax)
-    if norm is not None:
-        collection.set_norm(norm)
-
-    axes.add_collection(collection)
-    _autoscale_view(axes, coords)
-
-    return collection
-
-
+@_select_scalar_type
 def trisurf(function, *args, **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
@@ -442,30 +233,40 @@ def trisurf(function, *args, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111, projection='3d')
-
-    _kwargs = {"antialiased": False, "edgecolor": "none",
-               "cmap": plt.rcParams["image.cmap"]}
-    _kwargs.update(kwargs)
-
-    mesh = function.ufl_domain()
-    if mesh.geometric_dimension() == 3:
-        return _trisurf_3d(axes, function, *args, **_kwargs)
+        axes = figure.add_subplot(projection='3d')
 
     if len(function.ufl_shape) == 1:
+        mesh = function.ufl_domain()
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
-    x, y = coords[:, 0], coords[:, 1]
-    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
-    _kwargs.update({"shade": False})
+    triangulation, vals = _two_dimension_triangle_func_val(function,
+                                                           num_sample_points)
+
+    _kwargs = {"antialiased": False, "edgecolor": "none", "shade": False,
+               "cmap": plt.rcParams["image.cmap"]}
+    _kwargs.update(kwargs)
+
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
 
 
+@_select_scalar_type
+def tripcolor(function, *args, **kwargs):
+    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
+
+    If the input function is a vector field, the magnitude will be plotted.
+
+    :arg function: the function to plot
+    :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
+    :arg kwargs: same as for matplotlib
+    :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
+    """
+    return _plot_2d_field("tripcolor", function, *args, **kwargs)
+
+
+@_select_scalar_type
 def quiver(function, **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
@@ -479,7 +280,7 @@ def quiver(function, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111)
+        axes = figure.add_subplot()
 
     coords = function.ufl_domain().coordinates.dat.data_ro
     V = function.ufl_domain().coordinates.function_space()
@@ -488,6 +289,7 @@ def quiver(function, **kwargs):
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
+@_select_scalar_type
 def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
@@ -511,7 +313,7 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111)
+        axes = figure.add_subplot()
 
     if function.ufl_element().degree() < 4:
         return _bezier_plot(function, axes, **kwargs)
@@ -547,7 +349,7 @@ def _calculate_values(function, points, dimension, cell_mask=None):
         cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
                                                           mask=cell_mask))
     data = function.dat.data_ro[cell_node_list]
-    if data.dtype.kind == "c":
+    if data.dtype.kind == 'c':
         data = data.real
     if function.ufl_shape == ():
         vec_length = 1
@@ -589,6 +391,7 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
     return x_vals, y_vals
 
 
+@_select_scalar_type
 def calculate_one_dim_points(function, num_points, cell_mask=None):
     """Calculate a set of points for plotting for a one-dimension function as
     a numpy array
@@ -615,12 +418,11 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
        matches it reasonably well.
     """
     from math import log
-    mesh = function.function_space().mesh()
-    cell = mesh.ufl_cell()
-    if cell.cellname() == "triangle":
+    cell = function.function_space().mesh().ufl_cell()
+    if cell == Cell('triangle'):
         x = np.array([0, 0, 1])
         y = np.array([0, 1, 0])
-    elif cell.cellname() == "quadrilateral":
+    elif cell == Cell('quadrilateral'):
         x = np.array([0, 0, 1, 1])
         y = np.array([0, 1, 0, 1])
     else:
@@ -631,19 +433,22 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     sub_triangles = int(log(num_sample_points, 4))
     tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
-
-    ref_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
-    z_vals = _calculate_values(function, ref_points, 2)
-    coords_vals = _calculate_values(mesh.coordinates, ref_points, 2)
-
-    num_verts = ref_points.shape[0]
+    x_ref = tri.x
+    y_ref = tri.y
+    num_verts = triangles.max() + 1
     num_cells = function.function_space().cell_node_list.shape[0]
+    ref_points = np.dstack([x_ref, y_ref]).reshape(-1, 2)
+    z_vals = _calculate_values(function, ref_points, 2)
+    coords_vals = _calculate_values(function.function_space().
+                                    mesh().coordinates,
+                                    ref_points, 2)
+    Z = z_vals.reshape(-1)
+    X = coords_vals.reshape(-1, 2).T[0]
+    Y = coords_vals.reshape(-1, 2).T[1]
     add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_verts
     all_triangles = (triangles + add_idx).reshape(-1, 3)
-
-    Z = z_vals.reshape(-1)
-    X = coords_vals.reshape(-1, mesh.geometric_dimension())
-    return X, Z, all_triangles
+    triangulation = matplotlib.tri.Triangulation(X, Y, triangles=all_triangles)
+    return triangulation, Z
 
 
 def _bezier_calculate_points(function):
