@@ -701,6 +701,16 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
 # with the c-function which is defined in the preamble
 def get_inv_callable(loopy_merged):
     class INVCallable(loopy.ScalarCallable):
+        def __init__(self, name, arg_id_to_dtype=None, 
+                     arg_id_to_descr=None, name_in_target=None):
+
+            super(INVCallable, self).__init__(name,
+                  arg_id_to_dtype=arg_id_to_dtype,
+                  arg_id_to_descr=arg_id_to_descr)
+
+            self.name = name
+            self.name_in_target = name_in_target
+
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
             for i in range(0, len(arg_id_to_dtype)):
                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
@@ -796,6 +806,16 @@ def get_inv_callable(loopy_merged):
 
 def get_solve_callable(loopy_merged):
     class SolveCallable(loopy.ScalarCallable):
+        def __init__(self, name, arg_id_to_dtype=None, 
+                     arg_id_to_descr=None, name_in_target=None):
+
+            super(SolveCallable, self).__init__(name,
+                  arg_id_to_dtype=arg_id_to_dtype,
+                  arg_id_to_descr=arg_id_to_descr)
+
+            self.name = name
+            self.name_in_target = name_in_target
+            
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
             for i in range(0, len(arg_id_to_dtype)):
                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
