@@ -882,7 +882,7 @@ def get_solve_callable(loopy_merged):
                 #ifndef Solve_HPP
                 #define Solve_HPP
 
-                void solve_(PetscScalar* A,PetscScalar* B, PetscBLASInt N)
+                void solve_(PetscScalar* A, PetscScalar* B, PetscBLASInt N)
                 {
                     PetscBLASInt info;
                     PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
