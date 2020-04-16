@@ -1,11 +1,19 @@
+import pytest
 from firedrake import *
 
+@pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
+def mesh(request):
+    if request.param == "triangles":
+        base = UnitSquareMesh(2, 2)
+        mh = MeshHierarchy(base, 1)
+        mesh = mh[-1]
+    elif request.param == "quadrilaterals":
+        base = UnitSquareMesh(2, 2, quadrilateral=True)
+        mh = MeshHierarchy(base, 1)
+        mesh = mh[-1]
+    return mesh
 
-def test_p_multigrid_scalar():
-    base = UnitSquareMesh(2, 2)
-    mh = MeshHierarchy(base, 1)
-    mesh = mh[-1]
-
+def test_p_multigrid_scalar(mesh):
     V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)

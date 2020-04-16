@@ -187,9 +187,6 @@ class PMGPC(PCBase):
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
 
-        assert cV.ufl_element().family() in ["Lagrange", "Discontinous Lagrange"]
-        assert fV.ufl_element().family() in ["Lagrange", "Discontinous Lagrange"]
-
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
