@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from firedrake import *
 
 
@@ -174,3 +175,155 @@ def test_lvalue_rvalue():
     u.assign(1.0)
     u.interpolate(u + 1.0)
     assert np.allclose(u.dat.data_ro, 2.0)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_interpolator_Pk(degree):
+    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
+    x = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", degree)
+    P2 = FunctionSpace(mesh, "CG", degree + 1)
+
+    expr = x[0]**degree + x[1]**degree
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_interpolator_spectral(degree):
+    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    x = SpatialCoordinate(mesh)
+    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="spectral")
+    P1 = FunctionSpace(mesh, fe1)
+    P2 = FunctionSpace(mesh, "CG", degree + 1)
+
+    expr = x[0]**degree + x[1]**degree
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_interpolator_equiquads(degree):
+    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    x = SpatialCoordinate(mesh)
+    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
+    P1 = FunctionSpace(mesh, fe1)
+    P2 = FunctionSpace(mesh, "CG", degree + 1)
+
+    expr = x[0]**degree + x[1]**degree
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_interpolator_equitris(degree):
+    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
+    x = SpatialCoordinate(mesh)
+    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
+    P1 = FunctionSpace(mesh, fe1)
+    P2 = FunctionSpace(mesh, "CG", degree + 1)
+
+    expr = x[0]**degree + x[1]**degree
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+def test_interpolator_tets():
+    mesh = UnitTetrahedronMesh()
+    x = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    P2 = FunctionSpace(mesh, "CG", 2)
+
+    expr = x[0] + x[1]
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+def test_interpolator_extruded():
+    mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
+    x = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    P2 = FunctionSpace(mesh, "CG", 2)
+
+    expr = x[0] + x[1]
+    x_P1 = interpolate(expr, P1)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    x_P2 = interpolator.interpolate(x_P1)
+    x_P2_direct = interpolate(expr, P2)
+
+    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
+
+
+def test_trace():
+    mesh = UnitSquareMesh(10, 10)
+    x = SpatialCoordinate(mesh)
+    cg = FunctionSpace(mesh, "CG", 1)
+    tr = FunctionSpace(mesh, "HDiv Trace", 1)
+
+    expr = x[0] + x[1]
+    x_cg = interpolate(expr, cg)
+    x_tr_dir = interpolate(expr, tr)
+    x_tr_cg = interpolate(x_cg, tr)
+
+    assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_adjoint_Pk(degree):
+    mesh = UnitSquareMesh(10, 10)
+    Pkp1 = FunctionSpace(mesh, "CG", degree+1)
+    Pk = FunctionSpace(mesh, "CG", degree)
+
+    v = TestFunction(Pkp1)
+    u_Pk = assemble(TestFunction(Pk) * dx)
+    interpolator = Interpolator(TestFunction(Pk), Pkp1)
+    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+
+    assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
+
+
+def test_adjoint_quads():
+    mesh = UnitSquareMesh(10, 10)
+    fe1 = FiniteElement("CG", mesh.ufl_cell(), 1, variant="equispaced")
+    P1 = FunctionSpace(mesh, fe1)
+    P2 = FunctionSpace(mesh, "CG", 2)
+
+    v = TestFunction(P2)
+    u_P1 = assemble(TestFunction(P1) * dx)
+    interpolator = Interpolator(TestFunction(P1), P2)
+    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+
+    assert np.allclose(u_P1.dat.data, v_adj.dat.data)
+
+
+def test_adjoint_dg():
+    mesh = UnitSquareMesh(10, 10)
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    dg1 = FunctionSpace(mesh, "DG", 1)
+
+    v = TestFunction(dg1)
+    u_cg = assemble(TestFunction(cg1) * dx)
+    interpolator = Interpolator(TestFunction(cg1), dg1)
+    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+
+    assert np.allclose(u_cg.dat.data, v_adj.dat.data)

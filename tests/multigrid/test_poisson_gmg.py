@@ -1,4 +1,5 @@
 from firedrake import *
+import numpy
 import pytest
 
 
@@ -8,6 +9,19 @@ def run_poisson(typ):
                       "ksp_type": "preonly",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
+                      "mg_levels_ksp_type": "chebyshev",
+                      "mg_levels_ksp_max_it": 2,
+                      "mg_levels_pc_type": "jacobi"}
+    elif typ == "mgmatfree":
+        parameters = {"snes_type": "ksponly",
+                      "ksp_type": "preonly",
+                      "mat_type": "matfree",
+                      "pc_type": "mg",
+                      "pc_mg_type": "full",
+                      "mg_coarse_ksp_type": "preonly",
+                      "mg_coarse_pc_type": "python",
+                      "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                      "mg_coarse_assembled_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
@@ -77,14 +91,18 @@ def run_poisson(typ):
 
 
 @pytest.mark.parametrize("typ",
-                         ["mg", "fas", "newtonfas"])
+                         ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_poisson_gmg(typ):
     assert run_poisson(typ) < 4e-6
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_mg():
-    assert run_poisson("mg") < 4e-6
+    errmat = run_poisson("mg")
+    errmatfree = run_poisson("mgmatfree")
+    assert numpy.allclose(errmat, errmatfree)
+    assert errmat < 4e-6
+    assert errmatfree < 4e-6
 
 
 @pytest.mark.parallel

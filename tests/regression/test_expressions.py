@@ -433,3 +433,23 @@ def test_math_functions(expr, value):
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)
+
+
+@pytest.mark.parametrize('fn', [min_value, max_value])
+def test_minmax(fn):
+    mesh = UnitTriangleMesh()
+    V = FunctionSpace(mesh, "DG", 0)
+
+    f = interpolate(as_ufl(1), V)
+    g = interpolate(as_ufl(2), V)
+
+    h = Function(V)
+
+    h.assign(fn(f, g))
+
+    if fn == min_value:
+        expect = 1
+    else:
+        expect = 2
+
+    assert np.allclose(h.dat.data_ro, expect)

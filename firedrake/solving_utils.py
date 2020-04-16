@@ -60,9 +60,15 @@ class _SNESContext(object):
         ``"state"``.
     :arg pre_jacobian_callback: User-defined function called immediately
         before Jacobian assembly
+    :arg post_jacobian_callback: User-defined function called immediately
+        after Jacobian assembly
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
+    :arg post_function_callback: User-defined function called immediately
+        after residual assembly
     :arg options_prefix: The options prefix of the SNES.
+    :arg transfer_manager: Object that can transfer functions between
+        levels, typically a :class:`~.TransferManager`
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -72,7 +78,9 @@ class _SNESContext(object):
     """
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
-                 options_prefix=None):
+                 post_jacobian_callback=None, post_function_callback=None,
+                 options_prefix=None,
+                 transfer_manager=None):
         from firedrake.assemble import create_assembly_callable
         from firedrake.bcs import DirichletBC
         if pmat_type is None:
@@ -87,6 +95,8 @@ class _SNESContext(object):
         self._problem = problem
         self._pre_jacobian_callback = pre_jacobian_callback
         self._pre_function_callback = pre_function_callback
+        self._post_jacobian_callback = post_jacobian_callback
+        self._post_function_callback = post_function_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -138,6 +148,20 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
+        self._transfer_manager = transfer_manager
+
+    @property
+    def transfer_manager(self):
+        if self._transfer_manager is None:
+            from firedrake import TransferManager
+            self._transfer_manager = TransferManager(use_averaging=True)
+        return self._transfer_manager
+
+    @transfer_manager.setter
+    def transfer_manager(self, manager):
+        if self._transfer_manager is not None:
+            raise ValueError("Must set transfer manager before first use.")
+        self._transfer_manager = manager
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -235,7 +259,8 @@ class _SNESContext(object):
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx))
+                                     appctx=self.appctx,
+                                     transfer_manager=self.transfer_manager))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
@@ -257,6 +282,10 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
+
+        if ctx._post_function_callback is not None:
+            with ctx._F.dat.vec as F_:
+                ctx._post_function_callback(X, F_)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -292,6 +321,9 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
+
+        if ctx._post_jacobian_callback is not None:
+            ctx._post_jacobian_callback(X, J)
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle

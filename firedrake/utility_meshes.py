@@ -6,8 +6,9 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate, mesh, dmplex, function, \
-    functionspace, utils
+    par_loop, dx, WRITE, READ, interpolate, mesh, function, \
+    functionspace, utils, FiniteElement, interval
+from firedrake.cython import dmplex
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -102,7 +103,7 @@ def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM
 cells are not currently supported")
 
     m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    coord_fs = VectorFunctionSpace(m, FiniteElement('DG', interval, 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -112,15 +113,15 @@ cells are not currently supported")
     <float64> pi = 3.141592653589793
     <float64> a = atan2(creal(old_coords[0, 1]), creal(old_coords[0, 0])) / (2*pi)
     <float64> b = atan2(creal(old_coords[1, 1]), creal(old_coords[1, 0])) / (2*pi)
-    <int32> swap = if(a >= b, 1, 0)
+    <int32> swap = 1 if a >= b else 0
     <float64> aa = fmin(a, b)
     <float64> bb = fmax(a, b)
     <float64> bb_abs = fabs(bb)
-    bb = if(bb_abs < eps, if(aa < -eps, 1.0, bb), bb)
-    aa = if(aa < -eps, aa + 1, aa)
-    bb = if(bb < -eps, bb + 1, bb)
-    a = if(swap == 1, bb, aa)
-    b = if(swap == 1, aa, bb)
+    bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
+    aa = aa + 1 if aa < -eps else aa
+    bb = bb + 1 if bb < -eps else bb
+    a = bb if swap == 1 else aa
+    b = aa if swap == 1 else bb
     new_coords[0] = a * L[0]
     new_coords[1] = b * L[0]
     """.format(utils.ScalarType_c, absfunc)
@@ -273,7 +274,8 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     mesh1.init()
 
-    Vc = VectorFunctionSpace(mesh1, 'DQ', 1)
+    fe_dg = FiniteElement('DQ', mesh1.ufl_cell(), 1, variant="equispaced")
+    Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc)
@@ -287,7 +289,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mcoords_ro[cell_nodes, 0]
-        if(Xvals.max() - Xvals.min() > Lx/2):
+        if Xvals.max() - Xvals.min() > Lx/2:
             mcoords[cell_nodes[2:], 0] = Lx
         else:
             mcoords
@@ -503,7 +505,8 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
-    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
+    cell = 'quadrilateral' if quadrilateral else 'triangle'
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -523,15 +526,15 @@ cells in each direction are not currently supported")
         <float64> _phi = fabs(sin(phi))
         <double> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1)
         <double> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1)
-        <float64> theta = if(_phi > bigeps, _theta_1, _theta_2)
+        <float64> theta = _theta_1 if _phi > bigeps else _theta_2
         new_coords[j, 0] = phi / (2 * pi)
-        new_coords[j, 0] = if(creal(new_coords[j, 0]) < -eps, new_coords[j, 0] + 1, new_coords[j, 0])
+        new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < -eps else new_coords[j, 0]
         <float64> _nc_abs = fabs(new_coords[j, 0])
-        new_coords[j, 0] = if(_nc_abs < eps and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
         new_coords[j, 1] = theta / (2 * pi)
-        new_coords[j, 1] = if(creal(new_coords[j, 1]) < -eps, new_coords[j, 1] + 1, new_coords[j, 1])
+        new_coords[j, 1] = new_coords[j, 1] + 1 if creal(new_coords[j, 1]) < -eps else new_coords[j, 1]
         _nc_abs = fabs(new_coords[j, 1])
-        new_coords[j, 1] = if(_nc_abs < eps and Z < 0, 1, new_coords[j, 1])
+        new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = new_coords[j, 1] * Ly[0]
     end
@@ -1409,7 +1412,8 @@ cells in each direction are not currently supported")
                      distribution_parameters=distribution_parameters,
                      diagonal=diagonal, comm=comm)
     coord_family = 'DQ' if quadrilateral else 'DG'
-    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
+    cell = 'quadrilateral' if quadrilateral else 'triangle'
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -1425,8 +1429,8 @@ cells in each direction are not currently supported")
     end
     for j
         new_coords[j, 0] = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0])) / (pi* 2)
-        new_coords[j, 0] = if(creal(new_coords[j, 0]) < 0, new_coords[j, 0] + 1, new_coords[j, 0])
-        new_coords[j, 0] = if(new_coords[j, 0] == 0 and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < 0 else new_coords[j, 0]
+        new_coords[j, 0] = 1 if (creal(new_coords[j, 0]) == 0 and Y < 0) else new_coords[j, 0]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end

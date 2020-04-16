@@ -3,7 +3,6 @@ from firedrake import *
 from firedrake.petsc import PETSc
 
 
-@pytest.mark.parallel(nprocs=2)
 def test_moore_spence():
 
     try:

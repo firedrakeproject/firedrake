@@ -1,8 +1,8 @@
 # Code for projections and other fun stuff involving supermeshes.
 import firedrake
 import ctypes
-import os
-from firedrake.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
+import sys
+from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
 from firedrake.mg.kernels import to_reference_coordinates, compile_element
@@ -358,7 +358,7 @@ each supermesh cell.
         "dim": dim
     }
 
-    dirs = get_petsc_dir() + (os.environ["VIRTUAL_ENV"], )
+    dirs = get_petsc_dir() + (sys.prefix, )
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]

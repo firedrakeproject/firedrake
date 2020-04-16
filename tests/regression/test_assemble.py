@@ -122,3 +122,24 @@ def test_assemble_mat_with_tensor(mesh):
     M = assemble(Constant(2)*a, M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
+
+
+def test_assemble_diagonal(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v)*dx
+    M = assemble(a, mat_type="aij")
+    Mdiag = assemble(a, diagonal=True)
+    assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)
+
+
+def test_assemble_diagonal_bcs(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, 0, (1, 4))
+    a = inner(grad(u), grad(v))*dx
+    M = assemble(a, mat_type="aij", bcs=bc)
+    Mdiag = assemble(a, bcs=bc, diagonal=True)
+    assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)

@@ -24,7 +24,7 @@ interpolation is:
 .. warning::
 
    Interpolation currently only works if all nodes of the target
-   finite element are point evaluation nodes.
+   finite element are point evaluation nodes
 
 The recommended way to specify the source expression is UFL.  UFL_
 produces clear error messages in case of syntax or type errors, yet
@@ -49,6 +49,62 @@ Here is an example demonstrating some of these features:
 
    # g is a vector-valued Function, e.g. on an H(div) function space
    f = interpolate(sqrt(3.2 * div(g)), V)
+
+This also works as expected when interpolating into a a space defined on the facets
+of the mesh:
+
+.. code-block:: python
+
+   # where trace is a trace space on the current mesh:
+   f = interpolate(expression, trace)
+
+
+Interpolator objects
+--------------------
+
+Firedrake is also able to generate reusable :py:class:`~.Interpolator`
+objects which provide caching of the interpolation operation. The
+following line creates an interpolator which will interpolate the
+current value of `expression` into the space `V`:
+
+.. code-block:: python
+
+   interpolator = Interpolator(expression, V)
+
+If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+the interpolation can be performed with:
+
+.. code-block:: python
+
+   f = interpolator.interpolate()
+
+Alternatively, one can use the interpolator to set the value of an existing :py:class:`~.Function`:
+
+.. code-block:: python
+
+   f = Function(V)
+   interpolator.interpolate(output=f)
+
+If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+the interpolator acts to interpolate :py:class:`~.Function`\s in the
+test space to those in the target space. For example:
+
+.. code-block:: python
+
+   w = TestFunction(W)
+   interpolator = Interpolator(w, V)
+
+Here, `interpolator` acts as the interpolation matrix from the
+:py:func:`~.FunctionSpace` W into the
+:py:func:`~.FunctionSpace` V. Such that if `f` is a
+:py:class:`~.Function` in `W` then `interpolator(f)` is its
+interpolation into `g`. As before, the `output` parameter can be used
+to write into an existing :py:class:`~.Function`. Passing the
+`transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
+cause the transpose interpolation to occur. This is equivalent to the
+multigrid restriction operation which interpolates assembled 1-forms
+in the dual space to `V` to assembled 1-forms in the dual space to
+`W`.
 
 
 Interpolation from external data
@@ -102,7 +158,7 @@ C string expressions
    now been removed. Users should use UFL expressions instead. This
    section only remains to assist in the transition of existing code.
 
-Here are a couple of old-style C string expressions, and their modern replacements.   
+Here are a couple of old-style C string expressions, and their modern replacements.
 
 .. code-block:: python
 
@@ -180,7 +236,7 @@ Generating Functions with randomised values
 The :py:mod:`~.randomfunctiongen` module wraps  the external package `randomgen <https://pypi.org/project/randomgen/>`__,
 which gives Firedrake users an easy access to many stochastically sound random number generators,
 including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
-All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__ 
+All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
 to generate a randomised :class:`.Function`.
 

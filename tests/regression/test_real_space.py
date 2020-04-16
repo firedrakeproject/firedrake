@@ -247,3 +247,11 @@ def test_real_space_assign():
     g.assign(2*f + f**3)
     assert np.allclose(f.dat.data_ro, 2.0)
     assert np.allclose(g.dat.data_ro, 12.0)
+
+
+def test_real_interpolate():
+    N = 100
+    mesh = IntervalMesh(N, 0, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    a_int = interpolate(Constant(1.0), R)
+    assert np.allclose(a_int.dat.data_ro, 1.0)

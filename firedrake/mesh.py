@@ -17,16 +17,17 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 import firedrake.expression as expression
-import firedrake.extrusion_numbering as extnum
+import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.spatialindex as spatialindex
+import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -594,9 +595,8 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        point2facetnumber = {}
-        for i, f in enumerate(facets):
-            point2facetnumber[f] = i
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
@@ -980,7 +980,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
-class MeshGeometry(ufl.Mesh):
+class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
     def __new__(cls, element):
@@ -992,6 +992,7 @@ class MeshGeometry(ufl.Mesh):
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
+    @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
@@ -1026,6 +1027,7 @@ class MeshGeometry(ufl.Mesh):
         return self._topology
 
     @utils.cached_property
+    @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
         import firedrake.functionspaceimpl as functionspaceimpl
@@ -1487,16 +1489,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
+    helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
-        hfamily = "DG"
-    else:
-        hfamily = mesh._coordinates.ufl_element().family()
-    hdegree = mesh._coordinates.ufl_element().degree()
+        helement = helement.reconstruct(family="DG", variant="equispaced")
+    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, hfamily, hdegree, dim=gdim,
-                                                       vfamily="Lagrange", vdegree=1)
+    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
 
@@ -1507,8 +1508,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        fs = functionspace.VectorFunctionSpace(self, "CG", hdegree, dim=gdim,
-                                               vfamily="CG", vdegree=1)
+        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        element = ufl.TensorProductElement(helement, velement)
+        fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs)
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)

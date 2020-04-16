@@ -38,7 +38,7 @@ def test_refine_tet_mesh():
 def test_refine_hex_mesh():
     m = UnitSquareMesh(2, 2, quadrilateral=True)
     mh = MeshHierarchy(m, 1)
-    mh = ExtrudedMeshHierarchy(mh, layers=2)
+    mh = ExtrudedMeshHierarchy(mh, layers=[2, 2], height=1)
 
     assert mh[1].num_cells() == 4 * mh[0].num_cells()
 

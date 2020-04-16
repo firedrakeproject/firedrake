@@ -1,6 +1,7 @@
 import ufl
 import numbers
 import numpy as np
+import firedrake.dmhooks as dmhooks
 
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -211,7 +212,8 @@ class HybridizationPC(SCBase):
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
-                                 options_prefix=prefix)
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
@@ -228,13 +230,31 @@ class HybridizationPC(SCBase):
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
-        # Set up the KSP for the system of Lagrange multipliers
+        # Create a SNESContext for the DM associated with the trace problem
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          schur_comp,
+                                          trace_bcs,
+                                          mat_type,
+                                          self.ctx.fc_params)
+
+        # dm associated with the trace problem
+        trace_dm = TraceSpace.dm
+
+        # KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.incrementTabLevel(1, parent=pc)
+
+        # Set the dm for the trace solver
+        trace_ksp.setDM(trace_dm)
+        trace_ksp.setDMActive(False)
         trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(Smat)
-        trace_ksp.setUp()
-        trace_ksp.setFromOptions()
+        trace_ksp.setOperators(Smat, Smat)
         self.trace_ksp = trace_ksp
+
+        with dmhooks.add_hooks(trace_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            trace_ksp.setFromOptions()
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
@@ -342,14 +362,18 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            if self.trace_ksp.getInitialGuessNonzero():
-                acc = self.trace_solution.dat.vec
-            else:
-                acc = self.trace_solution.dat.vec_wo
-            with acc as x_trace:
-                self.trace_ksp.solve(b, x_trace)
+        dm = self.trace_ksp.getDM()
+
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+
+            # Solve the system for the Lagrange multipliers
+            with self.schur_rhs.dat.vec_ro as b:
+                if self.trace_ksp.getInitialGuessNonzero():
+                    acc = self.trace_solution.dat.vec
+                else:
+                    acc = self.trace_solution.dat.vec_wo
+                with acc as x_trace:
+                    self.trace_ksp.solve(b, x_trace)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -387,13 +411,10 @@ class HybridizationPC(SCBase):
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.pushASCIITab()
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
-        viewer.printfASCII("KSP solver for the multipliers:\n")
-        viewer.pushASCIITab()
-        self.trace_ksp.view(viewer)
-        viewer.popASCIITab()
-        viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
-        viewer.pushASCIITab()
-        viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
-        viewer.popASCIITab()
+        if hasattr(self, "trace_ksp"):
+            viewer.printfASCII("Applying hybridization to mixed problem.\n")
+            viewer.printfASCII("Statically condensing to trace system.\n")
+            viewer.printfASCII("KSP solver for the multipliers:\n")
+            self.trace_ksp.view(viewer)
+            viewer.printfASCII("Locally reconstructing solutions.\n")
+            viewer.printfASCII("Projecting broken flux into HDiv space.\n")

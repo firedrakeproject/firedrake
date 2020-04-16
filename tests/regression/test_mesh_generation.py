@@ -59,8 +59,9 @@ def run_one_element_advection():
     nlayers = 20
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
     x = SpatialCoordinate(mesh)
-    Vdg = FunctionSpace(mesh, "DG", 1)
-    Vu = VectorFunctionSpace(mesh, "DG", 1)
+    fe_dg = FiniteElement("DQ", mesh.ufl_cell(), 1, variant="equispaced")
+    Vdg = FunctionSpace(mesh, fe_dg)
+    Vu = VectorFunctionSpace(mesh, fe_dg)
     q0 = Function(Vdg).interpolate(cos(2*pi*x[0])*cos(pi*x[2]))
     q_init = Function(Vdg).assign(q0)
     dq1 = Function(Vdg)
@@ -113,7 +114,8 @@ def run_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
-    Vdg = FunctionSpace(mesh, "DG", 1)
+    fe_dg = FiniteElement("DQ", mesh.ufl_cell(), 1, variant="equispaced")
+    Vdg = FunctionSpace(mesh, fe_dg)
     r = Function(Vdg)
     u = Function(V)
 
