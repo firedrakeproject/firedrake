@@ -32,7 +32,7 @@ from firedrake.pointquery_utils import to_reference_coordinates as to_reference_
 from firedrake.utils import ScalarType_c
 
 
-def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=True):
+def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=True, dim=0):
     if parameters is None:
         parameters = tsfc.default_parameters()
     else:
@@ -84,7 +84,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=Tru
             """,
             [
                 lp.GlobalArg("X, x0", dtype=np.double, shape=("topological_dimension",), is_output_only=False), # should be "topological_dimension"
-                lp.GlobalArg("C", np.double, shape=(2,)),
+                lp.GlobalArg("C", np.double, shape=("coords_space_dim",)),
                 lp.TemporaryVariable("converged",
                                      dtype=np.int8,
                                      shape=(),
@@ -113,7 +113,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=Tru
                                 max_iteration_count=max_iteration_count,
                                 convergence_epsilon=1e-12,
                                 geometric_dimension=cell.geometric_dimension(),
-                                topological_dimension=cell.topological_dimension())
+                                topological_dimension=cell.topological_dimension(),
+                                coords_space_dim=dim)
         knl = lp.register_callable_kernel(knl, point_kernel)
         knl = lp.inline_callable_kernel(knl, point_kernel.name)
         knl = knl.root_kernel
@@ -240,16 +241,17 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
         f_arg = [builder._coefficient(arg, "f")]
         #else:
         #fun_arg = [builder._coefficient(arg, "f")]
-        fun_arg = lp.GlobalArg("f", dtype=parameters["scalar_type"])
+        fun_arg = lp.GlobalArg("f", dtype=parameters["scalar_type"], shape=lp.auto)
     else:
         #if coffee:
         f_arg = []
         #else:
-        fun_arg = []
+        fun_arg = None
     translator = tsfc.fem.Translator(context)
     result, = map_expr_dags(translator, [expression])
 
     b_arg = []
+    bs_arg = []
     if coefficient:
         if expression.ufl_shape:
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
@@ -272,9 +274,13 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
                 b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=elem.value_shape))]
+                if not coffee:
+                    bs_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=elem.value_shape)
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
                 b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=(1, )))]
+                if not coffee:
+                    bs_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=(1,))
             result = gem.Product(result, var)
 
         result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
@@ -304,8 +310,16 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
         #kernel = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
 
                                      # base_storage="base"#kernel_code_ret = generate_loopy(impero_c, [return_arg, fun_arg, poin_arg],  parameters["precision"], ScalarType_c)
-        kernel_code_ret = builder.construct_kernel(name, [return_arg, fun_arg, poin_arg], impero_c,  parameters["precision"])
+        args = [return_arg]
+        if fun_arg:
+            args += [fun_arg]
+        args += [poin_arg]
+        if bs_arg:
+            args += [bs_arg]
+        kernel_code_ret = builder.construct_kernel(name, args, impero_c,  parameters["precision"])
+
         #kernel2 = builder.construct_kernel(return_arg, impero_c, parameters["precision"], {result: 'f'})
+
         return kernel_code_ret
 
     return kernel_code
@@ -327,20 +341,22 @@ def prolong_kernel(expression):
         coffee = False
         if not coffee:
             evaluate_kernel = compile_element(expression, coffee=False)
-            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False)
             element = create_element(expression.ufl_element())
             eval_args = evaluate_kernel.args[:-1]
             coords_element = create_element(coordinates.ufl_element())
+            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False, dim=coords_element.space_dimension())
 
             import loopy as lp
             import numpy as np
 
             parent_knl = lp.make_kernel(
-                {"{[i, j, jj, c, celldistdim, k, p, q, ci, l]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
-                 "1 <= celldistdim <= tdim and 0 <= k < coords_space_dim and 0 <= p, l < tdim and "
-                 "0<= q < coords_space_dim and 0 <= c, ci < 2}"},
+                {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+                 "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
+                 "0<= c < tdim and 0 <=  ci < coarse_cell_inc}"}, # c,ci < 2
                 """
-                Xref[1] = 0
+                for ri
+                    Xref[ri] = 0
+                end
                 cell = -1
                 error = 0
                 bestcell = -1
@@ -398,9 +414,9 @@ def prolong_kernel(expression):
                 """,
                 [
                     lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
-                    lp.GlobalArg("f", np.double, shape=(2,)),
-                    lp.GlobalArg("X", np.double, shape=(2,)),
-                    lp.GlobalArg("Xc", np.double, shape=(2,)),
+                    lp.GlobalArg("f", np.double, shape=("coords_space_dim",)),
+                    lp.GlobalArg("X", np.double, shape=("tdim",)), #2 was coords_space_dim
+                    lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",)), #2was coords_space_dim
                     lp.TemporaryVariable("cell",
                                          dtype=np.int32,
                                          shape=()),
@@ -418,7 +434,7 @@ def prolong_kernel(expression):
                                          shape=()),
                     lp.TemporaryVariable("Xref",
                                          dtype=np.double,
-                                         shape=("tdim + 1",), #should be tdim
+                                         shape=("tdim",), #should be tdim was + 1
                                          #address_space=lp.AddressSpace.GLOBAL
                                          ),
                     lp.TemporaryVariable("Xci",
@@ -428,7 +444,7 @@ def prolong_kernel(expression):
                                          ),
                     lp.TemporaryVariable("coarsei",
                                          dtype=np.double,
-                                         shape=(2,),
+                                         shape=("coarse_cell_inc",),
                                          #address_space=lp.AddressSpace.GLOBAL,
                                         )
                 ],
@@ -440,17 +456,20 @@ def prolong_kernel(expression):
                                            ncandidate=hierarchy.fine_to_coarse_cells[levelf].shape[1],
                                            tdim=mesh.topological_dimension(),
                                            coords_space_dim=coords_element.space_dimension(),
-                                           constant=1e-8,
+                                           constant=1e-9,
                                            Rdim=int(numpy.prod(element.value_shape)),
-                                           coarse_cell_inc=element.space_dimension(),
-                                           num=2)
+                                           coarse_cell_inc=element.space_dimension())
 
-            knl = lp.register_callable_kernel(parent_knl, to_reference_kernel)
-            knl = lp.register_callable_kernel(knl, evaluate_kernel)
-            knl = lp.inline_callable_kernel(knl, to_reference_kernel.name)
+            from loopy.transform.callable import _match_caller_callee_argument_dimension_
+            knl = lp.register_callable_kernel(parent_knl, evaluate_kernel)
+            knl = _match_caller_callee_argument_dimension_(knl, evaluate_kernel.name)
             knl = lp.inline_callable_kernel(knl, evaluate_kernel.name)
+
+            knl = lp.register_callable_kernel(knl, to_reference_kernel)
+            knl = _match_caller_callee_argument_dimension_(knl, to_reference_kernel.name)
+            knl = lp.inline_callable_kernel(knl, to_reference_kernel.name)
             knl = knl.root_kernel
-            smth = lp.generate_code(knl)
+            #smth = lp.generate_code(knl)
             return cache.setdefault(key, op2.Kernel(knl, name="loopy_kernel_prolong"))
 
         evaluate_kernel = compile_element(expression, coffee=True)
@@ -539,6 +558,142 @@ def restrict_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         mesh = coordinates.ufl_domain()
+        coffee = False
+        if not coffee:
+            import loopy as lp
+            import numpy as np
+
+            evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf, coffee=False)
+            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False)
+            coords_element = create_element(coordinates.ufl_element())
+            element = create_element(Vc.ufl_element())
+            eval_args = evaluate_kernel.args[:-1]
+            R, fine = (a for a in eval_args)
+            fine = np.array(fine)
+            parent_knl = lp.make_kernel( {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+                 "1 <= celldistdim <= tdim and 0 <= k < coords_space_dim and 0 <= p, l < tdim and "
+                 "0<= q < coords_space_dim and 0 <= ci, cci < Rdim and 0 <= c < finedim}"}, # c,ci < 2
+                """
+                Xref[1] = 0
+                cell = -1
+                error = 0
+                bestcell = -1
+                bestdist = 1e10
+                <> stop = 0
+                for i
+                    <> tmp = stop
+                    if tmp == 0
+                        <> tm = i * coords_space_dim
+                        for k
+                            Xci[k] = Xc[k + tm]
+                        end
+                        celldist = 2 * bestdist
+                        to_reference_coords_kernel([p]: Xref[p], [c]: X[c], [q]: Xci[q])
+                        <> check = 1
+                        for l
+                            check = check and (Xref[l] + constant >= 0) and (Xref[l] - constant <= 1)
+                        end
+                        if check
+                            cell = i
+                            stop = 1
+                        end
+                    end
+                    tmp = stop
+                    if tmp == 0
+                        celldist = Xref[0]
+                        for celldistdim
+                            <> temp = celldist
+                            if temp > Xref[celldistdim]
+                                celldist = Xref[celldistdim]
+                            end
+                        end
+                        celldist = celldist * (-1)
+                        <> temp1 = bestdist
+                        if celldist < temp1
+                            bestdist = celldist
+                            bestcell = i
+                        end
+                    end
+                end
+                <> tmp2 = cell
+                if tmp2 == -1
+                    if bestdist < 10
+                        cell = bestcell
+                    else
+                        error = 1
+                    end
+                end
+    
+                for ci
+                    Ri[ci] = R[ci + cell * coarse_cell_inc]
+                end
+
+                loopy_kernel_evaluate([jj]: Ri[jj], [c]: b[c], [p]: Xref[p])
+                
+                for cci
+                    R[cci+ cell * coarse_cell_inc] = Ri[cci]
+                end
+                """,
+                [
+                    lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
+                    lp.GlobalArg("b", np.double, shape=("finedim",)),
+                    lp.GlobalArg("X", np.double, shape=("coords_space_dim",)), #2
+                    lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",)), #2
+                    lp.TemporaryVariable("cell",
+                                         dtype=np.int32,
+                                         shape=()),
+                    lp.TemporaryVariable("bestcell",
+                                         dtype=np.int32,
+                                         shape=()),
+                    lp.TemporaryVariable("error",
+                                         dtype=np.int8,
+                                         shape=()),
+                    lp.TemporaryVariable("bestdist",
+                                         dtype=np.double,
+                                         shape=()),
+                    lp.TemporaryVariable("celldist",
+                                         dtype=np.double,
+                                         shape=()),
+                    lp.TemporaryVariable("Xref",
+                                         dtype=np.double,
+                                         shape=("tdim + 1",), #should be tdim
+                                         #address_space=lp.AddressSpace.GLOBAL
+                                         ),
+                    lp.TemporaryVariable("Xci",
+                                         dtype=np.double,
+                                         shape=("coords_space_dim",), #should be coords_space_dim
+                                         #address_space=lp.AddressSpace.GLOBAL,
+                                         ),
+                    lp.TemporaryVariable("Ri",
+                                         dtype=np.double,
+                                         shape=("Rdim",),
+                                         #address_space=lp.AddressSpace.GLOBAL,
+                                        )
+                ],
+                name='loopy_kernel_restrict',
+                seq_dependencies=True,
+                target=lp.CudaTarget())
+            parent_knl = lp.fix_parameters(parent_knl,
+                                           ncandidate=hierarchy.fine_to_coarse_cells[levelf].shape[1],
+                                           tdim=mesh.topological_dimension(),
+                                           coords_space_dim=coords_element.space_dimension(),
+                                           coarse_cell_inc=element.space_dimension(),
+                                           constant=1e-9,
+                                           Rdim=R.shape[0],
+                                           finedim=fine.size)
+
+            from loopy.transform.callable import _match_caller_callee_argument_dimension_
+            knl = lp.register_callable_kernel(parent_knl, evaluate_kernel)
+            knl = _match_caller_callee_argument_dimension_(knl, evaluate_kernel.name)
+            knl = lp.inline_callable_kernel(knl, evaluate_kernel.name)
+
+            knl = lp.register_callable_kernel(knl, to_reference_kernel)
+            knl = _match_caller_callee_argument_dimension_(knl, to_reference_kernel.name)
+            knl = lp.inline_callable_kernel(knl, to_reference_kernel.name)
+            knl = knl.root_kernel
+            smth = lp.generate_code(knl)
+            return cache.setdefault(key, op2.Kernel(knl, name="loopy_kernel_restrict"))
+
         evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
