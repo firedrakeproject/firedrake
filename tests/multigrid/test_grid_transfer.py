@@ -128,11 +128,11 @@ def run_prolongation(hierarchy, vector, space, degrees):
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp
-            print()
-            print("HH")
-            print(expect.dat.data_ro)
-            print()
-            print(actual.dat.data_ro)
+            # print()
+            # print("HH")
+            # print(expect.dat.data_ro)
+            # print()
+            # print(actual.dat.data_ro)
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
@@ -169,9 +169,9 @@ def run_restriction(hierarchy, vector, space, degrees):
 def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
-    if transfer_type == "injection":
-        run_injection(hierarchy, vector, space, degrees)
-    elif transfer_type == "restriction":
+    # if transfer_type == "injection":
+    #     run_injection(hierarchy, vector, space, degrees)
+    if transfer_type == "restriction":
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
         run_prolongation(hierarchy, vector, space, degrees)
@@ -186,8 +186,8 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
         pytest.skip("Not implemented")
     # if transfer_type == "injection":
     #     run_injection(hierarchy, vector, space, degrees)
-    # elif transfer_type == "restriction":
-     #    run_restriction(hierarchy, vector, space, degrees)
+    if transfer_type == "restriction":
+        run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
         run_prolongation(hierarchy, vector, space, degrees)
 
@@ -228,7 +228,17 @@ def test_easy_prolong(hierarchy,vector, space, degree):
     actual = tmp
     assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
-def test_easy_restrict():
+def test_triangle_restrict():
+    space = "CG"
+    degree = 1
+    refinements_per_level = 1
+    vector = True
+    mesh = UnitSquareMesh(3, 3, quadrilateral=False)
+    nref = {2: 1, 1: 2}[refinements_per_level]
+    hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
+    run_restriction(hierarchy, vector, space, [degree])
+
+def test_easy_restrict(hierarchy,vector, space, degree):
     def victim(V):
         return Function(V).assign(1)
 

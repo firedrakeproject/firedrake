@@ -456,7 +456,7 @@ def prolong_kernel(expression):
                                            ncandidate=hierarchy.fine_to_coarse_cells[levelf].shape[1],
                                            tdim=mesh.topological_dimension(),
                                            coords_space_dim=coords_element.space_dimension(),
-                                           constant=1e-9,
+                                           constant=1e-8,
                                            Rdim=int(numpy.prod(element.value_shape)),
                                            coarse_cell_inc=element.space_dimension())
 
@@ -564,17 +564,23 @@ def restrict_kernel(Vf, Vc):
             import numpy as np
 
             evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf, coffee=False)
-            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False)
             coords_element = create_element(coordinates.ufl_element())
+            to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False, dim=coords_element.space_dimension())
             element = create_element(Vc.ufl_element())
             eval_args = evaluate_kernel.args[:-1]
+
             R, fine = (a for a in eval_args)
             fine = np.array(fine)
-            parent_knl = lp.make_kernel( {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
-                 "1 <= celldistdim <= tdim and 0 <= k < coords_space_dim and 0 <= p, l < tdim and "
-                 "0<= q < coords_space_dim and 0 <= ci, cci < Rdim and 0 <= c < finedim}"}, # c,ci < 2
+            Rdim = np.prod(R.shape)
+
+            parent_knl = lp.make_kernel( {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+                 "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
+                 "0 <= ci, cci < Rdim and 0 <= c < finedim}"}, # c,ci < 2
                 """
-                Xref[1] = 0
+                
+                for ri
+                    Xref[ri] = 0
+                end
                 cell = -1
                 error = 0
                 bestcell = -1
@@ -628,7 +634,7 @@ def restrict_kernel(Vf, Vc):
                     Ri[ci] = R[ci + cell * coarse_cell_inc]
                 end
 
-                loopy_kernel_evaluate([jj]: Ri[jj], [c]: b[c], [p]: Xref[p])
+                loopy_kernel_evaluate([jj]: Ri[jj], [p]: Xref[p], [c]: b[c])
                 
                 for cci
                     R[cci+ cell * coarse_cell_inc] = Ri[cci]
@@ -637,7 +643,7 @@ def restrict_kernel(Vf, Vc):
                 [
                     lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
                     lp.GlobalArg("b", np.double, shape=("finedim",)),
-                    lp.GlobalArg("X", np.double, shape=("coords_space_dim",)), #2
+                    lp.GlobalArg("X", np.double, shape=("tdim",)), #2
                     lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",)), #2
                     lp.TemporaryVariable("cell",
                                          dtype=np.int32,
@@ -656,7 +662,7 @@ def restrict_kernel(Vf, Vc):
                                          shape=()),
                     lp.TemporaryVariable("Xref",
                                          dtype=np.double,
-                                         shape=("tdim + 1",), #should be tdim
+                                         shape=("tdim",), #should be tdim
                                          #address_space=lp.AddressSpace.GLOBAL
                                          ),
                     lp.TemporaryVariable("Xci",
@@ -678,8 +684,8 @@ def restrict_kernel(Vf, Vc):
                                            tdim=mesh.topological_dimension(),
                                            coords_space_dim=coords_element.space_dimension(),
                                            coarse_cell_inc=element.space_dimension(),
-                                           constant=1e-9,
-                                           Rdim=R.shape[0],
+                                           constant=1e-8,
+                                           Rdim=Rdim,
                                            finedim=fine.size)
 
             from loopy.transform.callable import _match_caller_callee_argument_dimension_
@@ -691,7 +697,7 @@ def restrict_kernel(Vf, Vc):
             knl = _match_caller_callee_argument_dimension_(knl, to_reference_kernel.name)
             knl = lp.inline_callable_kernel(knl, to_reference_kernel.name)
             knl = knl.root_kernel
-            smth = lp.generate_code(knl)
+            #smth = lp.generate_code(knl)
             return cache.setdefault(key, op2.Kernel(knl, name="loopy_kernel_restrict"))
 
         evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
