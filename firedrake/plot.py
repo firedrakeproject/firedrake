@@ -162,8 +162,7 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
-
-<<<<<<< HEAD
+    #<<<<<<< HEAD
     if gdim == 3:
         axes.add_collection3d(lines)
     else:
@@ -358,7 +357,7 @@ def plot(function_or_mesh,
     else:
         raise NotImplementedError("Plotting functions with geometric dimension %d unsupported",
                                   gdim)
-=======
+    #=======
     num_sample_points = kwargs.pop("num_sample_points", 10)
     coords, vals, triangles = _two_dimension_triangle_func_val(function,
                                                                num_sample_points)
@@ -382,7 +381,7 @@ def tricontourf(function, *args, **kwargs):
     """
     return _plot_2d_field("tricontourf", function, *args, **kwargs)
 
->>>>>>> master
+#>>>>>>> master
 
 def tricontour(function, *args, **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
