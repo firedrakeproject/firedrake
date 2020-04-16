@@ -1325,20 +1325,6 @@ f90 = options["mpif90"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
-#<<<<<<< HEAD
-#
-#def write_configuration(config):
-#    import json
-#    with directory("firedrake/firedrake_configuration"):
-#        try:
-#            with open("configuration.json", "w") as f:
-#                f.write(json.dumps(config))
-#            log.info("Configuration saved to configuration.json")
-#        except Exception as e:
-#            log.warning("Unable to save configuration to a JSON file")
-#            log.warning("Error Message:")
-#            log.warning(str(e))
-#=======
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update
 # can be run on a partial install.
@@ -1347,7 +1333,6 @@ json_output = json.dumps(config)
 with open(config_location, "w") as f:
     f.write(json_output)
 log.info("Configuration saved to " + config_location)
-#>>>>>>> master
 
 
 if mode == "install":
@@ -1359,13 +1344,9 @@ if mode == "install":
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
 
-    #<<<<<<< HEAD
-    #write_configuration(config)
-    #=======
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
-    #>>>>>>> master
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages

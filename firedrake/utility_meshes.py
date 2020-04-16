@@ -1436,7 +1436,6 @@ cells in each direction are not currently supported")
     end
     """
 
-
     cLx = Constant(La)
     cLy = Constant(Lb)
 

@@ -17,7 +17,6 @@ from firedrake.slate import slate
 from firedrake.slate import slac
 from firedrake.utils import ScalarType
 from firedrake.bcs import DirichletBC, EquationBCSplit
-from firedrake.utils import ScalarType
 from firedrake.adjoint import annotate_assemble
 
 

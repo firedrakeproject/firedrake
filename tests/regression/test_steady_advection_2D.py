@@ -43,13 +43,8 @@ def run_left_to_right(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    #<<<<<<< HEAD
     inflowexpr = conditional(And(real(xs[1]) > 0.25, real(xs[1]) < 0.75), 1.0, 0.5)
-    #inflow = Function(DG0)
-    #=======
-    #inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
-    #>>>>>>> master
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)

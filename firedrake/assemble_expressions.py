@@ -2,7 +2,6 @@ import weakref
 
 import ufl
 from ufl.algorithms import ReuseTransformer
-from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.comparison_checker import CheckComparisons
 from ufl.corealg.map_dag import MultiFunction, map_expr_dag
 from ufl.constantvalue import ConstantValue, Zero, IntValue
@@ -22,7 +21,6 @@ from pyop2.profiling import timed_function
 from firedrake import constant
 from firedrake import function
 from firedrake import utils
-from firedrake.utils import complex_mode
 
 from functools import singledispatch
 
@@ -598,6 +596,7 @@ def loopy_inst_mathfunc(expr, context):
     else:
         name = expr._name
     return p.Variable(name)(*children)
+
 
 @loopy_instructions.register(ufl.algebra.Real)
 def loopy_inst_real(expr, context):
