@@ -52,8 +52,8 @@ def annotate_solve(solve):
                         block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
                         tape.add_block(block_extops)
 
-                        #block_variable = coeff.block_variable
-                        block_variable = coeff.create_block_variable()
+                        block_variable = coeff.block_variable
+                        #block_variable = coeff.create_block_variable()
                         block_extops.add_output(block_variable)
 
             tape.add_block(block)

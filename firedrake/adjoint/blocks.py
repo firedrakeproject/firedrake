@@ -330,13 +330,20 @@ class PointwiseOperatorBlock(Block, Backend):
         q_rep = block_variable.saved_output
         N = prepared
 
+        if isinstance(N, self.backend.PointnetOperator) and hasattr(q_rep.dat, '_dat_version'):
+            N._weights_version['version'] = q_rep.dat._dat_version
+
         i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0]
+
         dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
+
         #dNdm_adj = self.compat.assemble_adjoint_value(dNdm_adj)
         return dNdm_adj
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         p, ops = inputs[-1], inputs[:-1]
+        #if isinstance(p, self.backend.PointnetOperator):
+            #p._update_model_weights()
         q = type(p).copy(p)
         return q.evaluate()
 

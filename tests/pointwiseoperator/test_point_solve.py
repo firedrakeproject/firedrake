@@ -204,7 +204,6 @@ def test_sym_grad_check_equality(mesh):
 
     u2 = Function(V1)
     ps = point_solve(lambda x, y: x - y, function_space=V1, solver_name='newton', solver_params={'maxiter': 50, 'x0': u2+u3})
-    # ps = point_solve(lambda x, y: x - y, function_space=V1, solver_name='halley' ,solver_params={'maxiter':50, 'x1':u2}, disp=True)
     tau2 = ps(u2)
 
     F2 = inner(grad(w), sym(grad(u2)))*dx + inner(tau2, w)*dx - inner(f, w)*dx
@@ -212,3 +211,53 @@ def test_sym_grad_check_equality(mesh):
 
     err = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err < 1.0e-09
+
+
+def test_glen_flow_law():
+
+    mesh = PeriodicRectangleMesh(3, 3, 1, 1, direction="x")
+    x, y = SpatialCoordinate(mesh)
+
+    # Function spaces
+    V1 = VectorFunctionSpace(mesh, "CG", 2) # velocity
+    V2 = FunctionSpace(mesh, "CG", 1) # pressure
+    V3 = TensorFunctionSpace(mesh, "DG", 1) # stress tensor
+    W = MixedFunctionSpace((V1, V2))
+
+    w, phi = TestFunctions(W)
+    soln2 = Function(W)
+    u2, p2 = split(soln2)
+
+    # Boundary conditions
+    bcs = [DirichletBC(W.sub(0), Constant((0., 0.)), 1),
+           DirichletBC(W.sub(0), Constant((1., 0.)), 2)]
+
+    from sympy.matrices import Matrix
+
+    # Glen's flow law
+    power = 2
+    ps = point_solve(lambda sol, y: Matrix(sol)*(Matrix(sol).norm())**power -y,
+                     function_space=V3,
+                     solver_name='newton',
+                     solver_params={'maxiter':50, 'x0':Function(V3).interpolate(Identity(2))})
+
+    # PointsolveOperator
+    tau2 = ps(sym(grad(u2)))
+
+    F2 = div(w)*p2*dx - inner(grad(w), tau2)*dx - phi*div(u2)*dx
+    solve(F2==0, soln2, bcs=bcs)
+
+    u2_out, p2_out = soln2.split()
+
+    ## Verification ##
+    T = tau2
+    SG = Function(V3).interpolate(sym(grad(u2)))
+
+    # L2 error
+    fexpr = T*inner(T,T) - SG
+    assert assemble(inner(fexpr, fexpr)*dx) < 1.e-7
+
+    # l2 error
+    fct = lambda x, y: np.linalg.norm(x)**2*x - y
+    res = np.array([fct(A,B) for A, B in zip(T.dat.data_ro, SG.dat.data_ro)])
+    assert 0.5*np.linalg.norm(res)/np.sqrt(V3.node_count) < 1.e-7

@@ -103,7 +103,7 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
         deriv_multiindex = derivatives or self.derivatives
 
@@ -115,7 +115,8 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
                 if ext.derivatives == deriv_multiindex:
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
                                                       derivatives=deriv_multiindex, count=count, name=name,
-                                                      operator_data=operator_data)
+                                                      operator_data=operator_data,
+                                                      add_kwargs=add_kwargs)
         else:
             corresponding_count = self._count
 
@@ -123,7 +124,8 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
                                     derivatives=deriv_multiindex,
                                     count=corresponding_count,
                                     name=name or self.name(),
-                                    operator_data=operator_data or self.operator_data)
+                                    operator_data=operator_data or self.operator_data,
+                                    **add_kwargs)
 
         if deriv_multiindex != self.derivatives:
             # If we are constructing a derivative
@@ -295,7 +297,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
         fexpr = self.operator_f(*symb)
         args = tuple(Function(ufl_space).interpolate(pi) for pi in self.ufl_operands)
-        vals = tuple(coeff.dat.data for coeff in args)
+        vals = tuple(coeff.dat.data_ro for coeff in args)
         for i, di in enumerate(deriv_index):
             if di != 0:
                 def implicit_differentiation(res):
@@ -340,7 +342,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     solve_multid = multidimensional_numpy_solve(ufl_shape)
                     # TODO : Vectorized version ?
                     for j in range(len(res)):
-                        fj = f.dat.data[j]
+                        fj = f.dat.data_ro[j]
                         val_ops = tuple(v[j] for v in vals)
                         A = dfds0l(fj.flatten(), *(voj.flatten() for voj in val_ops))
                         B = dfdsil(fj.flatten(), *(voj.flatten() for voj in val_ops))
@@ -390,7 +392,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         ufl_space = self.ufl_function_space()
         shape = ufl_space.shape
         solver_params = self.solver_params.copy()  # To avoid breaking immutability
-        nn = len(self.dat.data)
+        nn = len(self.dat.data_ro)
         f = self.operator_f
 
         # If we want to evaluate derivative, we first have to evaluate the solution and then use implicit differentiation
@@ -406,13 +408,13 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # Pre-processing to get the values of the initial guesses
         if 'x0' in solver_params.keys() and isinstance(solver_params['x0'], Expr):
             val_x0 = solver_params.pop('x0')
-            solver_params_x0 = Function(ufl_space).interpolate(val_x0).dat.data
+            solver_params_x0 = Function(ufl_space).interpolate(val_x0).dat.data_ro
         else:
-            solver_params_x0 = self.dat.data
+            solver_params_x0 = self.dat.data_ro
 
         # Prepare the arguments of f
         args = tuple(Function(ufl_space).interpolate(pi) for pi in self.ufl_operands)
-        vals = tuple(coeff.dat.data for coeff in args)
+        vals = tuple(coeff.dat.data_ro for coeff in args)
 
         # We need to define appropriate symbols to impose the right shape on the inputs when lambdifying the sympy expressions
         ops_f = (self._sympy_create_symbols(shape, 0, granular=False),)
@@ -439,28 +441,32 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 fprime = sp.lambdify(new_symb, d2f, modules='numpy')
                 solver_params['fprime2'] = fprime2
 
-        offset = ()
+        offset = 0
         if len(shape) == 1:
             # Expand the dimension
-            offset = (1,)
+            offset = 1
+            solver_params_x0 = np.expand_dims(solver_params_x0,-1)
+            vals = tuple(np.expand_dims(e,-1) for e in vals)
         elif len(shape) >= 2:
             # Sympy does not handle symbolic tensor inversion, so we need to operate on the numpy vector
             df = solver_params['fprime']
-            solver_params['fprime'] = self._numpy_tensor_solve(new_f, solver_params['fprime'])
+            solver_params['fprime'] = self._numpy_tensor_solve(new_f, solver_params['fprime'], shape)
 
         # Reshape
-        solver_params_x0 = solver_params_x0.reshape(*shape+offset, -1)
-        vals = tuple(e.reshape(*shape+offset, -1) for e in vals)
+        solver_params_x0 = np.rollaxis(solver_params_x0, 0, offset+len(shape)+1)
+        vals = tuple(np.rollaxis(e, 0, offset+len(shape)+1) for e in vals)
 
         # Vectorized nonlinear solver (e.g. Newton, Halley...)
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
-        self.dat.data[:] = res.reshape(-1, *shape)
+        self.dat.data[:] = np.rollaxis(res.squeeze(), -1)
 
         return self
 
     def _sympy_inv_jacobian(self, x, F):
         """
-        Symbolically performs the inversion of the Jacobian of F
+        Symbolically performs the inversion of the Jacobian of F, except if x is an Array (i.e. rank>2)
+        in which case we return the Jacobian of F and perform later on the inversion numerically.
+        This is because sympy does not allow for symbolic inversion of Array objects.
         """
         if isinstance(x, sp.Matrix) and x.shape[-1] == 1:
             # Vector
@@ -473,16 +479,17 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 df = F/df
         return df
 
-    def _numpy_tensor_solve(self, f, df):
+    def _numpy_tensor_solve(self, f, df, shape):
+        """
+        Solve the linear system involving the Jacobian, where df has a rank greater than 2.
+        """
         def _tensor_solve_(X, *Y):
             ndat = X.shape[-1]
             f_X = f(X, *Y)
-            df_X = np.array(df(X, *Y))
-            # Change that
-            if shape*2 == df_X.shape:
-                 df_X = np.tile(np.expand_dims(df_X,-1), ndat)
-            dfinvf = np.array([np.linalg.tensorsolve(df_X[...,i], np.transpose(f_X[...,i])) for i in range(ndat)])
-            return np.transpose(dfinvf)
+            Y = np.array(Y)
+            df_X = np.array([df(X[..., i], *Y[...,i]) for i in range(ndat)])
+            res =  np.array([np.linalg.tensorsolve(df_X[i,...], f_X[..., i]) for i in range(ndat)])
+            return np.rollaxis(res, 0, len(f_X.shape))
         return _tensor_solve_
 
     def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50,
@@ -605,14 +612,12 @@ class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, weights_version=None):
 
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):
-            print("Fix this (excessive operands)")
-            cw = Constant(0.)
             weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
-            cw.dat.data = weights_val
+            cw.dat.data[:] = weights_val
             operands += (cw,)
             if isinstance(derivatives, tuple): # Type exception is caught later
                 derivatives += (0,)
@@ -628,6 +633,11 @@ class PointnetOperator(AbstractPointwiseOperator):
                   than the number of operands and not %s" % ncontrols)
 
         self._controls = tuple(range(0,self.ncontrols))
+
+        if weights_version is not None:
+            self._weights_version = weights_version
+        else:
+            self._weights_version = {'version': 1, 'W': self.ufl_operands[-1]}
 
     @property
     def framework(self):
@@ -645,25 +655,45 @@ class PointnetOperator(AbstractPointwiseOperator):
     def controls(self):
         return dict(zip(self._controls, tuple(self.ufl_operands[i] for i in self._controls)))
 
+    def copy(self, deepcopy=False):
+        r"""Return a copy of this CoordinatelessFunction.
 
-    #    "Compute the gradient of the neural net output with respect to the inputs."
-    #    raise NotImplementedError(self.__class__.compute_grad_inputs)
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
+                          name=self.name(), dtype=self.dat.dtype,
+                          derivatives=self.derivatives,
+                          operator_data=self.operator_data,
+                          weights_version=self._weights_version)
+
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None, add_kwargs={}):
+        add_kwargs['weights_version'] = self._weights_version
+        return AbstractPointwiseOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
+                                                                derivatives=derivatives, count=count, name=name,
+                                                                operator_data=operator_data, extop_id=extop_id,
+                                                                add_kwargs=add_kwargs)
 
 
 class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, weights_version=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id, weights_version=weights_version)
         """
         if not isinstance(self.ufl_operands[-1], Constant):
             raise ValueError("Expecting a Constant as last argument for the weights")
         """
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
-        self.model.double()
-        #torch.set_default_dtype(torch.float64)
+        self.model.double()  # or torch.set_default_dtype(torch.float64)
 
         # Check
         try:
@@ -685,20 +715,30 @@ class PytorchOperator(PointnetOperator):
                 return N
             return N.detach()
         elif self.derivatives[-1] == 1:
+            # When we want to compute: \frac{\partial{N}}{\partial{weights}}
             return self.ml_backend.zeros(len(x))
 
         gradient = self.ml_backend.autograd.grad(list(N), x, retain_graph=True)[0]
         return gradient.squeeze(1)
 
+    def _eval_update_weights(evaluate):
+        def wrapper(self, *args, **kwargs):
+            w = self.ufl_operands[-1]
+            self_version = self._weights_version['version']
+            w_version = w.dat._dat_version
+
+            if self_version != w_version:
+                if w._is_control:
+                    self._weights_version['version'] = w_version
+                    self._weights_version['W'] = w
+                    self._update_model_weights()
+
+            return evaluate(self, *args, **kwargs)
+        return wrapper
+
+    @_eval_update_weights
     def evaluate(self, model_tape=False):
         model = self.model
-
-        # Criterion to check if in backprop mode, better way to do that?
-        #if self.ufl_operands[-1].dat.data.any():
-        if self.ml_backend.tensor(self.ufl_operands[-1].dat.data) != model.weight.data:
-            print("\n ERROR UPDATE!")
-            import ipdb; ipdb.set_trace()
-                #self._update_model_weights()
 
         # Explictly set the eval mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
@@ -708,8 +748,7 @@ class PytorchOperator(PointnetOperator):
         # Prendre cas general ou plus de 1 operand
         op = Function(space).interpolate(self.ufl_operands[0])
 
-
-        torch_op = self.ml_backend.tensor(op.dat.data, requires_grad=True)
+        torch_op = self.ml_backend.tensor(op.dat.data_ro, requires_grad=True)
         torch_op = self.ml_backend.unsqueeze(torch_op, 1)
 
         # Vectorized forward pass
@@ -728,29 +767,31 @@ class PytorchOperator(PointnetOperator):
 
         return self.assign(result)
 
-    def _init_weights(self):
-        self.ufl_operands[-1].dat.data = self.get_weights()
-
-    def _assign_weights(self, weights):
-        self.model.weight.data = weights
-
-    def _update_model_weights(self):
-        weights_op = self.ml_backend.tensor(self.ufl_operands[-1].dat.data)
-        self._assign_weights(weights_op.unsqueeze(0))
-
     def get_weights(self):
         return ml_get_weights(self.model, self.framework)
 
     def adjoint_action(self, x, idx):
         if idx == len(self.ufl_operands) - 1:
-            res = Function(self.function_space())
+            #res = Function(self.function_space())
             outputs = self.evaluate(model_tape=True)
             weights = self.model.weight
+            grad_W = self.ml_backend.autograd.grad(outputs, weights, grad_outputs=[self.ml_backend.tensor(x.dat.data_ro)], retain_graph=True)
+            """
             for i, e in enumerate(outputs):
-                v = self.ml_backend.tensor(x.dat.data[i])
+                v = self.ml_backend.tensor(x.dat.data_ro[i])
                 res.dat.data[i] = self.ml_backend.autograd.grad(e, weights, grad_outputs=[v], retain_graph=True)[0]
-            return res.vector()
+            """
+            w = self.ufl_operands[-1]
+            cst_fct_space = w._ad_function_space(self.function_space().mesh())
+            return Function(cst_fct_space, val=grad_W).vector()
         return AbstractPointwiseOperator.adjoint_action(self, x, idx)
+
+    def _assign_weights(self, weights):
+        self.model.weight.data = weights
+
+    def _update_model_weights(self):
+        weights_op = self.ml_backend.tensor(self.ufl_operands[-1].dat.data_ro)
+        self._assign_weights(weights_op.unsqueeze(0))
 
 
 class TensorFlowOperator(PointnetOperator):
@@ -849,8 +890,7 @@ def weights(*args):
     res = []
     for e in args:
         w = e.ufl_operands[-1]
-        #w.dat.data = e.get_weights()
-        if not isinstance(w, Constant): #PointnetWeights):
+        if not isinstance(w, Constant):
             raise TypeError("Expecting a PointnetWeights and not $s", w)
         res += [w]
     if len(res) == 1:
