@@ -1,7 +1,10 @@
 from functools import partial
+from itertools import chain
 
 from ufl import MixedElement, FiniteElement, VectorElement, TensorElement, replace
 from ufl.algorithms import map_integrands
+
+from pyop2 import op2
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -190,11 +193,52 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        R = restriction_matrix(fV, cV, fbcs, cbcs)
+        I = prolongation_matrix(fV, cV, fbcs, cbcs)
+        R = PETSc.Mat().createTranspose(I)
         return R, None
+
 
     def view(self, pc, viewer=None):
         if viewer is None:
             viewer = PETSc.Viewer.STDOUT
         viewer.printfASCII("p-multigrid PC\n")
         self.ppc.view(viewer)
+
+
+def prolongation_transfer_kernel(Pk, P1):
+    # Works for Pk, Pm; I just retain the notation
+    # P1 to remind you that P1 is of lower degree
+    # than Pk
+    from tsfc import compile_expression_dual_evaluation
+    from tsfc.fiatinterface import create_element
+    from firedrake import TestFunction
+
+    expr = TestFunction(P1)
+    coords = Pk.ufl_domain().coordinates
+    to_element = create_element(Pk.ufl_element(), vector_is_mixed=False)
+
+    ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
+    kernel = op2.Kernel(ast, ast.name)
+    return kernel
+
+
+def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
+    sp = op2.Sparsity((Pk.dof_dset,
+                       P1.dof_dset),
+                      (Pk.cell_node_map(),
+                       P1.cell_node_map()))
+    mat = op2.Mat(sp, PETSc.ScalarType)
+
+    rlgmap, clgmap = mat.local_to_global_maps
+    rlgmap = Pk.local_to_global_map(Pk_bcs, lgmap=rlgmap)
+    clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
+    unroll = any(bc.function_space().component is not None
+                 for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
+    matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
+                 lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+    mesh = Pk.ufl_domain()
+    op2.par_loop(prolongation_transfer_kernel(Pk, P1), mesh.cell_set,
+                 matarg)
+    mat.assemble()
+    mat.handle.view(PETSc.Viewer().createASCII('/tmp/prolongation-mat-%d-%d.log' % (Pk.ufl_element().degree(), P1.ufl_element().degree())))
+    return mat.handle
