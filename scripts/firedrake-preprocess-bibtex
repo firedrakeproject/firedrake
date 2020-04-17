@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import sys
 import io
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 try:
@@ -12,13 +11,13 @@ except ImportError:
 parser = ArgumentParser(description="""Ensure BibTeX entries for inclusion in the Firedrake website have a
 URL or DOI, and impose clean formatting.""",
                         formatter_class=RawDescriptionHelpFormatter)
-parser.add_argument("bibtex-file", help="The BibTeX file to process")
+parser.add_argument("bibtex_file", help="The BibTeX file to process")
 parser.add_argument("--validate", action='store_true',
                     help="Instead of rewriting the bibtex file, raise an exception if anything would have changed.")
 
 args = parser.parse_args()
 
-filename = sys.argv[1]
+filename = args.bibtex_file
 
 parser = bibtexparser.bparser.BibTexParser()
 parser.common_strings = True
