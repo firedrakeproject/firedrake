@@ -616,6 +616,7 @@ class PointnetOperator(AbstractPointwiseOperator):
 
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):
+            cw = Constant(0.)
             weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
             cw.dat.data[:] = weights_val
             operands += (cw,)
@@ -723,11 +724,14 @@ class PytorchOperator(PointnetOperator):
 
     def _eval_update_weights(evaluate):
         def wrapper(self, *args, **kwargs):
+            # Get Constants representing weights
+            self_w = self._weights_version['W']
             w = self.ufl_operands[-1]
+            # Get versions
             self_version = self._weights_version['version']
             w_version = w.dat._dat_version
 
-            if self_version != w_version:
+            if self_version != w_version or w != self_w:
                 if w._is_control:
                     self._weights_version['version'] = w_version
                     self._weights_version['W'] = w
