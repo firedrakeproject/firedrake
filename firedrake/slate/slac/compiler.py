@@ -110,11 +110,17 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         return cache.setdefault(key, kernel)
 
 
-def get_temp_mem(loopy_kernel):
-    """Get memory in bytes of temporaries in loopy kernel"""
-    return sum(
+def get_temp_info(loopy_kernel):
+    """Get information about of temporaries in loopy kernel.
+
+    Returns memory in bytes and number of temporaries
+    """
+    mem_total = sum(
         temp.nbytes for temp in loopy_kernel.temporary_variables.values()
     )
+    mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
+    num_temps = len(loopy_kernel.temporary_variables)
+    return mem_total, num_temps, mems
 
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
@@ -140,8 +146,13 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # stage 2: gem to loopy...
     print('\n====Loopy outer===')
     loopy_outer = gem_to_loopy(gem_expr, builder)
-    print('Temp memory: ', get_temp_mem(loopy_outer))
-    #print('loopy_outer:', loopy_outer)
+    mem, num_temps, mems = get_temp_info(loopy_outer)
+    print('Temp memory: ', mem)
+    print('Num temps: ', num_temps)
+    print('Temp mems: ', mems)
+    # print('loopy_outer temps: ', loopy_outer.temporary_variables)
+    # print('loopy_outer instructions: ', loopy_outer.instructions.__str__)
+    print('loopy_outer:', loopy_outer)
 
 
     # stage 3: merge loopys...
@@ -686,11 +697,11 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
         args.append(loopy.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
 
     # Preprocess of gem for removing unneccesary component tensors and temporaries
-    print("\n==not peprocessed: ",traversed_gem_expr_dag)
+    # print("\n==not peprocessed: ",traversed_gem_expr_dag)
     # view_gem_dag(traversed_gem_expr_dag, filename='before', graph_type=GraphType.DAG)
-    # traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
+    traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
     # view_gem_dag(traversed_gem_expr_dag, filename='after', graph_type=GraphType.DAG)
-    print("\n==preprocessed:",traversed_gem_expr_dag)
+    # print("\n==preprocessed:",traversed_gem_expr_dag)
     print('\n')
 
     # glue assignments to return variable
