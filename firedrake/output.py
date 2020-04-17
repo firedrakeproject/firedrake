@@ -38,20 +38,20 @@ ufl_wedge = ufl.TensorProductCell(ufl.Cell("triangle"),
 ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"),
                                 ufl.Cell("interval"))
 cells = {
-    (ufl.Cell("interval"), False): VTK_INTERVAL,
-    (ufl.Cell("interval"), True): VTK_LAGRANGE_CURVE,
-    (ufl.Cell("triangle"), False): VTK_TRIANGLE,
-    (ufl.Cell("triangle"), True): VTK_LAGRANGE_TRIANGLE,
-    (ufl.Cell("quadrilateral"), False): VTK_QUADRILATERAL,
-    (ufl.Cell("quadrilateral"), True): VTK_LAGRANGE_QUADRILATERAL,
-    (ufl_quad, True): VTK_LAGRANGE_QUADRILATERAL,
-    (ufl_quad, False): VTK_QUADRILATERAL,
-    (ufl.Cell("tetrahedron"), False): VTK_TETRAHEDRON,
-    (ufl.Cell("tetrahedron"), True): VTK_LAGRANGE_TETRAHEDRON,
-    (ufl_wedge, False): VTK_WEDGE,
-    (ufl_wedge, True): VTK_LAGRANGE_WEDGE,
-    (ufl_hex, False): VTK_HEXAHEDRON,
-    (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
+    (ufl.Cell("interval").cellname(), False): VTK_INTERVAL,
+    (ufl.Cell("interval").cellname(), True): VTK_LAGRANGE_CURVE,
+    (ufl.Cell("triangle").cellname(), False): VTK_TRIANGLE,
+    (ufl.Cell("triangle").cellname(), True): VTK_LAGRANGE_TRIANGLE,
+    (ufl.Cell("quadrilateral").cellname(), False): VTK_QUADRILATERAL,
+    (ufl.Cell("quadrilateral").cellname(), True): VTK_LAGRANGE_QUADRILATERAL,
+    (ufl_quad.cellname(), True): VTK_LAGRANGE_QUADRILATERAL,
+    (ufl_quad.cellname(), False): VTK_QUADRILATERAL,
+    (ufl.Cell("tetrahedron").cellname(), False): VTK_TETRAHEDRON,
+    (ufl.Cell("tetrahedron").cellname(), True): VTK_LAGRANGE_TETRAHEDRON,
+    (ufl_wedge.cellname(), False): VTK_WEDGE,
+    (ufl_wedge.cellname(), True): VTK_LAGRANGE_WEDGE,
+    (ufl_hex.cellname(), False): VTK_HEXAHEDRON,
+    (ufl_hex.cellname(), True): VTK_LAGRANGE_HEXAHEDRON,
 }
 
 
@@ -134,14 +134,14 @@ def get_topology(coordinates):
     perm = None
     # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
-    if cells[cell, nonLinear] == VTK_QUADRILATERAL:
+    if cells[cell.cellname(), nonLinear] == VTK_QUADRILATERAL:
         # Quad is
         #
         # 1--3    3--2
         # |  | -> |  |
         # 0--2    0--1
         values = values[:, [0, 2, 3, 1]]
-    elif cells[cell, nonLinear] == VTK_WEDGE:
+    elif cells[cell.cellname(), nonLinear] == VTK_WEDGE:
         # Wedge is
         #
         #    5          5
@@ -153,7 +153,7 @@ def get_topology(coordinates):
         # |/  \|     |/  \|
         # 0----2     0----1
         values = values[:, [0, 2, 4, 1, 3, 5]]
-    elif cells[cell, nonLinear] == VTK_HEXAHEDRON:
+    elif cells[cell.cellname(), nonLinear] == VTK_HEXAHEDRON:
         # Hexahedron is
         #
         #   5----7      7----6
@@ -163,25 +163,25 @@ def get_topology(coordinates):
         # |/   |/     |/   |/
         # 0----2      0----1
         values = values[:, [0, 2, 3, 1, 4, 6, 7, 5]]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_TETRAHEDRON:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_TETRAHEDRON:
         perm = vtk_lagrange_tet_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_HEXAHEDRON:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_HEXAHEDRON:
         perm = vtk_lagrange_hex_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_CURVE:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_CURVE:
         perm = vtk_lagrange_interval_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_TRIANGLE:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_TRIANGLE:
         perm = vtk_lagrange_triangle_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_QUADRILATERAL:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_QUADRILATERAL:
         perm = vtk_lagrange_quad_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells[cell, nonLinear] == VTK_LAGRANGE_WEDGE:
+    elif cells[cell.cellname(), nonLinear] == VTK_LAGRANGE_WEDGE:
         perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
-    elif cells.get((cell, nonLinear)) is None:
+    elif cells.get((cell.cellname(), nonLinear)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
 
@@ -221,7 +221,7 @@ def get_topology(coordinates):
                                         stop=basis_dim * (num_cells + 1),
                                         step=basis_dim,
                                         dtype=IntType)
-    cell_types = numpy.full(num_cells, cells[cell, nonLinear], dtype="uint8")
+    cell_types = numpy.full(num_cells, cells[cell.cellname(), nonLinear], dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
             OFunction(offsets_into_con, "offsets", None),
             OFunction(cell_types, "types", None))
@@ -483,7 +483,7 @@ class File(object):
 
         mesh = meshes[0]
         cell = mesh.topology.ufl_cell()
-        if (cell, True) not in cells and (cell, False) not in cells:
+        if (cell.cellname(), True) not in cells and (cell.cellname(), False) not in cells:
             raise ValueError("Unhandled cell type %r" % cell)
 
         if self._fnames is not None:
