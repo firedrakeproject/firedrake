@@ -11,6 +11,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.low_order import ArgumentReplacer
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
+from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
 import firedrake
 
@@ -72,6 +73,7 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
+        set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
         add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent),
