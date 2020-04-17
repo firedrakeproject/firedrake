@@ -4,6 +4,7 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
 
 from functools import singledispatch, partial
+from collections import OrderedDict
 import firedrake
 from firedrake.petsc import PETSc
 
@@ -183,8 +184,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
             coeffs = finectx.F.coefficients() + finectx.J.coefficients()
             if finectx.Jp is not None:
                 coeffs += finectx.Jp.coefficients()
-            usedcoeffs = set()
-            coeffs = [x for x in coeffs if x not in usedcoeffs and (usedcoeffs.add(x) or True)]
+            coeffs = tuple(OrderedDict.fromkeys(coeffs))
 
             for coeff in coeffs:
                 #print("Considering coeff = %s" % coeff)
