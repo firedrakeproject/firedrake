@@ -69,12 +69,6 @@ def test_p_multigrid_vector():
     g = Constant(-9.81)
     B = Constant((0.0, rho*g))  # Body force per unit volume
 
-    # Kinematics
-    I = Identity(2)             # Identity tensor
-    F = I + grad(u)             # Deformation gradient
-    C = F.T*F                   # Right Cauchy-Green tensor
-    E = 0.5 * (C - I)           # strain tensor
-
     # Elasticity parameters
     E_, nu = 6.9e10, 0.334
     mu, lmbda = Constant(E_/(2*(1 + nu))), Constant(E_*nu/((1 + nu)*(1 - 2*nu)))
