@@ -606,8 +606,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
         #return dNdq_adj * x
     """
 
-# Neural Net bit : Here !
-
 class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
      """
@@ -675,6 +673,7 @@ class PointnetOperator(AbstractPointwiseOperator):
                           weights_version=self._weights_version)
 
     def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None, add_kwargs={}):
+        "Overwrite _ufl_expr_reconstruct to pass on weights_version"
         add_kwargs['weights_version'] = self._weights_version
         return AbstractPointwiseOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
                                                                 derivatives=derivatives, count=count, name=name,
@@ -688,10 +687,6 @@ class PytorchOperator(PointnetOperator):
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, weights_version=None):
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id, weights_version=weights_version)
-        """
-        if not isinstance(self.ufl_operands[-1], Constant):
-            raise ValueError("Expecting a Constant as last argument for the weights")
-        """
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
