@@ -1193,7 +1193,7 @@ values from f.)"""
 
         if self.ufl_cell() not in (ufl.Cell('triangle', 3),
                                    ufl.Cell("quadrilateral", 3),
-                                   ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
+                                   ufl.TensorProductCell(ufl.Cell('interval', geometric_dimension=2), ufl.Cell('interval'),
                                                          geometric_dimension=3)):
             raise NotImplementedError('Only implemented for triangles and quadrilaterals embedded in 3d')
 
