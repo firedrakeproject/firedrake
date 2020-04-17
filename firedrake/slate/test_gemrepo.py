@@ -1,9 +1,19 @@
 from firedrake import *
-import math
 from firedrake.formmanipulation import split_form
+from firedrake.slate.slac import compile_expression as compile_slate
+import math
+import matplotlib.pyplot as plt
 import numpy as np
 import petsc4py.PETSc as PETSc
+from gem.impero_utils import get_num_nodes, get_num_temporaries
 
+def test_fewer_temporaries(to_compile, threshold):
+    to_compile = Transpose(Tensor(a))
+    kernel = compile_slate(to_compile)
+    print('=== KERNEL ===')
+    foo = kernel[0].kinfo.kernel.code
+    print("type: ", type(foo))
+    print("thing: ", foo)
 
 def test_assemble_matrix(a):
     print("Test of assemble matrix")
@@ -101,8 +111,8 @@ def test_transpose(a):
     trans_A = assemble(Transpose(Transpose(_A)))
     A_comp = assemble(_A)
     for i in range(trans_A.M.handle.getSize()[0]):
-        for j in range(trans_A.M.handle.getSize()[1]):
-            assert math.isclose(trans_A.M.handle.getValues(i, j), A_comp.M.handle.getValues(i, j)), "Test for stacked transpose failed"
+       for j in range(trans_A.M.handle.getSize()[1]):
+           assert math.isclose(trans_A.M.handle.getValues(i, j), A_comp.M.handle.getValues(i, j)), "Test for stacked transpose failed"
 
 
 def test_mul_dx(A, L, V, mesh):
@@ -131,11 +141,11 @@ def test_mul_dx(A, L, V, mesh):
             assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
 
     # test for mat-mat multiplication with same tensor
-    mul_matmat = assemble(_A * _A)
-    mul_matmat_comp = assemble(_A).M.handle * assemble(_A).M.handle
-    for i in range(mul_matmat.M.handle.getSize()[0]):
-        for j in range(mul_matmat.M.handle.getSize()[1]):
-            assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
+    # mul_matmat = assemble(_A * _A)
+    # mul_matmat_comp = assemble(_A).M.handle * assemble(_A).M.handle
+    # for i in range(mul_matmat.M.handle.getSize()[0]):
+    #     for j in range(mul_matmat.M.handle.getSize()[1]):
+    #         assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
 
 
 def test_mul_ds(A, L, V, mesh):
@@ -316,40 +326,168 @@ def marybarker_solve_curl_curl(mesh, f, degree, with_tensor=False):
         assemble(w)
         # does not throw an error if degree > 4 anymore
 
+def test_aggressive_unaryop_nesting():
+   """Test Slate's ability to handle extremely
+   nested expressions.
+   """
+   V = FunctionSpace(UnitSquareMesh(1, 1), "DG", 3)
+   f = Function(V)
+   g = Function(V)
+   f.assign(1.0)
+   g.assign(0.5)
+   F = AssembledVector(f)
+   G = AssembledVector(g)
+   u = TrialFunction(V)
+   v = TestFunction(V)
+
+   A = Tensor(u*v*dx)
+   B = Tensor(2.0*u*v*dx)
+
+   # This is a very silly way to write the vector of ones
+   foo = (B.T*A.inv).T*G 
+   bar = (-A.inv.T*B.T).inv*F
+   baz = B.inv*(A.T).T*F
+
+#    foo = (B.T*A.inv).T*G + (-A.inv.T*B.T).inv*F + B.inv*(A.T).T*F
+   result = assemble(foo+bar+baz).dat.data
+   print('result: ', result)
+   print('answer: ', np.ones(V.node_count))
+   assert np.allclose(result, np.ones(V.node_count))
+
+
+def test_slate_hybridization():
+    degree = 1
+    hdiv_family = "RT"
+    quadrilateral = False 
+    # Create a mesh 
+    mesh = UnitSquareMesh(6, 6, quadrilateral=quadrilateral)
+    RT = FunctionSpace(mesh, hdiv_family, degree)
+    DG = FunctionSpace(mesh, "DG", degree - 1)
+    W = RT * DG
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    n = FacetNormal(mesh)
+
+    # Define the source function
+    f = Function(DG)
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
+    
+    # Define the variational forms 
+    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
+    L = f * v * dx - 42 * dot(tau, n)*ds
+
+    # Compare hybridized solution with non-hybridized
+    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu'}}
+    solve(a == L, w, solver_parameters=params)
+    sigma_h, u_h = w.split()
+
+    # (Non-hybrid) Need to slam it with preconditioning due to the
+    # system's indefiniteness
+    w2 = Function(W)
+    solve(a == L, w2,
+          solver_parameters={'pc_type': 'fieldsplit',
+                             'pc_fieldsplit_type': 'schur',
+                             'ksp_type': 'cg',
+                             'ksp_rtol': 1e-14,
+                             'pc_fieldsplit_schur_fact_type': 'FULL',
+                             'fieldsplit_0_ksp_type': 'cg',
+                             'fieldsplit_1_ksp_type': 'cg'})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-11
+    assert u_err < 1e-11
+
+def solve_and_plot(a,L,V):
+    u = Function(V)
+    solve(a == L, u, solver_parameters={'ksp_type': 'cg'})
+    File("helmholtz_test_output.pvd").write(u)
+
+    try:
+      import matplotlib.pyplot as plt
+    except:
+      warning("Matplotlib not imported")
+
+    try:
+      fig, axes = plt.subplots()
+      colors = tripcolor(u, axes=axes)
+      fig.colorbar(colors)
+    except Exception as e:
+      warning("Cannot plot figure. Error msg: '%s'" % e)
+
+    try:
+      fig, axes = plt.subplots()
+      contours = tricontour(u, axes=axes)
+      fig.colorbar(contours)
+    except Exception as e:
+      warning("Cannot plot figure. Error msg: '%s'" % e)
+
+    try:
+      plt.show()
+    except Exception as e:
+      warning("Cannot show figure. Error msg: '%s'" % e)
+
+
+
 
 """
 Run test script
 """
 print("Run test for slate to loopy compilation.\n\n")
 
-print("test123")
+# test_aggressive_unaryop_nesting() 
+test_slate_hybridization()
 
 # discontinuous Helmholtz equation on cell integrals
-mesh = UnitSquareMesh(5, 5)
+mesh = UnitSquareMesh(4, 4)#, quadrilateral=True)
+# mesh = BoxMesh(5, 5,5,1,1,1)
+# mesh = ExtrudedMesh(m, 5, layer_height=0.2, extrusion_type='uniform')
+# V = FunctionSpace(mesh, "DG", 4)
 V = FunctionSpace(mesh, "DG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
 f = Function(V)
 x, y = SpatialCoordinate(mesh)
+# x, y, z = SpatialCoordinate(mesh)
 f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + v * u) * dx
 L = f * v * dx
+#^BEFORE
 
-test_negative(a)
-test_stacked(a, L)
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
-test_assembled_vector(L)
-test_transpose(a)
-test_mul_dx(a, L, V, mesh)
-test_solve(a, L, V)
-test_solve_local(a, L)
-test_inverse_local(a)
+# A = Tensor(a)
+# b = AssembledVector(Function(assemble(L)))
+# bar = -A.T + A
+# res = assemble(bar * b)
+
+# solve_and_plot(a,L,V)
+# test_fewer_temporaries(a, 10)
+# test_negative(a) 
+# test_stacked(a, L)
+# test_assemble_matrix(a)
+# test_negative(a) 
+# test_add(a) 
+# test_assembled_vector(L)
+# test_transpose(a)
+# test_mul_dx(a, L, V, mesh)
+# test_solve(a, L, V) 
+# test_solve_local(a, L) 
+# test_inverse_local(a) 
 
 # discontinuous Helmholtz equation on facet integrals
-mesh = UnitSquareMesh(5, 5)
-V = FunctionSpace(mesh, "DG", 1)
+mesh = UnitSquareMesh(4, 4)
+V = FunctionSpace(mesh, "CG", 1)
+# V = FunctionSpace(mesh, "DG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
 f = Function(V)
@@ -358,11 +496,12 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (v * u) * ds
 L = f * v * ds
 
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
-test_mul_ds(a, L, V, mesh)
-test_inverse_local(a)
+# solve_and_plot(a,L,V)
+#test_assemble_matrix(a)
+# test_negative(a)
+# test_add(a)
+# test_mul_ds(a, L, V, mesh)
+#test_inverse_local(a)
 
 # continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5, 5)
@@ -375,21 +514,21 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + u * v) * ds
 L = f * v * ds
 
-test_assemble_matrix(a)
-test_negative(a)
-test_add(a)
-test_inverse_local(a)
+#test_assemble_matrix(a)
+# test_negative(a)
+# test_add(a)
+# test_inverse_local(a)
 
 # test for assembly of blocks of mixed systems
 # (here for lowest order RT-DG discretisation)
-test_blocks()
+# test_blocks()
 
 # test of block assembly of mixed system defined on extruded mesh
-test_layers()
+# test_layers()
 
 # issue raised by marybarker
-mesh = UnitTetrahedronMesh()
-marybarker_solve_curl_curl(mesh, Constant((1, 1, 1)), 5, True)
+#mesh = UnitTetrahedronMesh()
+#marybarker_solve_curl_curl(mesh, Constant((1, 1, 1)), 5, True)
 
 # TODO: continuous advection problem
 n = 5
