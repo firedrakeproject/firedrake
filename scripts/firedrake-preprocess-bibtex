@@ -16,7 +16,6 @@ parser.add_argument("bibtex-file", help="The BibTeX file to process")
 parser.add_argument("--validate", action='store_true',
                     help="Instead of rewriting the bibtex file, raise an exception if anything would have changed.")
 
-
 args = parser.parse_args()
 
 filename = sys.argv[1]
@@ -25,17 +24,17 @@ parser = bibtexparser.bparser.BibTexParser()
 parser.common_strings = True
 parser.ignore_nonstandard_types = False
 
-with open(filename) as bibtex_file: 
+with open(filename) as bibtex_file:
     bib_database = parser.parse_file(bibtex_file)
 
 for entry in bib_database.entries:
-    if not "url" in entry and \
-       not "doi" in entry:
+    if "url" not in entry and \
+       "doi" not in entry:
         if entry.get("archiveprefix", None) == "arXiv":
             entry["url"] = "https://arxiv.org/abs/" + entry["eprint"]
         else:
             raise ValueError("%s in bibliograpy %s\n has no url and no DOI.\n" % (entry["ID"], filename))
-    
+
 writer = BibTexWriter()
 writer.indent = '  '     # indent entries with 2 spaces instead of one
 writer.align_values = True
@@ -48,8 +47,7 @@ if args.validate:
             inbuffer = bibtex_file.read()
         if processed != inbuffer:
             raise ValueError("%s would be changed by firedrake-preprocess-bibtex. Please preprocess it and commit the result" % filename)
-        
+
 else:
     with open(filename, 'w') as bibfile:
         bibfile.write(writer.write(bib_database))
-
