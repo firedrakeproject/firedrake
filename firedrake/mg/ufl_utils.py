@@ -180,9 +180,11 @@ def coarsen_function(expr, self, coefficient_mapping=None):
             #print("Inside our restrict hook!!!")
             finectx = firedrake.dmhooks.get_appctx(fine)
 
-            coeffs = set(finectx.F.coefficients()).union(set(finectx.J.coefficients()))
+            coeffs = finectx.F.coefficients() + finectx.J.coefficients()
             if finectx.Jp is not None:
-                coeffs = coeffs.union(finectx.Jp.coefficients())
+                coeffs += finectx.Jp.coefficients()
+            usedcoeffs = set()
+            coeffs = [x for x in coeffs if x not in usedcoeffs and (usedcoeffs.add(x) or True)]
 
             for coeff in coeffs:
                 #print("Considering coeff = %s" % coeff)
