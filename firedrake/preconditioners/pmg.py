@@ -8,7 +8,7 @@ from pyop2 import op2
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.low_order import ArgumentReplacer, restriction_matrix
+from firedrake.preconditioners.low_order import ArgumentReplacer
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.solving_utils import _SNESContext
@@ -141,7 +141,12 @@ class PMGPC(PCBase):
             # Don't actually need the value, since it's only used for
             # killing parts of the matrix. This should be generalised
             # for p-FAS, if anyone ever wants to do that
-            cbcs.append(firedrake.DirichletBC(cV, firedrake.zero(cV.shape),
+
+            cV_ = cV
+            for index in bc._indices:
+                cV_ = cV_.sub(index)
+
+            cbcs.append(firedrake.DirichletBC(cV_, firedrake.zero(cV_.shape),
                                               bc.sub_domain,
                                               method=bc.method))
 
@@ -194,7 +199,6 @@ class PMGPC(PCBase):
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
-
     def view(self, pc, viewer=None):
         if viewer is None:
             viewer = PETSc.Viewer.STDOUT
@@ -225,17 +229,35 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                       (Pk.cell_node_map(),
                        P1.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-
-    rlgmap, clgmap = mat.local_to_global_maps
-    rlgmap = Pk.local_to_global_map(Pk_bcs, lgmap=rlgmap)
-    clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
-    unroll = any(bc.function_space().component is not None
-                 for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
-    matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
-                 lgmaps=(rlgmap, clgmap), unroll_map=unroll)
     mesh = Pk.ufl_domain()
-    op2.par_loop(prolongation_transfer_kernel(Pk, P1), mesh.cell_set,
-                 matarg)
+
+    fele = Pk.ufl_element()
+    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
+        for i in range(fele.num_sub_elements()):
+            Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
+            P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
+
+            rlgmap, clgmap = mat[i, i].local_to_global_maps
+            rlgmap = Pk.sub(i).local_to_global_map(Pk_bcs_i, lgmap=rlgmap)
+            clgmap = P1.sub(i).local_to_global_map(P1_bcs_i, lgmap=clgmap)
+            unroll = any(bc.function_space().component is not None
+                         for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
+            matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
+                               lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+            op2.par_loop(prolongation_transfer_kernel(Pk.sub(i), P1.sub(i)), mesh.cell_set,
+                         matarg)
+
+    else:
+        rlgmap, clgmap = mat.local_to_global_maps
+        rlgmap = Pk.local_to_global_map(Pk_bcs, lgmap=rlgmap)
+        clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
+        unroll = any(bc.function_space().component is not None
+                     for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
+        matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
+                     lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+        op2.par_loop(prolongation_transfer_kernel(Pk, P1), mesh.cell_set,
+                     matarg)
+
     mat.assemble()
     mat.handle.view(PETSc.Viewer().createASCII('/tmp/prolongation-mat-%d-%d.log' % (Pk.ufl_element().degree(), P1.ufl_element().degree())))
     return mat.handle
