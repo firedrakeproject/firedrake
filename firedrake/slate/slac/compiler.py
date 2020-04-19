@@ -86,7 +86,7 @@ class SlateKernel(TSFCKernel):
         self._initialized = True
 
 
-def compile_expression(slate_expr, tsfc_parameters=None, coffee=True):
+def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
