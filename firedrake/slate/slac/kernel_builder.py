@@ -134,7 +134,8 @@ class LocalKernelBuilder(object):
                                                 offset_index=offset,
                                                 shape=(sum(shapes), ),
                                                 vector=tensor,
-                                                local_temp=local_temp)
+                                                local_temp=local_temp,
+                                                function=function)
                         coeff_vecs.setdefault(shape, []).append(cinfo)
                         offset += shape
 
