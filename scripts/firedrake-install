@@ -643,6 +643,13 @@ def git_clone(url):
         except subprocess.CalledProcessError:
             log.error("Failed to check out branch %s" % branch)
             raise
+        try:
+            log.info("Updating submodules.")
+            check_call(["git", "submodule", "update", "--recursive"])
+            log.info("Successfully updated submodules.")
+        except subprocess.CalledProcessError:
+            log.error("Failed to update submodules.")
+            raise
     return name
 
 
