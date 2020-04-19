@@ -15,6 +15,7 @@ all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
 from coffee import base as ast
+from ufl import MixedElement
 
 import time
 from hashlib import md5
@@ -120,6 +121,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     Citations().register("Gibson2018")
 
+    print("COMPILING SLATE", slate_expr)
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
@@ -618,9 +620,9 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     shape = builder.shape(builder.expression)
     arg = loopy.GlobalArg("output", shape=shape, dtype="double")
     args.append(arg)
-    if (type(builder.expression) == slate.Tensor\
-        or type(builder.expression) == slate.AssembledVector\
-        or type(builder.expression) == slate.Block):
+    if (type(builder.expression) == slate.Tensor
+            or type(builder.expression) == slate.AssembledVector
+            or type(builder.expression) == slate.Block):
         idx = builder.gem_indices[str(builder.expression)+"out"]
     else:
         idx = traversed_gem_expr_dag[0].multiindex
@@ -652,7 +654,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
             coeff_shape_list.append(coeff_info.shape)
             coeff_function_list.append(coeff_info.vector._function)
     get = 0
-    for c in builder.expression.coefficients():
+    for i, c in enumerate(builder.expression.coefficients()):
         try:
             indices = [i for i, x in enumerate(coeff_function_list) if x == c]
             for func_index in indices:
@@ -661,12 +663,19 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
                 get += 1
         except ValueError:
             pass
-
-    # Add all other cofficients
-    for v, k in builder.extra_coefficients:
-        args.append(loopy.GlobalArg(k,
-                                    shape=builder.args_extents[k],
-                                    dtype="double"))
+        if indices == []:
+            element = c.ufl_element()
+            if type(element) == MixedElement:
+                for j, c_ in enumerate(c.split()):
+                    name = "w_{}_{}".format(i, j)
+                    args.append(loopy.GlobalArg(name,
+                                shape=builder.args_extents[name],
+                                dtype="double"))
+            else:
+                name = "w_{}".format(i)
+                args.append(loopy.GlobalArg(name,
+                            shape=builder.args_extents[name],
+                            dtype="double"))
 
     # Arg for is exterior (==0)/interior (==1) facet or not
     if builder.needs_cell_facets:
@@ -701,12 +710,12 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
 # with the c-function which is defined in the preamble
 def get_inv_callable(loopy_merged):
     class INVCallable(loopy.ScalarCallable):
-        def __init__(self, name, arg_id_to_dtype=None, 
+        def __init__(self, name, arg_id_to_dtype=None,
                      arg_id_to_descr=None, name_in_target=None):
 
             super(INVCallable, self).__init__(name,
-                  arg_id_to_dtype=arg_id_to_dtype,
-                  arg_id_to_descr=arg_id_to_descr)
+                                              arg_id_to_dtype=arg_id_to_dtype,
+                                              arg_id_to_descr=arg_id_to_descr)
 
             self.name = name
             self.name_in_target = name_in_target
@@ -805,16 +814,16 @@ def get_inv_callable(loopy_merged):
 
 def get_solve_callable(loopy_merged):
     class SolveCallable(loopy.ScalarCallable):
-        def __init__(self, name, arg_id_to_dtype=None, 
+        def __init__(self, name, arg_id_to_dtype=None,
                      arg_id_to_descr=None, name_in_target=None):
 
             super(SolveCallable, self).__init__(name,
-                  arg_id_to_dtype=arg_id_to_dtype,
-                  arg_id_to_descr=arg_id_to_descr)
+                                                arg_id_to_dtype=arg_id_to_dtype,
+                                                arg_id_to_descr=arg_id_to_descr)
 
             self.name = name
             self.name_in_target = name_in_target
-            
+
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
             for i in range(0, len(arg_id_to_dtype)):
                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:

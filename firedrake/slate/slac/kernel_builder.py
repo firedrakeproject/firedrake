@@ -470,7 +470,6 @@ class LocalLoopyKernelBuilder(object):
                 shape = self.shape(tensor)
 
                 self.create_index(shape, tensor)
-                gem_indices = self.gem_indices[tensor]
 
                 temps.setdefault(tensor, gem.Variable("T%d" % len(temps), shape))
                 gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].name,
@@ -494,9 +493,9 @@ class LocalLoopyKernelBuilder(object):
                         f = function
 
                     self.create_index(tensor.shape, tensor)
-                    gem_indices = self.gem_indices[tensor]
 
-                    local_temp = gem.Variable("VecTemp%d" % len(seen_coeff), tensor.shape)
+                    name = "VecTemp%d" % len(seen_coeff)
+                    local_temp = gem.Variable(name, tensor.shape)
                     gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.name,
                                               shape=tensor.shape,
                                               dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
@@ -512,7 +511,7 @@ class LocalLoopyKernelBuilder(object):
                                                 vector=tensor,
                                                 local_temp=local_temp,
                                                 function=f)
-                        coeff_vecs.setdefault(shape, []).append(cinfo)
+                        coeff_vecs.setdefault(((shape, offset), tensor.is_mixed), []).append(cinfo)
                         offset += shape
 
                     seen_coeff.add(function)
