@@ -141,11 +141,11 @@ def test_mul_dx(A, L, V, mesh):
             assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
 
     # test for mat-mat multiplication with same tensor
-    # mul_matmat = assemble(_A * _A)
-    # mul_matmat_comp = assemble(_A).M.handle * assemble(_A).M.handle
-    # for i in range(mul_matmat.M.handle.getSize()[0]):
-    #     for j in range(mul_matmat.M.handle.getSize()[1]):
-    #         assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
+    mul_matmat = assemble(_A * _A)
+    mul_matmat_comp = assemble(_A).M.handle * assemble(_A).M.handle
+    for i in range(mul_matmat.M.handle.getSize()[0]):
+        for j in range(mul_matmat.M.handle.getSize()[1]):
+            assert math.isclose(mul_matmat_comp.getValues(i, j), mul_matmat.M.handle.getValues(i, j)), "Test for mat-mat-mul  on cell integrals failed"
 
 
 def test_mul_ds(A, L, V, mesh):
@@ -441,16 +441,74 @@ def solve_and_plot(a,L,V):
 
 
 
+
+def test_slate_hybridization():
+    degree = 1
+    hdiv_family = "RT"
+    quadrilateral = False
+    # Create a mesh
+    mesh = UnitSquareMesh(6, 6, quadrilateral=quadrilateral)
+    RT = FunctionSpace(mesh, hdiv_family, degree)
+    DG = FunctionSpace(mesh, "DG", degree - 1)
+    W = RT * DG
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    n = FacetNormal(mesh)
+
+    # Define the source function
+    f = Function(DG)
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
+
+    # Define the variational forms
+    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
+    L = f * v * dx - 42 * dot(tau, n)*ds
+
+    # Compare hybridized solution with non-hybridized
+    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu'}}
+    solve(a == L, w, solver_parameters=params)
+    sigma_h, u_h = w.split()
+
+    # (Non-hybrid) Need to slam it with preconditioning due to the
+    # system's indefiniteness
+    w2 = Function(W)
+    solve(a == L, w2,
+          solver_parameters={'pc_type': 'fieldsplit',
+                             'pc_fieldsplit_type': 'schur',
+                             'ksp_type': 'cg',
+                             'ksp_rtol': 1e-14,
+                             'pc_fieldsplit_schur_fact_type': 'FULL',
+                             'fieldsplit_0_ksp_type': 'cg',
+                             'fieldsplit_1_ksp_type': 'cg'})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-11
+    assert u_err < 1e-11
+
+
+# test_slate_hybridization()
+
 """
 Run test script
 """
 print("Run test for slate to loopy compilation.\n\n")
 
 # test_aggressive_unaryop_nesting() 
-test_slate_hybridization()
+# test_slate_hybridization()
 
 # discontinuous Helmholtz equation on cell integrals
-mesh = UnitSquareMesh(4, 4)#, quadrilateral=True)
+mesh = UnitSquareMesh(5, 5)#, quadrilateral=True)
 # mesh = BoxMesh(5, 5,5,1,1,1)
 # mesh = ExtrudedMesh(m, 5, layer_height=0.2, extrusion_type='uniform')
 # V = FunctionSpace(mesh, "DG", 4)
@@ -472,7 +530,7 @@ L = f * v * dx
 
 # solve_and_plot(a,L,V)
 # test_fewer_temporaries(a, 10)
-# test_negative(a) 
+test_negative(a) 
 # test_stacked(a, L)
 # test_assemble_matrix(a)
 # test_negative(a) 
@@ -485,9 +543,9 @@ L = f * v * dx
 # test_inverse_local(a) 
 
 # discontinuous Helmholtz equation on facet integrals
-mesh = UnitSquareMesh(4, 4)
-V = FunctionSpace(mesh, "CG", 1)
-# V = FunctionSpace(mesh, "DG", 1)
+mesh = UnitSquareMesh(5, 5)
+# V = FunctionSpace(mesh, "CG", 1)
+V = FunctionSpace(mesh, "DG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
 f = Function(V)
@@ -497,11 +555,11 @@ a = (v * u) * ds
 L = f * v * ds
 
 # solve_and_plot(a,L,V)
-#test_assemble_matrix(a)
+# test_assemble_matrix(a)
 # test_negative(a)
 # test_add(a)
-# test_mul_ds(a, L, V, mesh)
-#test_inverse_local(a)
+# test_mul_ds(a, L, V, mesh) #!!!
+# test_inverse_local(a)
 
 # continuous Helmholtz equation on facet integrals (works also on cell)
 mesh = UnitSquareMesh(5, 5)
@@ -514,7 +572,7 @@ f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 a = (dot(grad(v), grad(u)) + u * v) * ds
 L = f * v * ds
 
-#test_assemble_matrix(a)
+# test_assemble_matrix(a)
 # test_negative(a)
 # test_add(a)
 # test_inverse_local(a)

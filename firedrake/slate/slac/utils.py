@@ -5,7 +5,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 FlexiblyIndexed, Solve, Inverse, decompose_variable_view)
+                 FlexiblyIndexed, Solve, Inverse, Variable)
 
 
 from functools import singledispatch, update_wrapper
@@ -14,12 +14,12 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
+from loopy.kernel.creation import add_sequential_dependencies
 from islpy import BasicSet
 
 import numpy as np
 import islpy as isl
 import pymbolic.primitives as pym
-import itertools
 
 
 class RemoveRestrictions(MultiFunction):
@@ -152,7 +152,7 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-# singledispatch for second argument
+# singledispatch for class functions
 def classsingledispatch(func):
     dispatcher = singledispatch(func)
 
@@ -170,27 +170,30 @@ class SlateTranslator():
     def __init__(self, builder):
         self.builder = builder
         self.decomp_dict = OrderedDict()
-        self.assembledvectors_count = 0
 
     def slate_to_gem_translate(self):
         translated_nodes = OrderedDict()
         traversed_dag = list(post_traversal([self.builder.expression]))
 
-        # TODO I dont think we need this loop
-        # first traversal for resolving tensors and assembled vectors
+        # First traversal for resolving tensors and assembled vectors
         for tensor in traversed_dag:  # tensor hier is actually TensorBase
             if isinstance(tensor, sl.Tensor) or isinstance(tensor, sl.AssembledVector):
                 translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
 
-        # second traversal for other nodes
+        # Second traversal for other nodes
         for tensor in traversed_dag[:len(traversed_dag)-1]:
             # other tensor types are translated into gem nodes
             if not isinstance(tensor, sl.Tensor) and not isinstance(tensor, sl.AssembledVector):
                 translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
 
-        # last root contains the whole tree
-        tree = self.slate_to_gem(traversed_dag[len(traversed_dag)-1], translated_nodes)
-        return tree
+        # Last root contains the whole tree
+        last_tensor = traversed_dag[len(traversed_dag)-1]
+        last_loopy_tensor = self.slate_to_gem(last_tensor, translated_nodes)
+        self.builder.create_index(last_loopy_tensor.shape, str(last_tensor)+"out")
+        out_indices = self.builder.gem_indices[str(last_tensor)+"out"]
+        if not (type(last_loopy_tensor) == Indexed or type(last_loopy_tensor) == FlexiblyIndexed):
+            last_loopy_tensor = Indexed(last_loopy_tensor, out_indices)
+        return last_loopy_tensor
 
     @classsingledispatch
     def slate_to_gem(self, tensor, node_dict):
@@ -201,33 +204,31 @@ class SlateTranslator():
 
     @slate_to_gem.register(firedrake.slate.slate.Tensor)
     def slate_to_gem_tensor(self, tensor, node_dict):
-        return self.builder.temps[tensor]
+        idx = self.builder.gem_indices[tensor]
+        return ComponentTensor(self.index_tensor(self.builder.temps[tensor], idx), idx)
 
     @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
         ret = None
-        if len(tensor.shapes) == 1 and not tensor.is_mixed:  # tensor not mixed
+        # Not mixed tensor can just be translated into the right gem Node saved in builder
+        if len(tensor.shapes) == 1 and not tensor.is_mixed:
             coeffs = self.builder.coefficient_vecs[tensor.shapes[0][0]]
             for coeff in coeffs:
                 if coeff.vector == tensor:
                     assert ret is None, "This vector as already been assembled."
-                    ret = coeff.local_temp
+                    idx = self.builder.gem_indices[tensor]
+                    ret = ComponentTensor(self.index_tensor(coeff.local_temp, idx), idx)
         else:
-            # For mixed tensors we need the following for populating AssembledVectors.
-            # FOR (i1=0; i1<node_extent; i1++):
-            #  FOR (j1=0; j1<dof_extent; j1++):
-            #      VT0[offset + (dof_extent * i1), j1] = w_0_0[i1][j1]
-            #      VT1[offset + (dof_extent * i1), j1] = w_1_0[i1][j1]
-            #
-            dim2idxs = []
-            for dofs, cinfo_list in self.builder.coefficient_vecs.items():
-                for i, cinfo in enumerate(cinfo_list):
-                    if cinfo.vector == tensor:
-                        var = cinfo.local_temp.children[0]
-                        self.builder.create_index(cinfo.shape, str(cinfo)+"mixed")
+            tensor_found = False
+            for cinfo_list in self.builder.coefficient_vecs.values():
+                for cinfo in cinfo_list:
+                    if cinfo.vector == tensor and not tensor_found:
+                        var = cinfo.local_temp
+                        self.builder.create_index(tensor.shape, str(cinfo)+"mixed")
                         index = self.builder.gem_indices[str(cinfo)+"mixed"]
-                        dim2idxs.append(tuple([cinfo.offset_index, ((index[0], 1), )]))
-            ret = FlexiblyIndexed(var, dim2idxs)
+                        tensor_found = True
+            ret = Indexed(var, index)
+            ret = ComponentTensor(ret, index)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Add)
@@ -236,21 +237,17 @@ class SlateTranslator():
         _A, _B = node_dict[A], node_dict[B]  # gem representations
         self.builder.create_index(A.shape, str(A)+"newadd"+str(B))
         new_indices = self.builder.gem_indices[str(A)+"newadd"+str(B)]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
-        _A = self.get_tensor_withnewidx(_A, new_indices)
-        _B = self.get_tensor_withnewidx(_B, new_indices)
-        return Indexed(ComponentTensor(Sum(_A, _B), new_indices), out_indices)
+        _A = self.index_tensor(_A, new_indices)
+        _B = self.index_tensor(_B, new_indices)
+        return ComponentTensor(Sum(_A, _B), new_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Negative)
     def slate_to_gem_negative(self, tensor, node_dict):
         A, = tensor.operands
         self.builder.create_index(A.shape, str(A)+"newneg")
         new_indices = self.builder.gem_indices[str(A)+"newneg"]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
-        var_A = self.get_tensor_withnewidx(node_dict[A], new_indices)
-        return Indexed(ComponentTensor(Product(Literal(-1), var_A), new_indices), out_indices)
+        var_A = self.index_tensor(node_dict[A], new_indices)
+        return ComponentTensor(Product(Literal(-1), var_A), new_indices)
 
     @slate_to_gem.register(firedrake.slate.slate.Transpose)
     def slate_to_gem_transpose(self, tensor, node_dict):
@@ -258,10 +255,8 @@ class SlateTranslator():
         _A = node_dict[A]
         self.builder.create_index(A.shape, str(A)+"newtrans")
         new_indices = self.builder.gem_indices[str(A)+"newtrans"]
-        self.builder.create_index(tensor.shape, tensor)
-        out_indices = self.builder.gem_indices[tensor]
-        var_A = self.get_tensor_withnewidx(_A, new_indices)
-        ret = Indexed(ComponentTensor(var_A, new_indices[::-1]), out_indices)
+        var_A = self.index_tensor(_A, new_indices)
+        ret = ComponentTensor(var_A, new_indices[::-1])
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Mul)
@@ -275,24 +270,21 @@ class SlateTranslator():
         self.builder.create_index(B.shape, str(B)+"newmulB"+str(tensor))
         new_indices_B = self.builder.gem_indices[str(B)+"newmulB"+str(tensor)]
 
-        self.builder.create_index(tensor.shape, str(tensor)+str(A)+str(B))
-        out_indices = self.builder.gem_indices[str(tensor)+str(A)+str(B)]
-
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
-            var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1], new_indices_B[1]))
+            var_A = self.index_tensor(var_A, new_indices_A)
+            var_B = self.index_tensor(var_B, (new_indices_A[1], new_indices_B[1]))
 
             prod = Product(var_A, var_B)
             sum = IndexSum(prod, (new_indices_A[1],))
-            return self.get_tensor_withnewidx(sum, out_indices)
+            return ComponentTensor(sum, (new_indices_A[0], new_indices_B[1]))
 
         elif len(A.shape) > len(B.shape) and A.shape[1] == B.shape[0]:
-            var_A = self.get_tensor_withnewidx(var_A, new_indices_A)
-            var_B = self.get_tensor_withnewidx(var_B, (new_indices_A[1],))
+            var_A = self.index_tensor(var_A, new_indices_A)
+            var_B = self.index_tensor(var_B, (new_indices_A[1],))
 
             prod = Product(var_A, var_B)
             sum = IndexSum(prod, (new_indices_A[1],))
-            return self.get_tensor_withnewidx(sum, out_indices)
+            return ComponentTensor(sum, (new_indices_A[0],))
         else:
             return[]
 
@@ -301,122 +293,49 @@ class SlateTranslator():
 
         A, = tensor.operands
         node = node_dict[A]
-        dim2idxs = [[], []]
 
-        # rangification
-        indices = ()
+        # get first block while handling ranges handle ranges
+        first_ind = ()
         for index in tensor._indices:
-            if type(index) == int:
-                indices += (range(index, index+1), )
+            if type(index) != range:
+                first_ind += (index,)
             else:
-                indices += (index, )
-        loop = itertools.product(*indices)
+                first_ind += (index.start,)
+        first_block = tuple(range(ten, ten+1) for ten in first_ind)
+        index_offset = ()
 
-        # also treats a range in blocks
-        # A = [00, 01, 02; 10, 11, 12; 20, 21, 22]
-        # ret = A[2:3, 2:3][0,1] -> A[2,3]
-        for c, block in enumerate(loop):
-            # i points to the block matrices
-            # idx points to the shape of that block matrix in all dimensions
-            Aoffset = ()
-            extent = ()
-            for i, idx in enumerate(block):
-
-                # move the original index by an offset
-                # to reference into the subblock of the tensor which
-                # dim2idxs is of form ((offset, ((index, stride), ) ... ), (offset, ((index, stride), ) ...))
-                # ((1, ((i, 12), (j, 4), (k, 1))), (0, ())) ->  variable[1 + i*12 + j*4 + k][0]
-                # dim2idx[dim][0]-> offset
-                # dim2idx[dim][1]-> (index, stride)
-                if c == 0:
-                    if isinstance(idx, int):
-                        Aoffset += (sum(A.shapes[i][:idx]), )
-                        extent += (A.shapes[i][idx], )
-                    elif isinstance(idx, range):
-                        if idx.start == 0:
-                            Aoffset += (0, )
-                        else:
-                            Aoffset += ((A.shapes[i][idx.start-1]), )
-                        extent += (sum(A.shapes[i][:idx.stop]), )
-
-                elif len(dim2idxs[i][1]) < (indices[i].stop - indices[i].start):
-                    extent += (A.shapes[i][idx], )
-
-            # TODO I think this only works when the blocks have the same size
-            # otherwise block needs to produce multiple indices
-            # and in block(block) the right index needs to be picked up from the inside
-            if c == 0:
-                key = tensor
-                self.builder.create_index(extent, key)
-                gem_index = self.builder.gem_indices[key]
-
-                for i, idx in enumerate(gem_index):
-                    idxs = ((gem_index[i], 1), )
-                    dim2idxs[i].extend([Aoffset[i], idxs])
+        # i points to the dim
+        # idx points to the shape of that block matrix in that dim
+        for i, idx in enumerate(first_block):
+            if idx.start == 0:
+                index_offset += (0, )
             else:
-                key = str(tensor) + str(block) + str(i)
-                self.builder.create_index(extent, key)
-                gem_index = self.builder.gem_indices[key]
+                index_offset += ((sum(A.shapes[i][:idx.start])), )
 
-                for i, idx in enumerate(gem_index):
-                    if len(dim2idxs[i][1]) < (indices[i].stop - indices[i].start) \
-                            and extent[i] == tensor.shapes[0][len(dim2idxs[i][1])]:
-                        idxs = ((gem_index[i], 1), )
-                        dim2idxs[i][1] += idxs
-                    elif len(gem_index) == 1 and len(dim2idxs[1][1]) < (indices[1].stop - indices[1].start):
-                        idxs = ((gem_index[0], 1), )
-                        dim2idxs[1][1] += idxs
+        index_extent = tuple(sum(shape) for shape in tensor.shapes.values())
+        self.builder.create_index(index_extent, tensor)
+        gem_index = self.builder.gem_indices[tensor]
 
-        if type(node) == FlexiblyIndexed:
-            for i, idx in enumerate(gem_index):
-                dim2idxs[i][0] += node_dict[A].dim2idxs[i][0]
-                dim2idxs[i] = tuple(dim2idxs[i])
-            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
+        dim2idxs = []
+        for i, dim in enumerate(tensor.shapes.keys()):
+            dim2idxs += ((index_offset[i], ((gem_index[i], 1), )),)
+
+        return ComponentTensor(FlexiblyIndexed(node, tuple(dim2idxs)), gem_index)
+
+    def index_tensor(self, var, idx):
+        """ This method is a helper to:
+        - pick up free indices from a variable in the right
+        order
+        - if needed (it is for IndexSum and Indexed),
+        pull up a scalar variable to a tensor thing with this indices
+        - index it with new indices :arg idx.
+        """
+        if type(var) == Variable or type(var) == ComponentTensor or type(var) == Inverse or type(var) == Solve:
+            var = Indexed(var, idx)
         else:
-            for i, idx in enumerate(gem_index):
-                dim2idxs[i] = tuple(dim2idxs[i])
-            ret = FlexiblyIndexed(node_dict[A].children[0], tuple(dim2idxs))
-        return ret
-
-    def get_tensor_withnewidx(self, var, idx):
-        if type(var) == Indexed:
-            if var.free_indices == idx:
-                # no unnecessary generation of Indexed(ComponentTensor)
-                var = Indexed(var.children[0], idx)
-            else:
-                free_indices_sorted = tuple()
-                for index in var.multiindex:
-                    if index in var.free_indices:
-                        free_indices_sorted += (index, )
-                # special case for IndexSum generating an Indexed with scalar multiindex
-                # # e.g. occurs for DG0
-                for index in var.free_indices:
-                    if index not in free_indices_sorted:
-                        free_indices_sorted += (index, )
-                var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-        elif type(var) == IndexSum:
-            free_indices_sorted = tuple()
-            for i, index in enumerate(var.free_indices):
-                if type(var.children[0].children[i]) == FlexiblyIndexed:
-                    ordered_indexed = var.children[0].children[i].dim2idxs[i][1][0][0]
-                else:
-                    ordered_indexed = var.children[0].children[i].multiindex[i]
-                if index not in free_indices_sorted and index == ordered_indexed:
-                    free_indices_sorted += (index, )
-            if free_indices_sorted == ():
-                free_indices_sorted = var.free_indices[::-1]
-            var = Indexed(ComponentTensor(var, free_indices_sorted), idx)
-        elif type(var) == FlexiblyIndexed:
-            variable, dim2idxs, indexes = decompose_variable_view(ComponentTensor(var, var.free_indices))
-            dim2idxs_new = ()
-            for i, dim in enumerate(dim2idxs):
-                dim2idxs_new += ((dim2idxs[i][0], ((idx[i], 1),)),)
-            var = FlexiblyIndexed(variable, dim2idxs_new)
-        else:
-            assert "Variable type is "+str(type(var))+". Must be Indexed."
+            assert True, "Variable type is "+str(type(var))+". Must be a type that has shape."
         return var
 
-    # TODO: fact type must be saved in solve and inverse translation
     @slate_to_gem.register(firedrake.slate.slate.Solve)
     def slate_to_gem_solve(self, tensor, node_dict):
         fac, B = tensor.operands  # TODO is first operand always factorization?
@@ -427,9 +346,9 @@ class SlateTranslator():
         B_indices = self.builder.gem_indices[str(tensor)+"readsbsolve"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
-        ret_A = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
-        ret_B = ComponentTensor(self.get_tensor_withnewidx(node_dict[B], B_indices), B_indices)
-        ret = Indexed(Solve(ret_A, ret_B, new_indices), new_indices)
+        ret_A = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
+        ret_B = ComponentTensor(self.index_tensor(node_dict[B], B_indices), B_indices)
+        ret = Solve(ret_A, ret_B, new_indices)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
@@ -439,19 +358,16 @@ class SlateTranslator():
         A_indices = self.builder.gem_indices[str(A)+"readsinv"]
         self.builder.create_index(tensor.shape, tensor)
         new_indices = self.builder.gem_indices[tensor]
-        self.builder.create_index(tensor.shape, str(tensor)+"outinv")
-        out_indices = self.builder.gem_indices[str(tensor)+"outinv"]
-        ret = ComponentTensor(self.get_tensor_withnewidx(node_dict[A], A_indices), A_indices)
-        ret = Indexed(Inverse(ret, new_indices), out_indices)
+        ret = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
+        ret = Inverse(ret, new_indices)
         return ret
 
+    # TODO how do we deal with surpressed factorization nodes,
+    # maybe populate decompdict and pass through to loopy later?
     @slate_to_gem.register(firedrake.slate.slate.Factorization)
     def slate_to_gem_factorization(self, tensor, node_dict):
         self.decomp_dict.setdefault(tensor, tensor.decomposition)
         return []
-        # TODO how do we deal with surpressed factorization nodes,
-        # maybe check if decomposition dict is empty or not
-        # and then if else case that and access the right children and co?
 
 
 def eigen_tensor(expr, temporary, index):
@@ -529,7 +445,7 @@ def topological_sort(exprs):
     return schedule
 
 
-# note: this is basically from tsfc gem node.py
+# Adapted from tsfc.gem.node.py
 def post_traversal(expression_dags):
     """Post-order traversal of the nodes of expression DAGs."""
     seen = set()
@@ -577,11 +493,11 @@ def traverse_dags(exprs):
 
 
 def merge_loopy(loopy_outer, loopy_inner_list, builder):
-    # generate initilisation instructions for all tensor temporaries
+    # Generate initilisation instructions for all tensor temporaries
     inits = []
     c = 0
     for slate_tensor, gem_indexed in builder.temps.items():
-        # create new indices for inits and save with indexed (gem) key instead of slate tensor
+        # Create new indices for inits and save with indexed (gem) key instead of slate tensor
         shape = builder.shape(slate_tensor)
         indices = builder.create_index(shape, gem_indexed)
         loopy_tensor = builder.gem_loopy_dict[gem_indexed]
@@ -590,7 +506,9 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), 0.0, id="init%d" % c, within_inames=frozenset(inames)))
         c += 1
 
-    # generate initilisation instructions for all coefficent temporaries
+    # Generate initilisation instructions for all coefficent temporaries,
+    # which are in an AssembledVector
+    # Same difficulty as adding those as global args (see comment in compiler)
     coeff_shape_list = []
     coeff_function_list = []
     coeff_tensor_list = []
@@ -618,7 +536,7 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
         except ValueError:
             pass
 
-    # generate temp e.g. for plexmesh_exterior_local_facet_number (maps from global to local facets)
+    # Generate temp e.g. for plexmesh_exterior_local_facet_number (maps from global to local facets)
     if builder.needs_cell_facets:
         loopy_outer.temporary_variables["facet_array"] = lp.TemporaryVariable(builder.local_facet_array_arg,
                                                                               shape=(builder.num_facets, 2),
@@ -627,70 +545,21 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
                                                                               read_only=True,
                                                                               initializer=np.arange(builder.num_facets, dtype=np.uint32))
 
-    # get the CallInstruction for each kernel from builder
+    # Get the CallInstruction for each kernel from builder
     kitting_insn = []
     for integral_type in builder.assembly_calls:
         kitting_insn += builder.assembly_calls[integral_type]
 
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
-    noi_outer = len(loopy_outer.instructions)
-    # # add dependencies dynamically
-    # if len(loopy_outer.instructions) > 1:
-    #     for i in range(len(kitting_insn)):
-    #         # add dep from first insn of outer kernel to all subkernels
-    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
 
-    #         # dep from subkernel to the according init
-    #         # loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
-    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id, "id:"+loopy_merged.instructions[i].id)
-
-    # elif not len(kitting_insn) == 0:
-    #     for i, assembly_call in enumerate(kitting_insn):
-    #         # add dep from first insn of outer kernel to the subkernel in first loop
-    #         # then from subkernel to subkernel
-    #         loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-i].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
-
-    # # dep from first subkernel to the according init# TODO do we need this?
-    # loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-len(kitting_insn)].id, "id:"+loopy_merged.instructions[0].id)
-
-    # # link to initilisaton of vectemps, TODO: this is not robust
-    # for k, v in builder.coefficient_vecs.items():
-    #     loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+len(builder.temps)].id, "id:"+loopy_merged.instructions[len(builder.temps)].id)
-    def add_sequential_dependencies(knl):
-        new_insns = []
-        prev_insn = None
-        for insn in knl.instructions:
-            depon = insn.depends_on
-            if depon is None:
-                depon = frozenset()
-
-            if prev_insn is not None:
-                depon = depon | frozenset((prev_insn.id,))
-
-            insn = insn.copy(
-                depends_on=depon,
-                depends_on_is_final=True)
-
-            new_insns.append(insn)
-
-            prev_insn = insn
-
-        return knl.copy(instructions=new_insns)
-
+    # Generate dependencies
     loopy_merged = add_sequential_dependencies(loopy_merged)
 
-    # remove priority generate from tsfc compile call
-    for insn in loopy_merged.instructions[-noi_outer:]:
+    # Remove priority generated from tsfc compile call
+    for insn in loopy_merged.instructions[-len(loopy_outer.instructions):]:
         loopy_merged = lp.set_instruction_priority(loopy_merged, "id:"+insn.id, None)
 
-    # add arguments of the subkernel
-    # TODO check if is the dimtag right
-    # TODO maybe we need to run over subkernels
-    #    inner_args=builder.templated_subkernels[0].args
-    # if len(builder.templated_subkernels)>0:
-    #    loopy_merged = loopy_merged.copy(args=list(loopy_merged.args)+inner_args[1:]) # first variable is A which gets replaced by slate name of tensor anyways
-
-    # fix domains (add additional indices coming from calling the subkernel)
+    # Fix domains (add additional indices coming from calling the subkernel)
     def create_domains(gem_indices):
         for tuple_index in gem_indices:
             for i in tuple_index:
@@ -700,9 +569,39 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
                 yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
     domains = list(create_domains(builder.gem_indices.values()))
     loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
-    # generate program from kernel, register inner kernel and inline inner kernel
+
+    # Generate program from kernel, register inner kernel and inline inner kernel
     prg = make_program(loopy_merged)
     for loopy_inner in loopy_inner_list:
         prg = register_callable_kernel(prg, loopy_inner)
         prg = inline_callable_kernel(prg, loopy_inner.name)
     return prg
+
+
+# My own dependecy generation
+# Out of date, I use TSFCs dependency generation now
+def my_dependency_generation(loopy_outer, loopy_merged, kitting_insn, builder, inits):
+    noi_outer = len(loopy_outer.instructions)
+    noi_inits = len(inits)
+    # # add dependencies dynamically
+    if len(loopy_outer.instructions) > 1:
+        for i in range(len(kitting_insn)):
+            # add dep from first insn of outer kernel to all subkernels
+            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+
+            # dep from subkernel to the according init
+            # loopy_merged= lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id,  "id:"+loopy_merged.instructions[noi_inits-i-1].id)
+            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[noi_inits+i].id, "id:"+loopy_merged.instructions[i].id)
+
+    elif not len(kitting_insn) == 0:
+        for i, assembly_call in enumerate(kitting_insn):
+            # add dep from first insn of outer kernel to the subkernel in first loop
+            # then from subkernel to subkernel
+            loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-i].id, "id:"+loopy_merged.instructions[-noi_outer-i-1].id)
+
+    # # dep from first subkernel to the according init# TODO do we need this?
+    loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer-len(kitting_insn)].id, "id:"+loopy_merged.instructions[0].id)
+
+    # # link to initilisaton of vectemps, TODO: this is not robust
+    for k, v in builder.coefficient_vecs.items():
+        loopy_merged = lp.add_dependency(loopy_merged, "id:"+loopy_merged.instructions[-noi_outer+len(builder.temps)].id, "id:"+loopy_merged.instructions[len(builder.temps)].id)
