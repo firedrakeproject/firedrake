@@ -231,7 +231,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(f, slate.TensorBase):
         if diagonal:
             raise NotImplementedError("Diagonal + slate not supported")
-        kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
+        kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters, coffee=False)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
         kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse, diagonal=diagonal)
