@@ -67,18 +67,22 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, tsfc_parameters):
+    def _cache_key(cls, expr, tsfc_parameters, coffee):
         return md5((expr.expression_hash
-                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(sorted(tsfc_parameters.items()))
+                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, tsfc_parameters):
+    def __init__(self, expr, tsfc_parameters, coffee=False):
         if self._initialized:
             return
-        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        if coffee:
+            self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        else:
+            self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
 
-def compile_expression(slate_expr, tsfc_parameters=None):
+def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -100,7 +104,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        kernel = SlateKernel(slate_expr, tsfc_parameters, coffee).split_kernel
         return cache.setdefault(key, kernel)
 
 

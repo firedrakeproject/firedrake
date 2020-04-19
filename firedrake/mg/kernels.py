@@ -626,7 +626,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
     expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
-    Ainv, = compile_expression(expr)
+    Ainv, = compile_expression(expr, coffee=True)
     Ainv = Ainv.kinfo.kernel
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")
