@@ -82,7 +82,7 @@ class AssembledPC(PCBase):
         octx = get_appctx(dm)
         oproblem = octx._problem
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

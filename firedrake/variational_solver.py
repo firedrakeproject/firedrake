@@ -121,8 +121,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                be called immediately before Jacobian assembly. This can
                be used, for example, to update a coefficient function
                that has a complicated dependence on the unknown solution.
+        :kwarg post_jacobian_callback: As above, but called after the
+               Jacobian has been assembled.
         :kwarg pre_function_callback: As above, but called immediately
-               before residual assembly
+               before residual assembly.
+        :kwarg post_function_callback: As above, but called immediately
+               after residual assembly.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -165,6 +169,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         options_prefix = kwargs.get("options_prefix")
         pre_j_callback = kwargs.get("pre_jacobian_callback")
         pre_f_callback = kwargs.get("pre_function_callback")
+        post_j_callback = kwargs.get("post_jacobian_callback")
+        post_f_callback = kwargs.get("post_function_callback")
 
         super(NonlinearVariationalSolver, self).__init__(parameters, options_prefix)
 
@@ -182,6 +188,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_j_callback,
                                          pre_function_callback=pre_f_callback,
+                                         post_jacobian_callback=post_j_callback,
+                                         post_function_callback=post_f_callback,
                                          options_prefix=self.options_prefix)
 
         # No preconditioner by default for matrix-free
