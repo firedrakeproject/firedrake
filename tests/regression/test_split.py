@@ -35,6 +35,7 @@ def test_function_split_raises():
         derivative(phi, f)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="u**2 not complex Gateaux differentiable.")
 def test_split_function_derivative():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
