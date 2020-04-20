@@ -253,6 +253,8 @@ honoured.""",
                         help="Name of the venv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
+    parser.add_argument("--pip-install", action="append", dest="pip_packages",
+                        help="Pip install additional packages into the venv")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
     parser.add_argument("--cache-dir", type=str,
@@ -1271,6 +1273,13 @@ if mode == "install":
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            command = pipinstall + package.split()
+            run_pip(command)
+
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
