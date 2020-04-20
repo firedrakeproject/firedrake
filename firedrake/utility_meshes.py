@@ -111,12 +111,12 @@ cells are not currently supported")
     instructions = f"""
     <{RealType}> eps = 1e-12
     <{RealType}> pi = 3.141592653589793
-    <{RealType}> c0 = real(old_coords[0, 1])
-    <{RealType}> c1 = real(old_coords[0, 0])
-    <{RealType}> c2 = real(old_coords[1, 1])
-    <{RealType}> c3 = real(old_coords[1, 0])
-    <{RealType}> a = atan2(c0, c1) / (2*pi)
-    <{RealType}> b = atan2(c2, c3) / (2*pi)
+    <{RealType}> oc0 = real(old_coords[0, 1])
+    <{RealType}> oc1 = real(old_coords[0, 0])
+    <{RealType}> oc2 = real(old_coords[1, 1])
+    <{RealType}> oc3 = real(old_coords[1, 0])
+    <{RealType}> a = atan2(oc0, oc1) / (2*pi)
+    <{RealType}> b = atan2(oc2, oc3) / (2*pi)
     <{IntType}> swap = 1 if a >= b else 0
     <{RealType}> aa = fmin(a, b)
     <{RealType}> bb = fmax(a, b)
@@ -126,8 +126,10 @@ cells are not currently supported")
     bb = bb + 1 if bb < -eps else bb
     a = bb if swap == 1 else aa
     b = aa if swap == 1 else bb
-    new_coords[0] = a * L[0]
-    new_coords[1] = b * L[0]
+    <{ScalarType}> nc0 = a * L[0]
+    <{ScalarType}> nc1 = b * L[0]
+    new_coords[0] = nc0
+    new_coords[1] = nc1
     """
 
     cL = Constant(length)
