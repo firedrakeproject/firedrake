@@ -105,7 +105,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
         kernel_domains = "[] -> {[]}"
     kargs.append(...)
     knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
+                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
 
     return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
 
