@@ -3,7 +3,7 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType, ScalarType
+from pyop2.datatypes import IntType, RealType, ScalarType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ, interpolate, mesh, function, \
@@ -107,19 +107,20 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-
-    absfunc = 'abs' if utils.complex_mode else 'fabs'
-
     domain = ""
     instructions = f"""
-    <{ScalarType}> eps = 1e-12
-    <{ScalarType}> pi = 3.141592653589793
-    <{ScalarType}> a = atan2(creal(old_coords[0, 1]), creal(old_coords[0, 0])) / (2*pi)
-    <{ScalarType}> b = atan2(creal(old_coords[1, 1]), creal(old_coords[1, 0])) / (2*pi)
+    <{RealType}> eps = 1e-12
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> c0 = real(old_coords[0, 1])
+    <{RealType}> c1 = real(old_coords[0, 0])
+    <{RealType}> c2 = real(old_coords[1, 1])
+    <{RealType}> c3 = real(old_coords[1, 0])
+    <{RealType}> a = atan2(c0, c1) / (2*pi)
+    <{RealType}> b = atan2(c2, c3) / (2*pi)
     <{IntType}> swap = 1 if a >= b else 0
-    <{ScalarType}> aa = fmin(a, b)
-    <{ScalarType}> bb = fmax(a, b)
-    <{ScalarType}> bb_abs = {absfunc}(bb)
+    <{RealType}> aa = fmin(a, b)
+    <{RealType}> bb = fmax(a, b)
+    <{RealType}> bb_abs = fabs(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
