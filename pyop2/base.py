@@ -3116,6 +3116,7 @@ class Mat(DataCarrier):
         self.lcomm = sparsity.lcomm
         self.rcomm = sparsity.rcomm
         self.comm = sparsity.comm
+        dtype = dtype or ScalarType
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         self.assembly_state = Mat.ASSEMBLED
