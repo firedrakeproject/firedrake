@@ -546,7 +546,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 _split = c.split()
             for c_ in _split:
                 m_ = get_map(c_)
-                print("m_::::", m_)
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:
             assert integral_type == "cell"

@@ -4,6 +4,14 @@ from firedrake import ufl_expr
 import numpy as np
 
 
+def _rotate_mesh(mesh, theta):
+    x, y = SpatialCoordinate(mesh)
+    Vc = mesh.coordinates.function_space()
+    coords = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
+                                                 sin(theta) * x + cos(theta) * y]))
+    return Mesh(coords)
+
+
 def test_filter_one_form_lagrange():
 
     mesh = UnitSquareMesh(2, 2)
@@ -319,6 +327,70 @@ def test_filter_stokes():
 
     plt.savefig('temp.pdf')
 
+
+def _poisson_analytical(V, xi, eta, which):
+    if which == 'solution':
+        return sin(2 * pi * xi) * sin(2 * pi * eta)
+    elif which == 'force':
+        return 8.0 * pi * pi * sin(2 * pi * xi) * sin(2 * pi * eta)
+
+
+def _poisson_get_forms_original(V, x, y, xi, eta, f, n):
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    normal = FacetNormal(V.mesh())
+    alpha = 100
+    h = 1./(2**n)
+    a = dot(grad(v), grad(u)) * dx - dot(grad(u), normal) * v * ds - dot(grad(v), normal) * u * ds + alpha / h * u * v * ds
+    L = f * v * dx
+    return a, L
+
+
+def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
+
+    # Define op2.subsets to be used when defining filters
+    subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
+    subset_12 = V.boundary_node_subset((1, 2))
+    subset_34 = V.boundary_node_subset((3, 4))
+    subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
+    subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
+
+    # Define filters
+    function0 = Function(V).project(xi)
+    function1 = Function(V).project(eta)
+    # -- domain nodes
+    fltr0 = Function(V)
+    fltr0.assign(Constant(1.))
+    fltr0.assign(Constant(0.), subset=subset_1234)
+    # -- boundary normal derivative nodes
+    fltr0.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    fltr0.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
+    #fltr0.assign(Constant(1.), subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    #fltr0.assign(Constant(1.), subset=subset_34.difference(subset_12).intersection(subset_deriv))
+    # -- boundary tangent derivative nodes 
+    fltr1 = Function(V)
+    #fltr1.assign(function1, subset=subset_12.intersection(subset_deriv))
+    #fltr1.assign(function0, subset=subset_34.intersection(subset_deriv))
+    fltr1.assign(Constant(1.), subset=subset_12.intersection(subset_deriv))
+    fltr1.assign(Constant(1.), subset=subset_34.intersection(subset_deriv))
+    # -- boundary value nodes
+    fltr3 = Function(V)
+    fltr3.assign(Constant(1.), subset=subset_1234)
+
+    # Filter test function
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    v0 = Filtered(v, fltr0)
+    v1 = Filtered(v, fltr1)
+    v2 = Filtered(v, fltr3)
+    a = dot(grad(v0), grad(u)) * dx + \
+        dot(grad(v1), e_eta) * dot(grad(u), e_eta) * ds((1, 2)) + \
+        dot(grad(v1), e_xi) * dot(grad(u), e_xi) * ds((3, 4)) + \
+        v2 * u * ds((1, 2, 3, 4))
+    L = f * v0 * dx
+    return a, L
+
+
 def _poisson(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
@@ -330,97 +402,49 @@ def _poisson(n, el_type, degree, perturb):
                                                  y - eps*sin(8*pi*x)*sin(8*pi*y)]))
         mesh = Mesh(new)
 
+    # Rotate mesh (Currently only works with unrotated mesh)
+    theta = pi / 6 * 0
+    mesh = _rotate_mesh(mesh, theta)
+
     V = FunctionSpace(mesh, el_type, degree)
-    x, y = SpatialCoordinate(V.mesh())
+    x, y = SpatialCoordinate(mesh)
 
-    # Define variational problem
-    u = TrialFunction(V)
-    v = TestFunction(V)
+    # Rotate coordinates
+    xi = cos(theta) * x + sin(theta) * y
+    eta = -sin(theta) * x + cos(theta) * y
 
-    sol = Function(V)
-
-    eta = as_vector([0., 1.])
-    xi = as_vector([1., 0.])
-
-    f = Function(V)
-    f.project(8.0 * pi * pi * sin(x * pi * 2) * sin(y * pi * 2))
-
-    # Define op2.subsets to be used when defining filters
-    subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
-    subset_12 = V.boundary_node_subset((1, 2))
-    subset_34 = V.boundary_node_subset((3, 4))
-    subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
-    subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
-
-    # Define filters
-    function0 = Function(V).project(x)
-    function1 = Function(V).project(y)
-    # -- domain nodes
-    fltr0 = Function(V)
-    fltr0.assign(Constant(1.))
-    fltr0.assign(Constant(0.), subset=subset_1234)
-    # -- boundary normal derivative nodes
-    fltr1 = Function(V)
-    fltr1.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
-    fltr1.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
-    # -- boundary tangent derivative nodes 
-    fltr2 = Function(V)
-    fltr2.assign(function1, subset=subset_12.intersection(subset_deriv))
-    fltr2.assign(function0, subset=subset_34.intersection(subset_deriv))
-    # -- boundary value nodes
-    fltr3 = Function(V)
-    fltr3.assign(Constant(1.), subset=subset_1234)
-
-    # Filter test function
-    v0 = Filtered(v, fltr0)
-    v1 = Filtered(v, fltr1)
-    v2 = Filtered(v, fltr2)
-    v3 = Filtered(v, fltr3)
+    # Rotate base
+    e_xi = Constant([cos(theta), sin(theta)])
+    e_eta = Constant([-sin(theta), cos(theta)])
 
     # normal and tangential components are not separable, 
     # have to do it algebraically
 
+    # Define forms
+    f = Function(V).project(_poisson_analytical(V, xi, eta, 'force'))
+    a, L = _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f)
 
-    """
-    normal = FacetNormal(mesh)
-    alpha = 100
-    h = 1./(2**n)
-    a = dot(grad(v), grad(u)) * dx - dot(grad(u), normal) * v * ds - dot(grad(v), normal) * u * ds + alpha / h * u * v * ds
-    L = f * v * dx
+    # Solve
+    sol = Function(V)
+    solve(a == L, sol, bcs=[], solver_parameters={"mat_type": "aij",
+                                                  #"snes_monitor": None,
+                                                  #"snes_test_jacobian": True,
+                                                  #"snes_test_jacobian_display": True,
+                                                  "ksp_type": 'preonly',
+                                                  "pc_type": 'lu'
+                                                  #"ksp_type": "gmres",
+                                                  #"ksp_rtol": 1.e-12,
+                                                  #"ksp_atol": 1.e-12,
+                                                  #"ksp_max_it": 500000,
+                                                  })
 
-    """
-    a = dot(grad(v0 + v1), grad(u)) * dx + \
-        dot(grad(v2), eta) * dot(grad(u), eta) * ds((1, 2)) + \
-        dot(grad(v2), xi) * dot(grad(u), xi) * ds((3, 4)) + \
-        v3 * u * ds((1, 2, 3, 4))
-
-    L = f * (v0+v1) * dx
-
-    parameters = {
-        "mat_type": "aij",
-        "snes_monitor": None,
-        #"snes_test_jacobian": True,
-        #"snes_test_jacobian_display": True,
-        "ksp_type": 'preonly',
-        "pc_type": 'lu'
-        #"ksp_type": "gmres",
-        #"ksp_rtol": 1.e-12,
-        #"ksp_atol": 1.e-12,
-        #"ksp_max_it": 500000,
-        #"pc_type": "asm"
-    }
-    solve(a == L, sol, bcs=[], solver_parameters=parameters)
-
-
-    #print(sol.dat.data)
-
-    # Analytical solution
-    exact = sin(2 * pi * x) * sin(2 * pi * y)
-    f.project(exact)
-    err = sqrt(assemble(dot(sol - f, sol - f) * dx))
-    print(err)
-    berr = sqrt(assemble(dot(sol - exact, sol - exact) * ds))
-    print(berr)
+    # Postprocess
+    g_form = _poisson_analytical(V, xi, eta, 'solution')
+    g = Function(V).project(g_form)
+    err = sqrt(assemble(dot(sol - g, sol - g) * dx))
+    berr = sqrt(assemble(dot(sol - g_form, sol - g_form) * ds))
+    print("error            : ", err)
+    print("error on boundary: ", berr)
     """
     # Plot solution
     import matplotlib.pyplot as plt
@@ -434,6 +458,7 @@ def _poisson(n, el_type, degree, perturb):
     """
     return err, berr
 
+#@pytest.mark.skip(reason="not yet supported")
 def test_filter_poisson_zany():
     #err, berr = _poisson(5, 'Hermite', 3, True)
     #assert(berr < 1e-8)
