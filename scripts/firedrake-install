@@ -1277,8 +1277,8 @@ if mode == "install":
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
-            command = pipinstall + package.split()
-            run_pip(command)
+            log.info("Pip installing %s to venv" % package)
+            run_pip(package.split())
 
 
 petsc_dir, petsc_arch = get_petsc_dir()
