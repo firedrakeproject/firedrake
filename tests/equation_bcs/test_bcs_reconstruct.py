@@ -28,7 +28,7 @@ def test_bc_on_sub_sub_domain():
 
     F = 0
     for u, v in zip(split(uu), split(vv)):
-        F += (- inner(grad(u), grad(v)) - dot(f, v)) * dx
+        F += (- inner(grad(u), grad(v)) - inner(f, v)) * dx
 
     bcs = [DirichletBC(VV.sub(0).sub(0), gg[0][0], 1),
            DirichletBC(VV.sub(0).sub(1), gg[0][1], 2),
