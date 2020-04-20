@@ -135,7 +135,8 @@ class LocalKernelBuilder(object):
 
         config = get_config()
         if config['options']['complex']:
-            self.tsfc_parameters['scalar_type'] = 'double complex'
+            # Changing this to PetscScalar did not change the types in coffee
+            self.tsfc_parameters['scalar_type'] = 'double complex' 
 
         self.temps = temps
         self.ref_counter = counter

@@ -73,8 +73,6 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        if complex_mode:
-            raise NotImplementedError("SLATE doesn't work in complex mode yet")
         if self._initialized:
             return
         self.split_kernel = generate_kernel(expr, tsfc_parameters)
@@ -99,7 +97,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cache = slate_expr._metakernel_cache
     if tsfc_parameters is None:
         tsfc_parameters = parameters["form_compiler"]
-    tsfc_parameters['scalar_type'] = ScalarType_c
+    tsfc_parameters['scalar_type'] = "PetscScalar"
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
@@ -177,10 +175,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(ScalarType_c, ast.Symbol(result_data_sym), pointers=[("restrict",)])
+    result = ast.Decl("PetscScalar", ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             ScalarType_c,
+                                                             "PetscScalar",
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -191,7 +189,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl(ScalarType_c, builder.coord_sym,
+    args = [result, ast.Decl("PetscScalar", builder.coord_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"])]
 
@@ -204,7 +202,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        args.extend([ast.Decl(ScalarType_c, csym,
+        args.extend([ast.Decl("PetscScalar", csym,
                               pointers=[("restrict",)],
                               qualifiers=["const"]) for csym in builder.coefficient(c)])
 
@@ -229,7 +227,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Cell size information
     if builder.needs_cell_sizes:
-        args.append(ast.Decl(ScalarType_c, builder.cell_size_sym,
+        args.append(ast.Decl("PetscScalar", builder.cell_size_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"]))
 
@@ -251,7 +249,9 @@ def generate_kernel_ast(builder, statements, declared_temps):
                            cpp=True,
                            include_dirs=include_dirs,
                            headers=['#include <Eigen/Dense>',
-                                    '#define restrict __restrict'])
+                                    '#define restrict __restrict',
+                                    '#include <complex>',
+                                    '#include <petsc.h>',])
 
     op2kernel.num_flops = builder.expression_flops + builder.terminal_flops
     # Send back a "TSFC-like" SplitKernel object with an
@@ -654,7 +654,7 @@ def eigen_matrixbase_type(shape):
         order = ""
 
     if complex_mode:
-        return "Eigen::Matrix<std::complex<double>, %d, %d%s>" % (rows, cols, order)
+        return "Eigen::Matrix<PetscScalar, %d, %d%s>" % (rows, cols, order)
     else:
         return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
 
