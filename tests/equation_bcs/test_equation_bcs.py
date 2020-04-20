@@ -28,7 +28,7 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
 
     # Equivalent to bc1 = EquationBC(v * (u - g1) * ds(1) == 0, u, 1)
     e2 = as_vector([0., 1.])
-    bc1 = EquationBC((-inner(e2, grad(v)) * inner(grad(u), e2) + 3 * pi * pi * inner(u, v) + 1 * pi * pi * inner(g, v)) * ds(1) == 0, u, 1)
+    bc1 = EquationBC((-inner(dot(grad(u), e2), dot(grad(v), e2)) + 3 * pi * pi * inner(u, v) + 1 * pi * pi * inner(g, v)) * ds(1) == 0, u, 1)
 
     solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
 
@@ -62,7 +62,7 @@ def linear_poisson(solver_parameters, mesh_num, porder):
     solve(a == L, u_, bcs=[bc1], solver_parameters=solver_parameters)
 
     f.interpolate(cos(x * pi * 2) * cos(y * pi * 2))
-    return sqrt(assemble(dot(u_ - f, u_ - f) * dx))
+    return sqrt(assemble(inner(u_ - f, u_ - f) * dx))
 
 
 def nonlinear_poisson_bbc(solver_parameters, mesh_num, porder):
@@ -82,7 +82,7 @@ def nonlinear_poisson_bbc(solver_parameters, mesh_num, porder):
     L = inner(f, v) * dx
 
     e2 = as_vector([0., 1.])
-    a1 = (-inner(e2, grad(v)) * inner(grad(u), e2) + 4 * pi * pi * inner(u, v)) * ds(1)
+    a1 = (-inner(dot(grad(u), e2), dot(grad(v), e2)) + 4 * pi * pi * inner(u, v)) * ds(1)
 
     g = Function(V).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
     bbc = DirichletBC(V, g, ((1, 3), (1, 4)))
@@ -111,7 +111,7 @@ def linear_poisson_bbc(solver_parameters, mesh_num, porder):
     L = inner(f, v) * dx
 
     e2 = as_vector([0., 1.])
-    a1 = (-inner(e2, grad(v)) * inner(grad(u), e2) + 4 * pi * pi * inner(u, v)) * ds(1)
+    a1 = (-inner(dot(grad(u), e2), dot(e2, grad(v))) + 4 * pi * pi * inner(u, v)) * ds(1)
     L1 = inner(Constant(0), v) * ds(1)
 
     u = Function(V)
@@ -144,12 +144,12 @@ def nonlinear_poisson_mixed(solver_parameters, mesh_num, porder):
     u1 = Function(DG).interpolate(cos(2 * pi * y) / 2)
 
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = u1 * inner(n, tau) * ds(1) + inner(f, v) * dx
+    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
 
     g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
 
-    bc2 = EquationBC(inner(n, tau) * (inner(sigma, n) - inner(g, n)) * ds(2) == 0, w, 2, V=W.sub(0))
-    bc3 = EquationBC(inner(n, tau) * (inner(sigma, n) - inner(g, n)) * ds(3) == 0, w, 3, V=W.sub(0))
+    bc2 = EquationBC(inner((dot(sigma, n) - dot(g, n)), dot(tau, n)) * ds(2) == 0, w, 2, V=W.sub(0))
+    bc3 = EquationBC(inner((dot(sigma, n) - dot(g, n)), dot(tau, n)) * ds(3) == 0, w, 3, V=W.sub(0))
     bc4 = DirichletBC(W.sub(0), g, 4)
 
     solve(a - L == 0, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
@@ -177,7 +177,7 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     n = FacetNormal(mesh)
 
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = u1 * inner(n, tau) * ds(1) + inner(f, v) * dx
+    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
 
     g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
 
