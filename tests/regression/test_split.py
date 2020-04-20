@@ -47,7 +47,7 @@ def test_split_function_derivative():
 
     f.assign(1)
 
-    phi = u**2*dx + p*dx
+    phi = conj(u)**2*dx + p*dx
 
     actual = assemble(derivative(phi, u))
     expect = assemble(2*conj(TestFunction(V))*dx)
