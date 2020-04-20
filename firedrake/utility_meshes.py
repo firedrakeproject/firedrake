@@ -3,7 +3,7 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, ScalarType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ, interpolate, mesh, function, \
@@ -107,16 +107,19 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+
+    absfunc = 'abs' if utils.complex_mode else 'fabs'
+
     domain = ""
-    instructions = """
-    <float64> eps = 1e-12
-    <float64> pi = 3.141592653589793
-    <float64> a = atan2(creal(old_coords[0, 1]), creal(old_coords[0, 0])) / (2*pi)
-    <float64> b = atan2(creal(old_coords[1, 1]), creal(old_coords[1, 0])) / (2*pi)
-    <int32> swap = 1 if a >= b else 0
-    <float64> aa = fmin(a, b)
-    <float64> bb = fmax(a, b)
-    <float64> bb_abs = fabs(bb)
+    instructions = f"""
+    <{ScalarType}> eps = 1e-12
+    <{ScalarType}> pi = 3.141592653589793
+    <{ScalarType}> a = atan2(creal(old_coords[0, 1]), creal(old_coords[0, 0])) / (2*pi)
+    <{ScalarType}> b = atan2(creal(old_coords[1, 1]), creal(old_coords[1, 0])) / (2*pi)
+    <{IntType}> swap = 1 if a >= b else 0
+    <{ScalarType}> aa = fmin(a, b)
+    <{ScalarType}> bb = fmax(a, b)
+    <{ScalarType}> bb_abs = {absfunc}(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
@@ -124,7 +127,7 @@ cells are not currently supported")
     b = aa if swap == 1 else bb
     new_coords[0] = a * L[0]
     new_coords[1] = b * L[0]
-    """.format(utils.ScalarType_c, absfunc)
+    """
 
     cL = Constant(length)
 
@@ -510,30 +513,32 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+    absfunc = 'abs' if utils.complex_mode else 'fabs'
+
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
-    instructions = """
-    <float64> pi = 3.141592653589793
-    <float64> eps = 1e-12
-    <float64> bigeps = 1e-1
-    <float64> Y = 0
-    <float64> Z = 0
+    instructions = f"""
+    <{ScalarType}> pi = 3.141592653589793
+    <{ScalarType}> eps = 1e-12
+    <{ScalarType}> bigeps = 1e-1
+    <{ScalarType}> Y = 0
+    <{ScalarType}> Z = 0
     for i
         Y = Y + creal(old_coords[i, 1])
         Z = Z + creal(old_coords[i, 2])
     end
     for j
-        <float64> phi = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0]))
-        <float64> _phi = fabs(sin(phi))
-        <double> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1)
-        <double> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1)
-        <float64> theta = _theta_1 if _phi > bigeps else _theta_2
+        <{ScalarType}> phi = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0]))
+        <{ScalarType}> _phi = {absfunc}(sin(phi))
+        <{ScalarType}> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1)
+        <{ScalarType}> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1)
+        <{ScalarType}> theta = _theta_1 if _phi > bigeps else _theta_2
         new_coords[j, 0] = phi / (2 * pi)
         new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < -eps else new_coords[j, 0]
-        <float64> _nc_abs = fabs(new_coords[j, 0])
+        <{ScalarType}> _nc_abs = {absfunc}(new_coords[j, 0])
         new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
         new_coords[j, 1] = theta / (2 * pi)
         new_coords[j, 1] = new_coords[j, 1] + 1 if creal(new_coords[j, 1]) < -eps else new_coords[j, 1]
-        _nc_abs = fabs(new_coords[j, 1])
+        _nc_abs = {absfunc}(new_coords[j, 1])
         new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = new_coords[j, 1] * Ly[0]
@@ -1421,9 +1426,9 @@ cells in each direction are not currently supported")
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
-    instructions = """
-    <float64> Y = 0
-    <float64> pi = 3.141592653589793
+    instructions = f"""
+    <{ScalarType}> Y = 0
+    <{ScalarType}> pi = 3.141592653589793
     for i
         Y = Y + creal(old_coords[i, 1])
     end
