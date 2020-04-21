@@ -11,16 +11,15 @@ from numpy import asarray, allclose
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
-from ufl.tensors import as_tensor
 
 import gem
 import gem.impero_utils as impero_utils
 
 from FIAT.reference_element import TensorProductCell
+from FIAT.functional import PointEvaluation
 
 from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
@@ -29,6 +28,7 @@ from tsfc import fem, ufl_utils
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
+from tsfc.ufl_utils import apply_mapping
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -269,86 +269,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     return builder.construct_kernel(kernel_name, impero_c, parameters["precision"], index_names, quad_rule)
 
 
-def apply_mapping(expression, to_element):
-    """
-    This applies the appropriate transformation to the
-    given expression for interpolation to a specific
-    element, according to the manner in which it maps
-    from the reference cell.
-
-    The following is borrowed from the UFC documentation:
-
-    Let g be a field defined on a physical domain T with physical
-    coordinates x. Let T_0 be a reference domain with coordinates
-    X. Assume that F: T_0 -> T such that
-
-      x = F(X)
-
-    Let J be the Jacobian of F, i.e J = dx/dX and let K denote the
-    inverse of the Jacobian K = J^{-1}. Then we (currently) have the
-    following four types of mappings:
-
-    'affine' mapping for g:
-
-      G(X) = g(x)
-
-    For vector fields g:
-
-    'contravariant piola' mapping for g:
-
-      G(X) = det(J) K g(x)   i.e  G_i(X) = det(J) K_ij g_j(x)
-
-    'covariant piola' mapping for g:
-
-      G(X) = J^T g(x)          i.e  G_i(X) = J^T_ij g(x) = J_ji g_j(x)
-
-    'double covariant piola' mapping for g:
-
-      G(X) = J^T g(x) J     i.e. G_il(X) = J_ji g_jk(x) J_kl
-
-    'double contravariant piola' mapping for g:
-
-      G(X) = det(J)^2 K g(x) K^T  i.e. G_il(X)=(detJ)^2 K_ij g_jk K_lk
-
-    If 'contravariant piola' or 'covariant piola' are applied to a
-    matrix-valued function, the appropriate mappings are applied row-by-row.
-    """
-
-    # Find out which mapping to apply
-    try:
-        mapping, = set(to_element.mapping())
-    except ValueError:
-        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
-
-    mesh = expression.ufl_domain()
-    rank = len(expression.ufl_shape)
-    if mapping == "affine":
-        return expression
-    elif mapping == "covariant piola":
-        J = Jacobian(mesh)
-        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
-        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
-        return as_tensor(J.T[j, k] * expression, (*i, j))
-    elif mapping == "contravariant piola":
-        mesh = expression.ufl_domain()
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
-        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
-        return as_tensor(detJ * K[j, k] * expression, (*i, j))
-    elif mapping == "double covariant piola" and rank == 2:
-        mesh = expression.ufl_domain()
-        J = Jacobian(mesh)
-        return J.T * expression * J
-    elif mapping == "double contravariant piola" and rank == 2:
-        mesh = expression.ufl_domain()
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        return (detJ)**2 * K * expression * K.T
-    else:
-        raise NotImplementedError("Don't know how to handle mapping type %s for expression of rank %d" % (mapping, rank))
-
-
 def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
                                        parameters=None, coffee=False):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
@@ -364,7 +284,6 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     """
     import coffee.base as ast
     import loopy as lp
-    from FIAT.functional import PointEvaluation
     if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
         raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
@@ -378,7 +297,13 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
 
-    expression = apply_mapping(expression, to_element)
+    # Find out which mapping to apply
+    try:
+        mapping, = set(to_element.mapping())
+    except ValueError:
+        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
+    expression = apply_mapping(expression, mapping)
+
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
                                                  complex_mode=complex_mode)
