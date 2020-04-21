@@ -16,7 +16,7 @@ def test_horiz_facet_interior_jump(mesh):
 
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
-    form = jump(inner(f[2]*f[1], u), n=n)*dS_h
+    form = jump(f[2]*f[1]*conj(u), n=n)*dS_h
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -30,7 +30,7 @@ def test_horiz_facet_interior_avg(mesh):
 
     x, y, z = SpatialCoordinate(mesh)
     f = interpolate(x + 2*y + 4*z, DG)
-    form = avg(inner(f, u))*dS_h
+    form = avg(f*conj(u))*dS_h
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -45,7 +45,7 @@ def test_vert_facet_interior_jump(mesh):
 
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
-    form = jump(inner(f[0], u), n=n)*dS_v
+    form = jump(f[0]*conj(u), n=n)*dS_v
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -59,7 +59,7 @@ def test_vert_facet_interior_avg(mesh):
 
     x, y, z = SpatialCoordinate(mesh)
     f = interpolate(x + 2*y + 4*z, DG)
-    form = avg(inner(f, u))*dS_v
+    form = avg(f*conj(u))*dS_v
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -75,7 +75,7 @@ def test_top_facet_exterior(mesh):
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
 
-    form = dot(inner(f[2]*f[1], u), n)*ds_t
+    form = dot(f[2]*f[1]*conj(u), n)*ds_t
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
@@ -90,7 +90,7 @@ def test_bottom_facet_exterior(mesh):
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
 
-    form = dot(inner(f[2]*f[1], u), n)*ds_b
+    form = dot(f[2]*f[1]*conj(u), n)*ds_b
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
@@ -105,7 +105,7 @@ def test_vert_facet_exterior(mesh):
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
 
-    form = dot(inner(f[0], u), n)*ds_v
+    form = dot(f[0]*conj(u), n)*ds_v
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
@@ -118,7 +118,7 @@ def test_total_interior_avg(mesh):
 
     x, y, z = SpatialCoordinate(mesh)
     f = interpolate(x + 2*y + 4*z, DG)
-    form = avg(inner(f, u))*(dS_v + dS_h)
+    form = avg(f*conj(u))*(dS_v + dS_h)
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -134,10 +134,10 @@ def test_total_facet(mesh):
     x, y, z = SpatialCoordinate(mesh)
     f = project(as_vector([z, y, x]), DG)
 
-    top = dot(inner(f[0]*f[1], u), n)*ds_t
-    bottom = dot(inner(f[2]*f[1], u), n)*ds_b
-    horiz = jump(inner(f[0], u), n=n)*dS_h
-    vert = jump(inner(f[2], u), n=n)*dS_v
+    top = dot(f[0]*f[1]*conj(u), n)*ds_t
+    bottom = dot(f[2]*f[1]*conj(u), n)*ds_b
+    horiz = jump(f[0]*conj(u), n=n)*dS_h
+    vert = jump(f[2]*conj(u), n=n)*dS_v
     form = top + bottom + horiz + vert
 
     A = assemble(Tensor(form)).dat.data
