@@ -32,11 +32,11 @@ def test_steady_advection_variable_layers():
 
     selector = interpolate(
         conditional(
-            Or(x < 0.1,
-               x > 0.9),
+            Or(real(x) < 0.1,
+               real(x) > 0.9),
             4,
-            conditional(Or(And(x > 0.1, x < 0.2),
-                           And(x > 0.8, x < 0.9)),
+            conditional(Or(And(real(x) > 0.1, real(x) < 0.2),
+                           And(real(x) > 0.8, real(x) < 0.9)),
                         3, 2)),
         V)
 
@@ -71,7 +71,7 @@ def test_steady_advection_variable_layers():
     u0 = project(velocity, W)
 
     x, y = SpatialCoordinate(extmesh)
-    inflow = conditional(And(y > 0.25, y < 0.75),
+    inflow = conditional(And(real(y) > 0.25, real(y) < 0.75),
                          1.0,
                          0.5)
 
@@ -93,13 +93,13 @@ def test_steady_advection_variable_layers():
     out = Function(DG0)
     solve(a == L, out)
 
-    expected = interpolate(conditional(x > 0.5,
-                                       conditional(y < 0.25,
+    expected = interpolate(conditional(real(x) > 0.5,
+                                       conditional(real(y) < 0.25,
                                                    0.5,
-                                                   conditional(y < 0.5,
+                                                   conditional(real(y) < 0.5,
                                                                1.0,
                                                                0.0)),
-                                       conditional(And(y > 0.25, y < 0.75),
+                                       conditional(And(real(y) > 0.25, real(y) < 0.75),
                                                    1.0,
                                                    0.5)),
                            DG0)
