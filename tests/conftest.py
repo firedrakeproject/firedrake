@@ -54,6 +54,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
+    config.addinivalue_line(
+        "markers",
+        "skipcomplex: mark as skipped in complex mode")
 
 
 def pytest_runtest_setup(item):
@@ -81,6 +84,14 @@ def pytest_runtest_call(item):
     if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
+
+
+def pytest_collection_modifyitems(session, config, items):
+    import firedrake_configuration
+    complex_mode = firedrake_configuration.get_config()["options"]["complex"]
+    for item in items:
+        if complex_mode and item.get_closest_marker("skipcomplex") is not None:
+            item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
 
 
 @pytest.fixture(scope="module", autouse=True)
