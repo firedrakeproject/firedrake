@@ -148,7 +148,7 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
 
 
 def test_matrix_types(W):
-    a = inner(TestFunction(W), TrialFunction(W))*dx
+    a = inner(TrialFunction(W), TestFunction(W))*dx
 
     with pytest.raises(ValueError):
         assemble(a, mat_type="baij")
