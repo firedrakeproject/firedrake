@@ -44,7 +44,7 @@ def run_left_to_right(mesh, DGDPC0, W):
 
     xs = SpatialCoordinate(mesh)
 
-    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[1]) > 0.25, real(xs[1]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
@@ -121,7 +121,7 @@ def run_bottom_to_top(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[0] > 0.25, xs[0] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[0]) > 0.25, real(xs[0]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 

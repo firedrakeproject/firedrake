@@ -4,6 +4,7 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_assembly():
     mesh = UnitIntervalMesh(3)
     fs = FunctionSpace(mesh, "Real", 0)
@@ -14,6 +15,7 @@ def test_real_assembly():
     assert assemble(f * dx) == 2.0
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_one_form_assembly():
     mesh = UnitIntervalMesh(3)
     fs = FunctionSpace(mesh, "Real", 0)
@@ -22,6 +24,7 @@ def test_real_one_form_assembly():
     assert assemble(v * dx).dat.data[0] == 1.0
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_two_form_assembly():
     mesh = UnitIntervalMesh(3)
     fs = FunctionSpace(mesh, "Real", 0)
@@ -31,6 +34,7 @@ def test_real_two_form_assembly():
     assert assemble(2*u*v * dx).M.values == 2.0
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_nonsquare_two_form_assembly():
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)
@@ -51,6 +55,7 @@ def test_real_nonsquare_two_form_assembly():
                                    m2.M.values[0, :])
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_mixed_one_form_assembly():
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)
@@ -69,6 +74,7 @@ def test_real_mixed_one_form_assembly():
                                    AA.dat.data)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_mixed_two_form_assembly():
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)
@@ -96,6 +102,7 @@ def test_real_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_mixed_monolithic_two_form_assembly():
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)
@@ -109,6 +116,7 @@ def test_real_mixed_monolithic_two_form_assembly():
         assemble(inner(u, v) * dx + p * q * dx + u * q * dx + inner(p, v) * dx, mat_type="aij")
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
     mesh = ExtrudedMesh(m, 10)
@@ -137,6 +145,7 @@ def test_real_extruded_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 @pytest.mark.parallel
 def test_real_mixed_solve():
     def poisson(resolution):
@@ -169,6 +178,7 @@ def test_real_mixed_solve():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 @pytest.mark.parallel
 def test_real_mixed_solve_split_comms():
     def poisson(resolution):
@@ -201,6 +211,7 @@ def test_real_mixed_solve_split_comms():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_space_eq():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
@@ -209,6 +220,7 @@ def test_real_space_eq():
     assert V is not V2
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_space_mixed_assign():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
@@ -231,6 +243,7 @@ def test_real_space_mixed_assign():
     assert np.allclose(q.dat.data_ro, 2.0)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_space_first():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
@@ -238,6 +251,7 @@ def test_real_space_first():
     MixedFunctionSpace([V, Q])
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_space_assign():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
@@ -249,6 +263,7 @@ def test_real_space_assign():
     assert np.allclose(g.dat.data_ro, 12.0)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not meant to be done under complex mode")
 def test_real_interpolate():
     N = 100
     mesh = IntervalMesh(N, 0, 1)
