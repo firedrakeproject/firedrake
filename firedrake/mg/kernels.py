@@ -30,7 +30,7 @@ from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
 from firedrake.utils import ScalarType_c
-
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=True, dim=0):
     if parameters is None:
@@ -107,7 +107,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=Tru
             ],
             name='to_reference_coords_kernel',
             seq_dependencies=True,
-            target=lp.CudaTarget(extern_c=False))
+            target=lp.CudaTarget())
         max_iteration_count = 1 if is_affine(ufl_coordinate_element) else 16
         knl = lp.fix_parameters(knl,
                                 max_iteration_count=max_iteration_count,
