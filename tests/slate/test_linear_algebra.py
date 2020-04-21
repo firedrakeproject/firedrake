@@ -9,6 +9,7 @@ def mesh(request):
     return m
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_left_inverse(mesh, degree):
     """Tests the SLATE expression A.inv * A = I"""
@@ -23,6 +24,7 @@ def test_left_inverse(mesh, degree):
     assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_right_inverse(mesh, degree):
     """Tests the SLATE expression A * A.inv = I"""
@@ -37,6 +39,7 @@ def test_right_inverse(mesh, degree):
     assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_symmetry(mesh):
     """Tests that the SLATE matrices associated with a
     symmetric bilinear form is symmetric.
@@ -52,6 +55,7 @@ def test_symmetry(mesh):
     assert (M1.M.values - M2.M.values <= 1e-13).all()
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_subtract_to_zero(mesh):
     """Tests that subtracting two identical matrices results
     in the zero matrix.
@@ -66,6 +70,7 @@ def test_subtract_to_zero(mesh):
     assert (M.M.values <= 1e-13).all()
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_add_the_negative(mesh):
     """Adding the negative of a matrix gives
     you the zero matrix.
@@ -80,6 +85,7 @@ def test_add_the_negative(mesh):
     assert (M.M.values <= 1e-13).all()
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_aggressive_unaryop_nesting():
     """Test Slate's ability to handle extremely
     nested expressions.
@@ -102,6 +108,7 @@ def test_aggressive_unaryop_nesting():
     assert np.allclose(assemble(foo).dat.data, np.ones(V.node_count))
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("decomp", ["PartialPivLU", "FullPivLU"])
 def test_local_solve(decomp):
 

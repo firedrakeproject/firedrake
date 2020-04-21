@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])
@@ -53,6 +54,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
     assert u_err < 1e-11
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(("degree", "hdiv_family"),
                          [(1, "RTCF"),
                           (2, "RTCF")])

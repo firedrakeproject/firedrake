@@ -1,7 +1,9 @@
 from firedrake import *
 import numpy
+import pytest
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_unary_minus():
     mesh = UnitSquareMesh(1, 1)
 

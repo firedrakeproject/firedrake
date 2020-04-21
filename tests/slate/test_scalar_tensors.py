@@ -10,6 +10,7 @@ def mesh(request):
     return UnitSquareMesh(5, 5, quadrilateral=quadrilateral)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(['expr', 'value', 'typ', 'fs_type'],
                          itertools.product(['f',
                                             '2.0*tanh(f) + cos(f) + sin(f)',

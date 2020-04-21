@@ -54,6 +54,7 @@ def tensor(V, int_type, request):
     return Tensor(inner(u, v) * measure[int_type])
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_determinism_and_caching(tensor):
     """Tests that the :meth:'compile_slate_expression' forms
     a numerically deterministic system. That is, produced kernels

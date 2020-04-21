@@ -3,6 +3,7 @@ from firedrake import *
 import numpy as np
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(('Mesh', 'hdiv_space', 'degree'),
                          [(UnitIcosahedralSphereMesh, 'RT', 1),
                           (UnitIcosahedralSphereMesh, 'BDM', 1),

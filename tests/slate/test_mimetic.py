@@ -9,6 +9,7 @@ hdiv = [("RT", 1), ("BDM", 1)]
 hcurl = [("N1curl", 1), ("N1curl", 2), ("N2curl", 1), ("N2curl", 2)]
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hcurl]
@@ -33,6 +34,7 @@ def test_hdiv_element(hfamily, hdegree, vfamily, vdegree):
     assert np.allclose(A, ref, rtol=1e-13)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]

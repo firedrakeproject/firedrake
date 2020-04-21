@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize('quad', [False, True])
 def test_hybrid_extr_helmholtz(quad):
     """Hybridize the lowest order HDiv conforming method using
