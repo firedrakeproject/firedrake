@@ -192,7 +192,9 @@ def test_cg_max_field(f):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i, 0] = fmax(real(c[i, 0]), real(d[0, 0]))
+        <float64> real_c = real(c[i, 0])
+        <float64> real_d = real(d[0, 0])
+        c[i, 0] = fmax(real_c, real_d)
     end
     """
     par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)},
