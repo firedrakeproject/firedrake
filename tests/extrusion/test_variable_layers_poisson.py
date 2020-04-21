@@ -24,11 +24,11 @@ def test_poisson_variable_layers():
 
     selector = interpolate(
         conditional(
-            Or(x < 0.1,
-               x > 0.9),
+            Or(real(x) < 0.1,
+               real(x) > 0.9),
             4,
-            conditional(Or(And(x > 0.1, x < 0.2),
-                           And(x > 0.8, x < 0.9)),
+            conditional(Or(And(real(x) > 0.1, real(x) < 0.2),
+                           And(real(x) > 0.8, real(x) < 0.9)),
                         3, 2)),
         V)
 
