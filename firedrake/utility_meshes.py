@@ -1430,20 +1430,33 @@ cells in each direction are not currently supported")
     # set y coordinates to z coordinates
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
     instructions = f"""
+    <{RealType}> eps = 1e-12
     <{RealType}> Y = 0
     <{RealType}> pi = 3.141592653589793
+    <{RealType}> _oc0r = 0
+    <{RealType}> _oc1r = 0
+    <{RealType}> _nc0r = 0
+    <{RealType}> a = 0
+    <{ScalarType}> unit = 1
+    <{ScalarType}> nc0 = 0
+    <{ScalarType}> nc1 = 0
     for i
-        Y = Y + creal(old_coords[i, 1])
+        _oc1r = real(old_coords[i, 1])
+        Y = Y + _oc1r
     end
     for j
-        new_coords[j, 0] = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0])) / (pi* 2)
-        new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < 0 else new_coords[j, 0]
-        new_coords[j, 0] = 1 if (creal(new_coords[j, 0]) == 0 and Y < 0) else new_coords[j, 0]
-        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
-        new_coords[j, 1] = old_coords[j, 2] * Ly[0]
+        _oc0r = real(old_coords[j, 0])
+        _oc1r = real(old_coords[j, 1])
+        _nc0r = real(new_coords[j, 0])
+        a = atan2(_oc1r, _oc0r) / (pi* 2)
+        a = a + 1 if _nc0r < -eps else a
+        a = unit if (_nc0r < eps and Y < -eps) else a
+        nc0 = a *  Lx[0]
+        nc1 = old_coords[j, 2] * Ly[0]
+        new_coords[j, 0] = nc0
+        new_coords[j, 1] = nc1
     end
     """
-
     cLx = Constant(La)
     cLy = Constant(Lb)
 
