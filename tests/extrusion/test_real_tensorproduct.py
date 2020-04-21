@@ -75,7 +75,7 @@ def test_vertical_average_variable(quadrilateral):
     xy = SpatialCoordinate(mesh2d)
     p0_2d = FunctionSpace(mesh2d, 'DG', 0)
     f_2d = Function(p0_2d).interpolate(1 + xy[0])
-    max_layers = np.floor(f_2d.dat.data).astype(int)
+    max_layers = np.floor(f_2d.dat.data.real).astype(int)
     layers = np.zeros((p0_2d.dof_count, 2), dtype=int)
     layers[:, 1] = max_layers
 
@@ -87,7 +87,7 @@ def test_vertical_average_variable(quadrilateral):
 
     p0 = FunctionSpace(mesh, 'DG', 0)
     correct = Function(p0, name='solution').interpolate(1 + xyz[0])
-    correct.dat.data[:] = np.floor(correct.dat.data)/2
+    correct.dat.data[:] = np.floor(correct.dat.data.real)/2
 
     fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
     f_real = Function(fs_real).project(f)
