@@ -1060,11 +1060,11 @@ values from f.)"""
         """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
-        from firedrake.ufl_expr import CellSize
+        from ufl import CellDiameter
         from firedrake.functionspace import FunctionSpace
         from firedrake.projection import project
         P1 = FunctionSpace(self, "Lagrange", 1)
-        return project(CellSize(self), P1)
+        return project(CellDiameter(self), P1)
 
     def clear_cell_sizes(self):
         """Reset the :attr:`cell_sizes` field on this mesh geometry.
