@@ -29,7 +29,7 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
-from firedrake.utils import ScalarType_c
+from firedrake.utils import ScalarType_c, ScalarType
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -59,8 +59,9 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     evaluate_template_c = """#include <math.h>
 #include <stdio.h>
+#include <petsc.h>
 
-static inline void to_reference_coords_kernel(double *X, const double *x0, const double *C)
+static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
 
@@ -220,18 +221,18 @@ def prolong_kernel(expression):
 
         args = eval_args[-1].gencode(not_scope=True)
         R, coarse = (a.sym.symbol for a in eval_args)
-        my_kernel = """
+        my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(double *R, %(args)s, const double *X, const double *Xc)
+        static void pyop2_kernel_prolong(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
@@ -261,7 +262,7 @@ def prolong_kernel(expression):
                     abort();
                 }
             }
-            const double *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 %(R)s[i] = 0;
             }
@@ -305,19 +306,19 @@ def restrict_kernel(Vf, Vc):
         eval_args = evaluate_kernel.args[:-1]
         args = eval_args[-1].gencode(not_scope=True)
         R, fine = (a.sym.symbol for a in eval_args)
-        my_kernel = """
+        my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(double *R, %(args)s, const double *X, const double *Xc)
+        static void pyop2_kernel_restrict(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
@@ -350,7 +351,7 @@ def restrict_kernel(Vf, Vc):
             }
 
             {
-            const double *Ri = %(R)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *Ri = %(R)s + cell*%(coarse_cell_inc)d;
             pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
             }
         }
@@ -397,14 +398,14 @@ def inject_kernel(Vf, Vc):
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_inject(double *R, const double *X, const double *f, const double *Xf)
+        static void pyop2_kernel_inject(PetscScalar *R, const PetscScalar *X, const PetscScalar *f, const PetscScalar *Xf)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xfi = Xf + i*%(Xf_cell_inc)d;
+                const PetscScalar *Xfi = Xf + i*%(Xf_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xfi);
                 if (%(inside_cell)s) {
@@ -433,7 +434,7 @@ def inject_kernel(Vf, Vc):
                     abort();
                 }
             }
-            const double *fi = f + cell*%(f_cell_inc)d;
+            const PetscScalar *fi = f + cell*%(f_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
@@ -613,7 +614,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor
-    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType_c))
+    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
                                                    coarse_builder.coordinates_arg]

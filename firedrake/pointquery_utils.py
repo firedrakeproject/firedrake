@@ -50,7 +50,7 @@ def src_locate_cell(mesh, tolerance=None):
 
 
 def dX_norm_square(topological_dimension):
-    return " + ".join("dX[{0}]*dX[{0}]".format(i)
+    return " + ".join("PetscRealPart(dX[{0}])*PetscRealPart(dX[{0}])".format(i)
                       for i in range(topological_dimension))
 
 
@@ -65,7 +65,7 @@ def is_affine(ufl_element):
 
 def inside_check(fiat_cell, eps, X="X"):
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("%s[%d]" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
 
     return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
 
@@ -73,10 +73,10 @@ def inside_check(fiat_cell, eps, X="X"):
 def compute_celldist(fiat_cell, X="X", celldist="celldist"):
     dim = fiat_cell.get_spatial_dimension()
     s = """
-    %(celldist)s = %(X)s[0];
+    %(celldist)s = PetscRealPart(%(X)s[0]);
     for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
-        if (%(celldist)s > %(X)s[celldistdim]) {
-            %(celldist)s = %(X)s[celldistdim];
+        if (%(celldist)s > PetscRealPart(%(X)s[celldistdim])) {
+            %(celldist)s = PetscRealPart(%(X)s[celldistdim]);
         }
     }
     %(celldist)s *= -1;
