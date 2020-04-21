@@ -47,9 +47,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         pass
     elif extrusion_type == 'uniform':
         kernel = op2.Kernel("""
-static inline void pyop2_kernel_uniform_extrusion(double *ext_coords,
-                                                  const double *base_coords,
-                                                  const double *layer_height,
+static inline void pyop2_kernel_uniform_extrusion(PetscScalar *ext_coords,
+                                                  const PetscScalar *base_coords,
+                                                  const PetscReal *layer_height,
                                                   int layer) {
     for ( int d = 0; d < %(base_map_arity)d; d++ ) {
         for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
@@ -63,14 +63,14 @@ static inline void pyop2_kernel_uniform_extrusion(double *ext_coords,
             "pyop2_kernel_uniform_extrusion")
     elif extrusion_type == 'radial':
         kernel = op2.Kernel("""
-static inline void pyop2_kernel_radial_extrusion(double *ext_coords,
-                                                 const double *base_coords,
-                                                 const double *layer_height,
+static inline void pyop2_kernel_radial_extrusion(PetscScalar *ext_coords,
+                                                 const PetscScalar *base_coords,
+                                                 const PetscReal *layer_height,
                                                  int layer) {
     for ( int d = 0; d < %(base_map_arity)d; d++ ) {
         double norm = 0.0;
         for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-            norm += base_coords[d*%(base_coord_dim)d+c] * base_coords[d*%(base_coord_dim)d+c];
+            norm += PetscRealPart(base_coords[d*%(base_coord_dim)d+c]) * PetscRealPart(base_coords[d*%(base_coord_dim)d+c]);
         }
         norm = sqrt(norm);
         for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
@@ -86,14 +86,14 @@ static inline void pyop2_kernel_radial_extrusion(double *ext_coords,
         if base_coords.ufl_domain().ufl_cell().topological_dimension() not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
         kernel = op2.Kernel("""
-static inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
-                                                          const double *base_coords,
-                                                          const double *layer_height,
+static inline void pyop2_kernel_radial_hedgehog_extrusion(PetscScalar *ext_coords,
+                                                          const PetscScalar *base_coords,
+                                                          const PetscReal *layer_height,
                                                           int layer) {
-    double v0[%(base_coord_dim)d];
-    double v1[%(base_coord_dim)d];
-    double n[%(base_coord_dim)d];
-    double x[%(base_coord_dim)d] = {0};
+    PetscReal v0[%(base_coord_dim)d];
+    PetscReal v1[%(base_coord_dim)d];
+    PetscReal n[%(base_coord_dim)d];
+    PetscScalar x[%(base_coord_dim)d] = {0};
     double dot = 0.0;
     double norm = 0.0;
     int i, c, d;
@@ -103,8 +103,8 @@ static inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
          * (0 -1) (x2 - x1)
          * (1  0) (y2 - y1)
          */
-        n[0] = -(base_coords[%(base_coord_dim)d+1] - base_coords[1]);
-        n[1] = base_coords[%(base_coord_dim)d] - base_coords[0];
+        n[0] = PetscRealPart(-(base_coords[%(base_coord_dim)d+1] - base_coords[1]));
+        n[1] = PetscRealPart(base_coords[%(base_coord_dim)d] - base_coords[0]);
     } else if (%(base_coord_dim)d == 3) {
         /*
          * normal is
@@ -117,8 +117,8 @@ static inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
          *    v1
          */
         for (i = 0; i < 3; ++i) {
-            v0[i] = base_coords[%(base_coord_dim)d+i] - base_coords[i];
-            v1[i] = base_coords[2*%(base_coord_dim)d+i] - base_coords[i];
+            v0[i] = PetscRealPart(base_coords[%(base_coord_dim)d+i] - base_coords[i]);
+            v1[i] = PetscRealPart(base_coords[2*%(base_coord_dim)d+i] - base_coords[i]);
         }
         n[0] = v0[1] * v1[2] - v0[2] * v1[1];
         n[1] = v0[2] * v1[0] - v0[0] * v1[2];
