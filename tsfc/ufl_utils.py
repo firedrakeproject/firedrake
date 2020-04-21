@@ -21,7 +21,7 @@ from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
-                         MixedElement, MultiIndex, Product,
+                         Indexed, MixedElement, MultiIndex, Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
@@ -387,15 +387,15 @@ def apply_mapping(expression, mapping):
         return expression
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
-        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
-        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
+        *i, j, k = indices(len(expression.ufl_shape) + 1)
+        expression = Indexed(expression, MultiIndex((*i, k)))
         return as_tensor(J.T[j, k] * expression, (*i, j))
     elif mapping == "contravariant piola":
         mesh = expression.ufl_domain()
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
-        *i, j, k = ufl.indices(len(expression.ufl_shape) + 1)
-        expression = ufl.classes.Indexed(expression, ufl.classes.MultiIndex((*i, k)))
+        *i, j, k = indices(len(expression.ufl_shape) + 1)
+        expression = Indexed(expression, MultiIndex((*i, k)))
         return as_tensor(detJ * K[j, k] * expression, (*i, j))
     elif mapping == "double covariant piola" and rank == 2:
         mesh = expression.ufl_domain()
