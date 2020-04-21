@@ -17,7 +17,7 @@ def test_facet_interior_jump(mesh):
     x, y = SpatialCoordinate(mesh)
     f = project(as_vector([x, y]), DG)
 
-    form = jump(inner(f[0]*f[1], u), n=n)*dS
+    form = jump(f[0]*f[1]*conj(u), n=n)*dS
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -48,7 +48,7 @@ def test_facet_exterior(mesh):
     x, y = SpatialCoordinate(mesh)
     f = project(as_vector([x, y]), DG)
 
-    form = dot(inner(f[0]*f[1], u), n)*ds
+    form = dot(f[0]*f[1]*conj(u), n)*ds
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
