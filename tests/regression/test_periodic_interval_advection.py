@@ -48,22 +48,22 @@ def run_test(degree):
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
         rhs = Function(V)
 
-        mass_inv = assemble(a_mass)
+        mass = assemble(a_mass)
 
-        def _solve(mass_inv, arhs, rhs, update):
+        def _solve(mass, arhs, rhs, update):
             b = assemble(arhs, tensor=rhs)
-            solve(mass_inv, update, b)
+            solve(mass, update, b)
 
         for _ in range(nstep):
             # SSPRK3
             D1.assign(D)
-            _solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
 
             D1.assign(dD1)
-            _solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
 
             D1.assign(0.75*D + 0.25*dD1)
-            _solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
             D.assign((1.0/3.0)*D + (2.0/3.0)*dD1)
 
         D1.assign(D)
