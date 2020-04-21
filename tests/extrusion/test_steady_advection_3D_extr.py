@@ -87,7 +87,7 @@ def test_right_to_left(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[1]) > 0.25, real(xs[1]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
@@ -143,7 +143,7 @@ def test_far_to_near(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[2] > 0.25, xs[2] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[2]) > 0.25, real(xs[2]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
@@ -199,7 +199,7 @@ def test_top_to_bottom(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[0] > 0.25, xs[0] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[0]) > 0.25, real(xs[0]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
