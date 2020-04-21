@@ -48,7 +48,7 @@ def test_facet_exterior(mesh):
     x, y = SpatialCoordinate(mesh)
     f = project(as_vector([x, y]), DG)
 
-    form = dot(f[0]*f[1]*conj(u), n)*ds
+    form = inner(n, f[0]*f[1]*u)*ds
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
