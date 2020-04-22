@@ -7,6 +7,7 @@ import pytest
 from subprocess import check_call
 from mpi4py import MPI
 from pyadjoint.tape import get_working_tape
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +58,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipcomplex: mark as skipped in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
 
 
 def pytest_runtest_setup(item):
@@ -87,11 +91,13 @@ def pytest_runtest_call(item):
 
 
 def pytest_collection_modifyitems(session, config, items):
-    import firedrake_configuration
-    complex_mode = firedrake_configuration.get_config()["options"]["complex"]
+    from firedrake.slate.slac import SUPPORTS_COMPLEX
     for item in items:
-        if complex_mode and item.get_closest_marker("skipcomplex") is not None:
-            item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
+        if complex_mode:
+            if item.get_closest_marker("skipcomplex") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
+            if item.get_closest_marker("skipcomplexnoslate") and not SUPPORTS_COMPLEX:
+                item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
 
 
 @pytest.fixture(scope="module", autouse=True)
