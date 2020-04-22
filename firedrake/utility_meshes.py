@@ -523,26 +523,34 @@ cells in each direction are not currently supported")
     <{RealType}> bigeps = 1e-1
     <{RealType}> Y = 0
     <{RealType}> Z = 0
+    <{RealType}> _oc1r = 0
+    <{RealType}> _oc2r = 0
     for i
-        Y = Y + creal(old_coords[i, 1])
-        Z = Z + creal(old_coords[i, 2])
+        _oc1r = real(old_coords[i, 1])
+        _oc2r = real(old_coords[i, 2])
+        Y = Y + _oc1r
+        Z = Z + _oc2r
     end
     for j
-        <{ScalarType}> phi = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0]), dtype=complex)
-        <{ScalarType}> _phi = abs(sin(phi, dtype=complex))
-        <{ScalarType}> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1, dtype=complex)
-        <{ScalarType}> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1, dtype=complex)
-        <{ScalarType}> theta = _theta_1 if _phi > bigeps else _theta_2
-        new_coords[j, 0] = phi / (2 * pi)
-        new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < -eps else new_coords[j, 0]
-        <{RealType}> _nc_abs = abs(new_coords[j, 0])
-        new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
-        new_coords[j, 1] = theta / (2 * pi)
-        new_coords[j, 1] = new_coords[j, 1] + 1 if creal(new_coords[j, 1]) < -eps else new_coords[j, 1]
-        _nc_abs = abs(new_coords[j, 1])
-        new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
-        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
-        new_coords[j, 1] = new_coords[j, 1] * Ly[0]
+        <{RealType}> _oc0r = real(old_coords[j, 0])
+        _oc1r = real(old_coords[j, 1])
+        _oc2r = real(old_coords[j, 2])
+        <{RealType}> phi = atan2(_oc1r, _oc0r)
+        <{RealType}> _phi = abs(sin(phi))
+        <{RealType}> _theta_1 = atan2(_oc2r, _oc1r / sin(phi) - 1)
+        <{RealType}> _theta_2 = atan2(_oc2r, _oc0r / cos(phi) - 1)
+        <{RealType}> theta = _theta_1 if _phi > bigeps else _theta_2
+        <{RealType}> _nc0r = phi / (2 * pi)
+        _nc0r = phi / (2 * pi)
+        _nc0r = _nc0r + 1 if _nc0r < -eps else _nc0r
+        <{RealType}> _nc_abs = abs(_nc0r)
+        _nc0r = 1 if _nc_abs < eps and Y < 0 else _nc0r
+        <{RealType}> _nc1r = theta / (2 * pi)
+        _nc1r = _nc1r + 1 if _nc1r < -eps else _nc1r
+        _nc_abs = abs(_nc1r)
+        _nc1r = 1 if _nc_abs < eps and Z < 0 else _nc1r
+        new_coords[j, 0] = _nc0r * Lx[0]
+        new_coords[j, 1] = _nc1r * Ly[0]
     end
     """
 
