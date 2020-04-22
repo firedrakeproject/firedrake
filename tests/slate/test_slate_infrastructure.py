@@ -101,7 +101,6 @@ def mixed_vector(mixed_space):
     return Tensor(v*dx + q*dx + s*dx)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
     S = zero_rank_tensor
     M = mass
@@ -139,7 +138,6 @@ def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
     assert (G - F).arguments() == (v,)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_coefficients(mass, stiffness, load, boundary_load, zero_rank_tensor):
     S = zero_rank_tensor
     M = mass
@@ -177,7 +175,6 @@ def test_coefficients(mass, stiffness, load, boundary_load, zero_rank_tensor):
     assert (Tensor(f * u * v * dx) + Tensor(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_tensor):
     S = zero_rank_tensor
     M = mass
@@ -208,7 +205,6 @@ def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_te
     assert (F + G).subdomain_data() == (F.form + G.form).subdomain_data()
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_equality_relations(function_space):
     # Small test to check hash functions
     V = function_space
@@ -228,7 +224,6 @@ def test_equality_relations(function_space):
     assert A != -A
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     S = zero_rank_tensor
     M = mixed_matrix
@@ -303,7 +298,6 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_illegal_add_sub():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -328,7 +322,6 @@ def test_illegal_add_sub():
         A - s
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_ops_NotImplementedError():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
@@ -353,7 +346,6 @@ def test_ops_NotImplementedError():
         f * A
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_illegal_mul():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -374,7 +366,6 @@ def test_illegal_mul():
         A * B
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_illegal_inverse():
     mesh = UnitSquareMesh(1, 1)
     RT = FunctionSpace(mesh, "RT", 1)
@@ -386,7 +377,6 @@ def test_illegal_inverse():
         A.inv
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_illegal_compile():
     from firedrake.slate.slac import compile_expression as compile_slate
     V = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)

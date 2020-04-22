@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parallel(nprocs=4)
 def test_parallel_kernel_on_sphere():
     """Tests that Slate can construct the operators

@@ -21,7 +21,6 @@ def mesh_extr(request):
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("subdomain", (1, 2, 3, 4))
 def test_2d_facet_subdomains(mesh_2d, subdomain):
     DG = VectorFunctionSpace(mesh_2d, "DG", 1)
@@ -39,7 +38,6 @@ def test_2d_facet_subdomains(mesh_2d, subdomain):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("subdomain", (1, 2, 3, 4, 5, 6))
 def test_3d_facet_subdomains(mesh_3d, subdomain):
     DG = VectorFunctionSpace(mesh_3d, "DG", 1)
@@ -57,7 +55,6 @@ def test_3d_facet_subdomains(mesh_3d, subdomain):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize("subdomain", (1, 2, 3, 4))
 def test_extr_vert_facet_subdomains(mesh_extr, subdomain):
     DG = VectorFunctionSpace(mesh_extr, "DG", 1)
@@ -74,7 +71,6 @@ def test_extr_vert_facet_subdomains(mesh_extr, subdomain):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_multiple_subdomains_2d(mesh_2d):
     DG = VectorFunctionSpace(mesh_2d, "DG", 1)
     n = FacetNormal(mesh_2d)
@@ -92,7 +88,6 @@ def test_multiple_subdomains_2d(mesh_2d):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_multiple_subdomains_3d(mesh_3d):
     DG = VectorFunctionSpace(mesh_3d, "DG", 1)
     n = FacetNormal(mesh_3d)
@@ -112,7 +107,6 @@ def test_multiple_subdomains_3d(mesh_3d):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_multiple_subdomains_extr(mesh_extr):
     DG = VectorFunctionSpace(mesh_extr, "DG", 1)
     n = FacetNormal(mesh_extr)

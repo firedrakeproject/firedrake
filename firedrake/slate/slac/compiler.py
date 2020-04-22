@@ -98,7 +98,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
     if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"]
+        tsfc_parameters = parameters["form_compiler"].copy()
     tsfc_parameters['scalar_type'] = "PetscScalar"
     key = str(sorted(tsfc_parameters.items()))
     try:
@@ -253,7 +253,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
                            headers=['#include <Eigen/Dense>',
                                     '#define restrict __restrict',
                                     '#include <complex>',
-                                    '#include <petsc.h>',])
+                                    '#include <petsc.h>'])
 
     op2kernel.num_flops = builder.expression_flops + builder.terminal_flops
     # Send back a "TSFC-like" SplitKernel object with an

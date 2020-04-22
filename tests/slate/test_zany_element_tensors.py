@@ -32,7 +32,6 @@ def mass_matrix(mass):
     return Tensor(mass)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_assemble_zany_tensor(mass_matrix):
     M = assemble(mass_matrix)
     assert np.allclose(M.M.values, assemble(mass_matrix.form).M.values, rtol=1e-14)

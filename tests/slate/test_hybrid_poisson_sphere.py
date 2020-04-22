@@ -46,7 +46,6 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     return error
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parallel
 @pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
                          [(UnitIcosahedralSphereMesh, 'BDM'),

@@ -9,7 +9,6 @@ def mesh(request):
     return m
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_facet_interior_jump(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)
@@ -26,7 +25,6 @@ def test_facet_interior_jump(mesh):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_facet_interior_avg(mesh):
     DG = FunctionSpace(mesh, "DG", 1)
     u = TestFunction(DG)
@@ -42,7 +40,6 @@ def test_facet_interior_avg(mesh):
     assert np.allclose(A, ref, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_facet_exterior(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)

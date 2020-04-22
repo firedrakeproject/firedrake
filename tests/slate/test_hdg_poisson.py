@@ -93,7 +93,6 @@ def run_LDG_H_problem(r, degree, quads=False):
     return scalar_error, flux_error
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parallel
 @pytest.mark.parametrize(('degree', 'quads', 'rate'),
                          [(1, False, 1.75),

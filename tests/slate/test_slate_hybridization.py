@@ -26,7 +26,6 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])
