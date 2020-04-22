@@ -5,6 +5,7 @@ from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
+from firedrake.utils import complex_mode
 from firedrake.mg import utils
 
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
@@ -502,6 +503,8 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
+    if complex_mode:
+        raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
