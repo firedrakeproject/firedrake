@@ -91,7 +91,6 @@ def rank_two_tensor(mass):
     return Tensor(mass)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_tensor_action(mass, f):
     V = assemble(Tensor(mass) * AssembledVector(f))
     ref = assemble(action(mass, f))
@@ -99,7 +98,6 @@ def test_tensor_action(mass, f):
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_sum_tensor_actions(mass, f, g):
     V = assemble(Tensor(mass) * AssembledVector(f)
                  + Tensor(0.5*mass) * AssembledVector(g))
@@ -108,20 +106,17 @@ def test_sum_tensor_actions(mass, f, g):
     assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_assemble_vector(rank_one_tensor):
     V = assemble(rank_one_tensor)
     assert isinstance(V, Function)
     assert np.allclose(V.dat.data, assemble(rank_one_tensor.form).dat.data, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_assemble_matrix(rank_two_tensor):
     M = assemble(rank_two_tensor)
     assert np.allclose(M.M.values, assemble(rank_two_tensor.form).M.values, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_assemble_vector_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
@@ -133,7 +128,6 @@ def test_assemble_vector_into_tensor(mesh):
     assert np.allclose(f.dat.data, 2*assemble(Tensor(conj(v) * dx)).dat.data, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_assemble_matrix_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)
@@ -144,7 +138,6 @@ def test_assemble_matrix_into_tensor(mesh):
     assert np.allclose(M.M.values, 2*assemble(Tensor(inner(v, u) * dx)).M.values, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_mixed_coefficient_matrix(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
@@ -159,7 +152,6 @@ def test_mixed_coefficient_matrix(mesh):
     assert np.allclose(assemble(T).M.values, ref.M.values, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_mixed_coefficient_scalar(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     W = V * V
@@ -169,7 +161,6 @@ def test_mixed_coefficient_scalar(mesh):
     assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_nested_coefficients_matrix(mesh):
     V = VectorFunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "CG", 1)
@@ -189,7 +180,6 @@ def test_nested_coefficients_matrix(mesh):
     assert np.allclose(M.M.values, assemble(form).M.values, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_mixed_argument_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
@@ -201,7 +191,6 @@ def test_mixed_argument_tensor(mesh):
         assemble(T)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_vector_subblocks(mesh):
     V = VectorFunctionSpace(mesh, "DG", 1)
     U = FunctionSpace(mesh, "DG", 1)
@@ -224,7 +213,6 @@ def test_vector_subblocks(mesh):
         assert np.allclose(assemble(tensor).dat.data, ref.dat.data, rtol=1e-14)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_matrix_subblocks(mesh):
     if mesh.ufl_cell() == quadrilateral:
         U = FunctionSpace(mesh, "RTCF", 1)

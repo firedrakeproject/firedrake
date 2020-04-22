@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 def test_matrix_free_hybridization():
     # Create a mesh
     mesh = UnitSquareMesh(6, 6)

@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize(("degree", "hdiv_family"),
                          [(1, "RT"), (1, "BDM")])
 def test_darcy_flow_hybridization(degree, hdiv_family):

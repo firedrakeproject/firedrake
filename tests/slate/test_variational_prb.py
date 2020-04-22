@@ -3,7 +3,6 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Slate does not work for complex.")
 @pytest.mark.parametrize('degree', [1, 2])
 def test_lvp_equiv_hdg(degree):
     """Runs an HDG problem and checks that passing
