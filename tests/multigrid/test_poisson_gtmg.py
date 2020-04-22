@@ -143,11 +143,11 @@ def run_gtmg_scpc_mixed_poisson():
     return errornorm(f, uh, norm_type="L2")
 
 
-@pytest.mark.parallel
+@pytest.mark.skipcomplexnoslate
 def test_mixed_poisson_gtmg():
     assert run_gtmg_mixed_poisson() < 1e-5
 
 
-@pytest.mark.parallel
+@pytest.mark.skipcomplexnoslate
 def test_scpc_mixed_poisson_gtmg():
     assert run_gtmg_scpc_mixed_poisson() < 1e-5

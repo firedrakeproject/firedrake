@@ -39,6 +39,7 @@ def test_repeated_custom_transfer():
     assert count == 1
 
 
+@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_split():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
@@ -86,6 +87,7 @@ def test_multiple_custom_transfer_split():
     assert count_Q == -2
 
 
+@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_monolithc():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
