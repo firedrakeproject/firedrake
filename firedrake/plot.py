@@ -28,11 +28,11 @@ def _select_scalar_type(plot_function):
                 function_to_plot = Function(function.function_space(), function_data.imag)
             else:
                 raise TypeError("`scalar_type` must be `real`(default) or `imag`.")
-            plot_function(function_to_plot, *args, **kwargs)
+            return plot_function(function_to_plot, *args, **kwargs)
         else:
             if _scalar_type != 'real':
                 raise TypeError("Provided function is real: _sclar_type must be real.")
-            plot_function(function, *args, **kwargs)
+            return plot_function(function, *args, **kwargs)
     return wrapper
 
 
