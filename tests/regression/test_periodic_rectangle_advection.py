@@ -71,26 +71,22 @@ def test_periodic_rectangle_advection(degree, threshold,
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
         rhs = Function(V)
 
-        # Since DG mass-matrix is block diagonal, just assemble the
-        # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True)
-        mass_inv = mass_inv.petscmat
+        mass = assemble(a_mass)
 
-        def solve(mass_inv, arhs, rhs, update):
-            with assemble(arhs, tensor=rhs).dat.vec_ro as x:
-                with update.dat.vec as y:
-                    mass_inv.mult(x, y)
+        def _solve(mass, arhs, rhs, update):
+            b = assemble(arhs, tensor=rhs)
+            solve(mass, update, b)
 
         for _ in range(nstep):
             # SSPRK3
             D1.assign(D)
-            solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
 
             D1.assign(dD1)
-            solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
 
             D1.assign(0.75*D + 0.25*dD1)
-            solve(mass_inv, arhs, rhs, dD1)
+            _solve(mass, arhs, rhs, dD1)
             D.assign((1.0/3.0)*D + (2.0/3.0)*dD1)
 
         D1.assign(D)
