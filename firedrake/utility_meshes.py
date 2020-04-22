@@ -516,8 +516,6 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    absfunc = 'abs' if utils.complex_mode else 'fabs'
-
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
     instructions = f"""
     <{RealType}> pi = 3.141592653589793
@@ -531,17 +529,17 @@ cells in each direction are not currently supported")
     end
     for j
         <{ScalarType}> phi = atan2(creal(old_coords[j, 1]), creal(old_coords[j, 0]), dtype=complex)
-        <{ScalarType}> _phi = {absfunc}(sin(phi, dtype=complex))
+        <{ScalarType}> _phi = abs(sin(phi, dtype=complex))
         <{ScalarType}> _theta_1 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 1]) / sin(phi) - 1, dtype=complex)
         <{ScalarType}> _theta_2 = atan2(creal(old_coords[j, 2]), creal(old_coords[j, 0]) / cos(phi) - 1, dtype=complex)
         <{ScalarType}> theta = _theta_1 if _phi > bigeps else _theta_2
         new_coords[j, 0] = phi / (2 * pi)
         new_coords[j, 0] = new_coords[j, 0] + 1 if creal(new_coords[j, 0]) < -eps else new_coords[j, 0]
-        <{RealType}> _nc_abs = {absfunc}(new_coords[j, 0])
+        <{RealType}> _nc_abs = abs(new_coords[j, 0])
         new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
         new_coords[j, 1] = theta / (2 * pi)
         new_coords[j, 1] = new_coords[j, 1] + 1 if creal(new_coords[j, 1]) < -eps else new_coords[j, 1]
-        _nc_abs = {absfunc}(new_coords[j, 1])
+        _nc_abs = abs(new_coords[j, 1])
         new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = new_coords[j, 1] * Ly[0]
