@@ -124,10 +124,10 @@ def test_multiple_custom_transfer_monolithc():
     solver = LinearVariationalSolver(problem, solver_parameters=options)
     solver.set_transfer_manager(transfer)
 
-    solver.solve()
-
-    assert count_V == 2
-    assert count_Q == -2
+    with raises_in_complex(NotImplementedError):
+        solver.solve()
+        assert count_V == 2
+        assert count_Q == -2
 
 
 def test_custom_transfer_setting():
