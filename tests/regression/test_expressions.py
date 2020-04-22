@@ -445,7 +445,7 @@ def test_minmax(fn):
 
     h = Function(V)
 
-    h.assign(fn(f, g))
+    h.assign(fn(real(f), real(g)))
 
     if fn == min_value:
         expect = 1
