@@ -25,7 +25,7 @@ def integrate_rhs(family, degree):
 
     domain = ""
     instructions = """
-    x[0,0] = (c[1,2] + c[0,2]) / 2
+    x[0,0] = 0.5 * (c[1,2] + c[0,2])
     """
 
     par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
