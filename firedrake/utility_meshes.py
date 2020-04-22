@@ -120,7 +120,7 @@ cells are not currently supported")
     <{IntType}> swap = 1 if a >= b else 0
     <{RealType}> aa = fmin(a, b)
     <{RealType}> bb = fmax(a, b)
-    <{RealType}> bb_abs = fabs(bb)
+    <{RealType}> bb_abs = abs(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
