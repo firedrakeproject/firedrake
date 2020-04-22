@@ -73,6 +73,8 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
+        if complex_mode:
+            raise NotImplementedError("SLATE doesn't work in complex mode yet")
         if self._initialized:
             return
         self.split_kernel = generate_kernel(expr, tsfc_parameters)
