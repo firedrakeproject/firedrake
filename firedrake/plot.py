@@ -17,8 +17,10 @@ __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor
 
 
 def _select_scalar_type(plot_function):
-    """ Decorator to pick scalar type used for plotting. """
+    """Decorator to pick scalar type used for plotting a `Function`."""
     def wrapper(function, *args, **kwargs):
+        if not isinstance(function, Function):
+            return plot_function(function, *args, **kwargs)
         function_data = function.vector().array()
         _scalar_type = kwargs.pop('scalar_type', 'real')
         if function_data.dtype.kind == "c":
