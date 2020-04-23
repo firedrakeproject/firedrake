@@ -65,6 +65,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
     data.append(lp.GlobalArg("layer_height", dtype=ScalarType, shape=()))
+    data.append(lp.ValueArg('layer'))
     base_coord_dim = base_coords.function_space().value_size
     adim = len(ext_shape) - 2
     # Deal with tensor product cells
