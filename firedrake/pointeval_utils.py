@@ -128,7 +128,8 @@ def compile_element(expression, coordinates, parameters=None):
 static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, int const start, int const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
-int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)
+
+int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     struct ReferenceCoords reference_coords;
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
