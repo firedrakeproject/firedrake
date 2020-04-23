@@ -11,13 +11,10 @@ and the analytical solution
   u(x, y) = exp(1j*x[0]*pi)
 """
 
-from os.path import abspath, dirname
 import numpy as np
 import pytest
 
 from firedrake import *
-
-cwd = abspath(dirname(__file__))
 
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
