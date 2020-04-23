@@ -2,7 +2,7 @@
 
 import numpy
 from firedrake.petsc import PETSc
-from pyop2.datatypes import IntType, ScalarType
+from pyop2.datatypes import IntType, ScalarType, RealType
 
 cimport numpy
 cimport petsc4py.PETSc as PETSc
@@ -15,9 +15,9 @@ MAGIC = {2: (22, 3, 2),
          3: (81, 4, 3)}
 
 
-ctypedef int (*compiled_call)(const double *, const double *, const double *,
-                               const double *, const double *,
-                               const double *, double *)
+ctypedef int (*compiled_call)(PetscScalar *,PetscScalar *,PetscScalar *,
+                               const PetscScalar *,const PetscScalar *,
+                               const PetscScalar *, PetscScalar *)
 
 
 cdef extern from "libsupermesh-c.h" nogil:
@@ -39,23 +39,23 @@ cdef extern from "libsupermesh-c.h" nogil:
 #             compute out = R_BS^T @ M_SS @ R_AS with dense matrix triple product
 #             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
 def assemble_mixed_mass_matrix(V_A, V_B, candidates,
-                               numpy.ndarray[PetscReal, ndim=2, mode="c"] node_locations_A,
-                               numpy.ndarray[PetscReal, ndim=2, mode="c"] node_locations_B,
-                               numpy.ndarray[PetscReal, ndim=2, mode="c"] M_SS,
+                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] node_locations_A,
+                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] node_locations_B,
+                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] M_SS,
                                lib, PETSc.Mat mat not None):
     cdef:
         numpy.ndarray[PetscInt, ndim=2, mode="c"] V_A_cell_node_map
         numpy.ndarray[PetscInt, ndim=2, mode="c"] V_B_cell_node_map
         numpy.ndarray[PetscInt, ndim=2, mode="c"] vertex_map_A, vertex_map_B
-        numpy.ndarray[PetscReal, ndim=2, mode="c"] vertices_A, vertices_B
+        numpy.ndarray[PetscScalar, ndim=2, mode="c"] vertices_A, vertices_B
         numpy.ndarray[PetscScalar, ndim=2, mode="c"] outmat
         PetscInt cell_A, cell_B, i, gdim, num_dof_A, num_dof_B
         PetscInt num_cell_B, num_cell_A, num_vertices
         PetscInt insert_mode = PETSc.InsertMode.ADD_VALUES
         const PetscInt *V_A_map
         const PetscInt *V_B_map
-        numpy.ndarray[PetscReal, ndim=2, mode="c"] simplex_A, simplex_B
-        numpy.ndarray[PetscReal, ndim=3, mode="c"] simplices_C
+        numpy.ndarray[PetscScalar, ndim=2, mode="c"] simplex_A, simplex_B
+        numpy.ndarray[PetscScalar, ndim=3, mode="c"] simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
     num_cell_A = V_A.mesh().cell_set.size
@@ -70,9 +70,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
 
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension()
-    # FIXME: needs to be real type after complex (Argh!)
     simplex_A = numpy.empty((num_vertices, gdim), dtype=ScalarType)
-    simplex_B = numpy.empty_like(simplex_A)
+    simplex_B = numpy.empty_like(simplex_A, dtype=ScalarType)
     simplices_C = numpy.empty(MAGIC[gdim], dtype=ScalarType)
 
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
@@ -87,10 +86,10 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                 for j in range(gdim):
                     simplex_A[i, j] = vertices_A[vertex_map_A[cell_A, i], j]
                     simplex_B[i, j] = vertices_B[vertex_map_B[cell_B, i], j]
-            library_call(<const PetscReal *>simplex_A.data, <const PetscReal *>simplex_B.data,
-                         <const PetscReal *>simplices_C.data,
-                         <const PetscReal *>node_locations_A.data,
-                         <const PetscReal *>node_locations_B.data,
+            library_call(<PetscScalar *>simplex_A.data, <PetscScalar *>simplex_B.data,
+                         <PetscScalar *>simplices_C.data,
+                         <const PetscScalar *>node_locations_A.data,
+                         <const PetscScalar *>node_locations_B.data,
                          <const PetscScalar *>M_SS.data,
                          <PetscScalar *>outmat.data)
             V_A_map = <const PetscInt *>(&V_A_cell_node_map[cell_A, 0])
@@ -113,7 +112,7 @@ def intersection_finder(mesh_A, mesh_B):
 
     cdef:
         numpy.ndarray[long, ndim=2, mode="c"] vertex_map_A, vertex_map_B
-        numpy.ndarray[double, ndim=2, mode="c"] vertices_A, vertices_B
+        numpy.ndarray[PetscScalar, ndim=2, mode="c"] vertices_A, vertices_B
         long nindices
         numpy.ndarray[long, ndim=1, mode="c"] indices, indptr
         long nnodes_A, nnodes_B, ncells_A, ncells_B
