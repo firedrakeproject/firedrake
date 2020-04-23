@@ -2,8 +2,12 @@ import collections
 import itertools
 import numpy
 
+import firedrake
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, RealType, ScalarType
+from tsfc.finatinterface import create_element
+import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 
 
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
@@ -43,119 +47,139 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
         raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
+    layer_height = op2.Global(1, layer_height, dtype=ScalarType) 
     if kernel is not None:
-        pass
-    elif extrusion_type == 'uniform':
-        kernel = op2.Kernel("""
-static inline void pyop2_kernel_uniform_extrusion(PetscScalar *ext_coords,
-                                                  const PetscScalar *base_coords,
-                                                  const PetscReal *layer_height,
-                                                  int layer) {
-    for ( int d = 0; d < %(base_map_arity)d; d++ ) {
-        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-            ext_coords[2*d*(%(base_coord_dim)d+1)+c] = base_coords[d*%(base_coord_dim)d+c];
-            ext_coords[(2*d+1)*(%(base_coord_dim)d+1)+c] = base_coords[d*%(base_coord_dim)d+c];
-        }
-        ext_coords[2*d*(%(base_coord_dim)d+1)+%(base_coord_dim)d] = *layer_height * (layer);
-        ext_coords[(2*d+1)*(%(base_coord_dim)d+1)+%(base_coord_dim)d] = *layer_height * (layer + 1);
-    }
-}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "pyop2_kernel_uniform_extrusion")
+        op2.ParLoop(kernel,
+                    ext_coords.cell_set,
+                    ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                    base_coords.dat(op2.READ, base_coords.cell_node_map()),
+                    layer_height(op2.READ),
+                    pass_layer_arg=True,
+                    is_loopy_kernel=True).compute()
+        return
+    ext_fe = create_element(ext_coords.ufl_element())
+    ext_shape = ext_fe.index_shape
+    base_fe = create_element(base_coords.ufl_element())
+    base_shape = base_fe.index_shape
+    data = []
+    data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
+    data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
+    data.append(lp.GlobalArg("layer_height", dtype=ScalarType, shape=()))
+    base_coord_dim = base_coords.function_space().value_size
+    adim = len(ext_shape) - 2
+    # Deal with tensor product cells
+    dd_list = []
+    ddextents_list = []
+    for j in range(3):
+        # Create 3 sets of indices/index extents
+        prefix = "_" * j
+        dd = ""
+        ddextents = ""
+        for i in range(adim):
+            dd += "%sd%s, " % (prefix, i)
+            ddextents += "0<=%sd%s<%d and " % (prefix, i, ext_shape[i])
+        dd_list.append(dd[:-len(", ")])
+        ddextents_list.append(ddextents[:-len(" and ")])
+    if extrusion_type == 'uniform':
+        domain = "{{ [{0}, c, l]: {1} and 0<=c<{2} and 0<=l<=1}}".format(dd_list[0], ddextents_list[0], base_coord_dim)
+        instructions = """
+        <{1}> base_coord_dim = {2}
+        ext_coords[{0}, l, c] = base_coords[{0}, c]
+        ext_coords[{0}, l, base_coord_dim] = layer_height[0] * (layer + l)
+        """.format(dd_list[0], IntType, base_coord_dim)
+        ast = lp.make_function(domain, instructions, data, name="pyop2_kernel_uniform_extrusion", target=lp.CTarget(),
+                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial':
-        kernel = op2.Kernel("""
-static inline void pyop2_kernel_radial_extrusion(PetscScalar *ext_coords,
-                                                 const PetscScalar *base_coords,
-                                                 const PetscReal *layer_height,
-                                                 int layer) {
-    for ( int d = 0; d < %(base_map_arity)d; d++ ) {
-        double norm = 0.0;
-        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-            norm += PetscRealPart(base_coords[d*%(base_coord_dim)d+c]) * PetscRealPart(base_coords[d*%(base_coord_dim)d+c]);
-        }
-        norm = sqrt(norm);
-        for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-            ext_coords[2*d*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] * (1 + (*layer_height * layer)/norm);
-            ext_coords[(2*d+1)*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] * (1 + (*layer_height * (layer+1))/norm);
-        }
-    }
-}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "pyop2_kernel_radial_extrusion")
+        domain = "{{ [{0}, c, k, l]: {1} and 0<=c, k<{2} and 0<=l<=1 }}".format(dd_list[0], ddextents_list[0], base_coord_dim)
+        instructions = """
+        <{1}> tt[{0}] = 0
+        <{1}> bc[{0}] = 0
+        for k
+            bc[{0}] = real(base_coords[{0}, k])
+            tt[{0}] = tt[{0}] + bc[{0}] * bc[{0}]
+        end
+        tt[{0}] = sqrt(tt[{0}])
+        ext_coords[{0}, l, c] = base_coords[{0}, c] + base_coords[{0}, c] * layer_height[0] * (layer+l) / tt[{0}]
+        """.format(dd_list[0], RealType)
+        ast = lp.make_function(domain, instructions, data, name="pyop2_kernel_radial_extrusion", target=lp.CTarget(),
+                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        if base_coords.ufl_domain().ufl_cell().topological_dimension() not in [1, 2]:
+        tdim = base_coords.ufl_domain().ufl_cell().topological_dimension()
+        if tdim not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
-        kernel = op2.Kernel("""
-static inline void pyop2_kernel_radial_hedgehog_extrusion(PetscScalar *ext_coords,
-                                                          const PetscScalar *base_coords,
-                                                          const PetscReal *layer_height,
-                                                          int layer) {
-    PetscReal v0[%(base_coord_dim)d];
-    PetscReal v1[%(base_coord_dim)d];
-    PetscReal n[%(base_coord_dim)d];
-    PetscScalar x[%(base_coord_dim)d] = {0};
-    double dot = 0.0;
-    double norm = 0.0;
-    int i, c, d;
-    if (%(base_coord_dim)d == 2) {
-        /*
-         * normal is:
-         * (0 -1) (x2 - x1)
-         * (1  0) (y2 - y1)
-         */
-        n[0] = PetscRealPart(-(base_coords[%(base_coord_dim)d+1] - base_coords[1]));
-        n[1] = PetscRealPart(base_coords[%(base_coord_dim)d] - base_coords[0]);
-    } else if (%(base_coord_dim)d == 3) {
-        /*
-         * normal is
-         * v0 x v1
-         *
-         *    /\\
-         * v0/  \\
-         *  /    \\
-         * /------\\
-         *    v1
-         */
-        for (i = 0; i < 3; ++i) {
-            v0[i] = PetscRealPart(base_coords[%(base_coord_dim)d+i] - base_coords[i]);
-            v1[i] = PetscRealPart(base_coords[2*%(base_coord_dim)d+i] - base_coords[i]);
-        }
-        n[0] = v0[1] * v1[2] - v0[2] * v1[1];
-        n[1] = v0[2] * v1[0] - v0[0] * v1[2];
-        n[2] = v0[0] * v1[1] - v0[1] * v1[0];
-    }
-    for (i = 0; i < %(base_map_arity)d; ++i) {
-        for (c = 0; c < %(base_coord_dim)d; ++c) {
-            x[c] += base_coords[i*%(base_coord_dim)d+c];
-        }
-    }
-    for (i = 0; i < %(base_coord_dim)d; ++i) {
-        dot += x[i] * n[i];
-        norm += n[i] * n[i];
-    }
-    /*
-     * Make inward-pointing normals point out
-     */
-    norm = sqrt(norm);
-    norm *= (dot < 0 ? -1 : 1);
-    for (d = 0; d < %(base_map_arity)d; ++d) {
-        for (c = 0; c < %(base_coord_dim)d; ++c ) {
-            ext_coords[2*d*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] + n[c] * layer_height[0] * layer / norm;
-            ext_coords[(2*d+1)*%(base_coord_dim)d+c] = base_coords[d*%(base_coord_dim)d+c] + n[c] * layer_height[0] * (layer + 1)/ norm;
-        }
-    }
-}""" % {'base_map_arity': base_coords.cell_node_map().arity, 'base_coord_dim': base_coords.function_space().value_size},
-            "pyop2_kernel_radial_hedgehog_extrusion")
+        # tdim == 1:
+        #
+        # normal is:
+        # (0 -1) (x2 - x1)
+        # (1  0) (y2 - y1)
+        #
+        # tdim == 2:
+        # normal is
+        # v0 x v1
+        #
+        #    /\\
+        # v0/  \\
+        #  /    \\
+        # /------\\
+        #    v1
+        domain = "{{ [{0}, {2}, {4}, c, _c, __c, ___c, l, k]: {1} and {3} and {5} and 0<=c, _c, __c, ___c, k<{6} and 0<=l<=1 }}".format(dd_list[0], ddextents_list[0], dd_list[1], ddextents_list[1], dd_list[2], ddextents_list[2], base_coord_dim)
+        # Formula for normal, n
+        n_1_1 = """
+        n[0] = -bc[1, 1] + bc[0, 1]
+        n[1] = bc[1, 0] - bc[0, 0]
+        """
+        n_2_1 = """
+        v0[___c] = bc[1, ___c] - bc[0, ___c]
+        v1[___c] = bc[2, ___c] - bc[0, ___c]
+        n[0] = v0[1] * v1[2] - v0[2] * v1[1]
+        n[1] = v0[2] * v1[0] - v0[0] * v1[2]
+        n[2] = v0[0] * v1[1] - v0[1] * v1[0]
+        """
+        n_2_2 = """
+        v0[___c] = bc[0, 1, ___c] - bc[0, 0, ___c]
+        v1[___c] = bc[1, 0, ___c] - bc[0, 0, ___c]
+        n[0] = v0[1] * v1[2] - v0[2] * v1[1]
+        n[1] = v0[2] * v1[0] - v0[0] * v1[2]
+        n[2] = v0[0] * v1[1] - v0[1] * v1[0]
+        """
+        n_dict = {1: {1: n_1_1},
+                  2: {1: n_2_1,
+                      2: n_2_2}}
+        instructions = """
+        <{3}> v0[__c] = 0
+        <{3}> v1[__c] = 0
+        <{3}> n[__c] = 0
+        <{3}> x[__c] = 0
+        <{3}> dot = 0
+        <{3}> norm = 0
+        <{3}> bc[{1}, _c] = real(base_coords[{1}, _c])
+        for {1}
+            x[_c] = x[_c] + bc[{1}, _c]
+        end
+        {5}
+        for k
+            dot = dot + x[k] * n[k]
+            norm = norm + n[k] * n[k]
+        end
+        norm = sqrt(norm)
+        norm = -norm if dot < 0 else norm
+        ext_coords[{0}, l, c] = base_coords[{0}, c] + n[c] * layer_height[0] * (layer + l) / norm
+        """.format(dd_list[0], dd_list[1], dd_list[2], RealType, base_coords.ufl_domain().ufl_cell().topological_dimension(), n_dict[tdim][adim])
+        ast = lp.make_function(domain, instructions, data, name="pyop2_kernel_radial_hedgehog_extrusion", target=lp.CTarget(),
+                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    height = op2.Global(1, layer_height, dtype=float)
-    op2.par_loop(kernel,
-                 ext_coords.cell_set,
-                 ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
-                 height(op2.READ),
-                 pass_layer_arg=True)
+    kernel = op2.Kernel(ast, ast.name)
+    op2.ParLoop(kernel,
+                ext_coords.cell_set,
+                ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                base_coords.dat(op2.READ, base_coords.cell_node_map()),
+                layer_height(op2.READ),
+                pass_layer_arg=True,
+                is_loopy_kernel=True).compute()
 
 
 def flat_entity_dofs(entity_dofs):
