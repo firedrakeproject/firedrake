@@ -87,7 +87,11 @@ else:
 
 # Set up logging
 # Log to file at DEBUG level
-logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
+if ("-h" in sys.argv) or ("--help" in sys.argv):
+    # Don't log if help displayed to avoid overwriting an existing log
+    logfile = os.devnull
+else:
+    logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)-6s %(message)s',
                     filename=logfile,
