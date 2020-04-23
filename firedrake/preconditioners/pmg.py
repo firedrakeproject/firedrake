@@ -17,8 +17,44 @@ import firedrake
 
 
 class PMGPC(PCBase):
+    """
+    A class for implementing p-multigrid.
+
+    Internally, this sets up a DM with a custom coarsen routine
+    that p-coarsens the problem. This DM is passed to an internal
+    PETSc PC of type MG and with options prefix 'pmg_'. The
+    relaxation to apply on every p-level is described by 'pmg_mg_levels_',
+    and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
+    or any other solver in firedrake may be applied to the coarse problem.
+    An example chaining p-MG, GMG and AMG is given in the tests.
+
+    The p-coarsening is implemented in the `coarsen_element` routine.
+    This takes in a :class:`ufl.FiniteElement` and either returns a
+    new, coarser element, or raises a `ValueError` (if the supplied element
+    should be the coarsest one of the hierarchy).
+
+    The default coarsen_element is to perform power-of-2 reduction
+    of the polynomial degree. For mixed systems a `NotImplementedError`
+    is raised, as I don't know how to make a sensible default for this.
+    It is expected that many (most?) applications of this preconditioner
+    will subclass :class:`PMGPC` to override `coarsen_element`.
+    """
     @staticmethod
     def coarsen_element(ele):
+        """
+        Coarsen a given element to form the next problem down in the p-hierarchy.
+
+        If the supplied element should form the coarsest level of the p-hierarchy,
+        raise `ValueError`. Otherwise, return a new :class:`ufl.FiniteElement`.
+
+        By default, this does power-of-2 coarsening in polynomial degree.
+        It raises a `NotImplementedError` for :class:`ufl.MixedElement`s, as
+        I don't know if there's a sensible default strategy to implement here.
+        It is intended that the user subclass `PMGPC` to override this method
+        for their problem.
+
+        :arg ele: a :class:`ufl.FiniteElement` to coarsen.
+        """
         if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
             raise NotImplementedError("Implement this method yourself")
 
