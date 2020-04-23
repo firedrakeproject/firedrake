@@ -81,7 +81,7 @@ class PMGPC(PCBase):
         add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
                  call_setup=True)
 
-        ppc = PETSc.PC().create()
+        ppc = PETSc.PC().create(comm=pc.comm)
         ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
@@ -261,5 +261,4 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                      matarg)
 
     mat.assemble()
-    mat.handle.view(PETSc.Viewer().createASCII('/tmp/prolongation-mat-%d-%d.log' % (Pk.ufl_element().degree(), P1.ufl_element().degree())))
     return mat.handle
