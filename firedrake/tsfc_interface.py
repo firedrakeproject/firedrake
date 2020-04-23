@@ -21,8 +21,6 @@ from pyop2.caching import Cached
 from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD
 
-from coffee.base import Invert, ComplexInvert
-
 from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
@@ -121,16 +119,12 @@ class TSFCKernel(Cached):
         """
         if self._initialized:
             return
-
-        assemble_inverse = parameters.get("assemble_inverse", False)
-        coffee = coffee or assemble_inverse
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
         kernels = []
         for kernel in tree:
             # Set optimization options
             opts = default_parameters["coffee"]
             ast = kernel.ast
-            ast = ast if not assemble_inverse else _inverse(ast)
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
@@ -150,7 +144,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, inverse=False, split=True, interface=None, coffee=False, diagonal=False):
+def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -159,7 +153,6 @@ def compile_form(form, name, parameters=None, inverse=False, split=True, interfa
          compiler. If not provided, parameters are read from the
          ``form_compiler`` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
-    :arg inverse: If True then assemble the inverse of the local tensor.
     :arg split: If ``False``, then don't split mixed forms.
     :arg coffee: compile coffee kernel instead of loopy kernel
 
@@ -258,23 +251,3 @@ def _ensure_cachedir(comm=None):
     comm = comm or COMM_WORLD
     if comm.rank == 0:
         makedirs(TSFCKernel._cachedir, exist_ok=True)
-
-
-def _inverse(kernel):
-    """Modify ``kernel`` so to assemble the inverse of the local tensor."""
-
-    local_tensor = kernel.args[0]
-    print(local_tensor)
-
-    if len(local_tensor.size) != 2 or local_tensor.size[0] != local_tensor.size[1]:
-        raise ValueError("Can only assemble the inverse of a square 2-form")
-
-    name = local_tensor.sym.symbol
-    size = local_tensor.size[0]
-
-    if utils.complex_mode:
-        kernel.children[0].children.append(ComplexInvert(name, size))
-    else:
-        kernel.children[0].children.append(Invert(name, size))
-
-    return kernel

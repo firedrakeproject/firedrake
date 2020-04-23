@@ -1110,9 +1110,6 @@ values from f.)"""
             import firedrake.function as function
             coords = function.Function(self.coordinates.function_space(), dtype=np.float64)
             coords.dat.data[:] = np.real_if_close(self.coordinates.dat.data_ro, tol=1.e-14)
-            if issubclass(coords.dtype.type, np.complex):
-                info_red("libspatialindex does not support complex coordinates.")
-                return None
         else:
             coords = self.coordinates
 
