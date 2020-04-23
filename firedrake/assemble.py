@@ -25,7 +25,7 @@ __all__ = ["assemble"]
 
 @annotate_assemble
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type=None, sub_mat_type=None,
+             mat_type=None, sub_mat_type=None,
              appctx={}, options_prefix=None, **kwargs):
     r"""Evaluate f.
 
@@ -41,8 +41,6 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          form.  For example, if a ``quadrature_degree`` of 4 is
          specified in this argument, but a degree of 3 is requested in
          the measure, the latter will be used.
-    :arg inverse: (optional) if f is a 2-form, then assemble the inverse
-         of the local matrices.
     :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
          assembled -- either as a monolithic matrix ('aij' or 'baij'), a block matrix
          ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
@@ -100,7 +98,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         loops = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                           form_compiler_parameters=form_compiler_parameters,
-                          inverse=inverse, mat_type=mat_type,
+                          mat_type=mat_type,
                           sub_mat_type=sub_mat_type, appctx=appctx,
                           assemble_now=not collect_loops,
                           allocate_only=allocate_only,
@@ -122,7 +120,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
-                    inverse=False, mat_type=None, sub_mat_type=None, appctx={},
+                    mat_type=None, sub_mat_type=None, appctx={},
                     options_prefix=None):
     r"""Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
 
@@ -131,7 +129,7 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
        Do not use this function unless you know what you're doing.
     """
     loops = _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
-                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                      mat_type=mat_type, sub_mat_type=sub_mat_type,
                       appctx=appctx, allocate_only=True,
                       options_prefix=options_prefix)
     # has only one entry
@@ -139,7 +137,7 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
-                             inverse=False, mat_type=None, sub_mat_type=None,
+                             mat_type=None, sub_mat_type=None,
                              diagonal=False):
     r"""Create a callable object than be used to assemble f into a tensor.
 
@@ -157,7 +155,7 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         return tensor.assemble
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
-                      inverse=inverse, mat_type=mat_type,
+                      mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
                       diagonal=diagonal)
 
@@ -171,7 +169,7 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, mat_type=None, sub_mat_type=None,
+              mat_type=None, sub_mat_type=None,
               appctx={},
               options_prefix=None,
               assemble_now=False,
@@ -189,8 +187,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         the purpose.
     :arg form_compiler_parameters: (optional) dict of parameters to pass to
         the form compiler.
-    :arg inverse: (optional) if f is a 2-form, then assemble the inverse
-         of the local matrices.
     :arg mat_type: (optional) type for assembled matrices, one of
         "nest", "aij", "baij", or "matfree".
     :arg sub_mat_type: (optional) type for assembled sub matrices
@@ -213,7 +209,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = form_compiler_parameters.copy()
     else:
         form_compiler_parameters = {}
-    form_compiler_parameters["assemble_inverse"] = inverse
 
     topology = f.ufl_domains()[0].topology
     for m in f.ufl_domains():
@@ -234,7 +229,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
         integral_types = [kernel.kinfo.integral_type for kernel in kernels]
     else:
-        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse, diagonal=diagonal)
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, diagonal=diagonal)
         integral_types = [integral.integral_type() for integral in f.integrals()]
 
         if bcs is not None:
@@ -251,9 +246,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
            for coeff in f.coefficients()):
         raise NotImplementedError("Integration of subscripted VFS not yet implemented")
 
-    if inverse and rank != 2:
-        raise ValueError("Can only assemble the inverse of a 2-form")
-
     zero_tensor_parloop = lambda: None
 
     if is_mat:
@@ -265,8 +257,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             baij = mat_type == "baij"
         # intercept matrix-free matrices here
         if matfree:
-            if inverse:
-                raise NotImplementedError("Inverse not implemented with matfree")
             if diagonal:
                 raise NotImplementedError("Diagonal not implemented with matfree")
             if tensor is None:
@@ -585,7 +575,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             elif isinstance(bc, EquationBCSplit):
                 yield from _assemble(bc.f, tensor=result_matrix, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
-                                     inverse=inverse, mat_type=mat_type,
+                                     mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
                                      assemble_now=assemble_now,
@@ -610,7 +600,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 yield functools.partial(bc.zero, result_function)
                 yield from _assemble(bc.f, tensor=result_function, bcs=bc.bcs,
                                      form_compiler_parameters=form_compiler_parameters,
-                                     inverse=inverse, mat_type=mat_type,
+                                     mat_type=mat_type,
                                      sub_mat_type=sub_mat_type,
                                      appctx=appctx,
                                      assemble_now=assemble_now,
