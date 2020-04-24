@@ -9,7 +9,7 @@ from firedrake import (VectorFunctionSpace, Function, Constant,
                        par_loop, dx, WRITE, READ, interpolate, mesh, function,
                        functionspace, FiniteElement, interval)
 from firedrake.cython import dmplex
-
+from firedrake import utils
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
@@ -206,7 +206,10 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
         # there are two vertices in the cell
         cell_vertices = closure[5:]
-        cell_X = np.array([0., 0.], dtype=complex)
+        if utils.complex_mode:
+            cell_X = np.array([0., 0.], dtype=complex)
+        else:
+            cell_X = np.array([0., 0.])
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
