@@ -1723,7 +1723,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Compute the l2 inner product of the flattened :class:`Dat`
 
         :arg other: the other :class:`Dat` to compute the inner
-             product against.
+             product against. The complex conjugate of this is taken.
 
         """
         self._check_shape(other)
@@ -1737,9 +1737,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         _self = p.Variable("self")
         _other = p.Variable("other")
         _ret = p.Variable("ret")
+        _conj = p.Variable("conj") if other.dtype.kind == "c" else lambda x: x
         i = p.Variable("i")
 
-        insn = loopy.Assignment(_ret.index(0), _ret.index(0) + _self.index(i) * _other.index(i), within_inames=frozenset(["i"]))
+        insn = loopy.Assignment(_ret[0], _ret[0] + _self[i]*_conj(_other[i]),
+                                within_inames=frozenset(["i"]))
         data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,)),
                 loopy.GlobalArg("ret", dtype=ret.dtype, shape=(1,))]
@@ -1757,7 +1759,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
            This acts on the flattened data (see also :meth:`inner`)."""
         from math import sqrt
-        return sqrt(self.inner(self))
+        return sqrt(self.inner(self).real)
 
     def __pos__(self):
         pos = _make_object('Dat', self)
@@ -2477,7 +2479,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     def inner(self, other):
         assert isinstance(other, Global)
-        return np.dot(self.data_ro, other.data_ro)
+        return np.dot(self.data_ro, np.conj(other.data_ro))
 
 
 class Map(object):
