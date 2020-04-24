@@ -528,10 +528,9 @@ cells in each direction are not currently supported")
         <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
         <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
         <{RealType}> abssin = abs(sin(phi))
-        <{RealType}> theta = theta if abssin > bigeps else theta2
+        <{RealType}> theta = theta1 if abssin > bigeps else theta2
         <{RealType}> nc0 = phi / (2 * pi)
         <{RealType}> absnc = 0
-        nc0 = phi / (2 * pi)
         nc0 = nc0 + 1 if nc0 < -eps else nc0
         absnc = abs(nc0)
         nc0 = 1 if absnc < eps and Y < 0 else nc0
