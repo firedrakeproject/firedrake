@@ -3,11 +3,11 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType, RealType, ScalarType
+from pyop2.datatypes import IntType, RealType
 
-from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate, mesh, function, \
-    functionspace, utils, FiniteElement, interval
+from firedrake import (VectorFunctionSpace, Function, Constant,
+                       par_loop, dx, WRITE, READ, interpolate, mesh, function,
+                       functionspace, FiniteElement, interval)
 from firedrake.cython import dmplex
 
 
@@ -107,16 +107,13 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    domain = ""
+    domain = "{ [i, j] : 0 <= i, j < 2 }"
     instructions = f"""
     <{RealType}> eps = 1e-12
     <{RealType}> pi = 3.141592653589793
-    <{RealType}> _oc00r = real(old_coords[0, 0])
-    <{RealType}> _oc01r = real(old_coords[0, 1])
-    <{RealType}> _oc10r = real(old_coords[1, 0])
-    <{RealType}> _oc11r = real(old_coords[1, 1])
-    <{RealType}> a = atan2(_oc01r, _oc00r) / (2*pi)
-    <{RealType}> b = atan2(_oc11r, _oc10r) / (2*pi)
+    <{RealType}> oc[i, j] = real(old_coords[i, j])
+    <{RealType}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
+    <{RealType}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
     <{IntType}> swap = 1 if a >= b else 0
     <{RealType}> aa = fmin(a, b)
     <{RealType}> bb = fmax(a, b)
@@ -514,41 +511,36 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
     instructions = f"""
     <{RealType}> pi = 3.141592653589793
     <{RealType}> eps = 1e-12
     <{RealType}> bigeps = 1e-1
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
     <{RealType}> Y = 0
     <{RealType}> Z = 0
-    <{RealType}> _oc1r = 0
-    <{RealType}> _oc2r = 0
     for i
-        _oc1r = real(old_coords[i, 1])
-        _oc2r = real(old_coords[i, 2])
-        Y = Y + _oc1r
-        Z = Z + _oc2r
+        Y = Y + oc[i, 1]
+        Z = Z + oc[i, 2]
     end
     for j
-        <{RealType}> _oc0r = real(old_coords[j, 0])
-        _oc1r = real(old_coords[j, 1])
-        _oc2r = real(old_coords[j, 2])
-        <{RealType}> phi = atan2(_oc1r, _oc0r)
-        <{RealType}> _phi = abs(sin(phi))
-        <{RealType}> _theta_1 = atan2(_oc2r, _oc1r / sin(phi) - 1)
-        <{RealType}> _theta_2 = atan2(_oc2r, _oc0r / cos(phi) - 1)
-        <{RealType}> theta = _theta_1 if _phi > bigeps else _theta_2
-        <{RealType}> _nc0r = phi / (2 * pi)
-        _nc0r = phi / (2 * pi)
-        _nc0r = _nc0r + 1 if _nc0r < -eps else _nc0r
-        <{RealType}> _nc_abs = abs(_nc0r)
-        _nc0r = 1 if _nc_abs < eps and Y < 0 else _nc0r
-        <{RealType}> _nc1r = theta / (2 * pi)
-        _nc1r = _nc1r + 1 if _nc1r < -eps else _nc1r
-        _nc_abs = abs(_nc1r)
-        _nc1r = 1 if _nc_abs < eps and Z < 0 else _nc1r
-        new_coords[j, 0] = _nc0r * Lx[0]
-        new_coords[j, 1] = _nc1r * Ly[0]
+        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
+        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
+        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
+        <{RealType}> abssin = abs(sin(phi))
+        <{RealType}> theta = theta if abssin > bigeps else theta2
+        <{RealType}> nc0 = phi / (2 * pi)
+        <{RealType}> absnc = 0
+        nc0 = phi / (2 * pi)
+        nc0 = nc0 + 1 if nc0 < -eps else nc0
+        absnc = abs(nc0)
+        nc0 = 1 if absnc < eps and Y < 0 else nc0
+        <{RealType}> nc1 = theta / (2 * pi)
+        nc1 = nc1 + 1 if nc1 < -eps else nc1
+        absnc = abs(nc1)
+        nc1 = 1 if absnc < eps and Z < 0 else nc1
+        new_coords[j, 0] = nc0 * Lx[0]
+        new_coords[j, 1] = nc1 * Ly[0]
     end
     """
 
@@ -1432,23 +1424,19 @@ cells in each direction are not currently supported")
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
-    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
+    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
     instructions = f"""
     <{RealType}> Y = 0
     <{RealType}> pi = 3.141592653589793
-    <{RealType}> _oc1r = 0
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
     for i
-        _oc1r = real(old_coords[i, 1])
-        Y = Y + _oc1r
+        Y = Y + oc[i, 1]
     end
     for j
-        <{RealType}> _oc0r = old_coords[j, 0]
-        _oc1r = old_coords[j, 1]
-        <{RealType}> _nc0r = 0
-        _nc0r = atan2(_oc1r, _oc0r) / (pi* 2)
-        _nc0r = _nc0r + 1 if _nc0r < 0 else _nc0r
-        _nc0r = 1 if _nc0r == 0 and Y < 0 else _nc0r
-        new_coords[j, 0] = _nc0r * Lx[0]
+        <{RealType}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
+        nc0 = nc0 + 1 if nc0 < 0 else nc0
+        nc0 = 1 if nc0 == 0 and Y < 0 else nc0
+        new_coords[j, 0] = nc0 * Lx[0]
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end
     """
