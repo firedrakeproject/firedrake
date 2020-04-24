@@ -17,7 +17,7 @@ MAGIC = {2: (22, 3, 2),
 
 ctypedef int (*compiled_call)(PetscScalar *,PetscScalar *,PetscScalar *,
                                const PetscScalar *,const PetscScalar *,
-                               const PetscScalar *, PetscScalar *)
+                               const PetscScalar *, PetscScalar *, int)
 
 
 cdef extern from "libsupermesh-c.h" nogil:
@@ -86,12 +86,14 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                 for j in range(gdim):
                     simplex_A[i, j] = vertices_A[vertex_map_A[cell_A, i], j]
                     simplex_B[i, j] = vertices_B[vertex_map_B[cell_B, i], j]
+            print(sum(MAGIC[gdim]))
             library_call(<PetscScalar *>simplex_A.data, <PetscScalar *>simplex_B.data,
                          <PetscScalar *>simplices_C.data,
                          <const PetscScalar *>node_locations_A.data,
                          <const PetscScalar *>node_locations_B.data,
                          <const PetscScalar *>M_SS.data,
-                         <PetscScalar *>outmat.data)
+                         <PetscScalar *>outmat.data,
+                         <int> sum(MAGIC[gdim]))
             V_A_map = <const PetscInt *>(&V_A_cell_node_map[cell_A, 0])
             V_B_map = <const PetscInt *>(&V_B_cell_node_map[cell_B, 0])
             CHKERR(MatSetValuesLocal(mat.mat,
@@ -112,7 +114,7 @@ def intersection_finder(mesh_A, mesh_B):
 
     cdef:
         numpy.ndarray[long, ndim=2, mode="c"] vertex_map_A, vertex_map_B
-        numpy.ndarray[PetscScalar, ndim=2, mode="c"] vertices_A, vertices_B
+        numpy.ndarray[double, ndim=2, mode="c"] vertices_A, vertices_B
         long nindices
         numpy.ndarray[long, ndim=1, mode="c"] indices, indptr
         long nnodes_A, nnodes_B, ncells_A, ncells_B
@@ -137,8 +139,8 @@ def intersection_finder(mesh_A, mesh_B):
         if not compatible:
             assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
 
-    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
-    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
+    vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos, dtype=RealType)
+    vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos, dtype=RealType)
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     nnodes_A = mesh_A.coordinates.dof_dset.total_size

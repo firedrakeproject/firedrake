@@ -199,7 +199,7 @@ each supermesh cell.
     static void print_array(PetscScalar *arr, int d)
     {
         for(int j=0; j<d; j++)
-            PrintInfo("%%+.2f ", arr[j]);
+            PrintInfo(stderr, "%%+.2f ", arr[j]);
     }
     static void print_coordinates(PetscScalar *simplex, int d)
     {
@@ -223,15 +223,16 @@ each supermesh cell.
     }
     static void merge_back_to_simplex(double complex* simplex, double* real_simplex, double* imag_simplex, int d)
     {
+        print_coordinates(simplex,d);
         for(int i=0; i<d+1; i++)
         {
             for(int j=0; j<d; j++)
             {
-                simplex[d*i+j] = real_simplex[d*i+j]+imag_simplex[d*i+j]*_Complex_I;
+                simplex[d*i+j] = (double complex)real_simplex[d*i+j]+(double complex)imag_simplex[d*i+j]*_Complex_I;
             }
         }
     }
-    int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C, const PetscScalar* nodes_A, const PetscScalar* nodes_B, const PetscScalar* M_SS, PetscScalar* outptr)
+    int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C, const PetscScalar* nodes_A, const PetscScalar* nodes_B, const PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
     {
 #define d %(dim)s
 #define num_nodes_A %(num_nodes_A)s
@@ -242,7 +243,7 @@ each supermesh cell.
         print_coordinates(simplex_A, d);
         PrintInfo("simplex_B coordinates\\n");
         print_coordinates(simplex_B, d);
-        int num_elements;
+        int num_elements = num_ele;
 
         if (d == 2) simplex_ref_measure = 0.5+0*_Complex_I;
         else if (d == 3) simplex_ref_measure = 1.0/6+0*_Complex_I;
@@ -309,7 +310,7 @@ each supermesh cell.
             %(libsupermesh_simplex_measure)s(real_simplex_S, &real_simplex_S_measure);
             
             merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
-            double complex simplex_S_measure = real_simplex_S_measure+0.*_Complex_I;
+            double complex simplex_S_measure = (double complex)real_simplex_S_measure+0.*_Complex_I;
 
             PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
