@@ -1100,16 +1100,19 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V, dtype=np.float64)
-        coords_max = function.Function(V, dtype=np.float64)
+        coords_min = function.Function(V, dtype=utils.RealType)
+        coords_max = function.Function(V, dtype=utils.RealType)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
 
         if utils.complex_mode:
             import firedrake.function as function
-            coords = function.Function(self.coordinates.function_space(), dtype=np.float64)
-            coords.dat.data[:] = np.real_if_close(self.coordinates.dat.data_ro, tol=1.e-14)
+            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+                raise ValueError("Coordinate field has non-zero imaginary part")
+            coords = function.Function(self.coordinates.function_space(),
+                                       val=self.coordinates.dat.data_ro.real.copy(),
+                                       dtype=utils.RealType)
         else:
             coords = self.coordinates
 
@@ -1149,6 +1152,9 @@ values from f.)"""
             raise NotImplementedError("Cell location not implemented for variable layers")
 
         x = np.asarray(x, dtype=utils.ScalarType)
+        if not np.allclose(x.imag, 0):
+            raise ValueError("Point coordinates must have zero imaginary part")
+        x = x.real.copy()
 
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
