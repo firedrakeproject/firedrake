@@ -66,16 +66,7 @@ class PMGPC(PCBase):
         elif degree == 1:
             raise ValueError
 
-        shape = ele.value_shape()
-
-        if len(shape) == 0:
-            new_ele = FiniteElement(family, ele.cell(), degree // 2)
-        elif len(shape) == 1:
-            new_ele = VectorElement(family, ele.cell(), degree // 2, dim=shape[0])
-        else:
-            new_ele = TensorElement(family, ele.cell(), degree // 2, shape=shape,
-                                    symmetry=ele.symmetry())
-        return new_ele
+        return ele.reconstruct(degree=degree // 2)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -112,6 +103,7 @@ class PMGPC(PCBase):
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
+        assert parent is not None
         add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent),
                  call_setup=True)
         add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
