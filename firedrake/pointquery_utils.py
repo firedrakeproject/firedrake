@@ -181,30 +181,31 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "extr_comment_out": "//" if extruded else "",
         "non_extr_comment_out": "//" if not extruded else "",
         "IntType": as_cstr(IntType),
+        "ScalarType": ScalarType_c,
     }
 
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
-    double X[%(geometric_dimension)d];
+    %(ScalarType)s X[%(geometric_dimension)d];
 };
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, int
+*return_value, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
-    const int space_dim = %(geometric_dimension)d;
+    //const int space_dim = %(geometric_dimension)d;
 
     /*
      * Mapping coordinates from physical to reference space
      */
 
-    double *X = result->X;
-%(init_X)s
-    double x[space_dim];
+    %(ScalarType)s *X = result->X;
+    %(init_X)s
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        double dX[%(topological_dimension)d] = { 0.0 };
+        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
 %(to_reference_coords)s
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -220,7 +221,7 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 
 static inline void wrap_to_reference_coords(
     void* const result_, double* const x, int* const return_value, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
-    double const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
+    %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
 int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
@@ -231,8 +232,8 @@ int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 
 int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
 {
-    int return_value;
-    int layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
+    int return_value = 0;
+    %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
     %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, layers, f->coords, f->coords_map);
     return return_value;
 }
