@@ -8,7 +8,6 @@ from pyop2 import op2
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.low_order import ArgumentReplacer
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
@@ -156,13 +155,13 @@ class PMGPC(PCBase):
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
                  call_setup=True)
 
-        mapper = ArgumentReplacer({test: firedrake.TestFunction(cV),
-                                   trial: firedrake.TrialFunction(cV)})
-        cJ = map_integrands.map_integrand_dags(mapper, fctx.J)
-        cF = map_integrands.map_integrand_dags(mapper, fctx.F)
-        cF = replace(cF, {fu: cu})
+        replace_d = {fu: cu,
+                     test: firedrake.TestFunction(cV),
+                     trial: firedrake.TrialFunction(cV)}
+        cJ = replace(fctx.J, replace_d)
+        cF = replace(fctx.F, replace_d)
         if fctx.Jp is not None:
-            cJp = map_integrands.map_integrand_dags(mapper, fctx.Jp)
+            cJp = replace(fctx.Jp, replace_d)
         else:
             cJp = None
 
