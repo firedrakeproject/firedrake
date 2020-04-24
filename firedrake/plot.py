@@ -16,31 +16,19 @@ __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor
            "quiver"]
 
 
-def _select_scalar_type(plot_function):
-    """Decorator to pick scalar type used for plotting a `Function`."""
-    def wrapper(function, *args, **kwargs):
-        if not isinstance(function, Function):
-            return plot_function(function, *args, **kwargs)
-        function_data = function.vector().array()
-        _scalar_type = kwargs.pop('scalar_type', 'real')
-        if function_data.dtype.kind == "c":
-            if _scalar_type == 'real':
-                function_to_plot = Function(function.function_space(), function_data.real)
-            elif _scalar_type == 'imag':
-                function_to_plot = Function(function.function_space(), function_data.imag)
-            else:
-                raise TypeError("`scalar_type` must be `real`(default) or `imag`.")
-            return plot_function(function_to_plot, *args, **kwargs)
-        else:
-            if _scalar_type != 'real':
-                raise TypeError("Provided function is real: _sclar_type must be real.")
-            return plot_function(function, *args, **kwargs)
-    return wrapper
+def toreal(array, component):
+    if array.dtype.kind == "c":
+        assert component in {"real", "imag"}
+        return getattr(array, component)
+    else:
+        assert component == "real"
+        return array
 
 
 def _autoscale_view(axes, coords):
     axes.autoscale_view()
 
+    coords = toreal(coords, "real")
     # Dirty hack; autoscale_view doesn't appear to work for 3D plots.
     if isinstance(axes, mpl_toolkits.mplot3d.Axes3D):
         setters = ["set_xlim", "set_ylim", "set_zlim"]
@@ -110,7 +98,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = interpolate(coordinates, V)
 
-    coords = coordinates.dat.data_ro
+    coords = toreal(coordinates.dat.data_ro, "real")
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
@@ -173,7 +161,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     return result
 
 
-def _plot_2d_field(method_name, function, *args, **kwargs):
+def _plot_2d_field(method_name, function, *args, complex_component="real", **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -189,58 +177,65 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
     coords, vals, triangles = _two_dimension_triangle_func_val(function,
                                                                num_sample_points)
 
+    coords = toreal(coords, "real")
     x, y = coords[:, 0], coords[:, 1]
     triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
 
     method = getattr(axes, method_name)
-    return method(triangulation, vals, *args, **kwargs)
+    return method(triangulation, toreal(vals, complex_component), *args, **kwargs)
 
 
-@_select_scalar_type
-def tricontourf(function, *args, **kwargs):
+def tricontourf(function, *args, complex_component="real", **kwargs):
     r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
-    return _plot_2d_field("tricontourf", function, *args, **kwargs)
+    return _plot_2d_field("tricontourf", function, *args, complex_component=complex_component, **kwargs)
 
 
-@_select_scalar_type
-def tricontour(function, *args, **kwargs):
+def tricontour(function, *args, complex_component="real", **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
-    return _plot_2d_field("tricontour", function, *args, **kwargs)
+    return _plot_2d_field("tricontour", function, *args, complex_component=complex_component, **kwargs)
 
-@_select_scalar_type
-def tripcolor(function, *args, **kwargs):
+
+def tripcolor(function, *args, complex_component="real", **kwargs):
     r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the function to plot
     :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    return _plot_2d_field("tripcolor", function, *args, **kwargs)
+    return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
-@_select_scalar_type
-def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs):
+
+def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax=None, norm=None, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
     coords, vals, triangles = _two_dimension_triangle_func_val(function,
                                                                num_sample_points)
+    coords = toreal(coords, "real")
+    vals = toreal(vals, complex_component)
     vertices = coords[triangles]
     collection = Poly3DCollection(vertices, *args, **kwargs)
 
@@ -257,13 +252,15 @@ def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs
     return collection
 
 
-def trisurf(function, *args, **kwargs):
+def trisurf(function, *args, complex_component="real", **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`Poly3DCollection <mpl_toolkits.mplot3d.art3d.Poly3DCollection>` object
     """
@@ -278,7 +275,7 @@ def trisurf(function, *args, **kwargs):
 
     mesh = function.ufl_domain()
     if mesh.geometric_dimension() == 3:
-        return _trisurf_3d(axes, function, *args, **_kwargs)
+        return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements()[0]
@@ -288,17 +285,20 @@ def trisurf(function, *args, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
     coords, vals, triangles = _two_dimension_triangle_func_val(function,
                                                                num_sample_points)
+    coords = toreal(coords, "real")
+    vals = toreal(vals, complex_component)
     x, y = coords[:, 0], coords[:, 1]
     triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
     _kwargs.update({"shade": False})
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
 
 
-@_select_scalar_type
-def quiver(function, **kwargs):
+def quiver(function, *, complex_component="real", **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
     :arg function: the vector field to plot
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
     :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
     """
@@ -310,21 +310,22 @@ def quiver(function, **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = function.ufl_domain().coordinates.dat.data_ro
+    coords = toreal(function.ufl_domain().coordinates.dat.data_ro, "real")
     V = function.ufl_domain().coordinates.function_space()
-    vals = interpolate(function, V).dat.data_ro
+    vals = toreal(interpolate(function, V).dat.data_ro, complex_component)
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
-@_select_scalar_type
-def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
+def plot(function, *args, bezier=False, num_sample_points=10, complex_component="real", **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
     :arg function: The :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
     :arg bezier: whether to use Bezier curves for higher-degree functions or piecewise linear
     :arg num_sample_points: number of extra points when sampling higher-degree functions
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: same as for matplotlib
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
@@ -344,12 +345,13 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
         axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
-        return _bezier_plot(function, axes, **kwargs)
+        return _bezier_plot(function, axes, complex_component=complex_component, **kwargs)
 
     if bezier:
         num_sample_points = max((num_sample_points // 3) * 3 + 1, 4)
-    points = calculate_one_dim_points(function, num_sample_points)
+    xs, vals = calculate_one_dim_points(function, num_sample_points)
 
+    points = toreal(xs, "real"), toreal(vals, complex_component)
     if bezier:
         return _interp_bezier(points,
                               function.function_space().mesh().num_cells(),
@@ -377,8 +379,6 @@ def _calculate_values(function, points, dimension, cell_mask=None):
         cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
                                                           mask=cell_mask))
     data = function.dat.data_ro[cell_node_list]
-    if data.dtype.kind == 'c':
-        data = data.real
     if function.ufl_shape == ():
         vec_length = 1
     else:
@@ -419,7 +419,6 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
     return x_vals, y_vals
 
 
-@_select_scalar_type
 def calculate_one_dim_points(function, num_points, cell_mask=None):
     """Calculate a set of points for plotting for a one-dimension function as
     a numpy array
@@ -495,12 +494,14 @@ def _bezier_calculate_points(function):
     return np.dot(function.dat.data_ro[cell_node_list], M_inv)
 
 
-def _bezier_plot(function, axes, **kwargs):
+def _bezier_plot(function, axes, complex_component="real", **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curves within each cell
 
     :arg function: 1D :class:`~.Function` to plot
     :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: additional key work arguments to plot
     :return: matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     """
@@ -508,14 +509,13 @@ def _bezier_plot(function, axes, **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        func = Function(V).interpolate(function)
-        return _bezier_plot(func, axes, **kwargs)
+        return _bezier_plot(interpolate(function, V), axes, **kwargs)
     y_vals = _bezier_calculate_points(function)
     x = SpatialCoordinate(mesh)
     coords = Function(FunctionSpace(mesh, 'DG', deg))
     coords.interpolate(x[0])
     x_vals = _bezier_calculate_points(coords)
-    vals = np.dstack((x_vals, y_vals))
+    vals = np.dstack((toreal(x_vals, "real"), toreal(y_vals, complex_component)))
 
     codes = {1: [Path.MOVETO, Path.LINETO],
              2: [Path.MOVETO, Path.CURVE3, Path.CURVE3],
