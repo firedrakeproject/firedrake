@@ -1,6 +1,7 @@
 from firedrake import *
 
 
+@pytest.mark.skipcomplex
 def test_nonlinear_stokes_hdiv():
     mesh = UnitSquareMesh(3, 3)
 
