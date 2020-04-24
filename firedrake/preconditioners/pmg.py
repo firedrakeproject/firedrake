@@ -1,8 +1,7 @@
 from functools import partial
 from itertools import chain
 
-from ufl import MixedElement, FiniteElement, VectorElement, TensorElement, replace
-from ufl.algorithms import map_integrands
+from ufl import MixedElement, VectorElement, TensorElement, replace
 
 from pyop2 import op2
 

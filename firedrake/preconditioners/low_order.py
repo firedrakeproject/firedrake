@@ -3,24 +3,13 @@ from firedrake.preconditioners.base import PCBase
 import numpy
 from itertools import chain
 
-from ufl.algorithms import MultiFunction, map_integrands
+from ufl import replace
 
 import firedrake
 from pyop2 import op2
 
 
-__all__ = ("P1PC", "ArgumentReplacer")
-
-
-class ArgumentReplacer(MultiFunction):
-    def __init__(self, arg_map):
-        self.arg_map = arg_map
-        super(ArgumentReplacer, self).__init__()
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def argument(self, o):
-        return self.arg_map[o]
+__all__ = ("P1PC", )
 
 
 def transfer_kernel(Pk, P1):
@@ -136,9 +125,9 @@ class P1PC(PCBase):
 
         # TODO: A smarter low-order operator would also interpolate
         # any coefficients to the coarse space.
-        mapper = ArgumentReplacer({test: firedrake.TestFunction(P1),
-                                   trial: firedrake.TrialFunction(P1)})
-        self.lo_J = map_integrands.map_integrand_dags(mapper, self.J)
+        replace_d = {test: firedrake.TestFunction(P1),
+                     trial: firedrake.TrialFunction(P1)}
+        self.lo_J = replace(self.J, replace_d)
 
         lo_bcs = []
         for bc in self.bcs:
