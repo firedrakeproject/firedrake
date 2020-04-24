@@ -31,7 +31,6 @@ class BlockMatrix(object):
 
     def mult(self, mat, x, y):
         sizes = self.mat.getSizes()
-
         for i in range(self.dimension):
             start = i
             stride = self.dimension
@@ -232,26 +231,26 @@ each supermesh cell.
             }
         }
     }
-    int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C, const PetscScalar* nodes_A, const PetscScalar* nodes_B, const PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
+    int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C,  PetscScalar* nodes_A,  PetscScalar* nodes_B,  PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
     {
 #define d %(dim)s
 #define num_nodes_A %(num_nodes_A)s
 #define num_nodes_B %(num_nodes_B)s
 
-        double complex simplex_ref_measure;
+        double simplex_ref_measure;
         PrintInfo("simplex_A coordinates\\n");
         print_coordinates(simplex_A, d);
         PrintInfo("simplex_B coordinates\\n");
         print_coordinates(simplex_B, d);
         int num_elements = num_ele;
 
-        if (d == 2) simplex_ref_measure = 0.5+0*_Complex_I;
-        else if (d == 3) simplex_ref_measure = 1.0/6+0*_Complex_I;
+        if (d == 2) simplex_ref_measure = 0.5;
+        else if (d == 3) simplex_ref_measure = 1.0/6;
 
         PetscScalar R_AS[num_nodes_A][num_nodes_A];
         PetscScalar R_BS[num_nodes_B][num_nodes_B];
-        PetscScalar coeffs_A[%(num_nodes_A)s] = {0.+0*_Complex_I};
-        PetscScalar coeffs_B[%(num_nodes_B)s] = {0.+0*_Complex_I};
+        PetscScalar coeffs_A[%(num_nodes_A)s] = {0.};
+        PetscScalar coeffs_B[%(num_nodes_B)s] = {0.};
 
         PetscScalar reference_nodes_A[num_nodes_A][d];
         PetscScalar reference_nodes_B[num_nodes_B][d];
@@ -295,7 +294,7 @@ each supermesh cell.
 
         for ( int i = 0; i < num_nodes_B; i++ ) {
             for (int j = 0; j < num_nodes_A; j++) {
-                MAB[i][j] = 0.0+0*_Complex_I;
+                MAB[i][j] = 0.0;
             }
         }
 
@@ -305,12 +304,11 @@ each supermesh cell.
             double real_simplex_S[d*(d+1)];
             double imag_simplex_S[d*(d+1)];
             seperate_real_and_imag(simplex_S, real_simplex_S, imag_simplex_S, d);
-            double real_simplex_S_measure;
+            double simplex_S_measure;
 
-            %(libsupermesh_simplex_measure)s(real_simplex_S, &real_simplex_S_measure);
+            %(libsupermesh_simplex_measure)s(real_simplex_S, &simplex_S_measure);
             
             merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
-            double complex simplex_S_measure = (double complex)real_simplex_S_measure+0.*_Complex_I;
 
             PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
@@ -320,7 +318,7 @@ each supermesh cell.
             for(int n=0; n < num_nodes_A; n++) {
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
-                for (int j=0; j < d; j++) physical_node_location[j] = 0.0+0*_Complex_I;
+                for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
@@ -333,7 +331,7 @@ each supermesh cell.
             for(int n=0; n < num_nodes_B; n++) {
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
-                for (int j=0; j < d; j++) physical_node_location[j] = 0.0+0*_Complex_I;
+                for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
@@ -344,7 +342,7 @@ each supermesh cell.
             PrintInfo("==========================================================\\n");
             PrintInfo("Start pulling back dof from S into reference space for A.\\n");
             for(int n=0; n < num_nodes_A; n++) {
-                for(int i=0; i<d; i++) reference_nodes_A[n][i] = 0.+0*_Complex_I;
+                for(int i=0; i<d; i++) reference_nodes_A[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_A[n], physical_nodes_A[n], simplex_A);
                 PrintInfo("Pulling back ");
                 print_array(physical_nodes_A[n], d);
@@ -354,7 +352,7 @@ each supermesh cell.
             }
             PrintInfo("Start pulling back dof from S into reference space for B.\\n");
             for(int n=0; n < num_nodes_B; n++) {
-                for(int i=0; i<d; i++) reference_nodes_B[n][i] = 0.+0*_Complex_I;
+                for(int i=0; i<d; i++) reference_nodes_B[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_B[n], physical_nodes_B[n], simplex_B);
                 PrintInfo("Pulling back ");
                 print_array(physical_nodes_B[n], d);
@@ -365,25 +363,25 @@ each supermesh cell.
 
             PrintInfo("Start evaluating basis functions of V_A at dofs for V_A on S\\n");
             for(int i=0; i<num_nodes_A; i++) {
-                coeffs_A[i] = 1.+0*_Complex_I;
+                coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
-                    R_AS[i][j] = 0.+0*_Complex_I;
+                    R_AS[i][j] = 0.;
                     pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
-                coeffs_A[i] = 0.+0*_Complex_I;
+                coeffs_A[i] = 0.;
             }
             PrintInfo("Start evaluating basis functions of V_B at dofs for V_B on S\\n");
             for(int i=0; i<num_nodes_B; i++) {
-                coeffs_B[i] = 1.+0*_Complex_I;
+                coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
-                    R_BS[i][j] = 0.+0*_Complex_I;
+                    R_BS[i][j] = 0.;
                     pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
-                coeffs_B[i] = 0.+0*_Complex_I;
+                coeffs_B[i] = 0.;
             }
             PrintInfo("Start doing the matmatmat mult\\n");
 
@@ -391,7 +389,7 @@ each supermesh cell.
                 for (int j = 0; j < num_nodes_A; j++) {
                     for ( int k = 0; k < num_nodes_B; k++) {
                         for ( int l = 0; l < num_nodes_A; l++) {
-                            MAB[i][j] += (simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
+                            MAB[i][j] += (double complex)(simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
                         }
                     }
                 }
@@ -424,7 +422,7 @@ each supermesh cell.
                restype=ctypes.c_int)
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-
+    print(mat.getValues(0,0))
     if orig_value_size == 1:
         return mat
     else:

@@ -16,8 +16,8 @@ MAGIC = {2: (22, 3, 2),
 
 
 ctypedef int (*compiled_call)(PetscScalar *,PetscScalar *,PetscScalar *,
-                               const PetscScalar *,const PetscScalar *,
-                               const PetscScalar *, PetscScalar *, int)
+                                PetscScalar *, PetscScalar *,
+                                PetscScalar *, PetscScalar *, int)
 
 
 cdef extern from "libsupermesh-c.h" nogil:
@@ -86,12 +86,11 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
                 for j in range(gdim):
                     simplex_A[i, j] = vertices_A[vertex_map_A[cell_A, i], j]
                     simplex_B[i, j] = vertices_B[vertex_map_B[cell_B, i], j]
-            print(sum(MAGIC[gdim]))
             library_call(<PetscScalar *>simplex_A.data, <PetscScalar *>simplex_B.data,
                          <PetscScalar *>simplices_C.data,
-                         <const PetscScalar *>node_locations_A.data,
-                         <const PetscScalar *>node_locations_B.data,
-                         <const PetscScalar *>M_SS.data,
+                         <PetscScalar *>node_locations_A.data,
+                         <PetscScalar *>node_locations_B.data,
+                         <PetscScalar *>M_SS.data,
                          <PetscScalar *>outmat.data,
                          <int> sum(MAGIC[gdim]))
             V_A_map = <const PetscInt *>(&V_A_cell_node_map[cell_A, 0])
@@ -99,7 +98,7 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
             CHKERR(MatSetValuesLocal(mat.mat,
                                      num_dof_B, V_B_map,
                                      num_dof_A, V_A_map,
-                                     <const PetscScalar *>outmat.data, insert_mode))
+                                     <PetscScalar *>outmat.data, insert_mode))
 
     CHKERR(MatAssemblyBegin(mat.mat, MAT_FINAL_ASSEMBLY))
     CHKERR(MatAssemblyEnd(mat.mat, MAT_FINAL_ASSEMBLY))
