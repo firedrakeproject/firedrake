@@ -113,6 +113,26 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
         return cache.setdefault(key, kernel)
 
 
+def get_temp_info(loopy_kernel):
+    """Get information about temporaries in loopy kernel.
+
+    Returns memory in bytes and number of temporaries.
+    """
+    mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
+    mem_total = sum(mems)
+    num_temps = len(loopy_kernel.temporary_variables)
+
+    # Get number of temporaries of different shapes
+    shapes = {}
+    for temp in loopy_kernel.temporary_variables.values():
+        shape = temp.shape
+        if temp.storage_shape is not None:
+            shape = temp.storage_shape
+
+        shapes[len(shape)] = shapes.get(len(shape), 0) + 1
+    return mem_total, num_temps, mems, shapes
+
+
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
