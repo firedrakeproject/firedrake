@@ -212,7 +212,7 @@ class SlateTranslator():
         ret = None
         # Not mixed tensor can just be translated into the right gem Node saved in builder
         if len(tensor.shapes) == 1 and not tensor.is_mixed:
-            coeffs = self.builder.coefficient_vecs[tensor.shapes[0][0]]
+            coeffs = self.builder.coefficient_vecs[((tensor.shapes[0][0], False), 0)]
             for coeff in coeffs:
                 if coeff.vector == tensor:
                     assert ret is None, "This vector as already been assembled."

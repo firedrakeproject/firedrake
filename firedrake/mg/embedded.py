@@ -18,12 +18,6 @@ class Op(IntEnum):
     INJECT = 2
 
 
-def is_native(element):
-    if isinstance(element.cell(), ufl.TensorProductCell):
-        return reduce(and_, map(is_native, element.sub_elements()))
-    return element.family() in native
-
-
 class TransferManager(object):
     class Cache(object):
         """A caching object for work vectors and matrices.
@@ -71,11 +65,18 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
+    def is_native(self, element):
+        if element in self.native_transfers.keys():
+            return True
+        if isinstance(element.cell(), ufl.TensorProductCell):
+            return reduce(and_, map(self.is_native, element.sub_elements()))
+        return element.family() in native
+
     def _native_transfer(self, element, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if is_native(element):
+            if self.is_native(element):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
@@ -220,7 +221,7 @@ class TransferManager(object):
 
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if is_native(source_element) and is_native(target_element):
+        if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, transfer_op)(source, target)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
@@ -282,7 +283,7 @@ class TransferManager(object):
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
-        if is_native(source_element) and is_native(target_element):
+        if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
