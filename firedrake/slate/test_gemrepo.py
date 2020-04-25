@@ -323,7 +323,7 @@ Run test script
 print("Run test for slate to loopy compilation.\n\n")
 
 # discontinuous Helmholtz equation on cell integrals
-mesh = UnitSquareMesh(5, 5)#, quadrilateral=True)
+mesh = UnitSquareMesh(5, 5)
 V = FunctionSpace(mesh, "DG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)

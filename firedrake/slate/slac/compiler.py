@@ -156,8 +156,6 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Stage 2a: gem to loopy...
     loopy_outer = gem_to_loopy(gem_expr, builder)
-    mem_total, num_temps, mems, shapes = get_temp_info(loopy_outer)
-    print('mem_total:', mem_total)
 
     # Stage 2b: merge loopys...
     loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)  # builder owns the callinstruction
