@@ -31,7 +31,6 @@ from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
-from gem.view_gem_dag import GraphType, view_gem_dag
 from gem import impero_utils
 
 from itertools import chain
@@ -114,16 +113,23 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
 
 
 def get_temp_info(loopy_kernel):
-    """Get information about of temporaries in loopy kernel.
+    """Get information about temporaries in loopy kernel.
 
-    Returns memory in bytes and number of temporaries
+    Returns memory in bytes and number of temporaries.
     """
-    mem_total = sum(
-        temp.nbytes for temp in loopy_kernel.temporary_variables.values()
-    )
     mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
+    mem_total = sum(mems)
     num_temps = len(loopy_kernel.temporary_variables)
-    return mem_total, num_temps, mems
+    
+    # Get number of temporaries of different shapes
+    shapes = {}
+    for temp in loopy_kernel.temporary_variables.values():
+        shape = temp.shape
+        if temp.storage_shape is not None:
+            shape = temp.storage_shape
+        
+        shapes[len(shape)] = shapes.get(len(shape), 0) + 1
+    return mem_total, num_temps, mems, shapes
 
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
@@ -150,13 +156,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Stage 2a: gem to loopy...
     loopy_outer = gem_to_loopy(gem_expr, builder)
-    mem, num_temps, mems = get_temp_info(loopy_outer)
-    print('Temp memory: ', mem)
-    print('Num temps: ', num_temps)
-    print('Temp mems: ', mems)
-    # print('loopy_outer temps: ', loopy_outer.temporary_variables)
-    # print('loopy_outer instructions: ', loopy_outer.instructions.__str__)
-    print('loopy_outer:', loopy_outer)
+    mem_total, num_temps, mems, shapes = get_temp_info(loopy_outer)
+    print('mem_total:', mem_total)
 
     # Stage 2b: merge loopys...
     loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)  # builder owns the callinstruction
@@ -709,13 +710,8 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     if builder.needs_mesh_layers:
         args.append(loopy.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
 
-    # Preprocess of gem for removing unneccesary component tensors and temporaries
-    # print("\n==not peprocessed: ",traversed_gem_expr_dag)
-    # view_gem_dag(traversed_gem_expr_dag, filename='before', graph_type=GraphType.DAG)
+    # Optionally remove ComponentTensors and/or do IndexSum-Delta cancellation
     traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
-    # view_gem_dag(traversed_gem_expr_dag, filename='after', graph_type=GraphType.DAG)
-    # print("\n==preprocessed:",traversed_gem_expr_dag)
-    print('\n')
 
     # glue assignments to return variable
     assignments = list(zip(ret_vars, traversed_gem_expr_dag))
