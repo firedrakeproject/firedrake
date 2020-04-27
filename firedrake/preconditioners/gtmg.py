@@ -137,7 +137,7 @@ class GTMGPC(PCBase):
 
         coarse_solver = pcmg.getMGCoarseSolve()
         coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
-
+        # coarse space dm
         coarse_dm = coarse_space.dm
         coarse_solver.setDM(coarse_dm)
         coarse_solver.setDMActive(False)
