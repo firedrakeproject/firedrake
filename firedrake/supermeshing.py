@@ -11,6 +11,7 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.mg.utils as utils
+from firedrake.utils import complex_mode
 import ufl
 from ufl import inner, dx
 import numpy
@@ -193,6 +194,7 @@ each supermesh cell.
     %(evaluate_S)s
     %(evaluate_A)s
     %(evaluate_B)s
+#define complex_mode %(complex_mode)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
     static void print_array(PetscScalar *arr, int d)
@@ -209,6 +211,7 @@ each supermesh cell.
             PrintInfo("\\n");
         }
     }
+#if complex_mode
     static void seperate_real_and_imag(PetscScalar *simplex, double *real_simplex, double *imag_simplex, int d)
     {
         for(int i=0; i<d+1; i++)
@@ -231,6 +234,7 @@ each supermesh cell.
             }
         }
     }
+#endif
     int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C,  PetscScalar* nodes_A,  PetscScalar* nodes_B,  PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
     {
 #define d %(dim)s
@@ -255,6 +259,7 @@ each supermesh cell.
         PetscScalar reference_nodes_A[num_nodes_A][d];
         PetscScalar reference_nodes_B[num_nodes_B][d];
 
+#if complex_mode
         double real_simplex_A[d*(d+1)];
         double imag_simplex_A[d*(d+1)];
         seperate_real_and_imag(simplex_A, real_simplex_A, imag_simplex_A, d);
@@ -277,7 +282,9 @@ each supermesh cell.
             double* imag_simplex_C = &imag_simplices_C[s * d * (d+1)];
             merge_back_to_simplex(simplex_C, real_simplex_C, imag_simplex_C, d);
         }
-
+#else
+        %(libsupermesh_intersect_simplices)s(simplex_A, simplex_B, simplices_C, &num_elements);
+#endif
         PrintInfo("Supermesh consists of %%i elements\\n", num_elements);
 
         // would like to do this
@@ -402,7 +409,8 @@ each supermesh cell.
         "value_size_B": V_B.value_size,
         "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
         "libsupermesh_intersect_simplices": "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real",
-        "dim": dim
+        "dim": dim,
+        "complex_mode": 1 if complex_mode else 0
     }
 
     dirs = get_petsc_dir() + (sys.prefix, )
