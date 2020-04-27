@@ -55,7 +55,7 @@ class ASMPatchPC(PCBase):
         self.asmpc.applyTranspose(x, y)
 
 
-class ASMLinesmooth(ASMPatchPC):
+class ASMLinesmoothPC(ASMPatchPC):
     ''' Modified ASMPatchPC based on Colin's suggestions
     These patches are made by looping over base mesh interior DOFs
     and collecting all the DOFs on the "horizontal" faces.
