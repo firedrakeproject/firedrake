@@ -466,7 +466,7 @@ petsc_options = {"--with-fortran-bindings=0",
                  "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
-                 "--download-hdf5",
+                 "--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
                  # AMG
                  "--download-hypre",
                  # Sparse direct solver
