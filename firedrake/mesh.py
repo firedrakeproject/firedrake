@@ -1111,7 +1111,7 @@ values from f.)"""
             if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
             coords = function.Function(self.coordinates.function_space(),
-                                       val=self.coordinates.dat.data_ro.real.copy(),
+                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
                                        dtype=utils.RealType)
         else:
             coords = self.coordinates
