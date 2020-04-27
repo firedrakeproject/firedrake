@@ -513,10 +513,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         self.dat.global_to_local_end(op2.READ)
         from mpi4py import MPI
 
-        #TODO: assert dtype=float for arg/args
         if args:
             arg = (arg,) + args
-        arg = np.array(arg, dtype=float)
+        arg = np.asarray(arg, dtype=utils.ScalarType)
+        if utils.complex_mode:
+            if not np.allclose(arg.imag, 0):
+                raise ValueError("Provided points have non-zero imaginary part")
+            arg = arg.real.copy()
 
         dont_raise = kwargs.get('dont_raise', False)
 

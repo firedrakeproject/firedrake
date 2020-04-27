@@ -16,6 +16,7 @@ def mesh(request):
         return PeriodicUnitSquareMesh(30, 30, quadrilateral=True)
 
 
+@pytest.mark.skipcomplex
 def test_constant_field(mesh):
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
@@ -33,6 +34,7 @@ def test_constant_field(mesh):
     assert diff < 1.0e-10, "Failed on Constant function"
 
 
+@pytest.mark.skipcomplex
 def test_step_function_bounds(mesh):
     x = SpatialCoordinate(mesh)
 
@@ -51,6 +53,7 @@ def test_step_function_bounds(mesh):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
+@pytest.mark.skipcomplex
 def test_step_function_loop(mesh, iterations=100):
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
@@ -114,6 +117,7 @@ def test_step_function_loop(mesh, iterations=100):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
+@pytest.mark.skipcomplex
 def test_parallel_limiting(tmpdir):
     import pickle
     mesh = RectangleMesh(10, 4, 5000., 1000.)

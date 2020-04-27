@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import numpy as np
 
 
@@ -55,8 +56,8 @@ def test_callbacks():
                                         solver_parameters=params)
     solver.solve()
 
-    assert float(gamma) == 1
-    assert float(delta) == 3
+    assert ScalarType.type(gamma) == 1 + 0j
+    assert ScalarType.type(delta) == 3 + 0j
 
     assert np.allclose(u.dat.data, 1.5)
 
