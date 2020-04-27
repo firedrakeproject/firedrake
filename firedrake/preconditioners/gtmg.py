@@ -135,13 +135,6 @@ class GTMGPC(PCBase):
         pcmg.setMGInterpolation(1, interp_petscmat)
         pcmg.setOperators(A=fine_petscmat, P=fine_petscmat)
 
-        # Create new appctx
-        self._ctx_ref = self.new_snes_ctx(pc,
-                                          coarse_operator,
-                                          coarse_space_bcs,
-                                          coarse_mat_type,
-                                          fcp)
-
         coarse_solver = pcmg.getMGCoarseSolve()
         coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
         # coarse space dm
@@ -152,6 +145,15 @@ class GTMGPC(PCBase):
         pcmg.setFromOptions()
         self.pc = pcmg
         self._dm = coarse_dm
+
+        prefix = coarse_solver.getOptionsPrefix()
+        # Create new appctx
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          coarse_operator,
+                                          coarse_space_bcs,
+                                          coarse_mat_type,
+                                          fcp,
+                                          options_prefix=prefix)
 
         with dmhooks.add_hooks(coarse_dm, self,
                                appctx=self._ctx_ref,

@@ -162,7 +162,8 @@ class SCPC(SCBase):
                                           S_expr,
                                           bcs,
                                           mat_type,
-                                          self.cxt.fc_params)
+                                          self.cxt.fc_params,
+                                          options_prefix=prefix)
 
         # Push new context onto the dm associated with the condensed problem
         c_dm = Vc.dm
