@@ -135,6 +135,17 @@ class GTMGPC(PCBase):
         pcmg.setMGInterpolation(1, interp_petscmat)
         pcmg.setOperators(A=fine_petscmat, P=fine_petscmat)
 
+        coarse_solver = pcmg.getMGCoarseSolve()
+        coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
+
+        coarse_dm = coarse_space.dm
+        coarse_solver.setDM(coarse_dm)
+        coarse_solver.setDMActive(False)
+        pcmg.setDM(coarse_dm)
+        pcmg.setFromOptions()
+        self.pc = pcmg
+        self._dm = coarse_dm
+
         prefix = coarse_solver.getOptionsPrefix()
         # Create new appctx
         self._ctx_ref = self.new_snes_ctx(pc,

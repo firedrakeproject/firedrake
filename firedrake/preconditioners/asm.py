@@ -5,7 +5,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 
-__all__ = ("ASMPatchPC", "ASMLinesmooth")
+__all__ = ("ASMPatchPC", "ASMLinesmoothPC")
 
 
 class ASMPatchPC(PCBase):
