@@ -209,7 +209,7 @@ each supermesh cell.
             PrintInfo("\\n");
         }
     }
-    static void seperate_real_and_imag(double complex *simplex, double *real_simplex, double *imag_simplex, int d)
+    static void seperate_real_and_imag(PetscScalar *simplex, double *real_simplex, double *imag_simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
@@ -220,14 +220,14 @@ each supermesh cell.
             }
         }
     }
-    static void merge_back_to_simplex(double complex* simplex, double* real_simplex, double* imag_simplex, int d)
+    static void merge_back_to_simplex(PetscScalar* simplex, double* real_simplex, double* imag_simplex, int d)
     {
         print_coordinates(simplex,d);
         for(int i=0; i<d+1; i++)
         {
             for(int j=0; j<d; j++)
             {
-                simplex[d*i+j] = (double complex)real_simplex[d*i+j]+(double complex)imag_simplex[d*i+j]*_Complex_I;
+                simplex[d*i+j] = real_simplex[d*i+j]+imag_simplex[d*i+j]*_Complex_I;
             }
         }
     }
@@ -383,7 +383,7 @@ each supermesh cell.
                 for (int j = 0; j < num_nodes_A; j++) {
                     for ( int k = 0; k < num_nodes_B; k++) {
                         for ( int l = 0; l < num_nodes_A; l++) {
-                            MAB[i][j] += (double complex)(simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
+                            MAB[i][j] += (simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
                         }
                     }
                 }
