@@ -77,7 +77,6 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
                                             bcs=bcs,
                                             J=op,
                                             form_compiler_parameters=fcp)
-
         return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix)
 
 

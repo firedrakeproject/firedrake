@@ -418,7 +418,6 @@ class HybridizationPC(SCBase):
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
-
         super(HybridizationPC, self).view(pc, viewer)
         if hasattr(self, "trace_ksp"):
             viewer.printfASCII("Applying hybridization to mixed problem.\n")
