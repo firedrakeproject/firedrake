@@ -691,7 +691,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     ############
     # TODO: preprocessing of gem for removing unneccesary component tensors
     # print("not peprocessed",traversed_gem_expr_dag)
-    # traversed_gem_expr_dag = impero_utils.preprocess_traversedgem(traversed_gem_expr_dag[0])
+    traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
     # print("preprocessed",traversed_gem_expr_dag)
     # print(traversed_gem_expr_dag[1])
     # traversed_gem_expr_dag=traversed_gem_expr_dag[1]
@@ -735,7 +735,7 @@ def get_inv_callable(loopy_merged):
 
             from loopy.types import NumpyType
             return (self.copy(name_in_target=name_in_target,
-                              arg_id_to_dtype={0: NumpyType(mat_dtype), 1: NumpyType(int)}),
+                              arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(int)}),
                     callables_table)
 
         def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -749,7 +749,7 @@ def get_inv_callable(loopy_merged):
             par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
 
             parameters.append(insn.assignees[0])
-            par_dtypes.append(self.arg_id_to_dtype[0])
+            par_dtypes.append(self.arg_id_to_dtype[-1])
 
             from loopy.expression import dtype_to_type_context
             from pymbolic.mapper.stringifier import PREC_NONE
@@ -775,8 +775,9 @@ def get_inv_callable(loopy_merged):
                 for par, par_dtype in zip(parameters, par_dtypes)
             ]
             c_parameters = []
-            c_parameters.insert(0, arg_c_parameters[0])  # t1
-            c_parameters.insert(1, mat_descr.shape[0])  # n
+            c_parameters.insert(0, arg_c_parameters[-1])  # t1
+            c_parameters.insert(1, arg_c_parameters[0])  # t0
+            c_parameters.insert(2, mat_descr.shape[0])  # n
             return var(self.name_in_target)(*c_parameters), False
 
         def generate_preambles(self, target):
@@ -787,14 +788,15 @@ def get_inv_callable(loopy_merged):
                 #include <stdlib.h>
                 #ifndef Inverse_HPP
                 #define Inverse_HPP
-                void inverse_(PetscScalar* A, PetscBLASInt N)
+                void inverse_(PetscScalar* Aout, PetscScalar* A, PetscBLASInt N)
                 {
                     PetscBLASInt info;
                     PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
                     PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));
-                    LAPACKgetrf_(&N,&N,A,&N,ipiv,&info);
+                    memcpy(Aout,A,N*N*sizeof(PetscScalar));
+                    LAPACKgetrf_(&N,&N,Aout,&N,ipiv,&info);
                     if(info==0)
-                        LAPACKgetri_(&N,A,&N,ipiv,Awork,&N,&info);
+                        LAPACKgetri_(&N,Aout,&N,ipiv,Awork,&N,&info);
                     if(info!=0)
                         fprintf(stderr,\"Getri throws nonzero info.\");
                 }
@@ -839,7 +841,7 @@ def get_solve_callable(loopy_merged):
 
             from loopy.types import NumpyType
             return (self.copy(name_in_target=name_in_target,
-                              arg_id_to_dtype={0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(int)}),
+                              arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(int)}),
                     callables_table)
 
         def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -879,9 +881,10 @@ def get_solve_callable(loopy_merged):
                 for par, par_dtype in zip(parameters, par_dtypes)
             ]
             c_parameters = []
-            c_parameters.insert(0, arg_c_parameters[0])  # A
-            c_parameters.insert(1, arg_c_parameters[1])  # B
-            c_parameters.insert(2, mat_descr_A.shape[1])  # n
+            c_parameters.insert(0, arg_c_parameters[-1])  # out
+            c_parameters.insert(1, arg_c_parameters[0])  # A
+            c_parameters.insert(2, arg_c_parameters[1])  # B
+            c_parameters.insert(3, mat_descr_A.shape[1])  # n
             return var(self.name_in_target)(*c_parameters), False
 
         def generate_preambles(self, target):
@@ -893,13 +896,14 @@ def get_solve_callable(loopy_merged):
                 #ifndef Solve_HPP
                 #define Solve_HPP
 
-                void solve_(PetscScalar* A, PetscScalar* B, PetscBLASInt N)
+                void solve_(PetscScalar* out, PetscScalar* A, PetscScalar* B, PetscBLASInt N)
                 {
                     PetscBLASInt info;
                     PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
+                    memcpy(out,B,N*sizeof(PetscScalar));
                     PetscBLASInt NRHS;
                     NRHS=1;
-                    LAPACKgesv_(&N,&NRHS,A,&N,ipiv,B,&N,&info);
+                    LAPACKgesv_(&N,&NRHS,A,&N,ipiv,out,&N,&info);
                     if(info!=0)
                         fprintf(stderr,\"Gesv throws nonzero info.\");
                 }
