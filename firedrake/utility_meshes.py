@@ -206,10 +206,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
         # there are two vertices in the cell
         cell_vertices = closure[5:]
-        if utils.complex_mode:
-            cell_X = np.array([0., 0.], dtype=complex)
-        else:
-            cell_X = np.array([0., 0.])
+        cell_X = np.array([0., 0.], dtype=utils.ScalarType)
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
