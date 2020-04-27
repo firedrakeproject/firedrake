@@ -264,13 +264,7 @@ each supermesh cell.
 
         double real_simplices_C[num_elements*d*(d+1)];
         double imag_simplices_C[num_elements*d*(d+1)];
-        for(int s=0; s<num_elements; s++)
-        {
-            PetscScalar* simplex_C = &simplices_C[s * d * (d+1)];
-            double* real_simplex_C = &real_simplices_C[s * d * (d+1)];
-            double* imag_simplex_C = &imag_simplices_C[s * d * (d+1)];
-            seperate_real_and_imag(simplex_C, real_simplex_C, imag_simplex_C, d);
-        }
+        for (int ii=0; ii<num_elements*d*(d+1); ++ii) imag_simplices_C[ii] = 0.;
 
         %(libsupermesh_intersect_simplices)s(real_simplex_A, real_simplex_B, real_simplices_C, &num_elements);
 
@@ -422,7 +416,6 @@ each supermesh cell.
                restype=ctypes.c_int)
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-    print(mat.getValues(0,0))
     if orig_value_size == 1:
         return mat
     else:
