@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --complex --package-branch loopy complex --package-branch tsfc complex-sprint --package-branch PyOP2 complex-sprint --package-branch firedrake complex-sprint --package-branch ufl wence/complex-updates || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch loopy complex --package-branch tsfc complex-sprint --package-branch PyOP2 complex-sprint --package-branch firedrake complex-sprint --package-branch ufl wence/complex-updates --package-branch pyadjoint complex-sprint || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
