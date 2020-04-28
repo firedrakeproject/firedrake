@@ -363,7 +363,8 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         config = kernel_cfg.copy()
         config.update(point_set=point_set)
 
-        # Fix for interpolating QuadratureWeight into a QuadratureElement
+        # Allow interpolation onto QuadratureElements to refer to the quadrature
+        # rule they represent
         if isinstance(to_element, FIAT.QuadratureElement):
             quad_rule = QuadratureRule(point_set, to_element._weights)
             config["quadrature_rule"] = quad_rule
