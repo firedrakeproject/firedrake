@@ -164,7 +164,7 @@ def classsingledispatch(func):
 
 
 class SlateTranslator():
-    """Multifunction for translating UFL -> GEM.  """
+    """Multifunction for translating Slate -> GEM.  """
 
     def __init__(self, builder):
         self.builder = builder
@@ -174,16 +174,9 @@ class SlateTranslator():
         translated_nodes = OrderedDict()
         traversed_dag = list(post_traversal([self.builder.expression]))
 
-        # First traversal for resolving tensors and assembled vectors
-        for tensor in traversed_dag:  # tensor hier is actually TensorBase
-            if isinstance(tensor, sl.Tensor) or isinstance(tensor, sl.AssembledVector):
-                translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
-
-        # Second traversal for other nodes
+        # Tree traversal
         for tensor in traversed_dag[:len(traversed_dag)-1]:
-            # other tensor types are translated into gem nodes
-            if not isinstance(tensor, sl.Tensor) and not isinstance(tensor, sl.AssembledVector):
-                translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
+            translated_nodes.setdefault(tensor, self.slate_to_gem(tensor, translated_nodes))
 
         # Last root contains the whole tree
         last_tensor = traversed_dag[len(traversed_dag)-1]
