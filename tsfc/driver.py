@@ -18,11 +18,12 @@ from ufl.utils.sequences import max_degree
 import gem
 import gem.impero_utils as impero_utils
 
+import FIAT
 from FIAT.reference_element import TensorProductCell
 from FIAT.functional import PointEvaluation
 
 from finat.point_set import PointSet
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
+from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
 
 from tsfc import fem, ufl_utils
 from tsfc.fiatinterface import as_fiat_cell
@@ -361,6 +362,12 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         point_set = PointSet(qpoints)
         config = kernel_cfg.copy()
         config.update(point_set=point_set)
+
+        # Fix for interpolating QuadratureWeight into a QuadratureElement
+        if isinstance(to_element, FIAT.QuadratureElement):
+            quad_rule = QuadratureRule(point_set, to_element._weights)
+            config["quadrature_rule"] = quad_rule
+
         expr, = fem.compile_ufl(expression, **config, point_sum=False)
         shape_indices = tuple(gem.Index() for _ in expr.shape)
         basis_indices = point_set.indices
