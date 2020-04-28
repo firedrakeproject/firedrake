@@ -56,11 +56,14 @@ class ASMPatchPC(PCBase):
 
 
 class ASMLinesmoothPC(ASMPatchPC):
-    ''' Modified ASMPatchPC based on Colin's suggestions
-    These patches are made by looping over base mesh interior DOFs
-    and collecting all the DOFs on the "horizontal" faces.
-    Then looping over all facet DOFs and collecting the DOFs on the
-    "vertical" faces.
+    '''Linesmoother PC for extruded meshes implemented as an ASMPatchPC.
+
+    These patches are made by looping over base mesh entities of a
+    particular codimension, and collecting all the DOFs on the
+    "horizontal" faces.  Then looping over all facet DOFs and
+    collecting the DOFs on the "vertical" faces.
+
+    Set the codimension of the base mesh in PETSc options via 'pc_asm_codims'.
     '''
 
     def get_patches(self, V):
