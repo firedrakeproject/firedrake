@@ -728,7 +728,7 @@ def get_inv_callable(loopy_merged):
             self.name_in_target = name_in_target
 
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
-            for i in range(0, len(arg_id_to_dtype)):
+            for i in range(len(arg_id_to_dtype)):
                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
                     # the types provided aren't mature enough to specialize the
                     # callable
@@ -828,7 +828,7 @@ def get_solve_callable(loopy_merged):
             self.name_in_target = name_in_target
 
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
-            for i in range(0, len(arg_id_to_dtype)):
+            for i in range(len(arg_id_to_dtype)):
                 if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
                     # the types provided aren't mature enough to specialize the
                     # callable
