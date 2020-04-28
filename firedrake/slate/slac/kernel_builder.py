@@ -20,6 +20,7 @@ import pymbolic.primitives as pym
 
 from functools import singledispatch, partial
 import firedrake.slate.slate as slate
+from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -351,7 +352,6 @@ class LocalKernelBuilder(object):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
-        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=True)
@@ -547,7 +547,6 @@ class LocalLoopyKernelBuilder(object):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
-        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=False)
