@@ -9,7 +9,6 @@ from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
 
 
 from functools import singledispatch, update_wrapper
-import firedrake
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
@@ -202,12 +201,12 @@ class SlateTranslator():
         """
         raise AssertionError("Cannot handle terminal type: %s" % type(tensor))
 
-    @slate_to_gem.register(firedrake.slate.slate.Tensor)
+    @slate_to_gem.register(sl.Tensor)
     def slate_to_gem_tensor(self, tensor, node_dict):
         idx = self.builder.gem_indices[tensor]
         return ComponentTensor(self.index_tensor(self.builder.temps[tensor], idx), idx)
 
-    @slate_to_gem.register(firedrake.slate.slate.AssembledVector)
+    @slate_to_gem.register(sl.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
         ret = None
         # Not mixed tensor can just be translated into the right gem Node saved in builder
@@ -231,7 +230,7 @@ class SlateTranslator():
             ret = ComponentTensor(ret, index)
         return ret
 
-    @slate_to_gem.register(firedrake.slate.slate.Add)
+    @slate_to_gem.register(sl.Add)
     def slate_to_gem_add(self, tensor, node_dict):
         A, B = tensor.operands  # slate tensors
         _A, _B = node_dict[A], node_dict[B]  # gem representations
@@ -241,7 +240,7 @@ class SlateTranslator():
         _B = self.index_tensor(_B, new_indices)
         return ComponentTensor(Sum(_A, _B), new_indices)
 
-    @slate_to_gem.register(firedrake.slate.slate.Negative)
+    @slate_to_gem.register(sl.Negative)
     def slate_to_gem_negative(self, tensor, node_dict):
         A, = tensor.operands
         self.builder.create_index(A.shape, str(A)+"newneg")
@@ -249,7 +248,7 @@ class SlateTranslator():
         var_A = self.index_tensor(node_dict[A], new_indices)
         return ComponentTensor(Product(Literal(-1), var_A), new_indices)
 
-    @slate_to_gem.register(firedrake.slate.slate.Transpose)
+    @slate_to_gem.register(sl.Transpose)
     def slate_to_gem_transpose(self, tensor, node_dict):
         A, = tensor.operands
         _A = node_dict[A]
@@ -259,7 +258,7 @@ class SlateTranslator():
         ret = ComponentTensor(var_A, new_indices[::-1])
         return ret
 
-    @slate_to_gem.register(firedrake.slate.slate.Mul)
+    @slate_to_gem.register(sl.Mul)
     def slate_to_gem_mul(self, tensor, node_dict):
         A, B = tensor.operands
         var_A, var_B = node_dict[A], node_dict[B]  # gem representations
@@ -288,7 +287,7 @@ class SlateTranslator():
         else:
             return[]
 
-    @slate_to_gem.register(firedrake.slate.slate.Block)
+    @slate_to_gem.register(sl.Block)
     def slate_to_gem_blocks(self, tensor, node_dict):
 
         A, = tensor.operands
@@ -336,7 +335,7 @@ class SlateTranslator():
             assert True, "Variable type is "+str(type(var))+". Must be a type that has shape."
         return var
 
-    @slate_to_gem.register(firedrake.slate.slate.Solve)
+    @slate_to_gem.register(sl.Solve)
     def slate_to_gem_solve(self, tensor, node_dict):
         fac, B = tensor.operands  # TODO is first operand always factorization?
         A, = fac.operands
@@ -349,7 +348,7 @@ class SlateTranslator():
         ret = Solve(ret_A, ret_B)
         return ret
 
-    @slate_to_gem.register(firedrake.slate.slate.Inverse)
+    @slate_to_gem.register(sl.Inverse)
     def slate_to_gem_inverse(self, tensor, node_dict):
         A, = tensor.operands
         self.builder.create_index(A.shape, str(A)+"readsinv")
@@ -360,7 +359,7 @@ class SlateTranslator():
 
     # TODO how do we deal with surpressed factorization nodes,
     # maybe populate decompdict and pass through to loopy later?
-    @slate_to_gem.register(firedrake.slate.slate.Factorization)
+    @slate_to_gem.register(sl.Factorization)
     def slate_to_gem_factorization(self, tensor, node_dict):
         self.decomp_dict.setdefault(tensor, tensor.decomposition)
         return []
