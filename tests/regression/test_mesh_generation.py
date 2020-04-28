@@ -45,6 +45,10 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_unit_disk():
+    assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
+
+
 def test_rectangle():
     assert abs(integrate_one(RectangleMesh(3, 3, 10, 2)) - 20) < 1e-3
 
