@@ -45,6 +45,11 @@ import loopy
 import gem
 from tsfc.loopy import generate as generate_loopy
 from loopy.target.c import CTarget
+from loopy.types import NumpyType
+from loopy.expression import dtype_to_type_context
+from pymbolic.mapper.stringifier import PREC_NONE
+from loopy.symbolic import SubArrayRef
+from pymbolic import var
 
 __all__ = ['compile_expression']
 
@@ -733,7 +738,6 @@ def get_inv_callable(loopy_merged):
             mat_dtype = arg_id_to_dtype[0].numpy_dtype
             name_in_target = "inverse_"
 
-            from loopy.types import NumpyType
             return (self.copy(name_in_target=name_in_target,
                               arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(int)}),
                     callables_table)
@@ -750,11 +754,6 @@ def get_inv_callable(loopy_merged):
 
             parameters.append(insn.assignees[0])
             par_dtypes.append(self.arg_id_to_dtype[-1])
-
-            from loopy.expression import dtype_to_type_context
-            from pymbolic.mapper.stringifier import PREC_NONE
-            from loopy.symbolic import SubArrayRef
-            from pymbolic import var
 
             mat_descr = self.arg_id_to_descr[0]
 
@@ -839,7 +838,6 @@ def get_solve_callable(loopy_merged):
             mat_dtype = arg_id_to_dtype[0].numpy_dtype
             name_in_target = "solve_"
 
-            from loopy.types import NumpyType
             return (self.copy(name_in_target=name_in_target,
                               arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(int)}),
                     callables_table)
@@ -856,11 +854,6 @@ def get_solve_callable(loopy_merged):
 
             parameters.append(insn.assignees[0])
             par_dtypes.append(self.arg_id_to_dtype[0])
-
-            from loopy.expression import dtype_to_type_context
-            from pymbolic.mapper.stringifier import PREC_NONE
-            from loopy.symbolic import SubArrayRef
-            from pymbolic import var
 
             mat_descr_A = self.arg_id_to_descr[0]
 
