@@ -344,11 +344,9 @@ class SlateTranslator():
         A_indices = self.builder.gem_indices[str(tensor)+"readssolve"]
         self.builder.create_index(B.shape, str(tensor)+"readsbsolve")
         B_indices = self.builder.gem_indices[str(tensor)+"readsbsolve"]
-        self.builder.create_index(tensor.shape, tensor)
-        new_indices = self.builder.gem_indices[tensor]
         ret_A = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
         ret_B = ComponentTensor(self.index_tensor(node_dict[B], B_indices), B_indices)
-        ret = Solve(ret_A, ret_B, new_indices)
+        ret = Solve(ret_A, ret_B)
         return ret
 
     @slate_to_gem.register(firedrake.slate.slate.Inverse)
@@ -356,10 +354,8 @@ class SlateTranslator():
         A, = tensor.operands
         self.builder.create_index(A.shape, str(A)+"readsinv")
         A_indices = self.builder.gem_indices[str(A)+"readsinv"]
-        self.builder.create_index(tensor.shape, tensor)
-        new_indices = self.builder.gem_indices[tensor]
         ret = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
-        ret = Inverse(ret, new_indices)
+        ret = Inverse(ret)
         return ret
 
     # TODO how do we deal with surpressed factorization nodes,
