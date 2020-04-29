@@ -290,7 +290,7 @@ class FunctionSpace(object):
             self.shape = element.value_shape()[:1]
         else:
             self.shape = ()
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
         self._mesh = mesh
 
@@ -389,7 +389,12 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __len__(self):
         return 1
@@ -534,11 +539,12 @@ class MixedFunctionSpace(object):
         super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s
-                                               in spaces])
+        mesh, = set(s.mesh() for s in spaces)
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
+                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
-        self._mesh = spaces[0].mesh()
+        self._mesh = mesh
         self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
@@ -556,8 +562,12 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace):
