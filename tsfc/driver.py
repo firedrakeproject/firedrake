@@ -366,6 +366,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         # Allow interpolation onto QuadratureElements to refer to the quadrature
         # rule they represent
         if isinstance(to_element, FIAT.QuadratureElement):
+            assert all(qpoints == to_element._points)
             quad_rule = QuadratureRule(point_set, to_element._weights)
             config["quadrature_rule"] = quad_rule
 
