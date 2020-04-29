@@ -46,13 +46,14 @@ if "clean" in sys.argv[1:]:
                 or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
-cythonfiles = [("dmplex", ["petsc"], {'COMPLEX': complex_mode}),
-               ("extrusion_numbering", ["petsc"], {}),
-               ("hdf5interface", ["petsc"], {}),
-               ("mgimpl", ["petsc"], {}),
-               ("patchimpl", ["petsc"], {}),
-               ("spatialindex", ["spatialindex_c"], {}),
-               ("supermeshimpl", ["supermesh", "petsc"], {})]
+cython_compile_time_env = {'COMPLEX': complex_mode}
+cythonfiles = [("dmplex", ["petsc"]),
+               ("extrusion_numbering", ["petsc"]),
+               ("hdf5interface", ["petsc"]),
+               ("mgimpl", ["petsc"]),
+               ("patchimpl", ["petsc"]),
+               ("spatialindex", ["spatialindex_c"]),
+               ("supermeshimpl", ["supermesh", "petsc"])]
 
 
 petsc_dirs = get_petsc_dir()
@@ -67,7 +68,7 @@ extensions = [Extension("firedrake.cython.{}".format(ext),
                         include_dirs=include_dirs,
                         libraries=libs,
                         extra_link_args=link_args,
-                        cython_compile_time_env=compile_time_env) for (ext, libs, compile_time_env) in cythonfiles]
+                        cython_compile_time_env=cython_compile_time_env) for (ext, libs) in cythonfiles]
 if 'CC' not in env:
     env['CC'] = "mpicc"
 
