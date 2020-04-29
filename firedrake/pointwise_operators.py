@@ -90,7 +90,6 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
 
-
     def _adjoint(self, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
