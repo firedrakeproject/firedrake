@@ -424,7 +424,7 @@ class MeshTopology(object):
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
 
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
@@ -437,8 +437,8 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        cell = ufl.Cell(_cells[dim][nfacets])
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=dim))
+        cell = ufl.Cell(_cells[tdim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -470,7 +470,7 @@ class MeshTopology(object):
                                                                  reordering)
 
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
                 self._cell_numbering = self.create_section(entity_dofs)
@@ -527,14 +527,14 @@ class MeshTopology(object):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         plex = self._plex
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
         cell_numbering = self._cell_numbering
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
-        assert dim == cell.topological_dimension()
+        assert tdim == cell.topological_dimension()
         if cell.is_simplex():
             import FIAT
             topology = FIAT.ufc_cell(cell).get_topology()
