@@ -831,7 +831,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self._plex,
