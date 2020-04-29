@@ -437,6 +437,13 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
+        # Note that the geometric dimension of the cell is not set here
+        # despite it being a property of a UFL cell. It will default to
+        # equal the topological dimension.
+        # Firedrake mesh topologies, by convention, which specifically
+        # represent a mesh topology (as here) have geometric dimension
+        # equal their topological dimension. This is reflected in the
+        # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # A set of weakrefs to meshes that are explicitly labelled as being
@@ -513,11 +520,29 @@ class MeshTopology(object):
         return self
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This is true even for immersed manifold
+            meshes.
+
+        """
         return self._ufl_mesh.ufl_cell()
 
     def ufl_mesh(self):
-        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh."""
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This convention will be reflected in this
+            UFL mesh and is true even for immersed manifold meshes.
+
+        """
         return self._ufl_mesh
 
     @utils.cached_property
