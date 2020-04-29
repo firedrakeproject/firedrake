@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 
 
 def test_matrix_free_hybridization():

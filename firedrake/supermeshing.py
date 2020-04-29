@@ -15,7 +15,7 @@ from firedrake.utils import complex_mode
 import ufl
 from ufl import inner, dx
 import numpy
-from pyop2.datatypes import ScalarType, RealType
+from pyop2.datatypes import ScalarType
 from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
@@ -308,7 +308,7 @@ each supermesh cell.
             double simplex_S_measure;
 
             %(libsupermesh_simplex_measure)s(real_simplex_S, &simplex_S_measure);
-            
+
             merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
 
             PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);

@@ -129,8 +129,8 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             # Mixed space
             is_dg = False
             is_variable_layers = True
-        self.use_slate_for_inverse = use_slate_for_inverse and is_dg and not is_variable_layers \
-                                     and not complex_mode
+        self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
+                                      and not complex_mode)
 
     @cached_property
     def A(self):

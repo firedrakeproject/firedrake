@@ -3,12 +3,10 @@ import itertools
 import numpy
 import islpy as isl
 
-import firedrake
 from pyop2 import op2
 from pyop2.datatypes import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 
 
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
@@ -48,7 +46,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
         raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
-    layer_height = op2.Global(1, layer_height, dtype=RealType) 
+    layer_height = op2.Global(1, layer_height, dtype=RealType)
     if kernel is not None:
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
@@ -85,7 +83,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains = []
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', 'l') , (base_coord_dim, 2)))
+        domains.extend(_get_lp_domains(('c', 'l'), (base_coord_dim, 2)))
         instructions = """
         <{IntType}> base_coord_dim = {bcdim}
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
@@ -99,7 +97,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains = []
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', 'k', 'l') , (base_coord_dim, ) * 2 + (2, )))
+        domains.extend(_get_lp_domains(('c', 'k', 'l'), (base_coord_dim, ) * 2 + (2, )))
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0
@@ -139,7 +137,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         _dd = _get_arity_axis_inames('_d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(_dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', '_c', '__c', '___c', 'k', 'l') , (base_coord_dim, ) * 5 + (2, )))
+        domains.extend(_get_lp_domains(('c', '_c', '__c', '___c', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
         # Formula for normal, n
         n_1_1 = """
         n[0] = -bc[1, 1] + bc[0, 1]

@@ -1,6 +1,5 @@
 from firedrake import *
 import numpy
-import pytest
 
 
 def test_unary_minus():

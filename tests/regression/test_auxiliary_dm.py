@@ -44,6 +44,7 @@ class BiharmonicProblem(object):
         f = div(grad(div(grad(u_exact)))) + u_exact
         return f
 
+
 @pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
 def test_auxiliary_dm():
     problem = BiharmonicProblem(5, 1)

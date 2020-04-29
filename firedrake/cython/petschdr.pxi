@@ -5,7 +5,10 @@ cimport numpy as np
 cdef extern from "mpi-compat.h":
     pass
 
-ctypedef np.complex128_t PetscScalar
+IF COMPLEX:
+   ctypedef np.complex128_t PetscScalar
+ELSE:
+   ctypedef double PetscScalar
 
 cdef extern from "petsc.h":
    ctypedef long PetscInt
