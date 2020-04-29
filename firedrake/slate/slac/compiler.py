@@ -27,14 +27,14 @@ from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import complex_mode, ScalarType_c
+from firedrake.utils import complex_mode
 from ufl.log import GREEN
 from gem.utils import groupby
 
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr, ScalarType
+from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
 
 import firedrake.slate.slate as slate

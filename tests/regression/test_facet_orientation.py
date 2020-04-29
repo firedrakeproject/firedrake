@@ -17,7 +17,6 @@ cwd = abspath(dirname(__file__))
                           lambda: UnitCubedSphereMesh(3),
                           lambda: Mesh(join(cwd, "..", "meshes",
                                             "unitsquare_unstructured_quadrilaterals.msh"))])
-
 def test_consistent_facet_orientation(mesh_thunk):
     mesh = mesh_thunk()
     x = SpatialCoordinate(mesh)
