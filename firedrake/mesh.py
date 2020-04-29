@@ -437,8 +437,8 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
-
+        cell = ufl.Cell(_cells[dim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=dim))
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -514,7 +514,11 @@ class MeshTopology(object):
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
+        return self._ufl_mesh.ufl_cell()
+
+    def ufl_mesh(self):
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh."""
+        return self._ufl_mesh
 
     @utils.cached_property
     def cell_closure(self):
