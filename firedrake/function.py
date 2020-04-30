@@ -282,8 +282,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        if name == 'block_variable':
-            import ipdb;ipdb.set_trace()
         return getattr(self._data, name)
 
     def __dir__(self):

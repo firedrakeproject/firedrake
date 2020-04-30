@@ -113,7 +113,8 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
             for ext in e_master._extop_dependencies:
                 if ext.derivatives == deriv_multiindex:
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
-                                                      derivatives=deriv_multiindex, count=count, name=name,
+                                                      derivatives=deriv_multiindex, count=count,
+                                                      val=ext.topological, name=name,
                                                       operator_data=operator_data,
                                                       add_kwargs=add_kwargs)
         else:
@@ -122,6 +123,7 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         reconstruct_op = type(self)(*operands, function_space=function_space or self._ufl_function_space,
                                     derivatives=deriv_multiindex,
                                     count=corresponding_count,
+                                    val=self.topological,
                                     name=name or self.name(),
                                     operator_data=operator_data or self.operator_data,
                                     **add_kwargs)
