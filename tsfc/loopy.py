@@ -2,8 +2,6 @@
 
 This is the final stage of code generation in TSFC."""
 
-from math import isnan
-
 import numpy
 from functools import singledispatch
 from collections import defaultdict, OrderedDict
@@ -399,10 +397,10 @@ def _expression_conditional(expr, ctx):
 def _expression_scalar(expr, parameters):
     assert not expr.shape
     v = expr.value
-    if isnan(v):
+    if numpy.isnan(v):
         return p.Variable("NAN")
-    r = round(v, 1)
-    if r and abs(v - r) < parameters.epsilon:
+    r = numpy.round(v, 1)
+    if r and numpy.abs(v - r) < parameters.epsilon:
         return r
     return v
 
