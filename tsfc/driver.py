@@ -50,14 +50,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     assert isinstance(form, Form)
 
     # Determine whether in complex mode:
-    # complex nodes would break the refactoriser.
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    if complex_mode:
-        logger.warning("Disabling whole expression optimisations"
-                       " in GEM for supporting complex mode.")
-        parameters = parameters.copy()
-        parameters["mode"] = 'vanilla'
-
     fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
