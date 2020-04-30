@@ -3,10 +3,11 @@
 This is the final stage of code generation in TSFC."""
 
 import numpy
-from functools import singledispatch
+from functools import singledispatch, partial
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.node import Memoizer
 
 import islpy as isl
 import loopy as lp
@@ -50,6 +51,85 @@ math_table = {
     'min_value': ('min', None),
     'max_value': ('max', None)
 }
+
+
+maxtype = partial(numpy.find_common_type, [])
+
+
+@singledispatch
+def _assign_dtype(expression, self):
+    return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.Terminal)
+def _assign_dtype_terminal(expression, self):
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.Zero)
+@_assign_dtype.register(gem.Identity)
+@_assign_dtype.register(gem.Delta)
+def _assign_dtype_real(expression, self):
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Literal)
+def _assign_dtype_identity(expression, self):
+    return expression.array.dtype
+
+
+@_assign_dtype.register(gem.Power)
+def _assign_dtype_power(expression, self):
+    # Conservative
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.MathFunction)
+def _assign_dtype_mathfunction(expression, self):
+    if expression.name in {"abs", "real", "imag"}:
+        return self.real_type
+    elif expression.name == "sqrt":
+        return self.scalar_type
+    else:
+        return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.MinValue)
+@_assign_dtype.register(gem.MaxValue)
+def _assign_dtype_minmax(expression, self):
+    # UFL did correctness checking
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Conditional)
+def _assign_dtype_conditional(expression, self):
+    return maxtype(map(self, expression.children[1:]))
+
+
+@_assign_dtype.register(gem.Comparison)
+@_assign_dtype.register(gem.LogicalNot)
+@_assign_dtype.register(gem.LogicalAnd)
+@_assign_dtype.register(gem.LogicalOr)
+def _assign_dtype_logical(expression, self):
+    return numpy.int8
+
+
+def assign_dtypes(expressions, scalar_type):
+    """Assign numpy data types to expressions.
+
+    Used for declaring temporaries when converting from Impero to lower level code.
+
+    :arg expressions: List of GEM expressions.
+    :arg scalar_type: Default scalar type.
+
+    :returns: list of tuples (expression, dtype)."""
+    mapper = Memoizer(_assign_dtype)
+    mapper.scalar_type = scalar_type
+    if scalar_type.kind == "c":
+        mapper.real_type = numpy.finfo(scalar_type).dtype
+    else:
+        mapper.real_type = scalar_type
+    return [(e, mapper(e)) for e in expressions]
 
 
 class LoopyContext(object):
@@ -157,13 +237,13 @@ def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel",
 
     # Create arguments
     data = list(args)
-    for i, temp in enumerate(impero_c.temporaries):
+    for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
-            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=temp.array.dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
+            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
             shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
-            data.append(lp.TemporaryVariable(name, shape=shape, dtype=numpy.float64, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
