@@ -277,10 +277,10 @@ honoured.""",
     if args.cuda:
         err = InstallError("Append '--package-branch firedrake"
                 " gpu --package-branch tsfc gpu"
-                " --package-branch PyOP2 cuda' to the options.")
+                " --package-branch PyOP2 gpu' to the options.")
 
         try:
-            if (branches['firedrake'] != 'gpu') and (branches['tsfc'] != 'gpu') and (branches['pyop2'] != 'cuda'):
+            if (branches['firedrake'] != 'gpu') and (branches['tsfc'] != 'gpu') and (branches['pyop2'] != 'gpu'):
                 raise err
         except KeyError:
             raise err
@@ -736,12 +736,6 @@ def install(package):
     log.info("Installing %s" % package)
     if package == "petsc/":
         build_and_install_petsc()
-    elif package == "PyOP2/":
-        if args.cuda:
-            run_pip_install(["-e", package, "--include-dirs",
-                args.cuda_dir+"/include"])
-        else:
-            run_pip_install(["-e", package])
     # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
     elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
@@ -1330,6 +1324,9 @@ if mode == "install":
         packages.remove("firedrake")
 
         build_update_script()
+
+    if args.cuda:
+        run_pip_install(["pycuda"])
 
 else:
     # Update mode
