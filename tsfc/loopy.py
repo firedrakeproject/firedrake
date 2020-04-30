@@ -21,6 +21,37 @@ from tsfc.parameters import is_complex
 from contextlib import contextmanager
 
 
+# Table of handled math functions in real and complex modes
+# Note that loopy handles addition of type prefixes and suffixes itself.
+math_table = {
+    'sqrt': ('sqrt', 'sqrt'),
+    'abs': ('abs', 'abs'),
+    'cos': ('cos', 'cos'),
+    'sin': ('sin', 'sin'),
+    'tan': ('tan', 'tan'),
+    'acos': ('acos', 'acos'),
+    'asin': ('asin', 'asin'),
+    'atan': ('atan', 'atan'),
+    'cosh': ('cosh', 'cosh'),
+    'sinh': ('sinh', 'sinh'),
+    'tanh': ('tanh', 'tanh'),
+    'acosh': ('acosh', 'acosh'),
+    'asinh': ('asinh', 'asinh'),
+    'atanh': ('atanh', 'atanh'),
+    'power': ('pow', 'pow'),
+    'exp': ('exp', 'exp'),
+    'ln': ('log', 'log'),
+    'real': (None, 'real'),
+    'imag': (None, 'imag'),
+    'conj': (None, 'conj'),
+    'erf': ('erf', None),
+    'atan_2': ('atan2', None),
+    'atan2': ('atan2', None),
+    'min_value': ('min', None),
+    'max_value': ('max', None)
+}
+
+
 class LoopyContext(object):
     def __init__(self):
         self.indices = {}  # indices for declarations and referencing values, from ImperoC
@@ -309,11 +340,6 @@ def _expression_power(expr, ctx):
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, ctx):
 
-    from tsfc.coffee import math_table
-
-    math_table = math_table.copy()
-    math_table['abs'] = ('abs', 'cabs')
-
     complex_mode = int(is_complex(ctx.scalar_type))
 
     # Bessel functions
@@ -352,7 +378,8 @@ def _expression_mathfunction(expr, ctx):
     # Other math functions
     name = math_table[expr.name][complex_mode]
     if name is None:
-        raise RuntimeError("{} not supported in complex mode".format(expr.name))
+        raise RuntimeError("{} not supported in {} mode".format(expr.name,
+                                                                ("real", "complex")[complex_mode]))
 
     return p.Variable(name)(*[expression(c, ctx) for c in expr.children])
 
