@@ -87,7 +87,11 @@ else:
 
 # Set up logging
 # Log to file at DEBUG level
-logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
+if ("-h" in sys.argv) or ("--help" in sys.argv):
+    # Don't log if help displayed to avoid overwriting an existing log
+    logfile = os.devnull
+else:
+    logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)-6s %(message)s',
                     filename=logfile,
@@ -253,6 +257,8 @@ honoured.""",
                         help="Name of the venv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
+    parser.add_argument("--pip-install", action="append", dest="pip_packages",
+                        help="Pip install additional packages into the venv")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
     parser.add_argument("--cache-dir", type=str,
@@ -1272,6 +1278,21 @@ if mode == "install":
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
+
+    # If Python 3.8 or later install VTK from custom wheel
+    if sys.version_info >= (3, 8):
+        log.info("Pip installing VTK for Python3.8")
+        if osname == "Darwin":
+            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl")
+        elif osname == "Linux":
+            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl")
+
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
