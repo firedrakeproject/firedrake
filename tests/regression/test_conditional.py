@@ -5,6 +5,7 @@ from firedrake import *
 from ufl.algorithms.comparison_checker import ComplexComparisonError
 
 
+@pytest.mark.skipreal
 @pytest.mark.parametrize("ncell",
                          [1, 4, 10])
 def test_conditional(ncell):
