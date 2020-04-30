@@ -53,15 +53,18 @@ def run_firedrake_helmholtz():
     assert (np.array(conv) > 2.8).all()
 
 
+@pytest.mark.skipreal
 def test_firedrake_helmholtz_serial():
     run_firedrake_helmholtz()
 
 
+@pytest.mark.skipreal
 @pytest.mark.parallel
 def test_firedrake_helmholtz_parallel():
     run_firedrake_helmholtz()
 
 
+@pytest.mark.skipreal
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [((1, (4, 6)), 1.9),
                           ((2, (3, 6)), 2.9),

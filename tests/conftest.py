@@ -60,6 +60,9 @@ def pytest_configure(config):
         "skipcomplex: mark as skipped in complex mode")
     config.addinivalue_line(
         "markers",
+        "skipreal: mark as skipped unless in complex mode")
+    config.addinivalue_line(
+        "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
 
 
@@ -98,6 +101,9 @@ def pytest_collection_modifyitems(session, config, items):
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
             if item.get_closest_marker("skipcomplexnoslate") and not SUPPORTS_COMPLEX:
                 item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
+        else:
+            if item.get_closest_marker("skipreal") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
 
 @pytest.fixture(scope="module", autouse=True)
