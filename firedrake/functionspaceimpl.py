@@ -446,6 +446,12 @@ class FunctionSpace(object):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
+    #@utils.cached_property
+    @property
+    def global_numbering(self):
+        r"""PETSc Section describing the global numbering."""
+        return self._shared_data.global_numbering
+
     @utils.cached_property
     def topological(self):
         r"""Function space on a mesh topology."""

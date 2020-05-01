@@ -1328,13 +1328,15 @@ values from f.)"""
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self.topology._cell_orientations = cell_orientations
 
-    def markSubdomain(self, labelName, labelValue, entity_type, geometric_expr, filterName=None, filterValue=None):
+    def markSubdomain(self, labelName, labelValue, entity_type, filter_func, geometric_expr=None, filterName=None, filterValue=None):
         """Mark subdomain.
 
         :arg labelName: a custum name for the label
         :arg labelValue: a value to be assigned to the entity set
         :arg entity_type: type of entity to be marked: "cell",
              "facet", "edge", or "vertex"
+        :arg filter_func: :class:`.Function` representing entities
+             to be extracted.
         :arg geometric_expr: a function representing the subdomain
         :arg filterName: specifies the subdomain that new subdomain
              is to be extracted from
@@ -1363,14 +1365,25 @@ values from f.)"""
                 entities = plex.getStratumIS(filterName, filterValue).getIndices()
             else:
                 entities = []
-        coords = plex.getCoordinatesLocal()
-        coord_sec = plex.getCoordinateSection()
-        gdim = plex.getCoordinateDim()
-        for entity in entities:
-            entity_coords = plex.vecGetClosure(coord_sec, coords, entity)
-            n = entity_coords.shape[0]//gdim
-            if all([geometric_expr([entity_coords[gdim * e + i] for i in range(gdim)]) for e in range(n)]):
-                plex.setLabelValue(labelName, entity, labelValue)
+        if filter_func:
+            if len(filter_func.dat.data.shape) != 1:
+                raise RuntimeError("filter_func must have a one-dimensional array.")
+            fs = filter_func.topological.function_space()
+            for entity in entities:
+                idx = fs.global_numbering.getOffset(entity)
+                if filter_func.dat.data[idx] > 0.999:
+                    plex.setLabelValue(labelName, entity, labelValue)
+        elif geometric_expr:
+            coords = plex.getCoordinatesLocal()
+            coord_sec = plex.getCoordinateSection()
+            gdim = plex.getCoordinateDim()
+            for entity in entities:
+                entity_coords = plex.vecGetClosure(coord_sec, coords, entity)
+                n = entity_coords.shape[0]//gdim
+                if all([geometric_expr([entity_coords[gdim * e + i] for i in range(gdim)]) for e in range(n)]):
+                    plex.setLabelValue(labelName, entity, labelValue)
+        else:
+            raise RuntimeError("Must provide either filter_func or geometric_expr.")
 
     @property
     def submesh_parent(self):

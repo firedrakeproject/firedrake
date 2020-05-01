@@ -9,10 +9,42 @@ from firedrake import *
 from firedrake.cython import dmplex
 from firedrake.petsc import PETSc
 from pyop2.datatypes import IntType
+import ufl
+
+
+#@pytest.mark.parallel
+def test_submesh_facet_extraction():
+
+    # manually mark facets 1, 2, 3, 4 and compare
+    # with the default label
+
+    n = 100
+    msh = RectangleMesh(2 * n, n, 2., 1., quadrilateral=True)
+    msh.init()
+
+    x, y = SpatialCoordinate(msh)
+    RTCF = FunctionSpace(msh, 'RTCF', 1)
+    fltr = Function(RTCF).project(as_vector([ufl.conditional(x < 1, n * (x - 1), 0), 0]))
+
+    # mark facet only using coordinates
+    msh.markSubdomain("custom_facet", 111, "facet", fltr, filterName="exterior_facets", filterValue=1)
+    msh.markSubdomain("custom_facet", 222, "facet", None, geometric_expr = lambda x: x[0] > 1.9999)
+    msh.markSubdomain("custom_facet", 333, "facet", None, geometric_expr = lambda x: x[1] < 0.0001)
+    msh.markSubdomain("custom_facet", 444, "facet", None, geometric_expr = lambda x: x[1] > 0.9999)
+
+    plex = msh._plex
+    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 1) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 111).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 1).getIndices())))
+    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 2) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 222).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 2).getIndices())))
+    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 3) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 333).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 3).getIndices())))
+    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 4) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
 
 
 @pytest.mark.parallel
-def test_submesh_facet_extraction():
+def test_submesh_facet_extraction1():
 
     # manually mark facets 1, 2, 3, 4 and compare
     # with the default label
@@ -21,10 +53,10 @@ def test_submesh_facet_extraction():
     msh.init()
 
     # mark facet only using coordinates
-    msh.markSubdomain("custom_facet", 111, "facet", lambda x: x[0] < 0.0001)
-    msh.markSubdomain("custom_facet", 222, "facet", lambda x: x[0] > 1.9999)
-    msh.markSubdomain("custom_facet", 333, "facet", lambda x: x[1] < 0.0001)
-    msh.markSubdomain("custom_facet", 444, "facet", lambda x: x[1] > 0.9999)
+    msh.markSubdomain("custom_facet", 111, "facet", None, geometric_expr = lambda x: x[0] < 0.0001)
+    msh.markSubdomain("custom_facet", 222, "facet", None, geometric_expr = lambda x: x[0] > 1.9999)
+    msh.markSubdomain("custom_facet", 333, "facet", None, geometric_expr = lambda x: x[1] < 0.0001)
+    msh.markSubdomain("custom_facet", 444, "facet", None, geometric_expr = lambda x: x[1] > 0.9999)
 
     plex = msh._plex
     if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 1) > 0:
@@ -50,7 +82,7 @@ def test_submesh_edge_extraction():
     msh.init()
 
     # mark edge only using coordinates
-    msh.markSubdomain("custom_edge", 123, "edge", lambda x: x[0] < 0.0001 and x[1] > 0.9999)
+    msh.markSubdomain("custom_edge", 123, "edge", None, geometric_expr = lambda x: x[0] < 0.0001 and x[1] > 0.9999)
 
     plex = msh._plex
     coords = plex.getCoordinatesLocal()
@@ -74,10 +106,10 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
     msh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
     msh.init()
 
-    msh.markSubdomain("half_domain", 111, "cell", f_lambda)
+    msh.markSubdomain("half_domain", 111, "cell", None, geometric_expr = f_lambda)
 
     submsh = SubMesh(msh, "half_domain", 111, "cell")
-    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", b_lambda, filterName="exterior_facets", filterValue=1)
+    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", None, geometric_expr = b_lambda, filterName="exterior_facets", filterValue=1)
 
     V = FunctionSpace(submsh, "CG", 1)
 
@@ -113,10 +145,21 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     msh = RectangleMesh(200, 100, 2., 1., quadrilateral=True)
     msh.init()
 
-    msh.markSubdomain("half_domain", 111, "cell", f_lambda)
+    x, y = SpatialCoordinate(msh)
+    DP = FunctionSpace(msh, 'DP', 0)
+    fltr = Function(DP)
+    fltr = Function(DP).interpolate(ufl.conditional(x < 1, 1, 0))
+
+    msh.markSubdomain("half_domain", 111, "cell", fltr, geometric_expr = f_lambda)
 
     submsh = SubMesh(msh, "half_domain", 111, "cell")
-    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", b_lambda, filterName="exterior_facets", filterValue=1)
+    # mesh_topology._facets (exterior_facets, interior_facets) is cached,
+    # so dmplex.FACE_SETS_LABEL must be set before any call of _facets.
+    # This makes it difficult to create a FunctionSpace here.
+    # So for now we only allow lambda expression to set dmplex.FACE_SETS_LABEL.
+    #RTCF = FunctionSpace(submsh, 'RTCF', 1)
+    #fltr = Function(RTCF).project(as_vector([ufl.conditional(x < 1, n * (x - 1), 0), 0]))
+    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", None, geometric_expr = b_lambda, filterName="exterior_facets", filterValue=1)
 
     V = FunctionSpace(submsh, "CG", 1)
 
@@ -147,12 +190,12 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     assert(sqrt(assemble(dot(u - g, u - g) * dx)) < 0.00016)
 
 
-def test_submesh_poisson_cell_error():
+def test_submesh_poisson_cell_error2():
 
     msh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
     msh.init()
 
-    msh.markSubdomain("half_domain", 222, "cell", lambda x: x[0] > 0.9999)
+    msh.markSubdomain("half_domain", 222, "cell", None, geometric_expr = lambda x: x[0] > 0.9999)
 
     submsh = SubMesh(msh, "half_domain", 222, "cell")
 
