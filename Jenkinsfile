@@ -54,7 +54,7 @@ python -m pip list
                 sh '''
 . ./firedrake/bin/activate
 cd firedrake/src/firedrake
-python -m pytest -n 11 --cov firedrake -v tests
+python -m pytest --durations=200 -n 11 --cov firedrake -v tests
 '''
               }
             }

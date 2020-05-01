@@ -34,6 +34,7 @@ def test_constant_cast_to_float():
     assert float(c) == val  # raises a warning about casting float to complex
 
 
+@pytest.mark.skipreal
 def test_constant_cast_to_complex():
     val = 10.0 + 10.0j
     c = Constant(val)

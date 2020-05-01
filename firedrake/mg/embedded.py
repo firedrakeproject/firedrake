@@ -157,8 +157,8 @@ class TransferManager(object):
         except KeyError:
             a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
                                                  firedrake.TestFunction(V))*firedrake.dx)
-            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
-                                                 firedrake.TestFunction(DG))*firedrake.dx)
+            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                 firedrake.TestFunction(V))*firedrake.dx)
             M = firedrake.assemble(a.inv * b)
             return cache._V_approx_inv_mass.setdefault(key, M.petscmat)
 
