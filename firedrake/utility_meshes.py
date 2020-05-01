@@ -19,7 +19,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
-           'CircleManifoldMesh',
+           'CircleManifoldMesh', 'UnitDiskMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
@@ -641,6 +641,57 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
     plex = mesh._from_cell_list(1, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
     m._radius = radius
+    return m
+
+
+def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a mesh of the unit disk in 2D
+
+    :kwarg refinement_level: optional number of refinements (0 is a diamond)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD)."""
+    vertices = np.array([[0, 0],
+                         [1, 0],
+                         [1, 1],
+                         [0, 1],
+                         [-1, 1],
+                         [-1, 0],
+                         [-1, -1],
+                         [0, -1],
+                         [1, -1]], dtype=np.double)
+
+    cells = np.array([[0, 1, 2],
+                      [0, 2, 3],
+                      [0, 3, 4],
+                      [0, 4, 5],
+                      [0, 5, 6],
+                      [0, 6, 7],
+                      [0, 7, 8],
+                      [0, 8, 1]], np.int32)
+
+    plex = mesh._from_cell_list(2, cells, vertices, comm)
+
+    # mark boundary facets
+    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        for face in boundary_faces:
+            plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    coords = plex.getCoordinatesLocal().array.reshape(-1, 2)
+    for x in coords:
+        norm = np.sqrt(np.dot(x, x))
+        if norm > 1. / (1 << (refinement_level + 1)):
+            t = np.max(np.abs(x)) / norm
+            x[:] *= t
+
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 

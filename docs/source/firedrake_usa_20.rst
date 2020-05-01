@@ -23,6 +23,11 @@ in the project, and the future developments anticipated. The event
 will provide Firedrake users with the opportunity to spend face to
 face time with developers and other users.
 
+Programme
+~~~~~~~~~
+
+The programme is now online `here <https://easychair.org/smart-program/FiredrakeUSA20/>`_.
+
 Tutorial
 ~~~~~~~~
 

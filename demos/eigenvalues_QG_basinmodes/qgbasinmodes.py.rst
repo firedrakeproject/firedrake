@@ -222,11 +222,14 @@ that were found. ::
    print("Leading eigenvalue is:", lam)
 
    try:
-       from matplotlib import pyplot
-       plot(eigenmodes_real)
-       pyplot.gcf().show()
-       plot(eigenmodes_imag)
-       pyplot.gcf().show()
+       import matplotlib.pyplot as plt
+       fig, axes = plt.subplots()
+       colors = tripcolor(eigenmodes_real, axes=axes)
+       fig.colorbar(colors)
+
+       fig, axes = plt.subplots()
+       colors = tripcolor(eigenmodes_imag, axes=axes)
+       fig.colorbar(colors)
    except ImportError:
        warning("Matplotlib not available, not plotting eigemodes")
 
