@@ -119,7 +119,7 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
+    # TODO: Get PyOP2 to write into mixed mats
     if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
 
@@ -128,23 +128,16 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     Citations().register("Gibson2018")
 
-    print("COMPILING SLATE", slate_expr)
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    print("BUILDER DONE")
-
-    # Stage 1: slate to gem....
     gem_expr = slate_to_gem(builder)
 
-    # Stage 2a: gem to loopy...
     loopy_outer = gem_to_loopy(gem_expr, builder)
 
-    # Stage 2b: merge loopys...
-    loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)  # builder owns the callinstruction
-    print("LOOPY KERNEL GLUED")
+    loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)
 
     # Stage 2c: register callables...
     loopy_merged = get_inv_callable(loopy_merged)
@@ -173,9 +166,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
-
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
+    # TODO: Get PyOP2 to write into mixed mats
     if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
 
@@ -613,7 +605,7 @@ def slate_to_gem(builder, prec=None):
 def gem_to_loopy(traversed_gem_expr_dag, builder):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    Outer_loopy contains loopy for slate.
+    :return outer_loopy: loopy kernel for slate operations.
     """
     # Part A: slate to impero_c
 
@@ -627,12 +619,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     shape = builder.shape(builder.expression)
     arg = loopy.GlobalArg("output", shape=shape, dtype="double")
     args.append(arg)
-    if (type(builder.expression) == slate.Tensor
-            or type(builder.expression) == slate.AssembledVector
-            or type(builder.expression) == slate.Block):
-        idx = builder.gem_indices[str(builder.expression)+"out"]
-    else:
-        idx = traversed_gem_expr_dag[0].multiindex
+    idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     # TODO the global argument generation must be made nicer
@@ -729,7 +716,7 @@ def get_inv_callable(loopy_merged):
 
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
             for i in range(len(arg_id_to_dtype)):
-                if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
+                if arg_id_to_dtype.get(i) is None:
                     # the types provided aren't mature enough to specialize the
                     # callable
                     return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
@@ -788,7 +775,7 @@ def get_inv_callable(loopy_merged):
                 #ifndef Inverse_HPP
                 #define Inverse_HPP
                 #define BUF_SIZE 30
-                
+
                 static PetscBLASInt ipiv_buffer[BUF_SIZE];
                 static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
                 static void inverse(PetscScalar* restrict Aout, const PetscScalar* restrict A, PetscBLASInt N)
@@ -837,7 +824,7 @@ def get_solve_callable(loopy_merged):
 
         def with_types(self, arg_id_to_dtype, kernel, callables_table):
             for i in range(len(arg_id_to_dtype)):
-                if i not in arg_id_to_dtype or arg_id_to_dtype[i] is None:
+                if arg_id_to_dtype.get(i) is None:
                     # the types provided aren't mature enough to specialize the
                     # callable
                     return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
@@ -893,13 +880,11 @@ def get_solve_callable(loopy_merged):
             code = """#include <string.h>
                 #include <stdio.h>
                 #include <stdlib.h>
-
                 #ifndef Solve_HPP
                 #define Solve_HPP
                 #define BUF_SIZE 30
-                
-                static PetscBLASInt ipiv_buffer[BUF_SIZE];
 
+                static PetscBLASInt ipiv_buffer[BUF_SIZE];
                 static void solve(PetscScalar* restrict out, const PetscScalar* restrict A, PetscScalar* restrict B, PetscBLASInt N)
                 {
                     PetscBLASInt info;

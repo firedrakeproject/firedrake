@@ -14,6 +14,7 @@ from tsfc.finatinterface import create_element
 from ufl import MixedElement
 import loopy
 import gem
+import numbers
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
@@ -435,9 +436,6 @@ class LocalLoopyKernelBuilder(object):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        expression_dag = list(traverse_dags([expression]))
-        counter = Counter([expression])
-
         # For preservation of relations
         # between slate Tensor and the according gem Indexed tensor
         # and between gem Indexed tensor and loopy tensor TemporaryVariable
@@ -459,8 +457,8 @@ class LocalLoopyKernelBuilder(object):
 
         # A first compilation is already hapenning here
         # but only for tensors and assembled vectors
+        expression_dag = list(traverse_dags([expression]))
         for tensor in expression_dag:
-            counter.update(tensor.operands)
 
             # Terminal tensors will always require a temporary.
             if isinstance(tensor, slate.Tensor):
@@ -527,7 +525,6 @@ class LocalLoopyKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.temps = temps
         self.gem_loopy_dict = gem_loopy_dict
-        self.ref_counter = counter
         self.expression_dag = expression_dag
         self.coefficient_vecs = coeff_vecs
         self.extra_coefficients = extra_coefficients
@@ -539,13 +536,11 @@ class LocalLoopyKernelBuilder(object):
         and integral type information.
         """
 
-        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+        ctx_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=False)
                     for i, expr in enumerate(self.temps)]
 
-        cxt_kernels = [cxt_k for cxt_tuple in cxt_list
-                       for cxt_k in cxt_tuple]
-        return cxt_kernels
+        return tuple(itertools.chain.from_iterable(ctx_list))
 
     def shape(self, tensor):
         """ A helper method to retrieve tensor shape information.
@@ -740,7 +735,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
-        self.include_dirs = list(set(include_dirs))
+        self.include_dirs = sorted(set(include_dirs))
         self.needs_cell_orientations = needs_cell_orientations
         self.needs_cell_sizes = needs_cell_sizes
         self.needs_cell_facets = needs_cell_facets
@@ -758,7 +753,7 @@ def create_index(extent, type, namer):
     """
 
     # For non mixed tensors int values are allowed as extent
-    if isinstance(extent, int) or isinstance(extent, np.int64):
+    if isinstance(extent, numbers.Integral):
         extent = (extent, )
 
     # Indices for scalar tensors

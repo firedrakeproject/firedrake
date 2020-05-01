@@ -317,6 +317,19 @@ def marybarker_solve_curl_curl(mesh, f, degree, with_tensor=False):
         # does not throw an error if degree > 4 anymore
 
 
+def test_mixed_coefficient_scalar(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
+    W = V * V
+    f = Function(W)
+    g, h = f.split()
+    f.assign(1)
+    assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
+
+mesh = UnitSquareMesh(2,2,quadrilateral = False)
+test_mixed_coefficient_scalar(mesh)
+
+
+
 """
 Run test script
 """
