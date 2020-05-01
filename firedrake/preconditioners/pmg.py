@@ -151,6 +151,7 @@ class PMGPC(PCBase):
         cu = firedrake.Function(cV)
 
         parent = get_parent(fdm)
+        assert parent is not None
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
                  call_setup=True)
 
