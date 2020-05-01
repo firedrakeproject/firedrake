@@ -736,7 +736,7 @@ def get_inv_callable(loopy_merged):
                             callables_table)
 
             mat_dtype = arg_id_to_dtype[0].numpy_dtype
-            name_in_target = "inverse_"
+            name_in_target = "inverse"
 
             return (self.copy(name_in_target=name_in_target,
                               arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(int)}),
@@ -787,17 +787,25 @@ def get_inv_callable(loopy_merged):
                 #include <stdlib.h>
                 #ifndef Inverse_HPP
                 #define Inverse_HPP
-                void inverse_(PetscScalar* Aout, PetscScalar* A, PetscBLASInt N)
+                #define BUF_SIZE 30
+                
+                static PetscBLASInt ipiv_buffer[BUF_SIZE];
+                static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
+                static void inverse(PetscScalar* restrict Aout, const PetscScalar* restrict A, PetscBLASInt N)
                 {
                     PetscBLASInt info;
-                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
-                    PetscScalar* Awork=(PetscScalar*) malloc(N*N*sizeof(PetscScalar));
+                    PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
+                    PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
                     memcpy(Aout,A,N*N*sizeof(PetscScalar));
                     LAPACKgetrf_(&N,&N,Aout,&N,ipiv,&info);
                     if(info==0)
                         LAPACKgetri_(&N,Aout,&N,ipiv,Awork,&N,&info);
                     if(info!=0)
                         fprintf(stderr,\"Getri throws nonzero info.\");
+                    if ( N > BUF_SIZE ) {
+                        free(Awork);
+                        free(ipiv);
+                    }
                 }
                 #endif
             """
@@ -836,7 +844,7 @@ def get_solve_callable(loopy_merged):
                             callables_table)
 
             mat_dtype = arg_id_to_dtype[0].numpy_dtype
-            name_in_target = "solve_"
+            name_in_target = "solve"
 
             return (self.copy(name_in_target=name_in_target,
                               arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(int)}),
@@ -888,17 +896,23 @@ def get_solve_callable(loopy_merged):
 
                 #ifndef Solve_HPP
                 #define Solve_HPP
+                #define BUF_SIZE 30
+                
+                static PetscBLASInt ipiv_buffer[BUF_SIZE];
 
-                void solve_(PetscScalar* out, PetscScalar* A, PetscScalar* B, PetscBLASInt N)
+                static void solve(PetscScalar* restrict out, const PetscScalar* restrict A, PetscScalar* restrict B, PetscBLASInt N)
                 {
                     PetscBLASInt info;
-                    PetscBLASInt* ipiv=(PetscBLASInt*) malloc(N*sizeof(PetscBLASInt));
+                    PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
                     memcpy(out,B,N*sizeof(PetscScalar));
                     PetscBLASInt NRHS;
                     NRHS=1;
                     LAPACKgesv_(&N,&NRHS,A,&N,ipiv,out,&N,&info);
                     if(info!=0)
                         fprintf(stderr,\"Gesv throws nonzero info.\");
+                    if ( N > BUF_SIZE ) {
+                        free(ipiv);
+                    }
                 }
                 #endif
             """
