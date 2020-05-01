@@ -828,7 +828,7 @@ class RealFunctionSpace(FunctionSpace):
     value_size = 1
 
     def __init__(self, mesh, element, name):
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
