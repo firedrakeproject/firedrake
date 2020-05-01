@@ -181,8 +181,7 @@ class SlateTranslator():
         # Last root contains the whole tree
         last_tensor = traversed_dag[len(traversed_dag)-1]
         last_loopy_tensor = self.slate_to_gem(last_tensor, translated_nodes)
-        self.builder.create_index(last_loopy_tensor.shape, str(last_tensor)+"out")
-        out_indices = self.builder.gem_indices[str(last_tensor)+"out"]
+        out_indices = self.builder.create_index(last_loopy_tensor.shape, "gem")
         if not (type(last_loopy_tensor) == Indexed or type(last_loopy_tensor) == FlexiblyIndexed):
             last_loopy_tensor = Indexed(last_loopy_tensor, out_indices)
         return last_loopy_tensor
@@ -196,19 +195,19 @@ class SlateTranslator():
 
     @slate_to_gem.register(sl.Tensor)
     def slate_to_gem_tensor(self, tensor, node_dict):
-        idx = self.builder.gem_indices[tensor]
+        idx = self.builder.create_index(self.builder.shape(tensor), "gem")
         return ComponentTensor(self.index_tensor(self.builder.temps[tensor], idx), idx)
 
     @slate_to_gem.register(sl.AssembledVector)
     def slate_to_gem_vector(self, tensor, node_dict):
         ret = None
+        idx = self.builder.create_index(tensor.shape, "gem")
         # Not mixed tensor can just be translated into the right gem Node saved in builder
         if len(tensor.shapes) == 1 and not tensor.is_mixed:
             coeffs = self.builder.coefficient_vecs[((tensor.shapes[0][0], False), 0)]
             for coeff in coeffs:
                 if coeff.vector == tensor:
                     assert ret is None, "This vector as already been assembled."
-                    idx = self.builder.gem_indices[tensor]
                     ret = ComponentTensor(self.index_tensor(coeff.local_temp, idx), idx)
         else:
             tensor_found = False
@@ -216,19 +215,16 @@ class SlateTranslator():
                 for cinfo in cinfo_list:
                     if cinfo.vector == tensor and not tensor_found:
                         var = cinfo.local_temp
-                        self.builder.create_index(tensor.shape, str(cinfo)+"mixed")
-                        index = self.builder.gem_indices[str(cinfo)+"mixed"]
                         tensor_found = True
-            ret = Indexed(var, index)
-            ret = ComponentTensor(ret, index)
+            ret = Indexed(var, idx)
+            ret = ComponentTensor(ret, idx)
         return ret
 
     @slate_to_gem.register(sl.Add)
     def slate_to_gem_add(self, tensor, node_dict):
         A, B = tensor.operands  # slate tensors
         _A, _B = node_dict[A], node_dict[B]  # gem representations
-        self.builder.create_index(A.shape, str(A)+"newadd"+str(B))
-        new_indices = self.builder.gem_indices[str(A)+"newadd"+str(B)]
+        new_indices = self.builder.create_index(A.shape, "gem")
         _A = self.index_tensor(_A, new_indices)
         _B = self.index_tensor(_B, new_indices)
         return ComponentTensor(Sum(_A, _B), new_indices)
@@ -236,8 +232,7 @@ class SlateTranslator():
     @slate_to_gem.register(sl.Negative)
     def slate_to_gem_negative(self, tensor, node_dict):
         A, = tensor.operands
-        self.builder.create_index(A.shape, str(A)+"newneg")
-        new_indices = self.builder.gem_indices[str(A)+"newneg"]
+        new_indices = self.builder.create_index(A.shape, "gem")
         var_A = self.index_tensor(node_dict[A], new_indices)
         return ComponentTensor(Product(Literal(-1), var_A), new_indices)
 
@@ -245,8 +240,7 @@ class SlateTranslator():
     def slate_to_gem_transpose(self, tensor, node_dict):
         A, = tensor.operands
         _A = node_dict[A]
-        self.builder.create_index(A.shape, str(A)+"newtrans")
-        new_indices = self.builder.gem_indices[str(A)+"newtrans"]
+        new_indices = self.builder.create_index(A.shape, "gem")
         var_A = self.index_tensor(_A, new_indices)
         ret = ComponentTensor(var_A, new_indices[::-1])
         return ret
@@ -257,10 +251,8 @@ class SlateTranslator():
         var_A, var_B = node_dict[A], node_dict[B]  # gem representations
 
         # New indices are necessary in case as Tensor gets multiplied with itself.
-        self.builder.create_index(A.shape, str(A)+"newmulA"+str(tensor))
-        new_indices_A = self.builder.gem_indices[str(A)+"newmulA"+str(tensor)]
-        self.builder.create_index(B.shape, str(B)+"newmulB"+str(tensor))
-        new_indices_B = self.builder.gem_indices[str(B)+"newmulB"+str(tensor)]
+        new_indices_A = self.builder.create_index(A.shape, "gem")
+        new_indices_B = self.builder.create_index(B.shape, "gem")
 
         if len(A.shape) == len(B.shape) and A.shape[1] == B.shape[0]:
             var_A = self.index_tensor(var_A, new_indices_A)
@@ -305,8 +297,7 @@ class SlateTranslator():
                 index_offset += ((sum(A.shapes[i][:idx.start])), )
 
         index_extent = tuple(sum(shape) for shape in tensor.shapes.values())
-        self.builder.create_index(index_extent, tensor)
-        gem_index = self.builder.gem_indices[tensor]
+        gem_index = self.builder.create_index(index_extent, "gem")
 
         dim2idxs = []
         for i, dim in enumerate(tensor.shapes.keys()):
@@ -332,10 +323,8 @@ class SlateTranslator():
     def slate_to_gem_solve(self, tensor, node_dict):
         fac, B = tensor.operands  # TODO is first operand always factorization?
         A, = fac.operands
-        self.builder.create_index(A.shape, str(tensor)+"readssolve")
-        A_indices = self.builder.gem_indices[str(tensor)+"readssolve"]
-        self.builder.create_index(B.shape, str(tensor)+"readsbsolve")
-        B_indices = self.builder.gem_indices[str(tensor)+"readsbsolve"]
+        A_indices = self.builder.create_index(A.shape, "gem")
+        B_indices = self.builder.create_index(B.shape, "gem")
         ret_A = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
         ret_B = ComponentTensor(self.index_tensor(node_dict[B], B_indices), B_indices)
         ret = Solve(ret_A, ret_B)
@@ -344,8 +333,7 @@ class SlateTranslator():
     @slate_to_gem.register(sl.Inverse)
     def slate_to_gem_inverse(self, tensor, node_dict):
         A, = tensor.operands
-        self.builder.create_index(A.shape, str(A)+"readsinv")
-        A_indices = self.builder.gem_indices[str(A)+"readsinv"]
+        A_indices = self.builder.create_index(A.shape, "gem")
         ret = ComponentTensor(self.index_tensor(node_dict[A], A_indices), A_indices)
         ret = Inverse(ret)
         return ret
@@ -486,10 +474,10 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     c = 0
     for slate_tensor, gem_indexed in builder.temps.items():
         # Create new indices for inits and save with indexed (gem) key instead of slate tensor
-        shape = builder.shape(slate_tensor)
-        indices = builder.create_index(shape, gem_indexed)
+        extent = builder.shape(slate_tensor)
+        indices = builder.create_index(extent, "loopy")
+        builder.save_index(indices, extent)
         loopy_tensor = builder.gem_loopy_dict[gem_indexed]
-        indices = builder.loopy_indices[gem_indexed]
         inames = {var.name for var in indices}
         inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), 0.0, id="init%d" % c, within_inames=frozenset(inames)))
         c += 1
@@ -515,8 +503,9 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
             for func_index in indices:
                 loopy_tensor = builder.gem_loopy_dict[coeff_tensor_list[func_index]]
                 loopy_outer.temporary_variables[loopy_tensor.name] = loopy_tensor
-                indices = builder.create_index(coeff_shape_list[func_index], str(coeff_tensor_list[func_index])+"_init"+str(coeff_no))
-                builder.gem_indices[str(coeff_tensor_list[func_index])+"_init"+str(coeff_no)]
+                extent = coeff_shape_list[func_index]
+                indices = builder.create_index(extent, "loopy")
+                builder.save_index(indices, (extent,))
                 inames = {var.name for var in indices}
                 inits.append(lp.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), (pym.Sum((coeff_offset_list[func_index], indices[0])),)), pym.Subscript(pym.Variable("coeff%d" % coeff_no), indices), id="init%d" % c, within_inames=frozenset(inames)))
                 c += 1
@@ -547,15 +536,18 @@ def merge_loopy(loopy_outer, loopy_inner_list, builder):
     for insn in loopy_merged.instructions[-len(loopy_outer.instructions):]:
         loopy_merged = lp.set_instruction_priority(loopy_merged, "id:"+insn.id, None)
 
-    # Fix domains (add additional indices coming from calling the subkernel)
-    def create_domains(gem_indices):
-        for tuple_index in gem_indices:
-            for i in tuple_index:
-                name = i.name
-                extent = i.extent
-                isl.make_zero_and_vars([name], [])
-                yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
-    domains = list(create_domains(builder.gem_indices.values()))
+    # Fix domains
+    # We have to add additional indices coming from
+    # A) subarrayreffing the subkernel args
+    # B) initialisation from above
+    def create_domains(indices):
+        for var, extent in indices.items():
+            name = var.name
+            extent = extent
+            isl.make_zero_and_vars([name], [])
+            yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
+
+    domains = list(create_domains(builder.inames))
     loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
 
     # Generate program from kernel, register inner kernel and inline inner kernel
