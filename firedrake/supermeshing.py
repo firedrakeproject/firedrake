@@ -302,15 +302,18 @@ each supermesh cell.
         for(int s=0; s<num_elements; s++)
         {
             PetscScalar* simplex_S = &simplices_C[s * d * (d+1)];
+            double simplex_S_measure;
+#if complex_mode
             double real_simplex_S[d*(d+1)];
             double imag_simplex_S[d*(d+1)];
             seperate_real_and_imag(simplex_S, real_simplex_S, imag_simplex_S, d);
-            double simplex_S_measure;
 
             %(libsupermesh_simplex_measure)s(real_simplex_S, &simplex_S_measure);
 
             merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
-
+#else
+            %(libsupermesh_simplex_measure)s(simplex_S, &simplex_S_measure);
+#endif
             PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
 
