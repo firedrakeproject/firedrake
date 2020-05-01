@@ -157,7 +157,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             args.append(self.cell_sizes_arg)
         args.extend(self.kernel_args)
 
-        body = generate_coffee(impero_c, index_names, precision)
+        body = generate_coffee(impero_c, index_names, precision, self.scalar_type)
 
         for name_, shape in self.tabulations:
             args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
