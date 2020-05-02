@@ -131,7 +131,7 @@ def matrix_funptr(form, state):
         else:
             get_map = None
 
-        toset = op2.Set(1, comm=test.comm)
+        toset = op2.compute_backend.Set(1, comm=test.comm)
         dofset = op2.DataSet(toset, 1)
         arity = sum(m.arity*s.cdim
                     for m, s in zip(get_map(test),
@@ -216,7 +216,7 @@ def residual_funptr(form, state):
         else:
             get_map = None
 
-        toset = op2.Set(1, comm=test.comm)
+        toset = op2.compute_backend.Set(1, comm=test.comm)
         dofset = op2.DataSet(toset, 1)
         arity = sum(m.arity*s.cdim
                     for m, s in zip(get_map(test),

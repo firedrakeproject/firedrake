@@ -114,7 +114,7 @@ class _Facets(object):
             layers = self.mesh.entity_layers(1, label)
             base = getattr(self.mesh._base_mesh, label).set
             return op2.ExtrudedSet(base, layers=layers)
-        return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
+        return op2.compute_backend.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
     @utils.cached_property
@@ -719,7 +719,7 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        return op2.compute_backend.Set(size, "Cells", comm=self.comm)
 
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
