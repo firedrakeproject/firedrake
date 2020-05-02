@@ -16,11 +16,11 @@ def _globalify(value):
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data)
+        dat = op2.compute_backend.Global(1, data)
     elif rank == 1:
-        dat = op2.Global(shape, data)
+        dat = op2.compute_backend.Global(shape, data)
     elif rank == 2:
-        dat = op2.Global(shape, data)
+        dat = op2.compute_backend.Global(shape, data)
     else:
         raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
     return dat, rank, shape
