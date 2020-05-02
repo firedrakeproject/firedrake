@@ -539,7 +539,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
         try:
-            yield op2.ParLoop(*args, **kwargs).compute
+            yield op2.compute_backend.ParLoop(*args, **kwargs).compute
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
