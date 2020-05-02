@@ -123,7 +123,7 @@ class _Facets(object):
         a given marker value. This is required because not all
         markers need be represented on all processors.'''
 
-        return op2.Subset(self.set, [])
+        return op2.compute_backend.Subset(self.set, [])
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -166,7 +166,7 @@ class _Facets(object):
                 to_remove = np.unique(np.concatenate(ids))
                 indices = np.arange(self.set.total_size, dtype=np.int32)
                 indices = np.delete(indices, to_remove)
-                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
+                return self._subsets.setdefault(key, op2.compute_backend.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
@@ -192,7 +192,7 @@ class _Facets(object):
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            return self._subsets.setdefault(markers, op2.compute_backend.Subset(self.set, indices))
 
     @utils.cached_property
     def facet_cell_map(self):
@@ -761,7 +761,7 @@ class MeshTopology(object):
                 indices = dmplex.get_cell_markers(self._plex,
                                                   self._cell_numbering,
                                                   subdomain_id)
-            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+            return self._subsets.setdefault(key, op2.compute_backend.Subset(self.cell_set, indices))
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -1525,4 +1525,4 @@ def SubDomainData(geometric_expr):
 
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
-    return op2.Subset(m.cell_set, indices)
+    return op2.compute_backend.Subset(m.cell_set, indices)

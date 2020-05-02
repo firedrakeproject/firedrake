@@ -21,7 +21,7 @@ def run_base_box_3d():
 
     # TEMPORARY HACK:
     # Retarget base subdomain into columns of the extruded mesh.
-    sd = op2.Subset(mesh.cell_set, sd.indices)
+    sd = op2.compute_backend.Subset(mesh.cell_set, sd.indices)
     assert np.allclose(0.402, assemble(f*dx(subdomain_data=sd)))
 
 
