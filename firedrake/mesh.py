@@ -93,7 +93,7 @@ class _Facets(object):
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
-        self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
+        self.local_facet_dat = op2.compute_backend.Dat(dset, local_facet_number, np.uintc,
                                        "%s_%s_local_facet_number" %
                                        (self.mesh.name, self.kind))
 
@@ -628,7 +628,7 @@ class MeshTopology(object):
             dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
             dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
-        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
+        return op2.compute_backend.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False):
