@@ -87,9 +87,9 @@ class _Facets(object):
         self.facet_cell = facet_cell
 
         if isinstance(self.set, op2.ExtrudedSet):
-            dset = op2.DataSet(self.set.parent, self._rank)
+            dset = op2.compute_backend.DataSet(self.set.parent, self._rank)
         else:
-            dset = op2.DataSet(self.set, self._rank)
+            dset = op2.compute_backend.DataSet(self.set, self._rank)
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.

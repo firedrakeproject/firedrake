@@ -305,7 +305,7 @@ class FunctionSpace(object):
         r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+        self.dof_dset = op2.compute_backend.DataSet(self.node_set, self.shape or 1,
                                     name="%s_nodes_dset" % self.name)
         r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
