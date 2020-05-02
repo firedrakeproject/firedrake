@@ -605,6 +605,11 @@ class Function(ufl.Coefficient):
             g_result = g_result[0]
         return g_result
 
+    def ensure_availability_on(self, backend):
+        self._data.dat.ensure_availability_on(backend)
+        self.function_space().mesh().coordinates._data.dat.ensure_availability_on(
+                backend)
+
 
 class PointNotInDomainError(Exception):
     r"""Raised when attempting to evaluate a function outside its domain,

@@ -168,10 +168,7 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    return {mesh.cell_set: None,
-            mesh.interior_facets.set: None,
-            mesh.exterior_facets.set: None,
-            "boundary_node": None}
+    return {}
 
 
 @cached
@@ -529,17 +526,28 @@ class FunctionSpaceData(object):
         :arg offset: Map offset (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
+
+        from pyop2.sequential import SequentialCPUBackend, sequential_cpu_backend
+
         entity_node_list = self.entity_node_lists[entity_set]
 
-        val = self.map_cache[entity_set]
+        val = self.map_cache.get((entity_set, op2.compute_backend))
         if val is None:
-            val = op2.Map(entity_set, self.node_set,
-                          map_arity,
-                          entity_node_list,
-                          ("%s_"+name) % (V.name),
-                          offset=offset)
+            if isinstance(op2.compute_backend, SequentialCPUBackend):
+                val = op2.compute_backend.Map(entity_set, self.node_set,
+                              map_arity,
+                              entity_node_list,
+                              ("%s_"+name) % (V.name),
+                              offset=offset)
+            else:
+                from pyop2.sequential import sequential_cpu_backend
+                assert self.map_cache[(entity_set, sequential_cpu_backend)], (
+                        "Need Map on host to copy it to device.")
 
-            self.map_cache[entity_set] = val
+                val = op2.compute_backend.Map(self.map_cache[(entity_set,
+                    sequential_cpu_backend)])
+
+        self.map_cache[(entity_set, op2.compute_backend)] = val
         return val
 
 
