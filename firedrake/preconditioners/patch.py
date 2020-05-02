@@ -137,7 +137,7 @@ def matrix_funptr(form, state):
                     for m, s in zip(get_map(test),
                                     test.dof_dset))
         iterset = get_map(test).iterset
-        entity_node_map = op2.Map(iterset,
+        entity_node_map = op2.compute_backend.Map(iterset,
                                   toset, arity,
                                   values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         mat = LocalMat(dofset)
@@ -146,7 +146,7 @@ def matrix_funptr(form, state):
         arg.position = 0
         args.append(arg)
         statedat = LocalDat(dofset)
-        state_entity_node_map = op2.Map(iterset,
+        state_entity_node_map = op2.compute_backend.Map(iterset,
                                         toset, arity,
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
@@ -222,13 +222,13 @@ def residual_funptr(form, state):
                     for m, s in zip(get_map(test),
                                     test.dof_dset))
         iterset = get_map(test).iterset
-        entity_node_map = op2.Map(iterset,
+        entity_node_map = op2.compute_backend.Map(iterset,
                                   toset, arity,
                                   values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         dat = LocalDat(dofset, needs_mask=True)
 
         statedat = LocalDat(dofset)
-        state_entity_node_map = op2.Map(iterset,
+        state_entity_node_map = op2.compute_backend.Map(iterset,
                                         toset, arity,
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)

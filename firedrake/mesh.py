@@ -197,7 +197,7 @@ class _Facets(object):
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
+        return op2.compute_backend.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
 
