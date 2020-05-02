@@ -632,7 +632,7 @@ class MixedFunctionSpace(object):
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of one or (for VectorFunctionSpaces) more degrees of freedom
         are stored at each node."""
-        return op2.MixedSet(s.node_set for s in self._spaces)
+        return op2.compute_backend.MixedSet(s.node_set for s in self._spaces)
 
     @utils.cached_property
     def dof_dset(self):
