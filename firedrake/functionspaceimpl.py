@@ -814,7 +814,7 @@ class RealFunctionSpace(FunctionSpace):
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
+        self.dof_dset = op2.compute_backend.GlobalDataSet(self.make_dat())
         self.node_set = self.dof_dset.set
 
     def __eq__(self, other):
