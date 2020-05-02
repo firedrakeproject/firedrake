@@ -113,7 +113,7 @@ class _Facets(object):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
             base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers)
+            return op2.compute_backend.ExtrudedSet(base, layers=layers)
         return op2.compute_backend.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
@@ -845,7 +845,7 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
+        self.cell_set = op2.compute_backend.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @property
     def name(self):
