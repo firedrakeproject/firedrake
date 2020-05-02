@@ -92,7 +92,7 @@ def restriction_matrix(Pk, P1, Pk_bcs, P1_bcs):
                        Pk.dof_dset),
                       (P1.cell_node_map(),
                        Pk.cell_node_map()))
-    mat = op2.Mat(sp, PETSc.ScalarType)
+    mat = op2.compute_backend.Mat(sp, PETSc.ScalarType)
 
     rlgmap, clgmap = mat.local_to_global_maps
     rlgmap = P1.local_to_global_map(P1_bcs, lgmap=rlgmap)
