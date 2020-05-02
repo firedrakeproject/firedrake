@@ -641,7 +641,7 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
+        return op2.compute_backend.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
