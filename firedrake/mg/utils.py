@@ -11,7 +11,7 @@ from firedrake.cython import mgimpl as impl
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.ufl_domain())
@@ -49,7 +49,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.ufl_domain())
@@ -87,7 +87,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 def coarse_cell_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.ufl_domain())

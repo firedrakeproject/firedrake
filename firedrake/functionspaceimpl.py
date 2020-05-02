@@ -650,17 +650,17 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
+        return op2.compute_backend.MixedMap(s.cell_node_map() for s in self._spaces)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.MixedMap` from interior facets to
         function space nodes."""
-        return op2.MixedMap(s.interior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.interior_facet_node_map() for s in self)
 
     def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes."""
-        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.exterior_facet_node_map() for s in self)
 
     def local_to_global_map(self, bcs):
         r"""Return a map from process local dof numbering to global dof numbering.
