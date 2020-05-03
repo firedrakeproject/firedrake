@@ -6,10 +6,87 @@ from ufl import as_vector
 from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.analysis import extract_type
-from ufl.corealg.map_dag import MultiFunction, map_expr_dags
+from ufl.corealg.map_dag import MultiFunction, map_expr_dags, map_expr_dag
 
-from firedrake.ufl_expr import Argument
+from firedrake.ufl_expr import Argument, Filtered
 from firedrake.function import Function
+
+
+class ExtractSubBlockTransformed(MultiFunction):
+    def __init__(self, transform_operator, indices):
+        MultiFunction.__init__(self)
+        self._transform_operator = transform_operator
+        self._indices = indices
+
+    def terminal(self, o):
+        return o
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def argument(self, o):
+        from ufl import split
+        from firedrake import MixedFunctionSpace, FunctionSpace
+
+        V = o.function_space()
+        if len(V) == 1:
+            # Not on a mixed space, just return transform o itself.
+            return Filtered(o, self._transform_operator)
+        V_is = V.split()
+        indices = self._indices
+        try:
+            indices = tuple(indices)
+            nidx = len(indices)
+        except TypeError:
+            # Only one index provided.
+            indices = (indices, )
+            nidx = 1
+        # Index the mixed transformation operator here instead of
+        # taking out components, so that we can process
+        # topological coeffs. just like coeffs. in tsfc
+        # (split into components and treat them separately).
+        _split = split(self._transform_operator)
+
+        f = []
+        for i in indices:
+            _f = _split[i]
+            if isinstance(_f, list):
+                f.extend(_f)
+            else:
+                f.append(_f)
+        f = as_vector(f)
+
+        if nidx == 1:
+            W = V_is[indices[0]]
+            W = FunctionSpace(W.mesh(), W.ufl_element())
+            a = Argument(W, o.number(), part=o.part())
+            a = Filtered(a, f)
+            a = (a, )
+        else:
+            # Topological coeffs. are treated like coeffs. in tsfc, so
+            # mixed topological coeffs. are not directly treated (they
+            # are split and treated separately).
+            # To use topological coeffs. as transformation operator, one
+            # needs mutate them so that they can be indexed with
+            # argument_multiindices.
+            # W = MixedFunctionSpace([V_is[i] for i in indices])
+            # a = Argument(W, t.number(), part=t.part())
+            # a = Filtered(a, f)
+            # a = split(a)
+            raise NotImplementedError("Unable to split transformed argument if len(indices) > 1.")
+        args = []
+        for i in range(len(V_is)):
+            if i in indices:
+                c = indices.index(i)
+                a_ = a[c]
+                if len(a_.ufl_shape) == 0:
+                    args += [a_]
+                else:
+                    args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
+            else:
+                args += [Zero()
+                         for j in numpy.ndindex(
+                         V_is[i].ufl_element().value_shape())]
+        return as_vector(args)
 
 
 class ExtractSubBlock(MultiFunction):
@@ -71,9 +148,26 @@ class ExtractSubBlock(MultiFunction):
         # [v_0, v_2, v_3][1, 2]
         return self.expr(o, *map_expr_dags(self.index_inliner, operands))
 
+    def filtered(self, o):
+        t = set()
+        t.update(extract_type(o.ufl_operands[0], Argument))
+        t.update(extract_type(o.ufl_operands[0], Function))
+        t = tuple(t)
+        if len(t) != 1:
+            raise RuntimeError("`Filered` must act on one and only one Argument/Function.")
+        t = t[0]        
+        if not isinstance(t, Argument):
+            # Only split filters that are applied to the argument.
+            return o
+        if o in self._arg_cache:
+            return self._arg_cache[o]
+        rules = ExtractSubBlockTransformed(o.ufl_operands[1], self.blocks[t.number()])
+        return self._arg_cache.setdefault(o, map_expr_dag(rules, o.ufl_operands[0]))
+
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
+
         V = o.function_space()
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
@@ -116,84 +210,6 @@ class ExtractSubBlock(MultiFunction):
         return self._arg_cache.setdefault(o, as_vector(args))
 
 
-class SplitFilter(MultiFunction):
-
-    """Split filters in a form."""
-
-    def split(self, form, argument_indices):
-        """Split filters.
-
-        :arg form: the form in which to split filters.
-        :arg argument_indices: indices of test and trial spaces to extract.
-            This should be 0-, 1-, or 2-tuple (whose length is the
-            same as the number of arguments as the ``form``) whose
-            entries are either an integer index, or else an iterable
-            of indices.
-
-        Returns a new :class:`ufl.classes.Form` with split filters.
-        """
-        args = form.arguments()
-        self._arg_cache = {}
-        self.blocks = dict(enumerate(argument_indices))
-        if len(args) == 0:
-            # Functional can't be split
-            return form
-        if all(len(a.function_space()) == 1 for a in args):
-            assert (len(idx) == 1 for idx in self.blocks.values())
-            assert (idx[0] == 0 for idx in self.blocks.values())
-            return form
-        f = map_integrand_dags(self, form)
-        return f
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def filtered(self, o):
-        from ufl import split
-        from firedrake import ufl_expr
-        t = set()
-        t.update(extract_type(o.ufl_operands[0], Argument))
-        t.update(extract_type(o.ufl_operands[0], Function))
-        t = tuple(t)
-        if len(t) != 1:
-            raise RuntimeError("`Filered` must act on one and only one Argument/Function.")
-
-        t = t[0]        
-        if not isinstance(t, Argument):
-            # Only split filters that are applied to the argument.
-            return o
-
-        V = t.function_space()
-        if len(V) == 1:
-            # Not on a mixed space, just return ourselves.
-            return o
-
-        if o in self._arg_cache:
-            return self._arg_cache[o]
-
-        fltr = o.ufl_operands[1]
-
-        V_is = V.split()
-        indices = self.blocks[t.number()]
-
-        try:
-            indices = tuple(indices)
-        except TypeError:
-            # Only one index provided.
-            indices = (indices, )
-
-        _split = split(fltr)
-
-        f = []
-        for i in indices:
-            _f = _split[i]
-            if isinstance(_f, list):
-                f.extend(_f)
-            else:
-                f.append(_f)
-        f = as_vector(f)
-        return self._arg_cache.setdefault(o, ufl_expr.Filtered(o.ufl_operands[0], f))
-
-
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
@@ -226,16 +242,13 @@ def split_form(form, diagonal=False):
     stages.
     """
     splitter = ExtractSubBlock()
-    filter_splitter = SplitFilter()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     if diagonal:
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
-        # Split filter before breaking argument
-        f = filter_splitter.split(form, idx)
-        f = splitter.split(f, idx)
+        f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
             if diagonal:
                 i, j = idx

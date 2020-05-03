@@ -240,7 +240,7 @@ def test_filter_stokes():
     # Unrotated domain
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
-    
+
     value = as_vector([get_gbar(y), 0])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)),
            DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
@@ -325,7 +325,7 @@ def test_filter_stokes():
     axes[1].set_title("Pressure")
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
-    plt.savefig('temp.pdf')
+    plt.savefig('temp11.pdf')
 
 
 def _poisson_analytical(V, xi, eta, which):
@@ -380,9 +380,20 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     # Filter test function
     u = TrialFunction(V)
     v = TestFunction(V)
+
+    Lij = as_tensor([Function(V) for _ in range(10)])
+    
+
+
     v0 = Filtered(v, fltr0)
     v1 = Filtered(v, fltr1)
     v2 = Filtered(v, fltr3)
+    from tsfc.finatinterface import create_element
+    finat_element = create_element(V.ufl_element())
+    print(finat_element.index_shape)
+    print(Lij.ufl_shape)
+    print(type(Lij))
+    v0 = Filtered(v, Lij)
     a = dot(grad(v0), grad(u)) * dx + \
         dot(grad(v1), e_eta) * dot(grad(u), e_eta) * ds((1, 2)) + \
         dot(grad(v1), e_xi) * dot(grad(u), e_xi) * ds((3, 4)) + \
@@ -458,7 +469,7 @@ def _poisson(n, el_type, degree, perturb):
     """
     return err, berr
 
-#@pytest.mark.skip(reason="not yet supported")
+@pytest.mark.skip(reason="not yet supported")
 def test_filter_poisson_zany():
     #err, berr = _poisson(5, 'Hermite', 3, True)
     #assert(berr < 1e-8)
