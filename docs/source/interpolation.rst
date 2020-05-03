@@ -21,10 +21,11 @@ interpolation is:
    # setting the values of an existing function
    f.interpolate(expression)
 
-.. warning::
+.. note::
 
-   Interpolation currently only works if all nodes of the target
-   finite element are point evaluation nodes
+   Interpolation is supported for most, but not all, of the elements
+   that Firedrake provides. In particular, higher-continuity elements
+   such as Argyris and Hermite do not presently support interpolation.
 
 The recommended way to specify the source expression is UFL.  UFL_
 produces clear error messages in case of syntax or type errors, yet
