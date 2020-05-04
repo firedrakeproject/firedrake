@@ -58,8 +58,8 @@ def test_repeated_custom_transfer_options():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
-    L = v*dx
+    a = inner(u, v)*dx
+    L = conj(v)*dx
 
     uh = Function(V)
     options = {"ksp_type": "preonly",
