@@ -466,7 +466,7 @@ petsc_options = {"--with-fortran-bindings=0",
                  "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
-                 "--download-hdf5",
+                 "--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
                  # AMG
                  "--download-hypre",
                  # Sparse direct solver
@@ -1031,6 +1031,7 @@ def install_documentation_dependencies():
     log.info("Installing documentation dependencies")
     run_pip_install(["sphinx"])
     run_pip_install(["sphinxcontrib-bibtex"])
+    run_pip_install(["bibtexparser"])
     run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
 
 
@@ -1078,6 +1079,10 @@ def create_compiler_env(cc, cxx, f90):
         env["MPICC"] = cc
         env["MPI_C_COMPILER"] = cc
         env["CC"] = cc
+        # Work around homebrew adding /usr/local/lib to the library search path.
+        env["CFLAGS"] = " ".join((os.environ.get("CFLAGS", ""),
+                                  "-L" + os.path.join(*get_petsc_dir(), "lib"),
+                                  "-I" + os.path.join(*get_petsc_dir(), "include")))
     if cxx:
         env["MPICXX"] = cxx
         env["MPI_CXX_COMPILER"] = cxx

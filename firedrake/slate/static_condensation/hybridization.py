@@ -235,7 +235,8 @@ class HybridizationPC(SCBase):
                                           schur_comp,
                                           trace_bcs,
                                           mat_type,
-                                          self.ctx.fc_params)
+                                          self.ctx.fc_params,
+                                          options_prefix=prefix)
 
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm

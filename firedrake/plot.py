@@ -77,9 +77,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if axes is None:
         figure = plt.figure()
         if gdim == 3:
-            axes = figure.add_subplot(projection='3d')
+            axes = figure.add_subplot(111, projection='3d')
         else:
-            axes = figure.add_subplot()
+            axes = figure.add_subplot(111)
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
@@ -155,7 +155,7 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot()
+        axes = figure.add_subplot(111)
 
     if len(function.ufl_shape) == 1:
         mesh = function.ufl_domain()
@@ -246,7 +246,7 @@ def trisurf(function, *args, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(projection='3d')
+        axes = figure.add_subplot(111, projection='3d')
 
     _kwargs = {"antialiased": False, "edgecolor": "none",
                "cmap": plt.rcParams["image.cmap"]}
@@ -283,7 +283,7 @@ def quiver(function, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot()
+        axes = figure.add_subplot(111)
 
     coords = function.ufl_domain().coordinates.dat.data_ro
     V = function.ufl_domain().coordinates.function_space()
@@ -315,7 +315,7 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot()
+        axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
         return _bezier_plot(function, axes, **kwargs)

@@ -60,7 +60,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         return get_appctx(pc.getDM()).appctx
 
     @staticmethod
-    def new_snes_ctx(pc, op, bcs, mat_type, fcp=None):
+    def new_snes_ctx(pc, op, bcs, mat_type, fcp=None, options_prefix=None):
         """ Create a new SNES contex for nested preconditioning
         """
         from firedrake.variational_solver import NonlinearVariationalProblem
@@ -77,8 +77,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
                                             bcs=bcs,
                                             J=op,
                                             form_compiler_parameters=fcp)
-        nctx = _SNESContext(nprob, mat_type, mat_type, old_appctx)
-        return nctx
+        return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix)
 
 
 class PCBase(PCSNESBase):

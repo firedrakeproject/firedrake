@@ -7,7 +7,7 @@ Firedrake is installed using its install script::
 
 In the simplest cases, such as on a Mac with Homebrew installed or on
 an Ubuntu workstation on which the user has sudo acccess, the user can simply run::
-  
+
   python3 firedrake-install
 
 Running ``firedrake-install`` with no arguments will install Firedrake in
@@ -55,16 +55,16 @@ venv_ as above and then run::
 
 .. note::
 
-  There is a known issue which causes parallel tests to hang without 
-  failing. This is particularly a problem on MacOS and is due to the 
-  version of MPICH installed with Firedrake failing to resolve the 
-  local host at ip address ``127.0.0.1``. To resolve this issue modify 
+  There is a known issue which causes parallel tests to hang without
+  failing. This is particularly a problem on MacOS and is due to the
+  version of MPICH installed with Firedrake failing to resolve the
+  local host at ip address ``127.0.0.1``. To resolve this issue modify
   the hosts database at ``/etc/hosts`` to include the entries::
 
     127.0.0.1       LOCALHOSTNAME.local
     127.0.0.1       LOCALHOSTNAME
 
-  where ``LOCALHOSTNAME`` is the name returned by running the `hostname` 
+  where ``LOCALHOSTNAME`` is the name returned by running the `hostname`
   command. Should the local host name change, this may require updating.
 
 
@@ -104,7 +104,7 @@ Firedrake requires Python 3.5 or later.
 On Ubuntu (16.04 or later), the system installed Python 3 is supported and tested.
 
 On Mac OS, the homebrew_ installed Python 3 is supported and tested::
-  
+
   brew install python3
 
 If instead you choose to install Python 3 using the official Mac OS
@@ -143,14 +143,22 @@ Firedrake and all its dependencies.
    You should activate the venv_ before running
    `firedrake-update`.
 
+Just like the ``firedrake-install`` script, running::
+
+    firedrake-update --help
+
+gives a full list of update options. For instance additional Firedrake
+packages can be installed into an existing Firedrake installation using
+``firedrake-update``.
+
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you find yourself in the unfortunate position that
-`firedrake-update` won't run because of a bug, and the bug has been
+``firedrake-update`` won't run because of a bug, and the bug has been
 fixed in Firedrake master, then the following procedure will rebuild
-`firedrake-update` using the latest version.
+``firedrake-update`` using the latest version.
 
 From the top directory of your Firedrake install,
 type::
@@ -159,7 +167,7 @@ type::
   git pull
   ./scripts/firedrake-install --rebuild-script
 
-You should now be able to run `firedrake-update`.
+You should now be able to run ``firedrake-update``.
 
 
 Visualisation software
@@ -170,14 +178,33 @@ Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
+Building the documentation
+--------------------------
+If you want to be able to view and edit the documentation locally, run::
+
+    python3 firedrake-install --documentation-dependencies
+
+when installing Firedrake, or in an existing instalation (after running
+``source firedrake/bin/activate`` to activate the virtual env) run::
+
+    firedrake-update --documentation-dependencies
+
+The documentation can be found in
+``firedrake/firedrake/src/firedrake/docs``
+and can be built by executing::
+
+    make html
+
+This will generate the HTML documentation (this website) on your local
+machine.
 
 Removing Firedrake
 ------------------
 Firedrake and its dependencies can be removed by deleting the Firedrake
-install directory. This is usually the ``firedrake`` subdirectory 
-created after having run ``firedrake-install``. Note that this will not 
+install directory. This is usually the ``firedrake`` subdirectory
+created after having run ``firedrake-install``. Note that this will not
 undo the installation of any system packages which are Firedrake
-dependencies: removing these might affect subsequently installed 
+dependencies: removing these might affect subsequently installed
 packages for which these are also dependencies.
 
 .. _Paraview: http://www.paraview.org

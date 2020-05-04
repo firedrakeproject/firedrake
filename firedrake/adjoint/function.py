@@ -47,19 +47,19 @@ class FunctionMixin(FloatingType):
 
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
-            num_sub_spaces = self.ufl_element().num_sub_elements()
             with stop_annotating():
                 output = split(self, *args, **kwargs)
 
             if annotate:
-                output = tuple(firedrake.Function(output[i],
-                               block_class=FunctionSplitBlock,
-                               _ad_floating_active=True,
-                               _ad_args=[self, i],
-                               _ad_output_args=[i],
-                               output_block_class=FunctionMergeBlock,
-                               _ad_outputs=[self])
-                               for i in range(num_sub_spaces))
+                output = tuple(firedrake.Function(output[i].function_space(),
+                                                  output[i],
+                                                  block_class=FunctionSplitBlock,
+                                                  _ad_floating_active=True,
+                                                  _ad_args=[self, i],
+                                                  _ad_output_args=[i],
+                                                  output_block_class=FunctionMergeBlock,
+                                                  _ad_outputs=[self])
+                               for i in range(len(output)))
             return output
         return wrapper
 
