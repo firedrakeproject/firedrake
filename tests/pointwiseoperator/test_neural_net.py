@@ -15,42 +15,36 @@ def test_pointwise_neuralnet_PyTorch(mesh):
 
     x, y = SpatialCoordinate(mesh)
 
-    #nT = neuralnet('TensorFlow')
-    #nK = neuralnet('Keras')
-
-    x_target = float(0.5)*torch.ones(1)#(V.node_count)
-    y_target = float(2.)*torch.ones(1)#(V.node_count)
+    dtype = torch.float64
+    x_target = torch.tensor([[0.5]], dtype=dtype)
+    y_target = torch.tensor([[2.]], dtype=dtype)
 
     c1 = float(4.)
     u = Function(V).assign(0.5)
-    #w = Function(V).interpolate(x)
 
     def get_batch(batch_size=32):
         #Builds a batch i.e. (x, f(x)) pair.
         random = torch.randn(batch_size)
-        ftemp = float(random[0])*torch.ones(1)#(V.node_count)
-        d = ftemp.type(torch.FloatTensor)
+        d = torch.tensor(random[0], dtype=dtype)
         d = torch.unsqueeze(d, 0)
         for i in range(1, batch_size):
-            f1 = float(random[i])*torch.ones(1)#(V.node_count)
-            tf = f1.type(torch.FloatTensor)
-            f2 = torch.unsqueeze(tf, 0)
-            d = torch.cat((d,f2), 0)
+            f = torch.tensor(random[i], dtype=dtype)
+            f = torch.unsqueeze(f, 0)
+            d = torch.cat((d,f), 0)
         x = d
         # Approximated function
-        ftemp = (c1*float(random[0]))*torch.ones(1)#(V.node_count)
-        y = ftemp.type(torch.FloatTensor)
+        y = torch.tensor(c1*random[0], dtype=dtype)
         y = torch.unsqueeze(y, 0)
         for i in range(1, batch_size):
-            f1 = (c1*float(random[i]))*torch.ones(1)#(V.node_count)
-            tf = f1.type(torch.FloatTensor)
-            f2 = torch.unsqueeze(tf, 0)
-            y = torch.cat((y,f2), 0)
+            f = torch.tensor(c1*random[i], dtype=dtype)
+            f = torch.unsqueeze(f, 0)
+            y = torch.cat((y,f), 0)
+
         return x, y
 
 
     # Define model
-    fc = torch.nn.Linear(1, 1)#(V.node_count, V.node_count)
+    fc = torch.nn.Linear(1, 1)
     nP = neuralnet(fc, function_space=V)
     nP2 = nP(u)
 
@@ -60,6 +54,8 @@ def test_pointwise_neuralnet_PyTorch(mesh):
     for batch_idx in range(500):
         # Get data
         batch_x, batch_y = get_batch()
+        batch_x = batch_x.unsqueeze(1)
+        batch_y = batch_y.unsqueeze(1)
 
         # Reset gradients
         nP2.model.zero_grad()
@@ -106,10 +102,9 @@ def test_pointwise_neuralnet_PyTorch_control(mesh):
 
     from ufl.algorithms.apply_derivatives import apply_derivatives
     dnp2_du = apply_derivatives(diff(nP2,u))
-
-    try:
-        dnp2_dg = apply_derivatives(diff(nP2,g))
-        test_diff_control = 0
-    except:
-        test_diff_control = 1
-    assert test_diff_control
+    assemble(dnp2_du*dx)
+    print("\n FIRST ASSEMBLE DONE")
+    #import ipdb; ipdb.set_trace()
+    
+    dnp2_dg = apply_derivatives(diff(nP2,g))
+    assemble(dnp2_dg*dx)

@@ -28,11 +28,9 @@ def annotate_solve(solve):
             the boundary. The interior values are not guaranteed to be zero.
 
     """
-
     def wrapper(*args, **kwargs):
 
         annotate = annotate_tape(kwargs)
-
         if annotate:
             tape = get_working_tape()
             solve_block_type = SolveVarFormBlock
@@ -42,6 +40,16 @@ def annotate_solve(solve):
             sb_kwargs = solve_block_type.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
             block = solve_block_type(*args, **sb_kwargs)
+
+        with stop_annotating():
+            output = solve(*args, **kwargs)
+
+        if annotate:
+            if hasattr(args[1], "create_block_variable"):
+                block_variable = args[1].create_block_variable()
+            else:
+                block_variable = args[1].function.create_block_variable()
+            block.add_output(block_variable)
 
             if isinstance(args[0], ufl.equation.Equation):
                 coeff_form = args[0].lhs.coefficients()
@@ -53,20 +61,9 @@ def annotate_solve(solve):
                         tape.add_block(block_extops)
 
                         block_variable = coeff.block_variable
-                        #block_variable = coeff.create_block_variable()
                         block_extops.add_output(block_variable)
 
             tape.add_block(block)
-
-        with stop_annotating():
-            output = solve(*args, **kwargs)
-
-        if annotate:
-            if hasattr(args[1], "create_block_variable"):
-                block_variable = args[1].create_block_variable()
-            else:
-                block_variable = args[1].function.create_block_variable()
-            block.add_output(block_variable)
 
         return output
 

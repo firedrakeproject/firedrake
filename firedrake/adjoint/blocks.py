@@ -262,61 +262,6 @@ class PointwiseOperatorBlock(Block, Backend):
                 self.add_dependency(ci, no_duplicates=True)
         self.add_dependency(self.point_op, no_duplicates=True)
 
-    @no_annotations
-    def evaluate_adj(self, markings=False):
-        """Computes the adjoint action and stores the result in the `adj_value` attribute of the dependencies.
-
-        This method will by default call the `evaluate_adj_component` method for each dependency.
-
-        Args:
-            markings (bool): If True, then each block_variable will have set `marked_in_path` attribute indicating
-                whether their adjoint components are relevant for computing the final target adjoint values.
-                Default is False.
-
-        """
-        outputs = self.get_outputs()
-        adj_inputs = []
-        has_input = False
-        """
-        for output in outputs:
-            adj_inputs.append(output.adj_value)
-            for i, e in enumerate(self._dependencies):
-                if e.output == output.output:
-                    adj_inputs.pop(-1)
-                    adj_inputs.append(e.adj_value)
-                    if e.adj_value is not None:
-                        has_input = True
-            if output.adj_value is not None:
-                has_input = True
-        """
-        for output in outputs:
-            for i, e in enumerate(self._dependencies):
-                if e.output == output.output:
-                    adj_inputs.append(e.adj_value)
-                    if e.adj_value is not None:
-                        has_input = True
-
-        if not has_input:
-            return
-
-        deps = self.get_dependencies()
-        inputs = [bv.saved_output for bv in deps]
-        relevant_dependencies = [(i, bv) for i, bv in enumerate(deps) if bv.marked_in_path or not markings]
-
-        if len(relevant_dependencies) <= 0:
-            return
-
-        prepared = self.prepare_evaluate_adj(inputs, adj_inputs, relevant_dependencies)
-
-        for idx, dep in relevant_dependencies:
-            adj_output = self.evaluate_adj_component(inputs,
-                                                     adj_inputs,
-                                                     dep,
-                                                     idx,
-                                                     prepared)
-            if adj_output is not None:
-                dep.add_adj_output(adj_output)
-
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         N, ops = inputs[-1], inputs[:-1]
         return N._ufl_expr_reconstruct_(*ops)
@@ -334,10 +279,7 @@ class PointwiseOperatorBlock(Block, Backend):
             N._weights_version['version'] = q_rep.dat._dat_version
 
         i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0]
-
         dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
-
-        #dNdm_adj = self.compat.assemble_adjoint_value(dNdm_adj)
         return dNdm_adj
 
     def recompute_component(self, inputs, block_variable, idx, prepared):

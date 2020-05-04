@@ -55,7 +55,8 @@ def test_pointwise_expr_operator(mesh):
     assemble_a1 = assemble(a1)
     assemble_a2 = assemble(a2)
 
-    assert abs(assemble_a1 - assemble_a2) < 1.0e-3  # Not evaluate on the same space whence the lack of precision
+    # Not evaluate on the same space hence the lack of precision
+    assert abs(assemble_a1 - assemble_a2) < 1.0e-3
     u2 = Function(V)
     g = Function(V).interpolate(cos(x))
     v = TestFunction(V)
@@ -89,20 +90,22 @@ def test_compute_derivatives(mesh):
     a1 = m*dx
 
     p = point_expr(lambda x, y: 0.5*x**2*y, function_space=P)
-    p2 = p(u, v, derivatives=(1, 0))
-    a2 = p2*dx
+    p2 = p(u, v)
+    dp2du = p2._ufl_expr_reconstruct_(u, v, derivatives=(1, 0))
+    a2 = dp2du*dx
 
     assert p2.ufl_operands[0] == u
     assert p2.ufl_operands[1] == v
     assert p2._ufl_function_space == P
-    assert p2.derivatives == (1, 0)
+    assert dp2du.derivatives == (1, 0)
     assert p2.ufl_shape == ()
     assert p2.expr(u, v) == 0.5*u**2*v
 
     assemble_a1 = assemble(a1)
     assemble_a2 = assemble(a2)
 
-    assert abs(assemble_a1 - assemble_a2) < 1.0e-3  # Not evaluate on the same space whence the lack of precision
+    # Not evaluate on the same space hence the lack of precision
+    assert abs(assemble_a1 - assemble_a2) < 1.0e-3
 
 
 def test_scalar_check_equality(mesh):

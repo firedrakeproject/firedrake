@@ -29,8 +29,8 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
     Every subclass based on this class must provide the `compute_derivatives` and 'evaluate' methods.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data=None, extop_id=None):
-        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, extop_id=extop_id)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data=None):
+        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count)
         aa = function_space
         ofs = self.original_function_space()
         if not isinstance(ofs, functionspaceimpl.WithGeometry):
@@ -44,9 +44,6 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         self._ufl_function_space = aa
         self._original_function_space = fs
         self.operator_data = operator_data
-
-        #if extop_id is not None:
-        #    self.extop_id = extop_id
 
     @abstractmethod
     def compute_derivatives(self):
@@ -102,7 +99,7 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
         deriv_multiindex = derivatives or self.derivatives
 
@@ -119,11 +116,13 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
                                                       add_kwargs=add_kwargs)
         else:
             corresponding_count = self._count
+            val = self.topological
+            #import ipdb; ipdb.set_trace()
 
         reconstruct_op = type(self)(*operands, function_space=function_space or self._ufl_function_space,
                                     derivatives=deriv_multiindex,
                                     count=corresponding_count,
-                                    val=self.topological,
+                                    val=val,
                                     name=name or self.name(),
                                     operator_data=operator_data or self.operator_data,
                                     **add_kwargs)
@@ -136,11 +135,6 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
             reconstruct_op._extop_master = self._extop_master
             reconstruct_op._extop_dependencies = self._extop_dependencies
         return reconstruct_op
-
-    def _reconstruct_extop_id(self, position, name_form):
-        # self._extop_dependencies contains self as well
-        for e in self._extop_dependencies:
-            e._ufl_expr_reconstruct(*self.ufl_operands, extop_id={name_form: position})
 
     def __str__(self):
         "Default repr string construction for PointwiseOperator operators."
@@ -155,7 +149,7 @@ class PointexprOperator(AbstractPointwiseOperator):
     of f pointwise.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
         r"""
         :param operands: operands on which act the :class:`PointexrOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -168,11 +162,10 @@ class PointexprOperator(AbstractPointwiseOperator):
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
-        :param extop_id: dictionary that store the position of the :class:`PointexrOperator` in the forms where it turns up.
         :param operator_data: dictionary containing the function defining how to evaluate the :class:`PointexprOperator`.
         """
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data, types.FunctionType):
@@ -232,7 +225,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
     https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, disp=False):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, disp=False):
         r"""
         :param operands: operands on which act the :class:`PointsolveOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -245,7 +238,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
-        :param extop_id: dictionary that store the position of the :class:`PointsolveOperator` in the forms where it turns up.
         :param operator_data: dictionary containing the:
                 - function defining how to evaluate the :class:`PointsolveOperator`
                 - solver_name
@@ -259,7 +251,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         :param disp: boolean indication whether we display the max of the number of iterations taken over the pointwise solves.
         """
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data['point_solve'], types.FunctionType):
@@ -611,7 +603,7 @@ class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, weights_version=None):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
 
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):
@@ -622,7 +614,7 @@ class PointnetOperator(AbstractPointwiseOperator):
             if isinstance(derivatives, tuple): # Type exception is caught later
                 derivatives += (0,)
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
 
         # Checks
@@ -673,12 +665,13 @@ class PointnetOperator(AbstractPointwiseOperator):
                           operator_data=self.operator_data,
                           weights_version=self._weights_version)
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, extop_id=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, add_kwargs={}):
         "Overwrite _ufl_expr_reconstruct to pass on weights_version"
         add_kwargs['weights_version'] = self._weights_version
         return AbstractPointwiseOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
-                                                                derivatives=derivatives, count=count, name=name,
-                                                                operator_data=operator_data, extop_id=extop_id,
+                                                                derivatives=derivatives, count=count,
+                                                                val=val, name=name,
+                                                                operator_data=operator_data,
                                                                 add_kwargs=add_kwargs)
 
 
@@ -686,8 +679,8 @@ class PytorchOperator(PointnetOperator):
     r"""A :class:`PyTorchOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None, weights_version=None):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id, weights_version=weights_version)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, weights_version=weights_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
@@ -798,8 +791,8 @@ class TensorFlowOperator(PointnetOperator):
     r"""A :class:`TensorFlowOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
         # Check
         #try:
@@ -812,8 +805,8 @@ class KerasOperator(PointnetOperator):
     r"""A :class:`KerasOperator` ... TODO :
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, extop_id=None):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, extop_id=extop_id)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
         # Check
         #try:
