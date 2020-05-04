@@ -370,20 +370,19 @@ def test_filter_stokes2():
     solve(a == L, wh0, bcs=bcs, solver_parameters=solver_parameters)
 
     # Rotated domain
-    theta = pi / 6
+    theta_rot = pi / 6
     Vc = mesh.coordinates.function_space()
-    f = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
-                                            sin(theta) * x + cos(theta) * y]))
+    f = Function(Vc).interpolate(as_vector([cos(theta_rot) * x - sin(theta_rot) * y,
+                                            sin(theta_rot) * x + cos(theta_rot) * y]))
     mesh.coordinates.assign(f)
-    normal = Constant([-sin(theta), cos(theta)])
-    tangent = Constant([cos(theta), sin(theta)])
 
-    r = -sin(theta) * x + cos(theta) * y
+    r = -sin(theta_rot) * x + cos(theta_rot) * y
     gbar = get_gbar(r)
-    value = as_vector([cos(theta) * gbar, sin(theta) * gbar])
+    value = as_vector([cos(theta_rot) * gbar, sin(theta_rot) * gbar])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
     
     # Define filters
+    theta = theta_rot
     subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
     fltr0.assign(Constant([1., 1., 1]))
@@ -398,38 +397,42 @@ def test_filter_stokes2():
     # Trial/Test function
     u = TrialFunction(W)
     v = TestFunction(W)
-    ubar, p = split(u)
 
     # Filter: domain
     ubar0, p0 = split(Filtered(u, fltr0))
     vbar0, q0 = split(Filtered(v, fltr0))
 
     # Filter: boundary {3, 4}
+    u1 = Filtered(u, fltr1)
+    v1 = Filtered(v, fltr1)
     ex = as_vector([1, 0, 0])
     ey = as_vector([0, 1, 0])
     uxi = dot(Filtered(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(u, fltr3), as_vector([1, 1, 1])) * ey
-    ueta = u - uxi
+    ueta = u1 - uxi
     uxibar = as_vector([uxi[0], uxi[1]])
     uetabar = as_vector([ueta[0], ueta[1]])
     vxi = dot(Filtered(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(v, fltr3), as_vector([1, 1, 1])) * ey
-    veta = v - vxi
+    veta = v1 - vxi
     vxibar = as_vector([vxi[0], vxi[1]])
     vetabar = as_vector([veta[0], veta[1]])
 
     # Filter: boundary {1, 2}
     # not used; use DirichletBC
 
-    # Define form
-    #ubar1t = dot(ubar1, tangent) * tangent
-    #vbar1t = dot(vbar1, tangent) * tangent
     # Unsymmetrised form
-    a0 = (nu * inner(grad(ubar), grad(vbar0)) - p * div(vbar0) - div(ubar) * q0) * dx
-    a1 = (nu * inner(grad(ubar), grad(vxibar)) - p * div(vxibar)) * dx + inner(dot(ubar, normal) * normal, vetabar) * ds
-    # Symmetrised form
-    #a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - p0 * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
-    #a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - p0 * div(vbar1t)) * dx + dot(ubar1, normal) * dot(vbar1, normal) * ds
-    a = a0 + a1
-    L = inner(Constant((0, 0)), vbar0) * dx
+    # a0 = (nu * inner(grad(ubar0 + uxibar), grad(vbar0)) - p0 * div(vbar0) - div(ubar0 + uxibar) * q0) * dx
+    # a1 = (nu * inner(grad(ubar0 + uxibar), grad(vxibar)) - p0 * div(vxibar)) * dx + inner(uetabar, vetabar) * ds
+    # a = a0 + a1
+    # Symmetrised form (with detail)
+    # a0 = (nu * inner(grad(ubar0 + uxibar), grad(vbar0)) - inner(p0, div(vbar0)) - inner(div(ubar0 + uxibar), q0)) * dx
+    # a1 = (nu * inner(grad(ubar0 + uxibar), grad(vxibar)) - inner(p0, div(vxibar))) * dx + inner(uetabar, vetabar) * ds
+    # a = a0 + a1
+    # Symmetrised form (simplified)
+    u_ = ubar0 + uxibar
+    v_ = vbar0 + vxibar
+    a = (nu * inner(grad(u_), grad(v_)) - inner(p0, div(v_)) - inner(div(u_), q0)) * dx + inner(uetabar, vetabar) * ds
+
+    L = inner(Constant((0, 0)), v_) * dx
     wh1 = Function(W)
     solve(a == L, wh1, bcs=bcs, solver_parameters=solver_parameters)
 
@@ -455,7 +458,113 @@ def test_filter_stokes2():
     axes[1].set_title("Pressure")
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
-    plt.savefig('temp12.pdf')
+    plt.savefig('temp13.pdf')
+
+
+def test_filter_stokes3():
+    # Modified a demo problem found at:
+    # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-geometric-multigrid.ipynb
+
+    # Define common parts
+    mesh = RectangleMesh(15, 10, 1.5, 1)
+    
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    x, y = SpatialCoordinate(mesh)
+    nu = Constant(1)
+
+    def get_gbar(r):
+        t = conditional(r < 0.5, r - 1/4, r - 3/4)
+        gbar = conditional(Or(And(1/6 < r,
+                                  r < 1/3),
+                              And(2/3 < r,
+                                  r < 5/6)),
+                           1, 
+                           0)
+        return gbar * (1 - (12 * t)**2)
+
+    solver_parameters={"ksp_type": "gmres",
+                       "pc_type": "ilu",
+                       "pmat_type": "aij"}
+
+    # Rotated domain
+    theta_rot = pi / 6
+    Vc = mesh.coordinates.function_space()
+    f = Function(Vc).interpolate(as_vector([cos(theta_rot) * x - sin(theta_rot) * y,
+                                            sin(theta_rot) * x + cos(theta_rot) * y]))
+    mesh.coordinates.assign(f)
+
+    xprime = cos(theta_rot) * x + sin(theta_rot) * y
+    r = -sin(theta_rot) * x + cos(theta_rot) * y
+    gbar = get_gbar(r)
+    value = as_vector([cos(theta_rot) * gbar, sin(theta_rot) * gbar])
+    bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
+    
+    # Define filters
+    theta = pi / 2 * xprime / 1.5
+    subset_34 = V.boundary_node_subset((3, 4))
+    fltr0 = Function(W)
+    fltr0.assign(Constant([1., 1., 1]))
+    fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
+    fltr1 = Function(W)
+    fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
+    fltr2 = Function(W)
+    #fltr2.sub(0).assign(Constant([cos(theta) * cos(theta), cos(theta) * sin(theta)]), subset=subset_34)
+    fltr2.sub(0).assign(Function(V).interpolate(as_vector([cos(theta) * cos(theta), cos(theta) * sin(theta)])), subset=subset_34)
+    fltr3 = Function(W)
+    #fltr3.sub(0).assign(Constant([cos(theta) * sin(theta), sin(theta) * sin(theta)]), subset=subset_34)
+    fltr3.sub(0).assign(Function(V).interpolate(as_vector([cos(theta) * sin(theta), sin(theta) * sin(theta)])), subset=subset_34)
+
+    # Trial/Test function
+    u = TrialFunction(W)
+    v = TestFunction(W)
+
+    # Filter: domain
+    ubar0, p0 = split(Filtered(u, fltr0))
+    vbar0, q0 = split(Filtered(v, fltr0))
+
+    # Filter: boundary {3, 4}
+    u1 = Filtered(u, fltr1)
+    v1 = Filtered(v, fltr1)
+    ex = as_vector([1, 0, 0])
+    ey = as_vector([0, 1, 0])
+    uxi = dot(Filtered(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(u, fltr3), as_vector([1, 1, 1])) * ey
+    ueta = u1 - uxi
+    uxibar = as_vector([uxi[0], uxi[1]])
+    uetabar = as_vector([ueta[0], ueta[1]])
+    vxi = dot(Filtered(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(v, fltr3), as_vector([1, 1, 1])) * ey
+    veta = v1 - vxi
+    vxibar = as_vector([vxi[0], vxi[1]])
+    vetabar = as_vector([veta[0], veta[1]])
+
+    u_ = ubar0 + uxibar
+    v_ = vbar0 + vxibar
+    a = (nu * inner(grad(u_), grad(v_)) - inner(p0, div(v_)) - inner(div(u_), q0)) * dx + inner(uetabar, vetabar) * ds
+
+    L = inner(Constant((0, 0)), v_) * dx
+    wh1 = Function(W)
+    solve(a == L, wh1, bcs=bcs, solver_parameters=solver_parameters)
+
+    # Postprocess
+    ubar, p = wh1.split()
+
+    # Plot solution
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
+    arrows = quiver(ubar, axes=axes[0])
+    axes[0].set_xlim(-0.6, 1.8)
+    axes[0].set_aspect("equal")
+    axes[0].set_title("Velocity")
+    fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
+
+    triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
+    axes[1].set_aspect("equal")
+    axes[1].set_title("Pressure")
+    fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+
+    plt.savefig('temp13.pdf')
 
 
 def _poisson_analytical(V, xi, eta, which):
