@@ -1250,6 +1250,8 @@ class DataCarrier(object):
     (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
+    _dat_version = 0
+
     @cached_property
     def dtype(self):
         """The Python type of the data."""
@@ -2327,6 +2329,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data(self):
         """Data array."""
+        self._dat_version += 1
         if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
@@ -2338,13 +2341,14 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data_ro(self):
         """Data array."""
-        view = self.data.view()
+        view = self._data.view()
         view.setflags(write=False)
         return view
 
     @data.setter
     def data(self, value):
-        self._data[:] = verify_reshape(value, self.dtype, self.dim)
+        self._dat_version += 1
+        self.data[:] = verify_reshape(value, self.dtype, self.dim)
 
     @property
     def nbytes(self):
