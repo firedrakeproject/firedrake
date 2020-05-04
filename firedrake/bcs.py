@@ -182,7 +182,7 @@ class BCBase(object):
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
 
-        return op2.compute_backend.Subset(self._function_space.node_set, self.nodes)
+        return op2.op2.compute_backend.Subset(self._function_space.node_set, self.nodes)
 
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
