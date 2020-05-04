@@ -1,12 +1,11 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
-from pyadjoint.tape import no_annotations
-
 
 import firedrake.utils as utils
 
 import ufl
+
 
 class Backend:
     @utils.cached_property
@@ -269,7 +268,6 @@ class PointwiseOperatorBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
         if self.point_op == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
-            #self.point_op_rep = block_variable.saved_output
             return None
 
         q_rep = block_variable.saved_output
@@ -283,9 +281,6 @@ class PointwiseOperatorBlock(Block, Backend):
         return dNdm_adj
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        p, ops = inputs[-1], inputs[:-1]
-        #if isinstance(p, self.backend.PointnetOperator):
-            #p._update_model_weights()
+        p = inputs[-1]
         q = type(p).copy(p)
         return q.evaluate()
-

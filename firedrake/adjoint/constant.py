@@ -4,7 +4,6 @@ from pyadjoint.reduced_functional_numpy import gather
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
-from firedrake import Constant
 
 import numpy
 

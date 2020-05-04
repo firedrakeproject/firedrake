@@ -258,7 +258,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     d._add_dependencies(v)
                     new_coefficients.extend([e for e in d._extop_dependencies if e.derivatives in v])
 
-
     rank = len(f.arguments())
     if diagonal:
         assert rank == 2

@@ -3,18 +3,16 @@ from functools import partial
 import types
 import sympy as sp
 import numpy as np
-from scipy import optimize
 
 from ufl.core.external_operator import ExternalOperator
 from ufl.core.expr import Expr
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
-from ufl.operators import conj, transpose
+from ufl.operators import transpose
 from ufl.log import error
 
 import firedrake.assemble
 from firedrake.function import Function
-from firedrake.ufl_expr import adjoint
 from firedrake.constant import Constant
 from firedrake import utils, functionspaceimpl
 from firedrake.adjoint import PointwiseOperatorsMixin
@@ -70,11 +68,10 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
                           derivatives=self.derivatives,
                           operator_data=self.operator_data)
 
-    # Computing the action of the adjoint derivative may requires different procedures
+    # Computing the action of the adjoint derivative may require different procedures
     # depending on wrt what is taken the derivative
     # E.g. the neural network case: where the adjoint derivative computation leads us
     # to compute the gradient wrt the inputs of the network or the weights.
-    #@abstractmethod
     def adjoint_action(self, x, idx):
         r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
             This method computes the action of (dN/dq)^{*}
@@ -117,7 +114,6 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         else:
             corresponding_count = self._count
             val = self.topological
-            #import ipdb; ipdb.set_trace()
 
         reconstruct_op = type(self)(*operands, function_space=function_space or self._ufl_function_space,
                                     derivatives=deriv_multiindex,
@@ -194,32 +190,13 @@ class PointexprOperator(AbstractPointwiseOperator):
             return self.assign(expr)
         return self.interpolate(expr)
 
-    """
-    def _adjoint(self, idx):
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
-        result = firedrake.assemble(dNdq_adj)
-        return result
-
-    def adjoint_action(self, x, idx):
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
-        result = firedrake.assemble(dNdq_adj)
-        return result.vector() * x
-        #return dNdq_adj * x
-    """
 
 class PointsolveOperator(AbstractPointwiseOperator):
     r"""A :class:`PointsolveOperator` is an implementation of ExternalOperator that is defined through
     a given function f (e.g. a lambda expression) and whose values correspond to the root of this function
     evaluated pointwise, i.e. x such that f(x) = 0.
 
-    In 1d, it uses scipy.optimize.newton, therefore it has the same syntax for the choice of the parameters
-    and the same default values :
+    The vectorized newton implementation relies on scipy.optimize.newton, it has the same syntax for the choice of the parameters and the same default values :
     newton_params = {'fprime':None, 'args':(), 'tol':1.48e-08, 'maxiter':50, 'fprime2':None, 'x1':None,
                     'rtol':0.0, 'full_output':False, 'disp':True}
     https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html
@@ -319,7 +296,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
                             d3fds0l = sp.lambdify(symb, d3fds0, modules='numpy')
                             d3fdsil = sp.lambdify(symb, d3fdsi, modules='numpy')
-                        elif di!= 2:
+                        elif di != 2:
                             # The implicit differentiation order can be extended if needed
                             error("Implicit differentiation of order n is not handled for n>3")
 
@@ -385,7 +362,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
         ufl_space = self.ufl_function_space()
         shape = ufl_space.shape
         solver_params = self.solver_params.copy()  # To avoid breaking immutability
-        nn = len(self.dat.data_ro)
         f = self.operator_f
 
         # If we want to evaluate derivative, we first have to evaluate the solution and then use implicit differentiation
@@ -431,15 +407,15 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 # TODO: use something like _sympy_inv_jacobian
                 d2f = sp.diff(f(*symb), symb[0], symb[0])
                 d2f = self._sympy_subs_symbols(symb, ops_f, d2f, shape)
-                fprime = sp.lambdify(new_symb, d2f, modules='numpy')
+                fprime2 = sp.lambdify(new_symb, d2f, modules='numpy')
                 solver_params['fprime2'] = fprime2
 
         offset = 0
         if len(shape) == 1:
             # Expand the dimension
             offset = 1
-            solver_params_x0 = np.expand_dims(solver_params_x0,-1)
-            vals = tuple(np.expand_dims(e,-1) for e in vals)
+            solver_params_x0 = np.expand_dims(solver_params_x0, -1)
+            vals = tuple(np.expand_dims(e, -1) for e in vals)
         elif len(shape) >= 2:
             # Sympy does not handle symbolic tensor inversion, so we need to operate on the numpy vector
             df = solver_params['fprime']
@@ -480,14 +456,12 @@ class PointsolveOperator(AbstractPointwiseOperator):
             ndat = X.shape[-1]
             f_X = f(X, *Y)
             Y = np.array(Y)
-            df_X = np.array([df(X[..., i], *Y[...,i]) for i in range(ndat)])
-            res =  np.array([np.linalg.tensorsolve(df_X[i,...], f_X[..., i]) for i in range(ndat)])
+            df_X = np.array([df(X[..., i], *Y[..., i]) for i in range(ndat)])
+            res = np.array([np.linalg.tensorsolve(df_X[i, ...], f_X[..., i]) for i in range(ndat)])
             return np.rollaxis(res, 0, len(f_X.shape))
         return _tensor_solve_
 
-    def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50,
-           fprime2=None, x1=None, rtol=0.0,
-           full_output=False, disp=True):
+    def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50, fprime2=None, x1=None, rtol=0.0, full_output=False, disp=True):
         """
         A vectorized version of Newton, Halley, and secant methods for arrays
         This version is a modification of the 'optimize.newton' function
@@ -523,7 +497,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
                 if fprime2 is not None:
                     fder2 = np.asarray(fprime2(p, *args))
-                    #dp = dp / (1.0 - 0.5 * dp * fder2[nz_der])
+                    # dp = dp / (1.0 - 0.5 * dp * fder2[nz_der])
                     dp = dp / (1.0 - 0.5 * dp * fder2[nz_der] / fder[nz_der])
                 # only update nonzero derivatives
                 p[nz_der] -= dp
@@ -548,9 +522,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     raise RuntimeError(msg)
                 warnings.warn(msg, RuntimeWarning)
 
-        #if full_output:
-        #    result = namedtuple('result', ('root', 'converged', 'zero_der'))
-        #    p = result(p, ~failures, zero_der)
+        # if full_output:
+        #     result = namedtuple('result', ('root', 'converged', 'zero_der'))
+        #     p = result(p, ~failures, zero_der)
 
         return p
 
@@ -572,32 +546,14 @@ class PointsolveOperator(AbstractPointwiseOperator):
             return sp.Matrix(coeffs)
 
     def _sympy_subs_symbols(self, old, new, fprime, shape):
-        s1 = tuple(e[i]  for e in old for i in range(sum(shape)))
-        s2 = tuple(e[i]  for e in new for i in range(sum(shape)))
+        s1 = tuple(e[i] for e in old for i in range(sum(shape)))
+        s2 = tuple(e[i] for e in new for i in range(sum(shape)))
         if hasattr(fprime, 'subs'):
             return fprime.subs(dict(zip(s1, s2)))
 
         T = sp.tensor.array.Array(fprime)
         return T.subs(dict(zip(s1, s2)))
 
-    """
-    def _adjoint(self, idx):
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
-        result = firedrake.assemble(dNdq_adj)
-        return result
-
-    def adjoint_action(self, x, idx):
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
-        result = firedrake.assemble(dNdq_adj)
-        return result.vector() * x
-        #return dNdq_adj * x
-    """
 
 class PointnetOperator(AbstractPointwiseOperator):
     r"""A :class:`PointnetOperator` ... TODO :
@@ -611,20 +567,20 @@ class PointnetOperator(AbstractPointwiseOperator):
             weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
             cw.dat.data[:] = weights_val
             operands += (cw,)
-            if isinstance(derivatives, tuple): # Type exception is caught later
+            # Type exception is caught later
+            if isinstance(derivatives, tuple):
                 derivatives += (0,)
 
         AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
-
         # Checks
-        if not 'ncontrols' in self.operator_data.keys():
+        if 'ncontrols' not in self.operator_data.keys():
             self.operator_data['ncontrols'] = 1
         if not isinstance(operator_data['ncontrols'], int) or operator_data['ncontrols'] > len(self.ufl_operands):
             error("Expecting for the number of controls an int type smaller or equal \
-                  than the number of operands and not %s" % ncontrols)
+                  than the number of operands and not %s" % operator_data['ncontrols'])
 
-        self._controls = tuple(range(0,self.ncontrols))
+        self._controls = tuple(range(0, self.ncontrols))
 
         if weights_version is not None:
             self._weights_version = weights_version
@@ -685,16 +641,12 @@ class PytorchOperator(PointnetOperator):
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
 
-        # Check
+    @utils.cached_property
+    def ml_backend(self):
         try:
             import torch
         except ImportError:
             raise ImportError("Error when trying to import PyTorch")
-
-
-    @utils.cached_property
-    def ml_backend(self):
-        import torch
         return torch
 
     def compute_derivatives(self, N, x, model_tape=False):
@@ -765,7 +717,6 @@ class PytorchOperator(PointnetOperator):
 
     def adjoint_action(self, x, idx):
         if idx == len(self.ufl_operands) - 1:
-            #res = Function(self.function_space())
             outputs = self.evaluate(model_tape=True)
             weights = self.model.weight
             grad_W = self.ml_backend.autograd.grad(outputs, weights, grad_outputs=[self.ml_backend.tensor(x.dat.data_ro)], retain_graph=True)
@@ -793,28 +744,10 @@ class TensorFlowOperator(PointnetOperator):
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
-
-        # Check
-        #try:
-        #    import tensorflow
-        #except ImportError:
-        #    raise ImportError("Error when trying to import TensorFlow")
+        raise NotImplementedError('TensorFlowOperator not implemented yet!')
 
 
-class KerasOperator(PointnetOperator):
-    r"""A :class:`KerasOperator` ... TODO :
-     """
-
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
-
-        # Check
-        #try:
-        #    from tensorflow import keras
-        #except ImportError:
-        #    raise ImportError("Error when trying to import tensorflow.keras")
-
-
+# Helper functions #
 def point_expr(point_expr, function_space):
     r"""The point_expr function returns the `PointexprOperator` class initialised with :
         - point_expr : a function expression (e.g. lambda expression)
@@ -838,31 +771,16 @@ def point_solve(point_solve, function_space, solver_name='newton', solver_params
         disp = False
     return partial(PointsolveOperator, operator_data=operator_data, function_space=function_space, disp=disp)
 
-# Neural Net bit 2 : Here !
-
 
 def neuralnet(model, function_space, ncontrols=1):
 
     torch_module = type(None)
     tensorflow_module = type(None)
-    keras_module = type(None)
 
     # Checks
     try:
         import torch
         torch_module = torch.nn.modules.module.Module
-    except ImportError:
-        pass
-
-    try:
-        import tensorflow
-        #tensorflow_module =
-    except ImportError:
-        pass
-
-    try:
-        from tensorflow import keras
-        #keras_module =
     except ImportError:
         pass
 
@@ -872,11 +790,8 @@ def neuralnet(model, function_space, ncontrols=1):
     elif isinstance(model, tensorflow_module):
         operator_data = {'framework': 'TensorFlow', 'model': model, 'ncontrols': ncontrols}
         return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
-    elif isinstance(model, keras_module):
-        operator_data = {'framework': 'Keras', 'model': model, 'ncontrols': ncontrols}
-        return partial(KerasOperator, function_space=function_space, operator_data=operator_data)
     else:
-        error("Expecting one of the following library : PyTorch, TensorFlow or Keras and that the library has been installed")
+        error("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
 
 
 def weights(*args):
@@ -889,6 +804,7 @@ def weights(*args):
     if len(res) == 1:
         return res[0]
     return res
+
 
 def ml_get_weights(model, framework):
     if framework == 'PyTorch':
