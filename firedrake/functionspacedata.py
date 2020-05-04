@@ -515,7 +515,7 @@ class FunctionSpaceData(object):
         indices[nodes] = -1
         return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
 
-    def get_map(self, V, entity_set, map_arity, name, offset):
+    def get_map(self, V, entity_set, map_arity, name, offset, backend=None):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -527,27 +527,27 @@ class FunctionSpaceData(object):
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
 
+        if backend is None:
+            backend = op2.compute_backend
+
         from pyop2.sequential import SequentialCPUBackend, sequential_cpu_backend
 
         entity_node_list = self.entity_node_lists[entity_set]
 
-        val = self.map_cache.get((entity_set, op2.compute_backend))
+        val = self.map_cache.get((entity_set, backend))
         if val is None:
-            if isinstance(op2.compute_backend, SequentialCPUBackend):
-                val = op2.compute_backend.Map(entity_set, self.node_set,
+            if isinstance(backend, SequentialCPUBackend):
+                val = backend.Map(entity_set, self.node_set,
                               map_arity,
                               entity_node_list,
                               ("%s_"+name) % (V.name),
                               offset=offset)
             else:
-                from pyop2.sequential import sequential_cpu_backend
-                assert self.map_cache[(entity_set, sequential_cpu_backend)], (
-                        "Need Map on host to copy it to device.")
+                host_map = self.get_map(V, entity_set, map_arity, name,
+                    offset, sequential_cpu_backend)
+                val = backend.Map(host_map)
 
-                val = op2.compute_backend.Map(self.map_cache[(entity_set,
-                    sequential_cpu_backend)])
-
-        self.map_cache[(entity_set, op2.compute_backend)] = val
+        self.map_cache[(entity_set, backend)] = val
         return val
 
 
