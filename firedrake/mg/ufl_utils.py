@@ -300,6 +300,13 @@ class Interpolation(object):
         self.prolong = prolong
         self.restrict = restrict
 
+    def createVecs(self, mat):
+        with self.ffn.dat.vec_wo as v:
+            left = v.duplicate()
+        with self.cfn.dat.vec_wo as v:
+            right = v.duplicate()
+        return right, left
+
     def mult(self, mat, x, y, inc=False):
         with self.cfn.dat.vec_wo as v:
             x.copy(v)

@@ -173,6 +173,13 @@ class ImplicitMatrixContext(object):
                                         form_compiler_parameters=self.fc_params,
                                         diagonal=True)
 
+    def createVecs(self, mat):
+        with self._x.dat.vec_wo as v:
+            right = v.duplicate()
+        with self._y.dat.vec_wo as v:
+            left = v.duplicate()
+        return right, left
+
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()
         for bc in self.bcs:
