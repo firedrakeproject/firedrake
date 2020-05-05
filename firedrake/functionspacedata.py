@@ -163,10 +163,11 @@ def get_map_cache(mesh, key):
     """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs, real_tensorproduct) tuple where
-        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
-        real_tensorproduct is True if the function space is a degenerate
-        fs x Real tensorproduct.
+    :arg key: a tuple (entity_set, compute_backend) where ``entity_set`` is an
+        instance of :class:`pyop2.Set` of entities to map from and
+        ``compute_backend`` is an instance of
+        :class:`pyop2.backend.AbstractComputeBackend` referring to the backend
+        where the map reides on.
     """
     return {}
 

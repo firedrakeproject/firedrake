@@ -606,6 +606,13 @@ class Function(ufl.Coefficient):
         return g_result
 
     def ensure_availability_on(self, backend):
+        """
+        Performs the necessary data transfer so that all the data corresponding
+        to ``self`` is valid on ``backend``.
+
+        :arg backend: An instance of
+        :class:`pyop2.backend.AbstractComputeBackend`.
+        """
         self._data.dat.ensure_availability_on(backend)
         self.function_space().mesh().coordinates._data.dat.ensure_availability_on(
                 backend)
