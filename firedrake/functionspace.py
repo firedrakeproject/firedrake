@@ -38,11 +38,11 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
        :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
-    if isinstance(family, ufl.FiniteElementBase):
-        return family
-
     topology = mesh.topology
     cell = topology.ufl_cell()
+    if isinstance(family, ufl.FiniteElementBase):
+        return family.reconstruct(cell=cell)
+
 
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
