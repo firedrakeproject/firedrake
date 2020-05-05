@@ -5,7 +5,7 @@ import abc
 import numpy as np
 
 from firedrake.mesh import Mesh
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 import firedrake.utils as utils
 import firedrake.functionspace as functionspace
 import firedrake.function as function
