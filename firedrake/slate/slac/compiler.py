@@ -18,6 +18,7 @@ from coffee import base as ast
 
 import time
 from hashlib import md5
+import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
@@ -26,6 +27,7 @@ from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
+from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
 
@@ -33,8 +35,7 @@ from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
-
-from tsfc.parameters import SCALAR_TYPE
+from pyop2.mpi import COMM_WORLD
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -43,7 +44,23 @@ import numpy as np
 __all__ = ['compile_expression']
 
 
-PETSC_DIR = get_petsc_dir()
+try:
+    PETSC_DIR, PETSC_ARCH = get_petsc_dir()
+except ValueError:
+    PETSC_DIR, = get_petsc_dir()
+    PETSC_ARCH = None
+
+EIGEN_INCLUDE_DIR = None
+if COMM_WORLD.rank == 0:
+    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
+    with open(filepath) as file:
+        for line in file:
+            if line.find("EIGEN_INCLUDE") == 0:
+                EIGEN_INCLUDE_DIR = line[18:].rstrip()
+                break
+    if EIGEN_INCLUDE_DIR is None:
+        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -156,10 +173,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(ScalarType_c, ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             SCALAR_TYPE,
+                                                             ScalarType_c,
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -170,7 +187,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl(SCALAR_TYPE, builder.coord_sym,
+    args = [result, ast.Decl(ScalarType_c, builder.coord_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"])]
 
@@ -183,7 +200,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        args.extend([ast.Decl(SCALAR_TYPE, csym,
+        args.extend([ast.Decl(ScalarType_c, csym,
                               pointers=[("restrict",)],
                               qualifiers=["const"]) for csym in builder.coefficient(c)])
 
@@ -208,12 +225,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Cell size information
     if builder.needs_cell_sizes:
-        args.append(ast.Decl(SCALAR_TYPE, builder.cell_size_sym,
+        args.append(ast.Decl(ScalarType_c, builder.cell_size_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"]))
 
     # Macro kernel
-    macro_kernel_name = "compile_slate"
+    macro_kernel_name = "pyop2_kernel_compile_slate"
     stmts = ast.Block(statements)
     macro_kernel = ast.FunDecl("void", macro_kernel_name, args,
                                stmts, pred=["static", "inline"])
@@ -223,8 +240,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Now we wrap up the kernel ast as a PyOP2 kernel and include the
     # Eigen header files
-    include_dirs = builder.include_dirs
-    include_dirs.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
+    include_dirs = list(builder.include_dirs)
+    include_dirs.append(EIGEN_INCLUDE_DIR)
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
                            cpp=True,

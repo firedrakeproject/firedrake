@@ -1,3 +1,4 @@
+import numpy
 import pytest
 
 from firedrake import *
@@ -25,15 +26,15 @@ def test_facet_normal_unit_square(quadrilateral):
     y_hat = Function(V).interpolate(Constant((0, 1)))
     n = FacetNormal(m)
 
-    assert assemble(dot(x_hat, n)*ds(1)) == -1.0  # x = 0
-    assert assemble(dot(x_hat, n)*ds(2)) == 1.0   # x = 1
-    assert assemble(dot(x_hat, n)*ds(3)) == 0.0   # y = 0
-    assert assemble(dot(x_hat, n)*ds(4)) == 0.0   # y = 1
+    assert numpy.allclose(assemble(dot(x_hat, n)*ds(1)), -1.0)  # x = 0
+    assert numpy.allclose(assemble(dot(x_hat, n)*ds(2)), 1.0)   # x = 1
+    assert numpy.allclose(assemble(dot(x_hat, n)*ds(3)), 0.0)   # y = 0
+    assert numpy.allclose(assemble(dot(x_hat, n)*ds(4)), 0.0)   # y = 1
 
-    assert assemble(dot(y_hat, n)*ds(1)) == 0.0   # x = 0
-    assert assemble(dot(y_hat, n)*ds(2)) == 0.0   # x = 1
-    assert assemble(dot(y_hat, n)*ds(3)) == -1.0  # y = 0
-    assert assemble(dot(y_hat, n)*ds(4)) == 1.0   # y = 1
+    assert numpy.allclose(assemble(dot(y_hat, n)*ds(1)), 0.0)   # x = 0
+    assert numpy.allclose(assemble(dot(y_hat, n)*ds(2)), 0.0)   # x = 1
+    assert numpy.allclose(assemble(dot(y_hat, n)*ds(3)), -1.0)  # y = 0
+    assert numpy.allclose(assemble(dot(y_hat, n)*ds(4)), 1.0)   # y = 1
 
 
 def test_facet_normal_unit_cube():

@@ -4,7 +4,7 @@ import sympy
 
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
-from pyop2.sequential import generate_cell_wrapper
+from pyop2.sequential import generate_single_cell_wrapper
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -16,33 +16,36 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
+from firedrake.utils import ScalarType_c
+
 from coffee.base import ArrayInit
 
 
 def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map()[op2.i[0]])
+    arg = function.dat(op2.READ, function.cell_node_map())
     arg.position = 0
     return (arg,)
 
 
 def make_wrapper(function, **kwargs):
     args = make_args(function)
-    return generate_cell_wrapper(function.cell_set, args, **kwargs)
+    return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
 
 
 def src_locate_cell(mesh, tolerance=None):
     if tolerance is None:
         tolerance = 1e-14
-    src = '#include <evaluate.h>\n'
-    src += compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance)
-    src += make_wrapper(mesh.coordinates,
-                        forward_args=["void*", "double*", "int*"],
-                        kernel_name="to_reference_coords_kernel",
-                        wrapper_name="wrap_to_reference_coords")
+    src = ['#include <evaluate.h>']
+    src.append(compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance))
+    src.append(make_wrapper(mesh.coordinates,
+                            forward_args=["void*", "double*", "int*"],
+                            kernel_name="to_reference_coords_kernel",
+                            wrapper_name="wrap_to_reference_coords"))
 
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
-        src += f.read()
+        src.append(f.read())
 
+    src = "\n".join(src)
     return src
 
 
@@ -65,6 +68,23 @@ def inside_check(fiat_cell, eps, X="X"):
     point = tuple(sympy.Symbol("%s[%d]" % (X, i)) for i in range(dim))
 
     return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
+
+
+def compute_celldist(fiat_cell, X="X", celldist="celldist"):
+    dim = fiat_cell.get_spatial_dimension()
+    s = """
+    %(celldist)s = %(X)s[0];
+    for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
+        if (%(celldist)s > %(X)s[celldistdim]) {
+            %(celldist)s = %(X)s[celldistdim];
+        }
+    }
+    %(celldist)s *= -1;
+    """ % {"celldist": celldist,
+           "dim": dim,
+           "X": X}
+
+    return s
 
 
 def init_X(fiat_cell, parameters):
@@ -90,7 +110,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr)
     expr = ufl_utils.simplify_abs(expr)
 
-    builder = firedrake_interface.KernelBuilderBase()
+    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
@@ -123,7 +143,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
     body.open_scope = False
 
     return body
@@ -157,8 +177,9 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),
         "X_isub_dX": X_isub_dX(cell.topological_dimension()),
-        "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
-        "nlayers": ", f->n_layers" if extruded else "",
+        "extruded_arg": ", int const *__restrict__ layers" if extruded else "",
+        "extr_comment_out": "//" if extruded else "",
+        "non_extr_comment_out": "//" if not extruded else "",
         "IntType": as_cstr(IntType),
     }
 
@@ -197,15 +218,25 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
     *return_value = %(inside_predicate)s;
 }
 
-static inline void wrap_to_reference_coords(void *result_, double *x, int *return_value,
-                                            double *coords, %(IntType)s *coords_map%(extruded_arg)s, %(IntType)s cell);
+static inline void wrap_to_reference_coords(
+    void* const result_, double* const x, int* const return_value, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
+    double const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
 int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
     int return_value;
-    wrap_to_reference_coords(result_, x, &return_value, f->coords, f->coords_map%(nlayers)s, cell);
+    %(extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, f->coords, f->coords_map);
     return return_value;
 }
+
+int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
+{
+    int return_value;
+    int layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
+    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, layers, f->coords, f->coords_map);
+    return return_value;
+}
+
 """
 
     return evaluate_template_c % code

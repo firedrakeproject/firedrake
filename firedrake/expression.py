@@ -76,7 +76,6 @@ class Expression(ufl.Coefficient):
         if code is not None:
             raise ValueError("C string Expressions have been removed! See: https://www.firedrakeproject.org/interpolation.html#c-string-expressions")
         utils._init()
-        self.code = None
         self._shape = ()
         self.cell = cell
         self.degree = degree

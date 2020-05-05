@@ -22,7 +22,7 @@ def run_test(degree):
     l2error = []
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
-    for n in range(5, 11):
+    for n in range(6, 10):
         mesh = PeriodicUnitIntervalMesh(2**n)
         x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, 'DG', degree)
@@ -51,7 +51,6 @@ def run_test(degree):
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
         mass_inv = assemble(a_mass, inverse=True)
-        mass_inv.force_evaluation()
         mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):

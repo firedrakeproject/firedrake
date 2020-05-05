@@ -1,5 +1,7 @@
 import ufl
+import numbers
 import numpy as np
+import firedrake.dmhooks as dmhooks
 
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -99,19 +101,22 @@ class HybridizationPC(SCBase):
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
                   np.prod(V[self.vidx].shape))
-        weight_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        w[i][j] += 1.0;
-        }}""" % shapes
-
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
         self.weight = Function(V[self.vidx])
-        par_loop(weight_kernel, ufl.dx, {"w": (self.weight, INC)})
-        self.average_kernel = """
-        for (int i=0; i<%d; ++i) {
-        for (int j=0; j<%d; ++j) {
-        vec_out[i][j] += vec_in[i][j]/w[i][j];
-        }}""" % shapes
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
+
+        instructions = """
+        for i, j
+            vec_out[i,j] = vec_out[i,j] + vec_in[i,j]/w[i,j]
+        end
+        """
+        self.average_kernel = (domain, instructions)
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -152,7 +157,7 @@ class HybridizationPC(SCBase):
                 if isinstance(subdom, str):
                     neumann_subdomains |= set([subdom])
                 else:
-                    neumann_subdomains |= set(as_tuple(subdom, int))
+                    neumann_subdomains |= set(as_tuple(subdom, numbers.Integral))
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
@@ -207,15 +212,17 @@ class HybridizationPC(SCBase):
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
-                                 options_prefix=prefix)
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
                                                     form_compiler_parameters=self.ctx.fc_params,
                                                     mat_type=mat_type)
 
-        self._assemble_S()
-        self.S.force_evaluation()
+        with timed_region("HybridOperatorAssembly"):
+            self._assemble_S()
+
         Smat = self.S.petscmat
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
@@ -223,13 +230,32 @@ class HybridizationPC(SCBase):
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
-        # Set up the KSP for the system of Lagrange multipliers
+        # Create a SNESContext for the DM associated with the trace problem
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          schur_comp,
+                                          trace_bcs,
+                                          mat_type,
+                                          self.ctx.fc_params,
+                                          options_prefix=prefix)
+
+        # dm associated with the trace problem
+        trace_dm = TraceSpace.dm
+
+        # KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.incrementTabLevel(1, parent=pc)
+
+        # Set the dm for the trace solver
+        trace_ksp.setDM(trace_dm)
+        trace_ksp.setDMActive(False)
         trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(Smat)
-        trace_ksp.setUp()
-        trace_ksp.setFromOptions()
+        trace_ksp.setOperators(Smat, Smat)
         self.trace_ksp = trace_ksp
+
+        with dmhooks.add_hooks(trace_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            trace_ksp.setFromOptions()
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
@@ -290,7 +316,6 @@ class HybridizationPC(SCBase):
         reconstruct symbolic objects.
         """
         self._assemble_S()
-        self.S.force_evaluation()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
@@ -324,7 +349,8 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)})
+                      "vec_out": (broken_res_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with timed_region("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -337,14 +363,18 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            if self.trace_ksp.getInitialGuessNonzero():
-                acc = self.trace_solution.dat.vec
-            else:
-                acc = self.trace_solution.dat.vec_wo
-            with acc as x_trace:
-                self.trace_ksp.solve(b, x_trace)
+        dm = self.trace_ksp.getDM()
+
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+
+            # Solve the system for the Lagrange multipliers
+            with self.schur_rhs.dat.vec_ro as b:
+                if self.trace_ksp.getInitialGuessNonzero():
+                    acc = self.trace_solution.dat.vec
+                else:
+                    acc = self.trace_solution.dat.vec_wo
+                with acc as x_trace:
+                    self.trace_ksp.solve(b, x_trace)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -373,7 +403,8 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)})
+                      "vec_out": (unbroken_hdiv, INC)},
+                     is_loopy_kernel=True)
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
@@ -381,13 +412,10 @@ class HybridizationPC(SCBase):
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.pushASCIITab()
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
-        viewer.printfASCII("KSP solver for the multipliers:\n")
-        viewer.pushASCIITab()
-        self.trace_ksp.view(viewer)
-        viewer.popASCIITab()
-        viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
-        viewer.pushASCIITab()
-        viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
-        viewer.popASCIITab()
+        if hasattr(self, "trace_ksp"):
+            viewer.printfASCII("Applying hybridization to mixed problem.\n")
+            viewer.printfASCII("Statically condensing to trace system.\n")
+            viewer.printfASCII("KSP solver for the multipliers:\n")
+            self.trace_ksp.view(viewer)
+            viewer.printfASCII("Locally reconstructing solutions.\n")
+            viewer.printfASCII("Projecting broken flux into HDiv space.\n")

@@ -8,8 +8,8 @@ import numpy as np
 import randomgen
 
 
-brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name != 'RandomGenerator']
-meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) if not name.startswith('_') and name not in ('state', 'poisson_lam_max', 'seed', 'random_integers', 'bytes', 'permutation', 'shuffle', 'dirichlet', 'multinomial', 'multivariate_normal', 'complex_normal')]
+brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name not in ('RandomGenerator', 'RandomState')]
+meth_list = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator) if not name.startswith('_') and name not in ('state', 'poisson_lam_max', 'seed', 'random_integers', 'bytes', 'permutation', 'shuffle', 'dirichlet', 'multinomial', 'multivariate_normal', 'complex_normal', 'brng')]
 
 
 @pytest.mark.parametrize("brng", brng_list)
@@ -51,7 +51,7 @@ def test_randomfunc(brng, meth):
         args = (3.14,)
 
     elif meth == 'geometric':
-        args = (3.14,)
+        args = (0.5,)
 
     elif meth == 'gumbel':
         args = ()

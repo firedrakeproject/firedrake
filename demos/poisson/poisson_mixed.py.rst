@@ -118,8 +118,8 @@ bilinear and linear forms of the variational problem are defined as: ::
 The strongly enforced boundary conditions on the BDM space on the top and
 bottom of the domain are declared as: ::
 
-  bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 1)
-  bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*y)]), 2)
+  bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
+  bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
 
 Note that it is necessary to apply these boundary conditions to the first
 subspace of the mixed function space using ``W.sub(0)``. This way the
@@ -145,8 +145,8 @@ visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
   File("poisson_mixed.pvd").write(u)
 
-We could use the built in plot function of firedrake by calling 
-:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
+We could use the built in plot function of firedrake by calling
+:func:`plot <firedrake.plot.tripcolor>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
   try:
@@ -155,7 +155,9 @@ matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
-    plot(u)
+    fig, axes = plt.subplots()
+    colors = tripcolor(u, axes=axes)
+    fig.colorbar(colors)
   except Exception as e:
     warning("Cannot plot figure. Error msg '%s'" % e)
 

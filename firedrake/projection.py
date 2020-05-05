@@ -7,6 +7,7 @@ from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
+from firedrake.adjoint import annotate_project
 from pyop2.utils import as_tuple
 
 
@@ -63,6 +64,7 @@ def check_meshes(source, target):
     return source_mesh, target_mesh
 
 
+@annotate_project
 def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
@@ -85,7 +87,6 @@ def project(v, V, bcs=None,
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned."""
-
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
                     form_compiler_parameters=form_compiler_parameters,
                     use_slate_for_inverse=use_slate_for_inverse).project()
@@ -151,7 +152,6 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
                                form_compiler_parameters=self.form_compiler_parameters)
         if self.use_slate_for_inverse:
             def solve(x, b):
-                self.A.force_evaluation()
                 with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
             return solve

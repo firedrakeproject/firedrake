@@ -114,9 +114,7 @@ def test_matrixfree_action(a, V, bcs):
     else:
         bcs = None
     A = assemble(a, bcs=bcs)
-    A.force_evaluation()
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
-    Amf.force_evaluation()
 
     with f.dat.vec_ro as x:
         with expect.dat.vec as y:
@@ -196,31 +194,6 @@ def test_fieldsplitting(mesh, preassembled, parameters):
 
     for d in f.dat.data_ro:
         assert np.allclose(d, 0.0)
-
-
-def test_matrix_free_preassembly_change_bcs(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    v = TestFunction(V)
-    u = TrialFunction(V)
-    a = u*v*dx
-    bc1 = DirichletBC(V, Constant(10), 1)
-
-    A = assemble(a, bcs=bc1, mat_type="matfree")
-    L = Constant(10)*v*dx
-
-    b = assemble(L)
-
-    bc2 = DirichletBC(V, Constant(6), 1)
-
-    u = Function(V)
-
-    solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
-
-    u.assign(0)
-    b = assemble(Constant(6)*v*dx)
-    solve(A, u, b, bcs=bc2)
-    assert np.allclose(u.vector().array(), 6.0)
 
 
 @pytest.mark.parallel(nprocs=4)

@@ -5,10 +5,20 @@ import pytest
 from firedrake import *
 
 
+@pytest.fixture(params=["scalar", "vector", "tensor"])
+def fs_kind(request):
+    return request.param
+
+
 @pytest.fixture
-def V(extmesh):
+def V(extmesh, fs_kind):
     mesh = extmesh(2, 2, 8)
-    return FunctionSpace(mesh, "CG", 1, vfamily="Real", vdegree=0)
+    fs = {
+        "scalar": FunctionSpace,
+        "vector": VectorFunctionSpace,
+        "tensor": TensorFunctionSpace
+    }
+    return fs[fs_kind](mesh, "CG", 1, vfamily="Real", vdegree=0)
 
 
 @pytest.fixture(params=["linear", "sin"])
@@ -17,17 +27,26 @@ def variant(request):
 
 
 @pytest.fixture
-def expr(variant, V):
+def expr(variant, V, fs_kind):
     x, y, z = SpatialCoordinate(V.ufl_domain())
-    if variant == "linear":
-        return z
-    else:
-        return sin(pi*z)
+    val = {"linear": z, "sin": sin(pi*z)}[variant]
+    ret = {
+        "scalar": val,
+        "vector": as_vector((val, 0, 0)),
+        "tensor": as_tensor(((val, 0, 0), (0, 0, 0), (0, 0, 0)))
+    }
+    return ret[fs_kind]
 
 
 @pytest.fixture
-def solution(variant):
-    return {"linear": Constant(0.5), "sin": Constant(2.0/pi)}[variant]
+def solution(variant, fs_kind):
+    val = {"linear": 0.5, "sin": 2.0/pi}[variant]
+    sol = {
+        "scalar": val,
+        "vector": as_vector((val, 0, 0)),
+        "tensor": as_tensor(((val, 0, 0), (0, 0, 0), (0, 0, 0)))
+    }
+    return sol[fs_kind]
 
 
 @pytest.fixture
@@ -41,8 +60,8 @@ def test_vertical_average(V, expr, solution, tolerance):
     v = TestFunction(V)
 
     out = Function(V)
-    solve(u*v*dx == expr*v*dx, out)
-    l2err = sqrt(assemble((out-solution)*(out-solution)*dx))
+    solve(inner(u, v)*dx == inner(expr, v)*dx, out)
+    l2err = sqrt(assemble(inner(out-solution, out-solution)*dx))
     assert abs(l2err) < tolerance
 
 
@@ -81,7 +100,7 @@ def test_vertical_average_variable(quadrilateral):
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
-                          (("CG", 3), 1e-7)])
+                          (("CG", 3), 2e-7)])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""
     family, degree = testcase

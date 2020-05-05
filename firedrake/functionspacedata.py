@@ -17,14 +17,14 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 import numpy
 import finat
 from decorator import decorator
-from functools import reduce, partial
+from functools import partial
 
 from pyop2 import op2
 from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
-import firedrake.extrusion_numbering as extnum
-from firedrake import dmplex
+from firedrake.cython import extrusion_numbering as extnum
+from firedrake.cython import dmplex
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -159,8 +159,8 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
 
 @cached
-def get_map_caches(mesh, key):
-    """Get the map caches for this mesh.
+def get_map_cache(mesh, key):
+    """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
     :arg key: a (entity_dofs, real_tensorproduct) tuple where
@@ -168,11 +168,10 @@ def get_map_caches(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    entity_dofs, _ = key
-    return {mesh.cell_set: {},
-            mesh.interior_facets.set: {},
-            mesh.exterior_facets.set: {},
-            "boundary_node": {}}
+    return {mesh.cell_set: None,
+            mesh.interior_facets.set: None,
+            mesh.exterior_facets.set: None,
+            "boundary_node": None}
 
 
 @cached
@@ -261,8 +260,8 @@ def get_boundary_masks(mesh, key, finat_element):
     closure_indices = numpy.asarray(closure_indices, dtype=IntType)
     support_indices = numpy.asarray(support_indices, dtype=IntType)
     facet_points = numpy.asarray(facet_points, dtype=IntType)
-    masks["topological"] = op2.Map.MapMask(closure_section, closure_indices, facet_points)
-    masks["geometric"] = op2.Map.MapMask(support_section, support_indices, facet_points)
+    masks["topological"] = (closure_section, closure_indices, facet_points)
+    masks["geometric"] = (support_section, support_indices, facet_points)
     return masks
 
 
@@ -389,7 +388,7 @@ class FunctionSpaceData(object):
     :arg finat_element: The FInAT element describing how nodes are
        attached to topological entities.
     """
-    __slots__ = ("map_caches", "entity_node_lists",
+    __slots__ = ("map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
@@ -411,7 +410,7 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_caches = get_map_caches(mesh, (edofs_key, real_tensorproduct))
+        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
         self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
@@ -454,134 +453,94 @@ class FunctionSpaceData(object):
             key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
             return get_boundary_nodes(V.mesh(), key, V)
 
-    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
-                kind=None):
+    def lgmap(self, V, bcs, lgmap=None):
+        assert len(V) == 1, "lgmap should not be called on MixedFunctionSpace"
+        V = V.topological
+        if bcs is None or len(bcs) == 0:
+            return lgmap or V.dof_dset.lgmap
+
+        # Boundary condition list *must* be collectively ordered already.
+        # Key is a sorted list of bc subdomain, bc method, bc component.
+        bc_key = []
+        for bc in bcs:
+            fs = bc.function_space()
+            while fs.component is not None and fs.parent is not None:
+                fs = fs.parent
+            if fs.topological != V:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            bc_key.append(bc._cache_key)
+
+        def key(a):
+            tpl, *rest = a
+            if len(tpl) == 1 and isinstance(tpl[0], str):
+                # tpl = ("some_string", )
+                return (True, tpl[0], (), tuple(rest))
+            else:
+                # Ex:
+                # tpl = ((facet_dim, ((1,), (2,), (3,))),
+                #        (edge_dim, ((1, 3), (1, 4))),
+                #        (vert_dim, ((1, 3, 4), )))
+                return (False, "", tpl, tuple(rest))
+
+        bc_key = tuple(sorted(bc_key, key=key))
+        node_set = V.node_set
+        key = (node_set, V.value_size, lgmap is None, bc_key)
+        try:
+            return self.map_cache[key]
+        except KeyError:
+            pass
+        unblocked = any(bc.function_space().component is not None for bc in bcs)
+        if lgmap is None:
+            lgmap = V.dof_dset.lgmap
+            if unblocked:
+                indices = lgmap.indices.copy()
+                bsize = 1
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                assert bsize == V.value_size
+        else:
+            # MatBlock case, LGMap is already unrolled.
+            indices = lgmap.block_indices.copy()
+            bsize = lgmap.getBlockSize()
+            unblocked = True
+        nodes = []
+        for bc in bcs:
+            if bc.function_space().component is not None:
+                nodes.append(bc.nodes * V.value_size + bc.function_space().component)
+            elif unblocked:
+                tmp = bc.nodes * V.value_size
+                for i in range(V.value_size):
+                    nodes.append(tmp + i)
+            else:
+                nodes.append(bc.nodes)
+        nodes = numpy.unique(numpy.concatenate(nodes))
+        indices[nodes] = -1
+        return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
+
+    def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
         :arg V: The :class:`FunctionSpace` to create the map for.
         :arg entity_set: The :class:`pyop2.Set` of entities to map from.
         :arg map_arity: The arity of the resulting map.
-        :arg bcs: An iterable of :class:`~.DirichletBC` objects (may
-            be ``None``.
         :arg name: A name for the resulting map.
-        :arg offset: Map offset (for extruded).
-        :arg parent: The parent map (used when bcs are provided)."""
+        :arg offset: Map offset (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
 
-        if bcs is not None:
-            for bc in bcs:
-                fs = bc.function_space()
-                # Unwind proxies for ComponentFunctionSpace, but not
-                # IndexedFunctionSpace.
-                while fs.component is not None and fs.parent is not None:
-                    fs = fs.parent
-                if fs.topological != V:
-                    raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-            # Separate explicit bcs (we just place negative entries in
-            # the appropriate map values) from implicit ones (extruded
-            # top and bottom) that require PyOP2 code gen.
-            explicit_bcs = tuple(bc for bc in bcs if bc.sub_domain not in ['top', 'bottom'])
-            implicit_bcs = tuple((bc.sub_domain, bc.method) for bc in bcs if bc.sub_domain in ['top', 'bottom'])
-            if len(implicit_bcs) == 0:
-                implicit_bcs = None
-        else:
-            # Empty tuple if no bcs found.  This is so that matrix
-            # assembly, which uses a set to keep track of the bcs
-            # applied to matrix hits the cache when that set is
-            # empty.  tuple(set([])) == tuple().
-            implicit_bcs = None
-            explicit_bcs = ()
-
-        # Boundary condition list *must* be collectively ordered already.
-        # Key is a sorted list of bc subdomain, bc method, bc component.
-        bc_key = []
-        for bc in explicit_bcs:
-            bc_key.append(bc.domain_args + (bc.method, ) + (bc.function_space().component, ))
-        bc_key = tuple(sorted(bc_key))
-
-        cache = self.map_caches[entity_set]
-        try:
-            # Cache hit
-            val = cache[bc_key]
-            # In the implicit bc case, we decorate the cached map with
-            # the list of implicit boundary conditions so PyOP2 knows
-            # what to do.
-            if implicit_bcs:
-                val = op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
-            return val
-        except KeyError:
-            # Cache miss.
-            # Any top and bottom bcs (for the extruded case) are handled elsewhere.
-            nodes = [bc.nodes for bc in explicit_bcs]
-            decorate = any(bc.function_space().component is not None for
-                           bc in explicit_bcs)
-            if nodes:
-                bcids = reduce(numpy.union1d, nodes)
-                negids = numpy.copy(bcids)
-                for bc in explicit_bcs:
-                    nbits = IntType.itemsize * 8 - 2
-                    if decorate and bc.function_space().component is None:
-                        # Some of the other entries will be marked
-                        # with high bits, so we need to set all the
-                        # high bits for these bcs
-                        idx = numpy.searchsorted(bcids, bc.nodes)
-                        if bc.function_space().value_size > 3:
-                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().value_size)
-                        for cmp in range(bc.function_space().value_size):
-                            negids[idx] |= (1 << (nbits - cmp))
-
-                    # FunctionSpace with component is IndexedVFS
-                    if bc.function_space().component is not None:
-                        # For indexed VFS bcs, we encode the component
-                        # in the high bits of the map value.
-                        # That value is then negated to indicate to
-                        # the generated code to discard the values
-                        #
-                        # So here we do:
-                        #
-                        # node = -(node + 2**(nbits-cmpt) + 1)
-                        #
-                        # And in the generated code we can then
-                        # extract the information to discard the
-                        # correct entries.
-                        # bcids is sorted, so use searchsorted to find indices
-                        idx = numpy.searchsorted(bcids, bc.nodes)
-                        # Set appropriate bit
-                        negids[idx] |= (1 << (nbits - bc.function_space().component))
-                node_list_bc = numpy.arange(self.node_set.total_size,
-                                            dtype=IntType)
-                # Fix up for extruded, doesn't commute with indexedvfs
-                # for now
-                if self.extruded:
-                    node_list_bc[bcids] = -10000000
-                else:
-                    node_list_bc[bcids] = -(negids + 1)
-                new_entity_node_list = node_list_bc.take(entity_node_list)
-            else:
-                new_entity_node_list = entity_node_list
-
-            if kind == "interior_facet":
-                boundary_masks = self.interior_facet_boundary_masks
-            else:
-                boundary_masks = self.cell_boundary_masks
-
+        val = self.map_cache[entity_set]
+        if val is None:
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
-                          new_entity_node_list,
+                          entity_node_list,
                           ("%s_"+name) % (V.name),
-                          offset=offset,
-                          parent=parent,
-                          boundary_masks=boundary_masks)
+                          offset=offset)
 
-            if decorate:
-                val = op2.DecoratedMap(val, vector_index=True)
-            cache[bc_key] = val
-            if implicit_bcs:
-                return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
-            return val
+            self.map_cache[entity_set] = val
+        return val
 
 
 def get_shared_data(mesh, finat_element, real_tensorproduct=False):

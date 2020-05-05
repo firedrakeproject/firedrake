@@ -42,6 +42,38 @@ bandwidth* of the machine.  You can measure how the achieved memory
 bandwidth changes depending on the number of processes used on your
 machine using STREAMS_.
 
+Parallel garbage collection
+===========================
+
+Firedrake objects often contain PETSc objects, but are managed by
+the Python garbage collector. It is possible that when executing in
+parallel, code will deadlock as the Python garbage collector is not
+collective over the MPI communicator that the PETSc objects are
+collective over. If you find parallel code hanging for inexplicable
+reasons, it is possible to turn off the Python garbage collector by
+including these lines in your code:
+
+.. code-block:: python
+
+    import gc
+    gc.disable()
+
+.. warning::
+    Disabling the garbage collector may cause memory leaks. It is
+    possible to call the garbage collector manually using
+    :func:`.gc.collect` to avoid the issue, but this may in turn
+    lead to a deadlock.
+
+The garbage collector can be turned back on with this line:
+
+.. code-block:: python
+
+    gc.enable()
+
+More information can be found in
+`this <https://github.com/firedrakeproject/firedrake/issues/1617>`_
+issue.
+
 Using MPI Communicators
 =======================
 
@@ -101,15 +133,14 @@ The additional functionality required to support ensemble parallelism
 is the ability to send instances of :class:`~.Function` from one
 ensemble to another.  This is handled by the :class:`~.Ensemble`
 class. Instantiating an ensemble requires a communicator (usually
-``MPI_COMM_WORLD``) plus the number of independent simulations making
-up the ensemble (5, in the case of the example
-below). Each ensemble member will have the same spatial
-parallelism with the number of ranks in each spatial communicator
-given by dividing the size of the original communicator
-the number of ensemble members. The total number of processes launched
-by ``mpiexec`` must therefore be
-equal to the product of number of ensemble members with the number of
-processes to be used for each ensemble member.
+``MPI_COMM_WORLD``) plus the number of MPI processes to be used in
+each member of the ensemble (5, in the case of the example
+below). Each ensemble member will have the same spatial parallelism
+with the number of ensemble members given by dividing the size of the
+original communicator by the number processes in each ensemble
+member. The total number of processes launched by ``mpiexec`` must
+therefore be equal to the product of number of ensemble members with
+the number of processes to be used for each ensemble member.
 
 .. code-block:: python
 
