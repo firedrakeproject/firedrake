@@ -511,10 +511,8 @@ def test_filter_stokes3():
     fltr1 = Function(W)
     fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
     fltr2 = Function(W)
-    #fltr2.sub(0).assign(Constant([cos(theta) * cos(theta), cos(theta) * sin(theta)]), subset=subset_34)
     fltr2.sub(0).assign(Function(V).interpolate(as_vector([cos(theta) * cos(theta), cos(theta) * sin(theta)])), subset=subset_34)
     fltr3 = Function(W)
-    #fltr3.sub(0).assign(Constant([cos(theta) * sin(theta), sin(theta) * sin(theta)]), subset=subset_34)
     fltr3.sub(0).assign(Function(V).interpolate(as_vector([cos(theta) * sin(theta), sin(theta) * sin(theta)])), subset=subset_34)
 
     # Trial/Test function
@@ -594,6 +592,9 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
     subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
 
+
+    print("val:", subset_value)
+    print("del:", subset_deriv)
     # Define filters
     function0 = Function(V).project(xi)
     function1 = Function(V).project(eta)
@@ -601,48 +602,67 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     fltr0 = Function(V)
     fltr0.assign(Constant(1.))
     fltr0.assign(Constant(0.), subset=subset_1234)
+    #fltr0.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    #fltr0.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
     # -- boundary normal derivative nodes
-    fltr0.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
-    fltr0.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
-    #fltr0.assign(Constant(1.), subset=subset_12.difference(subset_34).intersection(subset_deriv))
-    #fltr0.assign(Constant(1.), subset=subset_34.difference(subset_12).intersection(subset_deriv))
+    #print("\nfltr00::\n", fltr0.dat.data)
+    fltr4 = Function(V)
+    fltr4.assign(Constant(1), subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    fltr5 = Function(V)
+    fltr5.assign(Constant(1), subset=subset_34.difference(subset_12).intersection(subset_deriv))
+    print("fltr5::\n", fltr5.dat.data)
+    #print("fltr02::\n", fltr0.dat.data)
     # -- boundary tangent derivative nodes 
     fltr1 = Function(V)
     #fltr1.assign(function1, subset=subset_12.intersection(subset_deriv))
-    #fltr1.assign(function0, subset=subset_34.intersection(subset_deriv))
-    fltr1.assign(Constant(1.), subset=subset_12.intersection(subset_deriv))
-    fltr1.assign(Constant(1.), subset=subset_34.intersection(subset_deriv))
+    fltr1.assign(Constant(1), subset=subset_12.intersection(subset_deriv))
+    fltr2 = Function(V)
+    #fltr2.assign(function0, subset=subset_34.intersection(subset_deriv))
+    fltr2.assign(Constant(1), subset=subset_34.intersection(subset_deriv))
     # -- boundary value nodes
     fltr3 = Function(V)
-    fltr3.assign(Constant(1.), subset=subset_1234)
-
+    #fltr3.assign(Constant(1.), subset=subset_1234.intersection(subset_value))
+    fltr3.assign(Function(V).project(Constant(1.)), subset=subset_1234.intersection(subset_value))
+    print("fltr3:", fltr3.dat.data)
     # Filter test function
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    Lij = as_tensor([Function(V) for _ in range(10)])
-    
-
-
     v0 = Filtered(v, fltr0)
     v1 = Filtered(v, fltr1)
-    v2 = Filtered(v, fltr3)
-    from tsfc.finatinterface import create_element
-    finat_element = create_element(V.ufl_element())
-    print(finat_element.index_shape)
-    print(Lij.ufl_shape)
-    print(type(Lij))
-    v0 = Filtered(v, Lij)
+    v2 = Filtered(v, fltr2)
+    v3 = Filtered(v, fltr3)
+    v4 = Filtered(v, fltr4)
+    v5 = Filtered(v, fltr5)
+    #gradv12 = dot(grad(v1), as_vector([1, 1])) * e_eta
+    #gradv34 = dot(grad(v2), as_vector([1, 1])) * e_xi
+    #gradv12 = dot(grad(v1), e_eta) * e_eta
+    #gradv34 = dot(grad(v2), e_xi) * e_xi
     a = dot(grad(v0), grad(u)) * dx + \
-        dot(grad(v1), e_eta) * dot(grad(u), e_eta) * ds((1, 2)) + \
-        dot(grad(v1), e_xi) * dot(grad(u), e_xi) * ds((3, 4)) + \
-        v2 * u * ds((1, 2, 3, 4))
+        dot(e_xi, grad(v4)) * dot(grad(u), e_xi) * dx + \
+        dot(e_eta, grad(v5)) * dot(grad(u), e_eta) * dx + \
+        v1 * Filtered(u, fltr1) * ds((1, 2)) + \
+        v2 * Filtered(u, fltr2) * ds((3, 4)) + \
+        v3 * Filtered(u, fltr3) * ds
+    aa = assemble(a)
+    print(aa.M.values)
+    #a = dot(grad(v0), grad(u)) * dx + \
+    #    dot(gradv12, dot(grad(Filtered(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
+    #    dot(gradv34, dot(grad(Filtered(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
+    #    v3 * Filtered(u, fltr3) * ds
+    #a = dot(grad(v0), grad(u)) * dx + \
+    #    dot(dot(e_xi, grad(v4)) * e_xi, dot(grad(u), e_xi) * e_xi) * dx + \
+    #    dot(dot(e_eta, grad(v5)) * e_eta, dot(grad(u), e_eta) * e_eta) * dx + \
+    #    dot(gradv12, dot(grad(Filtered(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
+    #    dot(gradv34, dot(grad(Filtered(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
+    #    v3 * Filtered(u, fltr3) * ds
     L = f * v0 * dx
     return a, L
 
 
 def _poisson(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
+    mesh = UnitSquareMesh(2**n, 2**0)
     if perturb:
         V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
         eps = Constant(1 / 2**(n+1))
@@ -653,19 +673,19 @@ def _poisson(n, el_type, degree, perturb):
         mesh = Mesh(new)
 
     # Rotate mesh (Currently only works with unrotated mesh)
-    theta = pi / 6 * 0
-    mesh = _rotate_mesh(mesh, theta)
+    theta_rot = pi / 6 * 0
+    mesh = _rotate_mesh(mesh, theta_rot)
 
     V = FunctionSpace(mesh, el_type, degree)
     x, y = SpatialCoordinate(mesh)
 
     # Rotate coordinates
-    xi = cos(theta) * x + sin(theta) * y
-    eta = -sin(theta) * x + cos(theta) * y
+    xi = cos(theta_rot) * x + sin(theta_rot) * y
+    eta = -sin(theta_rot) * x + cos(theta_rot) * y
 
     # Rotate base
-    e_xi = Constant([cos(theta), sin(theta)])
-    e_eta = Constant([-sin(theta), cos(theta)])
+    e_xi = Constant([cos(theta_rot), sin(theta_rot)])
+    e_eta = Constant([-sin(theta_rot), cos(theta_rot)])
 
     # normal and tangential components are not separable, 
     # have to do it algebraically
@@ -673,7 +693,6 @@ def _poisson(n, el_type, degree, perturb):
     # Define forms
     f = Function(V).project(_poisson_analytical(V, xi, eta, 'force'))
     a, L = _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f)
-
     # Solve
     sol = Function(V)
     solve(a == L, sol, bcs=[], solver_parameters={"mat_type": "aij",
@@ -687,6 +706,7 @@ def _poisson(n, el_type, degree, perturb):
                                                   #"ksp_atol": 1.e-12,
                                                   #"ksp_max_it": 500000,
                                                   })
+    print("sol:", sol.dat.data)
 
     # Postprocess
     g_form = _poisson_analytical(V, xi, eta, 'solution')
@@ -710,8 +730,11 @@ def _poisson(n, el_type, degree, perturb):
 
 @pytest.mark.skip(reason="not yet supported")
 def test_filter_poisson_zany():
-    #err, berr = _poisson(5, 'Hermite', 3, True)
-    #assert(berr < 1e-8)
+    err, berr = _poisson(1, 'Hermite', 3, True)
+    print("err:", err)
+    print("berr:", berr)
+    assert(berr < 1e-8)
+    exit(0)
     """
     for el, deg, convrate in [('CG', 3, 4),
                               ('CG', 4, 5),
