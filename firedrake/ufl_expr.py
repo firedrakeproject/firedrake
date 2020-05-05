@@ -13,7 +13,7 @@ __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
            'action', 'CellSize', 'FacetNormal',
-           'Filtered']
+           'Transformed']
 
 
 class Argument(ufl.argument.Argument):
@@ -251,8 +251,8 @@ def FacetNormal(mesh):
     return ufl.FacetNormal(mesh)
 
 
-class Filtered(ufl.Filtered):
-    """Wrapper for `ufl.Filtered` operator.
+class Transformed(ufl.Transformed):
+    """Wrapper for `ufl.Transformed` operator.
 
     :arg form_argument: the :class:`~.Argument` or :class:`~.Function`
        to apply filter to.
@@ -263,7 +263,7 @@ class Filtered(ufl.Filtered):
         if isinstance(fltr, Function):
             fltr = fltr.topological
         #if not isinstance(fltr, CoordinatelessFunction):
-        #    raise TypeError("Must provide `Filtered` with \
+        #    raise TypeError("Must provide `Transformed` with \
         #                    `CoordinatelessFunction` or `Function`, \
         #                     not %s" % fltr.__class__.__name__)
         super().__init__(form_argument, fltr)

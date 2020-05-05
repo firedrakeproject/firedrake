@@ -8,7 +8,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.analysis import extract_type
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags, map_expr_dag
 
-from firedrake.ufl_expr import Argument, Filtered
+from firedrake.ufl_expr import Argument, Transformed
 from firedrake.function import Function
 
 
@@ -30,7 +30,7 @@ class ExtractSubBlockTransformed(MultiFunction):
         V = o.function_space()
         if len(V) == 1:
             # Not on a mixed space, just return transform o itself.
-            return Filtered(o, self._transform_operator)
+            return Transformed(o, self._transform_operator)
         V_is = V.split()
         indices = self._indices
         try:
@@ -59,7 +59,7 @@ class ExtractSubBlockTransformed(MultiFunction):
             W = V_is[indices[0]]
             W = FunctionSpace(W.mesh(), W.ufl_element())
             a = Argument(W, o.number(), part=o.part())
-            a = Filtered(a, f)
+            a = Transformed(a, f)
             a = (a, )
         else:
             # Topological coeffs. are treated like coeffs. in tsfc, so
@@ -70,7 +70,7 @@ class ExtractSubBlockTransformed(MultiFunction):
             # argument_multiindices.
             # W = MixedFunctionSpace([V_is[i] for i in indices])
             # a = Argument(W, t.number(), part=t.part())
-            # a = Filtered(a, f)
+            # a = Transformed(a, f)
             # a = split(a)
             raise NotImplementedError("Unable to split transformed argument if len(indices) > 1.")
         args = []
@@ -148,7 +148,7 @@ class ExtractSubBlock(MultiFunction):
         # [v_0, v_2, v_3][1, 2]
         return self.expr(o, *map_expr_dags(self.index_inliner, operands))
 
-    def filtered(self, o):
+    def transformed(self, o):
         t = set()
         t.update(extract_type(o.ufl_operands[0], Argument))
         t.update(extract_type(o.ufl_operands[0], Function))

@@ -25,7 +25,7 @@ def test_filter_one_form_lagrange():
     fltr = Function(V).assign(1., subset=V.boundary_node_subset((1, )))
 
     rhs0 = assemble(f * v * dx)
-    rhs1 = assemble(f * Filtered(v, fltr) * dx)
+    rhs1 = assemble(f * Transformed(v, fltr) * dx)
 
     expected = np.multiply(rhs0.dat.data, fltr.dat.data)
 
@@ -46,7 +46,7 @@ def test_filter_one_form_bdm():
     fltr = Function(V).assign(Function(V).project(as_vector([1., 2.])), subset=V.boundary_node_subset((1, )))
 
     rhs0 = assemble(inner(f, v) * dx)
-    rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
+    rhs1 = assemble(inner(f, Transformed(v, fltr)) * dx)
 
     expected = np.multiply(rhs0.dat.data, fltr.dat.data)
 
@@ -73,7 +73,7 @@ def test_filter_one_form_mixed():
     fltr.sub(1).assign(Constant(1.), subset=CG.boundary_node_subset((1, )))
 
     rhs0 = assemble(inner(f, v) * dx)
-    rhs1 = assemble(inner(f, Filtered(v, fltr)) * dx)
+    rhs1 = assemble(inner(f, Transformed(v, fltr)) * dx)
 
     for i in range(len(V)):
         expected = np.multiply(rhs0.dat.data[i], fltr.dat.data[i])
@@ -92,10 +92,10 @@ def test_filter_two_form_lagrange():
     fltr_b = Function(V).assign(Constant(1.), subset=subset_1)
     fltr_d = Function(V).assign(Constant(1.), subset=V.node_set.difference(subset_1))
 
-    v_d = Filtered(v, fltr_d)
-    v_b = Filtered(v, fltr_b)
-    u_d = Filtered(u, fltr_d)
-    u_b = Filtered(u, fltr_b)
+    v_d = Transformed(v, fltr_d)
+    v_b = Transformed(v, fltr_b)
+    u_d = Transformed(u, fltr_d)
+    u_b = Transformed(u, fltr_b)
 
     # Mass matrix
     a = dot(grad(u), grad(v)) * dx
@@ -151,7 +151,7 @@ def test_filter_two_form_lagrange():
     # Mass matrix (remove boundary rows/cols)
     # Boundary mass matrix
     # Test action/derivative
-    # derivative with du=Filtered(...)
+    # derivative with du=Transformed(...)
     a = dot(grad(u), grad(v_d)) * dx
     u_ = Function(V)
     a = ufl_expr.action(a, u_)
@@ -185,16 +185,16 @@ def test_filter_poisson():
     u0 = Function(V)
     solve(a0 == L0, u0, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
-    # Solve with Filtered; no DirichletBC
+    # Solve with Transformed; no DirichletBC
     subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
     fltr_b = Function(V).assign(Constant(1.), subset=subset_1234)
     fltr_d = Function(V).assign(Constant(1.), subset=V.node_set.difference(subset_1234))
 
-    v_d = Filtered(v, fltr_d)
-    v_b = Filtered(v, fltr_b)
-    u_d = Filtered(u, fltr_d)
-    u_b = Filtered(u, fltr_b)
-    g_b = Filtered(g, fltr_b)
+    v_d = Transformed(v, fltr_d)
+    v_b = Transformed(v, fltr_b)
+    u_d = Transformed(u, fltr_d)
+    u_b = Transformed(u, fltr_b)
+    g_b = Transformed(g, fltr_b)
 
     #a1 = dot(grad(v_d), grad(u)) * dx + u * v_b * ds
     #L1 = f * v_d * dx + g * v_b *ds
@@ -278,12 +278,12 @@ def test_filter_stokes():
     #ubar, p = split(u)
 
     # Filter: domain
-    ubar0, p0 = split(Filtered(u, fltr0))
-    vbar0, q0 = split(Filtered(v, fltr0))
+    ubar0, p0 = split(Transformed(u, fltr0))
+    vbar0, q0 = split(Transformed(v, fltr0))
 
     # Filter: boundary {3, 4}
-    ubar1, p1 = split(Filtered(u, fltr1))
-    vbar1, q1 = split(Filtered(v, fltr1))
+    ubar1, p1 = split(Transformed(u, fltr1))
+    vbar1, q1 = split(Transformed(v, fltr1))
 
     # Filter: boundary {1, 2}
     # not used; use DirichletBC
@@ -399,19 +399,19 @@ def test_filter_stokes2():
     v = TestFunction(W)
 
     # Filter: domain
-    ubar0, p0 = split(Filtered(u, fltr0))
-    vbar0, q0 = split(Filtered(v, fltr0))
+    ubar0, p0 = split(Transformed(u, fltr0))
+    vbar0, q0 = split(Transformed(v, fltr0))
 
     # Filter: boundary {3, 4}
-    u1 = Filtered(u, fltr1)
-    v1 = Filtered(v, fltr1)
+    u1 = Transformed(u, fltr1)
+    v1 = Transformed(v, fltr1)
     ex = as_vector([1, 0, 0])
     ey = as_vector([0, 1, 0])
-    uxi = dot(Filtered(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(u, fltr3), as_vector([1, 1, 1])) * ey
+    uxi = dot(Transformed(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Transformed(u, fltr3), as_vector([1, 1, 1])) * ey
     ueta = u1 - uxi
     uxibar = as_vector([uxi[0], uxi[1]])
     uetabar = as_vector([ueta[0], ueta[1]])
-    vxi = dot(Filtered(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(v, fltr3), as_vector([1, 1, 1])) * ey
+    vxi = dot(Transformed(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Transformed(v, fltr3), as_vector([1, 1, 1])) * ey
     veta = v1 - vxi
     vxibar = as_vector([vxi[0], vxi[1]])
     vetabar = as_vector([veta[0], veta[1]])
@@ -520,19 +520,19 @@ def test_filter_stokes3():
     v = TestFunction(W)
 
     # Filter: domain
-    ubar0, p0 = split(Filtered(u, fltr0))
-    vbar0, q0 = split(Filtered(v, fltr0))
+    ubar0, p0 = split(Transformed(u, fltr0))
+    vbar0, q0 = split(Transformed(v, fltr0))
 
     # Filter: boundary {3, 4}
-    u1 = Filtered(u, fltr1)
-    v1 = Filtered(v, fltr1)
+    u1 = Transformed(u, fltr1)
+    v1 = Transformed(v, fltr1)
     ex = as_vector([1, 0, 0])
     ey = as_vector([0, 1, 0])
-    uxi = dot(Filtered(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(u, fltr3), as_vector([1, 1, 1])) * ey
+    uxi = dot(Transformed(u, fltr2), as_vector([1, 1, 1])) * ex + dot(Transformed(u, fltr3), as_vector([1, 1, 1])) * ey
     ueta = u1 - uxi
     uxibar = as_vector([uxi[0], uxi[1]])
     uetabar = as_vector([ueta[0], ueta[1]])
-    vxi = dot(Filtered(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Filtered(v, fltr3), as_vector([1, 1, 1])) * ey
+    vxi = dot(Transformed(v, fltr2), as_vector([1, 1, 1])) * ex + dot(Transformed(v, fltr3), as_vector([1, 1, 1])) * ey
     veta = v1 - vxi
     vxibar = as_vector([vxi[0], vxi[1]])
     vetabar = as_vector([veta[0], veta[1]])
@@ -628,12 +628,12 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    v0 = Filtered(v, fltr0)
-    v1 = Filtered(v, fltr1)
-    v2 = Filtered(v, fltr2)
-    v3 = Filtered(v, fltr3)
-    v4 = Filtered(v, fltr4)
-    v5 = Filtered(v, fltr5)
+    v0 = Transformed(v, fltr0)
+    v1 = Transformed(v, fltr1)
+    v2 = Transformed(v, fltr2)
+    v3 = Transformed(v, fltr3)
+    v4 = Transformed(v, fltr4)
+    v5 = Transformed(v, fltr5)
     #gradv12 = dot(grad(v1), as_vector([1, 1])) * e_eta
     #gradv34 = dot(grad(v2), as_vector([1, 1])) * e_xi
     #gradv12 = dot(grad(v1), e_eta) * e_eta
@@ -641,21 +641,21 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     a = dot(grad(v0), grad(u)) * dx + \
         dot(e_xi, grad(v4)) * dot(grad(u), e_xi) * dx + \
         dot(e_eta, grad(v5)) * dot(grad(u), e_eta) * dx + \
-        v1 * Filtered(u, fltr1) * ds((1, 2)) + \
-        v2 * Filtered(u, fltr2) * ds((3, 4)) + \
-        v3 * Filtered(u, fltr3) * ds
+        v1 * Transformed(u, fltr1) * ds((1, 2)) + \
+        v2 * Transformed(u, fltr2) * ds((3, 4)) + \
+        v3 * Transformed(u, fltr3) * ds
     aa = assemble(a)
     print(aa.M.values)
     #a = dot(grad(v0), grad(u)) * dx + \
-    #    dot(gradv12, dot(grad(Filtered(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
-    #    dot(gradv34, dot(grad(Filtered(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
-    #    v3 * Filtered(u, fltr3) * ds
+    #    dot(gradv12, dot(grad(Transformed(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
+    #    dot(gradv34, dot(grad(Transformed(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
+    #    v3 * Transformed(u, fltr3) * ds
     #a = dot(grad(v0), grad(u)) * dx + \
     #    dot(dot(e_xi, grad(v4)) * e_xi, dot(grad(u), e_xi) * e_xi) * dx + \
     #    dot(dot(e_eta, grad(v5)) * e_eta, dot(grad(u), e_eta) * e_eta) * dx + \
-    #    dot(gradv12, dot(grad(Filtered(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
-    #    dot(gradv34, dot(grad(Filtered(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
-    #    v3 * Filtered(u, fltr3) * ds
+    #    dot(gradv12, dot(grad(Transformed(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
+    #    dot(gradv34, dot(grad(Transformed(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
+    #    v3 * Transformed(u, fltr3) * ds
     L = f * v0 * dx
     return a, L
 
