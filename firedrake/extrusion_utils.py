@@ -149,7 +149,7 @@ static inline void pyop2_kernel_radial_hedgehog_extrusion(double *ext_coords,
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    height = op2.Global(1, layer_height, dtype=float)
+    height = op2.compute_backend.Global(1, layer_height, dtype=float)
     op2.par_loop(kernel,
                  ext_coords.cell_set,
                  ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),

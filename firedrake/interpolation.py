@@ -152,7 +152,7 @@ def _interpolator(V, dat, expr, subset, access):
 
     if dat in set((c.dat for c in coefficients)):
         output = dat
-        dat = op2.Dat(dat.dataset)
+        dat = op2.compute_backend.Dat(dat.dataset)
         if access is not op2.WRITE:
             copyin = (partial(output.copy, dat), )
         else:

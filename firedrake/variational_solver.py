@@ -254,6 +254,7 @@ class NonlinearVariationalSolver(OptionsManager):
                 self.snes.setVariableBounds(lb, ub)
         work = self._work
         with self._problem.u.dat.vec as u:
+            assert work.type == u.type
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors

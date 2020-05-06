@@ -12,7 +12,6 @@ import numbers
 from mpi4py import MPI
 from pyop2.datatypes import IntType
 from pyop2 import op2
-from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
@@ -87,13 +86,13 @@ class _Facets(object):
         self.facet_cell = facet_cell
 
         if isinstance(self.set, op2.ExtrudedSet):
-            dset = op2.DataSet(self.set.parent, self._rank)
+            dset = op2.compute_backend.DataSet(self.set.parent, self._rank)
         else:
-            dset = op2.DataSet(self.set, self._rank)
+            dset = op2.compute_backend.DataSet(self.set, self._rank)
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
-        self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
+        self.local_facet_dat = op2.compute_backend.Dat(dset, local_facet_number, np.uintc,
                                        "%s_%s_local_facet_number" %
                                        (self.mesh.name, self.kind))
 
@@ -113,8 +112,8 @@ class _Facets(object):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
             base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers)
-        return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
+            return op2.compute_backend.ExtrudedSet(base, layers=layers)
+        return op2.compute_backend.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
     @utils.cached_property
@@ -123,7 +122,7 @@ class _Facets(object):
         a given marker value. This is required because not all
         markers need be represented on all processors.'''
 
-        return op2.Subset(self.set, [])
+        return op2.compute_backend.Subset(self.set, [])
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -166,7 +165,7 @@ class _Facets(object):
                 to_remove = np.unique(np.concatenate(ids))
                 indices = np.arange(self.set.total_size, dtype=np.int32)
                 indices = np.delete(indices, to_remove)
-                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
+                return self._subsets.setdefault(key, op2.compute_backend.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
@@ -192,12 +191,12 @@ class _Facets(object):
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            return self._subsets.setdefault(markers, op2.compute_backend.Subset(self.set, indices))
 
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
+        return op2.compute_backend.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
 
@@ -625,10 +624,10 @@ class MeshTopology(object):
                                                  self._cell_numbering,
                                                  self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+            dataset = op2.compute_backend.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
-            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
-        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
+            dataset = op2.compute_backend.DataSet(self.cell_set, dim=cell_facets.shape[1:])
+        return op2.compute_backend.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False):
@@ -719,7 +718,7 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        return op2.compute_backend.Set(size, "Cells", comm=self.comm)
 
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
@@ -761,7 +760,7 @@ class MeshTopology(object):
                 indices = dmplex.get_cell_markers(self._plex,
                                                   self._cell_numbering,
                                                   subdomain_id)
-            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+            return self._subsets.setdefault(key, op2.compute_backend.Subset(self.cell_set, indices))
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -845,7 +844,7 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
+        self.cell_set = op2.compute_backend.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @property
     def name(self):
@@ -1525,4 +1524,4 @@ def SubDomainData(geometric_expr):
 
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
-    return op2.Subset(m.cell_set, indices)
+    return op2.compute_backend.Subset(m.cell_set, indices)

@@ -88,7 +88,7 @@ def get_node_set(mesh, key):
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh._plex, global_numbering)
-    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
+    node_set = op2.compute_backend.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 
     assert global_numbering.getStorageSize() == node_set.total_size
@@ -163,15 +163,13 @@ def get_map_cache(mesh, key):
     """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs, real_tensorproduct) tuple where
-        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
-        real_tensorproduct is True if the function space is a degenerate
-        fs x Real tensorproduct.
+    :arg key: a tuple (entity_set, compute_backend) where ``entity_set`` is an
+        instance of :class:`pyop2.Set` of entities to map from and
+        ``compute_backend`` is an instance of
+        :class:`pyop2.backend.AbstractComputeBackend` referring to the backend
+        where the map reides on.
     """
-    return {mesh.cell_set: None,
-            mesh.interior_facets.set: None,
-            mesh.exterior_facets.set: None,
-            "boundary_node": None}
+    return {}
 
 
 @cached
@@ -318,7 +316,7 @@ def get_boundary_nodes(mesh, key, V):
     indices = dmplex.boundary_nodes(V, sub_domain, method)
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
-    d = op2.Dat(V.dof_dset.set, dtype=IntType)
+    d = op2.compute_backend.Dat(V.dof_dset.set, dtype=IntType)
     d.data_with_halos[indices] = 1
     d.global_to_local_begin(op2.READ)
     d.global_to_local_end(op2.READ)
@@ -518,7 +516,7 @@ class FunctionSpaceData(object):
         indices[nodes] = -1
         return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
 
-    def get_map(self, V, entity_set, map_arity, name, offset):
+    def get_map(self, V, entity_set, map_arity, name, offset, backend=None):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -529,17 +527,28 @@ class FunctionSpaceData(object):
         :arg offset: Map offset (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
+
+        if backend is None:
+            backend = op2.compute_backend
+
+        from pyop2.sequential import SequentialCPUBackend, sequential_cpu_backend
+
         entity_node_list = self.entity_node_lists[entity_set]
 
-        val = self.map_cache[entity_set]
+        val = self.map_cache.get((entity_set, backend))
         if val is None:
-            val = op2.Map(entity_set, self.node_set,
-                          map_arity,
-                          entity_node_list,
-                          ("%s_"+name) % (V.name),
-                          offset=offset)
+            if isinstance(backend, SequentialCPUBackend):
+                val = backend.Map(entity_set, self.node_set,
+                              map_arity,
+                              entity_node_list,
+                              ("%s_"+name) % (V.name),
+                              offset=offset)
+            else:
+                host_map = self.get_map(V, entity_set, map_arity, name,
+                    offset, sequential_cpu_backend)
+                val = backend.Map(host_map)
 
-            self.map_cache[entity_set] = val
+        self.map_cache[(entity_set, backend)] = val
         return val
 
 

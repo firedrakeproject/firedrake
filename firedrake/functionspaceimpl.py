@@ -305,7 +305,7 @@ class FunctionSpace(object):
         r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+        self.dof_dset = op2.compute_backend.DataSet(self.node_set, self.shape or 1,
                                     name="%s_nodes_dset" % self.name)
         r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
@@ -449,7 +449,7 @@ class FunctionSpace(object):
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
+        return op2.compute_backend.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.Map` from cels to
@@ -632,7 +632,7 @@ class MixedFunctionSpace(object):
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of one or (for VectorFunctionSpaces) more degrees of freedom
         are stored at each node."""
-        return op2.MixedSet(s.node_set for s in self._spaces)
+        return op2.compute_backend.MixedSet(s.node_set for s in self._spaces)
 
     @utils.cached_property
     def dof_dset(self):
@@ -641,7 +641,7 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
+        return op2.compute_backend.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
@@ -650,17 +650,17 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
+        return op2.compute_backend.MixedMap(s.cell_node_map() for s in self._spaces)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.MixedMap` from interior facets to
         function space nodes."""
-        return op2.MixedMap(s.interior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.interior_facet_node_map() for s in self)
 
     def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.Map` from exterior facets to
         function space nodes."""
-        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.exterior_facet_node_map() for s in self)
 
     def local_to_global_map(self, bcs):
         r"""Return a map from process local dof numbering to global dof numbering.
@@ -675,7 +675,7 @@ class MixedFunctionSpace(object):
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
+        return op2.compute_backend.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
@@ -814,7 +814,7 @@ class RealFunctionSpace(FunctionSpace):
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
+        self.dof_dset = op2.compute_backend.GlobalDataSet(self.make_dat())
         self.node_set = self.dof_dset.set
 
     def __eq__(self, other):
@@ -844,7 +844,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self.comm)
+        return op2.compute_backend.Global(self.value_size, val, valuetype, name, self.comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
