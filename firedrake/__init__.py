@@ -3,11 +3,16 @@ import os
 import sys
 config = firedrake_configuration.get_config()
 if "PETSC_DIR" in os.environ and not config["options"]["honour_petsc_dir"]:
-    raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
-                      "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+    if os.environ["PETSC_DIR"] != os.path.join(sys.prefix, "src", "petsc")\
+       or os.environ["PETSC_ARCH"] != "default":
+        raise ImportError("PETSC_DIR is set, but you did not install with --honour-petsc-dir.\n"
+                          "Please unset PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
 elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
     raise ImportError("Firedrake was installed with --honour-petsc-dir, but PETSC_DIR is not set.\n"
                       "Please set PETSC_DIR (and PETSC_ARCH) before using Firedrake.")
+elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
+    os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
+    os.environ["PETSC_ARCH"] = "default"
 del os, sys, config
 
 # Ensure pycuda context is inited before petsc
@@ -42,6 +47,12 @@ del ufl
 from ufl import *
 # Set up the cache directories before importing PyOP2.
 firedrake_configuration.setup_cache_dirs()
+
+# By default we disable pyadjoint annotation.
+# To enable annotation, the user has to import firedrake_adjoint
+import pyadjoint
+pyadjoint.pause_annotation()
+del pyadjoint
 
 from firedrake_citations import Citations    # noqa: F401
 # Always get the firedrake paper.

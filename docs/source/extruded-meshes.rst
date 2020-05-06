@@ -295,7 +295,7 @@ The ``TensorProductElement`` operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To create an element compatible with an extruded mesh, one should use
-the :py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
+the :py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
 operator. For example,
 
 .. code-block:: python
@@ -515,3 +515,7 @@ which are listed below.
 
    * ``top``, to set a boundary condition on the top surface.
    * ``bottom``, to set a boundary condition on the bottom surface.
+
+   Note that for extruded meshes, the label ``on_boundary`` only
+   refers to the side boundaries that take their labels from the base
+   mesh, and not the top or bottom boundaries.

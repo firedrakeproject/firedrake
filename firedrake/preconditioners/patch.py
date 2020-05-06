@@ -160,6 +160,11 @@ def matrix_funptr(form, state):
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
+        if kinfo.needs_cell_sizes:
+            c = form.ufl_domain().cell_sizes
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
         for n in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
@@ -244,6 +249,11 @@ def residual_funptr(form, state):
 
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
+            arg = c.dat(op2.READ, get_map(c))
+            arg.position = len(args)
+            args.append(arg)
+        if kinfo.needs_cell_sizes:
+            c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
@@ -447,7 +457,7 @@ PetscErrorCode ComputeJacobian(PC pc,
 """.format(struct_decl, pyop2_call), struct
 
 
-def load_c_function(code, name):
+def load_c_function(code, name, comm):
     cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
@@ -456,7 +466,8 @@ def load_c_function(code, name):
                 argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
                           ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
                           ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs)
+                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
+                comm=comm)
 
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
@@ -464,6 +475,8 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
     coeffs = [form.ufl_domain().coordinates]
     if kernel.kinfo.oriented:
         coeffs.append(form.ufl_domain().cell_orientations())
+    if kernel.kinfo.needs_cell_sizes:
+        coeffs.append(form.ufl_domain().cell_sizes)
     for n in kernel.kinfo.coefficient_map:
         coeffs.append(form.coefficients()[n])
     if require_state:
@@ -685,7 +698,7 @@ class PatchBase(PCSNESBase):
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
         code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian")
+        Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
         Jhas_int_facet_kernel = False
@@ -696,7 +709,7 @@ class PatchBase(PCSNESBase):
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian")
+            facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
             point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
@@ -715,7 +728,7 @@ class PatchBase(PCSNESBase):
                                                            require_state=True)
 
             code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual")
+            Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
             Fhas_int_facet_kernel = False
@@ -728,7 +741,7 @@ class PatchBase(PCSNESBase):
                                                                            require_state=True,
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual")
+                facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
                 point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,

@@ -72,8 +72,8 @@ def make_coarse_mesh(stepfile, cad, element_size, dim, comm=COMM_WORLD, distribu
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
     stepname = os.path.basename(os.path.splitext(stepfile)[0])
-    geopath = os.path.join(curdir, "coarse-%s.geo" % (stepname))
-    mshpath = geopath.replace("geo", "msh")
+    geopath = os.path.join(curdir, "coarse-%s.geo" % stepname)
+    mshpath = os.path.join(curdir, "coarse-%s.msh" % stepname)
 
     if not os.path.isfile(mshpath) or not cache:
 

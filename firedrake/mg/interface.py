@@ -31,16 +31,16 @@ def prolong(coarse, fine):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(coarse.split(), fine.split()):
-            myprolong, _, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myprolong(in_, out)
-        return
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.prolong(in_, out)
+        return fine
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
         with fine.dat.vec_wo as dest, coarse.dat.vec_ro as src:
             src.copy(dest)
-        return
+        return fine
 
     hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
     _, fine_level = utils.get_level(fine.ufl_domain())
@@ -91,16 +91,16 @@ def restrict(fine_dual, coarse_dual):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
-            _, myrestrict, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myrestrict(in_, out)
-        return
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.restrict(in_, out)
+        return coarse_dual
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
         with coarse_dual.dat.vec_wo as dest, fine_dual.dat.vec_ro as src:
             src.copy(dest)
-        return
+        return coarse_dual
 
     hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
     _, fine_level = utils.get_level(fine_dual.ufl_domain())
@@ -152,8 +152,8 @@ def inject(fine, coarse):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine.split(), coarse.split()):
-            _, _, myinject = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myinject(in_, out)
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.inject(in_, out)
         return
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":

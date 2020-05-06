@@ -12,6 +12,7 @@ from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.adjoint import FunctionMixin
 try:
     import cachetools
 except ImportError:
@@ -203,7 +204,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             return super(Function, self).__str__()
 
 
-class Function(ufl.Coefficient):
+class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
@@ -221,6 +222,7 @@ class Function(ufl.Coefficient):
     the :class:`.FunctionSpace`.
     """
 
+    @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
@@ -291,6 +293,7 @@ class Function(ufl.Coefficient):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.split()))
 
+    @FunctionMixin._ad_annotate_split
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -319,6 +322,7 @@ class Function(ufl.Coefficient):
             return self._components[i]
         return self._split[i]
 
+    @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`.Expression`.
@@ -348,6 +352,7 @@ class Function(ufl.Coefficient):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset)
 
+    @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of

@@ -26,6 +26,7 @@ from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -978,7 +979,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
-class MeshGeometry(ufl.Mesh):
+class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
     def __new__(cls, element):
@@ -990,6 +991,7 @@ class MeshGeometry(ufl.Mesh):
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
+    @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
@@ -1024,6 +1026,7 @@ class MeshGeometry(ufl.Mesh):
         return self._topology
 
     @utils.cached_property
+    @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
         import firedrake.functionspaceimpl as functionspaceimpl
@@ -1472,16 +1475,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
+    helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
-        hfamily = "DG"
-    else:
-        hfamily = mesh._coordinates.ufl_element().family()
-    hdegree = mesh._coordinates.ufl_element().degree()
+        helement = helement.reconstruct(family="DG", variant="equispaced")
+    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, hfamily, hdegree, dim=gdim,
-                                                       vfamily="Lagrange", vdegree=1)
+    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
 
@@ -1492,8 +1494,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        fs = functionspace.VectorFunctionSpace(self, "CG", hdegree, dim=gdim,
-                                               vfamily="CG", vdegree=1)
+        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        element = ufl.TensorProductElement(helement, velement)
+        fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs)
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)

@@ -9,6 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
+from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -41,6 +42,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(object):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
+    @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
@@ -92,9 +94,10 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(OptionsManager):
+class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
+    @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, **kwargs):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
@@ -118,8 +121,12 @@ class NonlinearVariationalSolver(OptionsManager):
                be called immediately before Jacobian assembly. This can
                be used, for example, to update a coefficient function
                that has a complicated dependence on the unknown solution.
+        :kwarg post_jacobian_callback: As above, but called after the
+               Jacobian has been assembled.
         :kwarg pre_function_callback: As above, but called immediately
-               before residual assembly
+               before residual assembly.
+        :kwarg post_function_callback: As above, but called immediately
+               after residual assembly.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -162,6 +169,8 @@ class NonlinearVariationalSolver(OptionsManager):
         options_prefix = kwargs.get("options_prefix")
         pre_j_callback = kwargs.get("pre_jacobian_callback")
         pre_f_callback = kwargs.get("pre_function_callback")
+        post_j_callback = kwargs.get("post_jacobian_callback")
+        post_f_callback = kwargs.get("post_function_callback")
 
         super(NonlinearVariationalSolver, self).__init__(parameters, options_prefix)
 
@@ -179,6 +188,8 @@ class NonlinearVariationalSolver(OptionsManager):
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_j_callback,
                                          pre_function_callback=pre_f_callback,
+                                         post_jacobian_callback=post_j_callback,
+                                         post_function_callback=post_f_callback,
                                          options_prefix=self.options_prefix)
 
         # No preconditioner by default for matrix-free
@@ -221,16 +232,17 @@ class NonlinearVariationalSolver(OptionsManager):
         self._transfer_operators = ()
         self._setup = False
 
-    def set_transfer_operators(self, *contextmanagers):
-        r"""Set context managers which manages which grid transfer operators should be used.
+    def set_transfer_manager(self, manager):
+        r"""Set the object that manages transfer between grid levels.
+        Typically a :class:`~.TransferManager` object.
 
-        :arg contextmanagers: instances of :class:`~.dmhooks.transfer_operators`.
-        :raises RuntimeError: if called after calling solve.
+        :arg manager: Transfer manager, should conform to the
+            TransferManager interface.
+        :raises ValueError: if called after the transfer manager is setup.
         """
-        if self._setup:
-            raise RuntimeError("Cannot set transfer operators after solve")
-        self._transfer_operators = tuple(contextmanagers)
+        self._ctx.transfer_manager = manager
 
+    @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
@@ -277,7 +289,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         r"""
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`.Function` to solve for
+        :param u: the :class:`.Function` to which the solution will be assigned
         :param bcs: the boundary conditions (optional)
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be
