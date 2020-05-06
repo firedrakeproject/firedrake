@@ -22,6 +22,22 @@ def test_plotting_1d():
     assert len(legend.get_texts()) == 1
 
 
+def test_plotting_1d_high_degree():
+    mesh = UnitIntervalMesh(2)
+    V8 = FunctionSpace(mesh, "DG", 8)
+    V12 = FunctionSpace(mesh, "DG", 12)
+    x, = SpatialCoordinate(mesh)
+
+    expr = conditional(x < .5, 2**17 * x**4 * (0.5 - x)**4, 1)
+    u = project(expr, V8)
+    v = project(expr, V12)
+    fig, axes = plt.subplots()
+    patches = plot(u, edgecolor='tab:blue', axes=axes)
+    assert patches is not None
+    patches = plot(v, linestyle='--', edgecolor='tab:orange', axes=axes)
+    assert patches is not None
+
+
 def test_plot_wrong_inputs():
     mesh = UnitSquareMesh(32, 32)
     with pytest.raises(TypeError):
