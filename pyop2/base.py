@@ -1250,7 +1250,8 @@ class DataCarrier(object):
     (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
-    _dat_version = 0
+    def __init__(self):
+        self.dat_version = 0
 
     @cached_property
     def dtype(self):
@@ -1368,6 +1369,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
             # a dataset dimension of 1.
             dataset = dataset ** 1
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
+        DataCarrier.__init__(self)
         _EmptyDataMixin.__init__(self, data, dtype, self._shape)
 
         self._dataset = dataset
@@ -2269,6 +2271,7 @@ class Global(DataCarrier, _EmptyDataMixin):
             return
         self._dim = as_tuple(dim, int)
         self._cdim = np.prod(self._dim).item()
+        DataCarrier.__init__(self)
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_%d" % Global._globalcount
@@ -2329,7 +2332,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data(self):
         """Data array."""
-        self._dat_version += 1
+        self.dat_version += 1
         if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
@@ -2347,8 +2350,8 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @data.setter
     def data(self, value):
-        self._dat_version += 1
-        self.data[:] = verify_reshape(value, self.dtype, self.dim)
+        self.dat_version += 1
+        self._data[:] = verify_reshape(value, self.dtype, self.dim)
 
     @property
     def nbytes(self):
@@ -2379,6 +2382,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @collective
     def zero(self):
+        self.dat_version += 1
         self._data[...] = 0
 
     @collective
@@ -3116,6 +3120,7 @@ class Mat(DataCarrier):
     @validate_type(('sparsity', Sparsity, SparsityTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, sparsity, dtype=None, name=None):
+        DataCarrier.__init__(self)
         self._sparsity = sparsity
         self.lcomm = sparsity.lcomm
         self.rcomm = sparsity.rcomm

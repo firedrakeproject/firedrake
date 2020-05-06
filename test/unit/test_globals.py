@@ -44,3 +44,35 @@ def test_global_operations():
     assert (g1 * g2).data == 10.
     g1 *= g2
     assert g1.data == 10.
+
+
+def test_global_dat_version():
+    g1 = op2.Global(1, data=1.)
+    g2 = op2.Global(1, data=2.)
+
+    assert g1.dat_version == 0
+    assert g2.dat_version == 0
+
+    # Access data property
+    d1 = g1.data
+
+    assert g1.dat_version == 1
+    assert g2.dat_version == 0
+
+    # Access data property
+    g2.data[:] += 1
+
+    assert g1.dat_version == 1
+    assert g2.dat_version == 1
+
+    # Access zero property
+    g1.zero()
+
+    assert g1.dat_version == 2
+    assert g2.dat_version == 1
+
+    # Access data setter
+    g2.data = d1
+
+    assert g1.dat_version == 2
+    assert g2.dat_version == 2
