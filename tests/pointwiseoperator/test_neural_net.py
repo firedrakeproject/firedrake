@@ -8,9 +8,11 @@ import torch.nn.functional as F
 def mesh():
     return UnitSquareMesh(5, 5)
 
+
 @pytest.fixture(scope='module')
 def model():
     return torch.nn.Linear(1, 1)
+
 
 @pytest.fixture(scope='module')
 def model_Identity():
@@ -23,7 +25,6 @@ def model_Identity():
 
 def test_PyTorch_operator_model_attribute(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
-    P = FunctionSpace(mesh, "DG", 0)
 
     x, y = SpatialCoordinate(mesh)
 
@@ -35,14 +36,14 @@ def test_PyTorch_operator_model_attribute(mesh, model):
     u = Function(V).assign(0.5)
 
     def get_batch(batch_size=32):
-        #Builds a batch i.e. (x, f(x)) pair.
+        # Builds a batch i.e. (x, f(x)) pair.
         random = torch.randn(batch_size, dtype=dtype)
         d = random[0]
         d = torch.unsqueeze(d, 0)
         for i in range(1, batch_size):
             f = random[i]
             f = torch.unsqueeze(f, 0)
-            d = torch.cat((d,f), 0)
+            d = torch.cat((d, f), 0)
         x = d
         # Approximated function
         y = c1*random[0]
@@ -50,10 +51,9 @@ def test_PyTorch_operator_model_attribute(mesh, model):
         for i in range(1, batch_size):
             f = c1*random[i]
             f = torch.unsqueeze(f, 0)
-            y = torch.cat((y,f), 0)
+            y = torch.cat((y, f), 0)
 
         return x, y
-
 
     # Define model
     fc = model
@@ -81,14 +81,14 @@ def test_PyTorch_operator_model_attribute(mesh, model):
 
         # Apply gradients
         for param in nP2.model.parameters():
-                param.data.add_(-0.1 * param.grad.data)
+            param.data.add_(-0.1 * param.grad.data)
 
         # Stop criterion
         if loss < 1e-4:
             break
 
     print('Loss: {:.6f} after {} batches'.format(loss, batch_idx))
-    print("\n x_target : ",x_target," \n y_target : ",y_target,"\n learning output : ",nP2.model(x_target))
+    print("\n x_target : ", x_target, "\n y_target : ", y_target, "\n learning output : ", nP2.model(x_target))
 
     sol = Function(V)
     sol.dat.data[:] = fc(x_target).detach().numpy()
@@ -98,7 +98,6 @@ def test_PyTorch_operator_model_attribute(mesh, model):
 
 def test_pointwise_neuralnet_PyTorch_control(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
-    P = FunctionSpace(mesh, "DG", 0)
 
     x, y = SpatialCoordinate(mesh)
 
@@ -116,10 +115,10 @@ def test_pointwise_neuralnet_PyTorch_control(mesh, model):
     assert fc == nP2.model
 
     from ufl.algorithms.apply_derivatives import apply_derivatives
-    dnp2_du = apply_derivatives(diff(nP2,u))
+    dnp2_du = apply_derivatives(diff(nP2, u))
     assemble(dnp2_du*dx)
 
-    dnp2_dg = apply_derivatives(diff(nP2,g))
+    dnp2_dg = apply_derivatives(diff(nP2, g))
     assemble(dnp2_dg*dx)
 
 

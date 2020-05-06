@@ -33,7 +33,6 @@ def test_abstract_pointwise_operator(mesh):
             pass
 
     f = lambda x, y: x*y
-    position = 1
     p = TestAbstract(u, w, g, function_space=V, derivatives=(0, 0, 1), count=9999,
                      name='abstract_po', operator_data=f)
 

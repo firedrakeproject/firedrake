@@ -219,9 +219,9 @@ def test_glen_flow_law():
     x, y = SpatialCoordinate(mesh)
 
     # Function spaces
-    V1 = VectorFunctionSpace(mesh, "CG", 2) # velocity
-    V2 = FunctionSpace(mesh, "CG", 1) # pressure
-    V3 = TensorFunctionSpace(mesh, "DG", 1) # stress tensor
+    V1 = VectorFunctionSpace(mesh, "CG", 2)  # velocity
+    V2 = FunctionSpace(mesh, "CG", 1)  # pressure
+    V3 = TensorFunctionSpace(mesh, "DG", 1)  # stress tensor
     W = MixedFunctionSpace((V1, V2))
 
     w, phi = TestFunctions(W)
@@ -236,28 +236,28 @@ def test_glen_flow_law():
 
     # Glen's flow law
     power = 2
-    ps = point_solve(lambda sol, y: Matrix(sol)*(Matrix(sol).norm())**power -y,
+    ps = point_solve(lambda sol, y: Matrix(sol) * (Matrix(sol).norm())**power - y,
                      function_space=V3,
                      solver_name='newton',
-                     solver_params={'maxiter':50, 'x0':Function(V3).interpolate(Identity(2))})
+                     solver_params={'maxiter': 50, 'x0': Function(V3).interpolate(Identity(2))})
 
     # PointsolveOperator
     tau2 = ps(sym(grad(u2)))
 
-    F2 = div(w)*p2*dx - inner(grad(w), tau2)*dx - phi*div(u2)*dx
-    solve(F2==0, soln2, bcs=bcs)
+    F2 = inner(p2, div(w))*dx - inner(grad(w), tau2)*dx - inner(div(u2), phi)*dx
+    solve(F2 == 0, soln2, bcs=bcs)
 
     u2_out, p2_out = soln2.split()
 
-    ## Verification ##
+    # Verification #
     T = tau2
     SG = Function(V3).interpolate(sym(grad(u2)))
 
     # L2 error
-    fexpr = T*inner(T,T) - SG
+    fexpr = T*inner(T, T) - SG
     assert assemble(inner(fexpr, fexpr)*dx) < 1.e-7
 
     # l2 error
     fct = lambda x, y: np.linalg.norm(x)**2*x - y
-    res = np.array([fct(A,B) for A, B in zip(T.dat.data_ro, SG.dat.data_ro)])
+    res = np.array([fct(A, B) for A, B in zip(T.dat.data_ro, SG.dat.data_ro)])
     assert 0.5*np.linalg.norm(res)/np.sqrt(V3.node_count) < 1.e-7
