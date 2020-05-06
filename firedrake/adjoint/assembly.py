@@ -23,10 +23,8 @@ def annotate_assemble(assemble):
             tape = get_working_tape()
 
             coeff_form = form.coefficients()
-            extops_form = []
             for coeff in coeff_form:
                 if isinstance(coeff, ufl.ExternalOperator):
-                    extops_form += [coeff]
                     block_extops = PointwiseOperatorBlock(coeff, *args, **kwargs)
                     tape.add_block(block_extops)
 

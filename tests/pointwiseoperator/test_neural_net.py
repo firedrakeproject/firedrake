@@ -8,8 +8,20 @@ import torch.nn.functional as F
 def mesh():
     return UnitSquareMesh(5, 5)
 
+@pytest.fixture(scope='module')
+def model():
+    return torch.nn.Linear(1, 1)
 
-def test_pointwise_neuralnet_PyTorch(mesh):
+@pytest.fixture(scope='module')
+def model_Identity():
+    # Make an Identity model mapping model_Identity: x |--> x (for sake of testing)
+    Id = torch.nn.Linear(1, 1)
+    Id.weight.data[:] = 1
+    Id.bias.data[:] = 0
+    return Id
+
+
+def test_PyTorch_operator_model_attribute(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
     P = FunctionSpace(mesh, "DG", 0)
 
@@ -24,19 +36,19 @@ def test_pointwise_neuralnet_PyTorch(mesh):
 
     def get_batch(batch_size=32):
         #Builds a batch i.e. (x, f(x)) pair.
-        random = torch.randn(batch_size)
-        d = torch.tensor(random[0], dtype=dtype)
+        random = torch.randn(batch_size, dtype=dtype)
+        d = random[0]
         d = torch.unsqueeze(d, 0)
         for i in range(1, batch_size):
-            f = torch.tensor(random[i], dtype=dtype)
+            f = random[i]
             f = torch.unsqueeze(f, 0)
             d = torch.cat((d,f), 0)
         x = d
         # Approximated function
-        y = torch.tensor(c1*random[0], dtype=dtype)
+        y = c1*random[0]
         y = torch.unsqueeze(y, 0)
         for i in range(1, batch_size):
-            f = torch.tensor(c1*random[i], dtype=dtype)
+            f = c1*random[i]
             f = torch.unsqueeze(f, 0)
             y = torch.cat((y,f), 0)
 
@@ -44,7 +56,7 @@ def test_pointwise_neuralnet_PyTorch(mesh):
 
 
     # Define model
-    fc = torch.nn.Linear(1, 1)
+    fc = model
     nP = neuralnet(fc, function_space=V)
     nP2 = nP(u)
 
@@ -83,19 +95,22 @@ def test_pointwise_neuralnet_PyTorch(mesh):
     error = ((nP2-sol)**2)*dx
     assert assemble(error) < 1.0e-9
 
-def test_pointwise_neuralnet_PyTorch_control(mesh):
+
+def test_pointwise_neuralnet_PyTorch_control(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
     P = FunctionSpace(mesh, "DG", 0)
 
     x, y = SpatialCoordinate(mesh)
 
     u = Function(V)
-    g = Function(V) # g will be the control
+    g = Function(V)
 
     # Define model
-    fc = torch.nn.Linear(1, 1)
-    nP = neuralnet(fc, function_space=V, ncontrols=1)  #  By default ncontrols = 1
-    nP2 = nP(g, u) # The ncontrols first operands are taken as controls
+    fc = model
+    #  By default ncontrols = 1
+    nP = neuralnet(fc, function_space=V, ncontrols=1)
+    # The ncontrols first operands are taken as controls
+    nP2 = nP(g, u)
 
     assert nP2.framework == 'PyTorch'
     assert fc == nP2.model
@@ -103,8 +118,29 @@ def test_pointwise_neuralnet_PyTorch_control(mesh):
     from ufl.algorithms.apply_derivatives import apply_derivatives
     dnp2_du = apply_derivatives(diff(nP2,u))
     assemble(dnp2_du*dx)
-    print("\n FIRST ASSEMBLE DONE")
-    #import ipdb; ipdb.set_trace()
-    
+
     dnp2_dg = apply_derivatives(diff(nP2,g))
     assemble(dnp2_dg*dx)
+
+
+def test_scalar_check_equality(mesh, model_Identity):
+
+    V1 = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    w = TestFunction(V1)
+    u = Function(V1)
+    f = Function(V1).interpolate(cos(x)*sin(y))
+
+    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    solve(F == 0, u)
+
+    u2 = Function(V1)
+    p = neuralnet(model_Identity, function_space=V1)
+    tau2 = p(u2)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    solve(F2 == 0, u2)
+
+    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_expr < 1.0e-09

@@ -4,6 +4,7 @@ import types
 import sympy as sp
 import numpy as np
 
+from ufl import zero
 from ufl.core.external_operator import ExternalOperator
 from ufl.core.expr import Expr
 from ufl.algorithms.apply_derivatives import VariableRuleset
@@ -298,7 +299,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                             d3fdsil = sp.lambdify(symb, d3fdsi, modules='numpy')
                         elif di != 2:
                             # The implicit differentiation order can be extended if needed
-                            error("Implicit differentiation of order n is not handled for n>3")
+                            raise NotImplementedError("Implicit differentiation of order n is not handled for n>3")
 
                     def multidimensional_numpy_solve(shape):
                         if len(shape) == 0:
@@ -354,7 +355,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                                 res[j] = InvA*C
                 implicit_differentiation(self.dat.data)
                 if not all(v == 0 for v in deriv_index[:i]+deriv_index[i+1:]):
-                    error("Cross-derivatives not handled : %s" % deriv_index)  # Needed feature ?
+                    raise NotImplementedError("Cross-derivatives not handled : %s" % deriv_index)  # Needed feature ?
                 break
         return self
 
@@ -465,7 +466,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         """
         A vectorized version of Newton, Halley, and secant methods for arrays
         This version is a modification of the 'optimize.newton' function
-        from the scipy library which handles non-scalar cases.
+        from the SciPy library which handles non-scalar cases.
         """
         # Explicitly copy `x0` as `p` will be modified inplace, but, the
         # user's array should not be altered.
@@ -563,8 +564,9 @@ class PointnetOperator(AbstractPointwiseOperator):
 
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):
-            cw = Constant(0.)
             weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
+            cw = Constant(zero(*weights_val.shape))
+            # Assign and convert (from torch to numpy)
             cw.dat.data[:] = weights_val
             operands += (cw,)
             # Type exception is caught later
@@ -799,7 +801,7 @@ def weights(*args):
     for e in args:
         w = e.ufl_operands[-1]
         if not isinstance(w, Constant):
-            raise TypeError("Expecting a PointnetWeights and not $s", w)
+            raise TypeError("Expecting a Constant and not $s", w)
         res += [w]
     if len(res) == 1:
         return res[0]
@@ -810,4 +812,4 @@ def ml_get_weights(model, framework):
     if framework == 'PyTorch':
         return model.weight.data
     else:
-        error(framework + " operator is not implemented yet.")
+        raise NotImplementedError(framework + ' operator is not implemented yet.')

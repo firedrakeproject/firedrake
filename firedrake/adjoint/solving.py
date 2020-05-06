@@ -53,10 +53,8 @@ def annotate_solve(solve):
 
             if isinstance(args[0], ufl.equation.Equation):
                 coeff_form = args[0].lhs.coefficients()
-                extops_form = []
                 for coeff in coeff_form:
                     if isinstance(coeff, ufl.ExternalOperator):
-                        extops_form += [coeff]
                         block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
                         tape.add_block(block_extops)
 
