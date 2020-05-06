@@ -672,7 +672,7 @@ class PytorchOperator(PointnetOperator):
             w = self.ufl_operands[-1]
             # Get versions
             self_version = self._weights_version['version']
-            w_version = w.dat._dat_version
+            w_version = w.dat.dat_version
 
             if self_version != w_version or w != self_w:
                 if w._is_control:
