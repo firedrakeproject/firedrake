@@ -178,7 +178,7 @@ class PointexprOperator(AbstractPointwiseOperator):
     def compute_derivatives(self):
         symb = sp.symbols('s:%d' % len(self.ufl_operands))
         r = sp.diff(self.expr(*symb), *zip(symb, self.derivatives))
-        return sp.lambdify(symb, r)
+        return sp.lambdify(symb, r, dummify=True)
 
     def evaluate(self):
         operands = self.ufl_operands
@@ -282,21 +282,21 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     # -> We could solve the system "dfds0*ds0/dsi = -dfdsi" symbolically and then
                     # for the n-th derivative just apply n-1th time the derivative on the result.
                     # However again sympy.linsolve() does not handle high dimensional case
-                    dfds0l = sp.lambdify(symb, dfds0, modules='numpy')
-                    dfdsil = sp.lambdify(symb, dfdsi, modules='numpy')
+                    dfds0l = sp.lambdify(symb, dfds0, modules='numpy', dummify=True)
+                    dfdsil = sp.lambdify(symb, dfdsi, modules='numpy', dummify=True)
 
                     if di > 1:
                         d2fds0 = sp.diff(fexpr, symb[0], 2)
                         d2fdsi = sp.diff(fexpr, symb[i], 2)
 
-                        d2fds0l = sp.lambdify(symb, d2fds0, modules='numpy')
-                        d2fdsil = sp.lambdify(symb, d2fdsi, modules='numpy')
+                        d2fds0l = sp.lambdify(symb, d2fds0, modules='numpy', dummify=True)
+                        d2fdsil = sp.lambdify(symb, d2fdsi, modules='numpy', dummify=True)
                         if di == 3:
                             d3fds0 = sp.diff(fexpr, symb[0], 3)
                             d3fdsi = sp.diff(fexpr, symb[i], 3)
 
-                            d3fds0l = sp.lambdify(symb, d3fds0, modules='numpy')
-                            d3fdsil = sp.lambdify(symb, d3fdsi, modules='numpy')
+                            d3fds0l = sp.lambdify(symb, d3fds0, modules='numpy', dummify=True)
+                            d3fdsil = sp.lambdify(symb, d3fdsi, modules='numpy', dummify=True)
                         elif di != 2:
                             # The implicit differentiation order can be extended if needed
                             raise NotImplementedError("Implicit differentiation of order n is not handled for n>3")
@@ -391,7 +391,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         ops_f += tuple(self._sympy_create_symbols(e.ufl_shape, i+1, granular=False)
                        for i, e in enumerate(self.ufl_operands))
         new_symb = tuple(e.free_symbols.pop() for e in ops_f)
-        new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy')
+        new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy', dummify=True)
 
         # Computation of the jacobian
         if self.solver_name in ('newton', 'halley'):
@@ -399,7 +399,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 fexpr = f(*symb)
                 df = self._sympy_inv_jacobian(symb[0], fexpr)
                 df = self._sympy_subs_symbols(symb, ops_f, df, shape)
-                fprime = sp.lambdify(new_symb, df, modules='numpy')
+                fprime = sp.lambdify(new_symb, df, modules='numpy', dummify=True)
                 solver_params['fprime'] = fprime
 
         # Computation of the hessian
@@ -408,7 +408,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 # TODO: use something like _sympy_inv_jacobian
                 d2f = sp.diff(f(*symb), symb[0], symb[0])
                 d2f = self._sympy_subs_symbols(symb, ops_f, d2f, shape)
-                fprime2 = sp.lambdify(new_symb, d2f, modules='numpy')
+                fprime2 = sp.lambdify(new_symb, d2f, modules='numpy', dummify=True)
                 solver_params['fprime2'] = fprime2
 
         offset = 0
