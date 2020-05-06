@@ -504,6 +504,10 @@ petsc_options = {"--with-fortran-bindings=0",
                  # For superlu_dist amongst others.
                  "--with-cxx-dialect=C++11"}
 
+if args.cuda:
+    # SUPERLU requires OpenMP for operating on GPUs
+    petsc_options.add("--with-openmp=1")
+
 if not options["minimal_petsc"]:
     petsc_options.add("--with-zlib")
     # File formats
@@ -1320,9 +1324,9 @@ if mode == "install":
     if sys.version_info >= (3, 8):
         log.info("Pip installing VTK for Python3.8")
         if osname == "Darwin":
-            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl")
+            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl"])
         elif osname == "Linux":
-            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl")
+            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl"])
 
 
 petsc_dir, petsc_arch = get_petsc_dir()
