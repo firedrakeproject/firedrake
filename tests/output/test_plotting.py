@@ -10,8 +10,8 @@ def test_plotting_1d():
     DG = FunctionSpace(mesh, "DG", 0)
     x, = SpatialCoordinate(mesh)
 
-    u = interpolate(x * (1 - x), CG)
-    v = project(x * (1 - x), DG)
+    u = interpolate(8 * x * (1 - x), CG)
+    v = project(8 * x * (1 - x), DG)
 
     patches = plot(u, edgecolor='black', linestyle='--')
     assert patches is not None

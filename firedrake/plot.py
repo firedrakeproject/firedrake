@@ -318,18 +318,20 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
         axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
-        return _bezier_plot(function, axes, **kwargs)
+        result = _bezier_plot(function, axes, **kwargs)
+    else:
+        if bezier:
+            num_sample_points = max((num_sample_points // 3) * 3 + 1, 4)
+        points = calculate_one_dim_points(function, num_sample_points)
 
-    if bezier:
-        num_sample_points = max((num_sample_points // 3) * 3 + 1, 4)
-    points = calculate_one_dim_points(function, num_sample_points)
+        if bezier:
+            num_cells = function.function_space().mesh().num_cells()
+            result = _interp_bezier(points, num_cells, axes, **kwargs)
+        else:
+            result = axes.plot(points[0], points[1], *args, **kwargs)
 
-    if bezier:
-        return _interp_bezier(points,
-                              function.function_space().mesh().num_cells(),
-                              axes, **kwargs)
-
-    return axes.plot(points[0], points[1], *args, **kwargs)
+    _autoscale_view(axes, None)
+    return result
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):
