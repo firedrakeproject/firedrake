@@ -799,7 +799,7 @@ def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, f
         PetscBool has_point
 
     subplex.createLabel("exterior_facets")
-    _subpoint_map = subplex.createSubpointIS().getIndices()
+    _subpoint_map = subplex.getSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
     for f in range(fStart, fEnd):
         # parent facet
@@ -2459,7 +2459,7 @@ def submesh_create_sub_super_map(submesh, dim):
     else:
         raise NotImplementedError("Only codim == 0 is implemented now")
 
-    subpointindices = submesh._plex.createSubpointIS().getIndices()
+    subpointindices = submesh._plex.getSubpointIS().getIndices()
     for subp in range(subpStart, subpEnd):
         CHKERR(PetscSectionGetOffset(subnumbering.sec, subp, &subpoint))
         p = subpointindices[subp]

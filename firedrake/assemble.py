@@ -234,10 +234,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
-    form_arguments = f.arguments()
-    form_arguments = tuple(sorted(set(a if a.parent is None else a.parent for a in form_arguments), key=lambda x: x.number()))
+    arguments = f.arguments()
+    #arguments = tuple(sorted(set(a if a.parent is None else a.parent for a in arguments), key=lambda x: x.number()))
 
-    rank = len(form_arguments)
+    rank = len(arguments)
     if diagonal:
         assert rank == 2
     is_mat = rank == 2 and not diagonal
@@ -278,7 +278,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             yield lambda: tensor
             return
 
-        test, trial = form_arguments
+        test, trial = arguments
 
         map_pairs = []
         cell_domains = []
@@ -390,7 +390,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             yield result
             return
     elif is_vec:
-        test = form_arguments[0]
+        test = arguments[0]
         if tensor is None:
             result_function = function.Function(test.function_space())
             tensor = result_function.dat
@@ -438,6 +438,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         kernel = kinfo.kernel
         integral_type = kinfo.integral_type
         domain_number = kinfo.domain_number
+        domain_numbers = kinfo.domain_numbers
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
         coeff_parts = kinfo.coefficient_parts
@@ -447,7 +448,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         needs_cell_sizes = kinfo.needs_cell_sizes
 
         m = domains[domain_number]
-
+        ms = [domains[n] for n in domain_numbers]
         subdomain_data = f.subdomain_data()[m]
         # Find argument space indices
         if is_mat:
@@ -547,9 +548,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             tensor_arg = tensor(op2.INC)
 
-        coords = m.coordinates
-        args = [kernel, itspace, tensor_arg,
-                coords.dat(op2.READ, op2.ComposedMap([get_map(coords), ]))]
+        args = [kernel, itspace, tensor_arg, ]
+        for mm in ms:
+            coords = mm.coordinates
+            jmesh = coords.function_space().mesh().topology
+            jdim = jmesh._plex.getDimension()
+            m_ = op2.ComposedMap([get_map(coords), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+            args.append(coords.dat(op2.READ, m_))
         if needs_orientations:
             o = m.cell_orientations()
             args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))

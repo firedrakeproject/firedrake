@@ -39,6 +39,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
+                                     "domain_numbers",
                                      "coefficient_map",
                                      "coefficient_parts",
                                      "needs_cell_facets",
@@ -138,11 +139,13 @@ class TSFCKernel(Cached):
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             domain_number = domain_map[kernel.domain_number]
+            domain_numbers = [domain_map[n] for n in kernel.domain_numbers]
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=domain_number,
+                                      domain_numbers=domain_numbers,
                                       coefficient_map=numbers,
                                       coefficient_parts=kernel.coefficient_parts,
                                       needs_cell_facets=False,
