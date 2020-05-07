@@ -1,6 +1,10 @@
 import pytest
 from firedrake import *
-import torch
+try:
+    import torch
+except ImportError:
+    raise ImportError("Try: pip install torch")
+
 import torch.nn.functional as F
 
 
