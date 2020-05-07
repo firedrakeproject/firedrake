@@ -402,7 +402,7 @@ class LocalLoopyKernelBuilder(object):
     layer_arg = "layer"
     cell_size_arg = "cell_sizes"
     result_arg = "result"
-    cell_orientations_arg = "orientations"
+    cell_orientations_arg = "cell_orientations"
 
     # Supported integral types
     supported_integral_types = [
@@ -533,6 +533,7 @@ class LocalLoopyKernelBuilder(object):
         return arguments
 
     def generate_layer_integral_predicates(self, tensor, integral_type):
+        self.needs_mesh_layers = True
         layer = pym.Variable(self.layer_arg)
 
         # TODO: Variable layers
@@ -545,6 +546,7 @@ class LocalLoopyKernelBuilder(object):
         return [which]
     
     def generate_facet_integral_predicates(self, mesh, integral_type, kinfo):
+        self.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
             num_facets = mesh._base_mesh.ufl_cell().num_facets()
@@ -637,10 +639,10 @@ class LocalLoopyKernelBuilder(object):
 
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
         coords = None
-        needs_cell_orientations = False
-        needs_cell_sizes = False
-        needs_cell_facets = False
-        needs_mesh_layers = False
+        self.needs_cell_orientations = False
+        self.needs_cell_sizes = False
+        self.needs_cell_facets = False
+        self.needs_mesh_layers = False
         num_facets = 0
 
         # Collect coefficients
@@ -698,7 +700,6 @@ class LocalLoopyKernelBuilder(object):
                         raise NotImplementedError("No subdomain markers for cells yet")
 
                 elif self.is_integral_type(integral_type, "facet_integral"):
-                    needs_cell_facets = True
                     predicates, i, fidx, num_facets = self.generate_facet_integral_predicates(mesh, integral_type, kinfo)
                     # Additional facet array argument that has to be fed into tsfc loopy kernel
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
@@ -707,7 +708,6 @@ class LocalLoopyKernelBuilder(object):
                     inames_dep.append(fidx[0].name)
 
                 elif self.is_integral_type(integral_type, "layer_integral"):
-                    needs_mesh_layers = True
                     predicates = self.generate_layer_integral_predicates(tensor, integral_type)
                 
                 else:
@@ -726,10 +726,6 @@ class LocalLoopyKernelBuilder(object):
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
         self.include_dirs = sorted(set(include_dirs))
-        self.needs_cell_orientations = needs_cell_orientations
-        self.needs_cell_sizes = needs_cell_sizes
-        self.needs_cell_facets = needs_cell_facets
-        self.needs_mesh_layers = needs_mesh_layers
         self.num_facets = num_facets
 
 
