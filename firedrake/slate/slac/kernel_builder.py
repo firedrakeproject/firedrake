@@ -436,109 +436,26 @@ class LocalLoopyKernelBuilder(object):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        # For preservation of relations
-        # between slate Tensor and the according gem Indexed tensor
-        # and between gem Indexed tensor and loopy tensor TemporaryVariable
-        temps = OrderedDict()
-        gem_loopy_dict = OrderedDict()
-
         # Creation of gem and loopy indices with automatic naming
         self.create_index = partial(create_index,
                                     namer=map("i{}".format, itertools.count()))
-
-        # Save all coefficients
-        # coeff_vecs for coefficient where AssembledVectors sit on top (relation preservation)
-        # extra_coefficients for all other coefficients (no relation preservation)
-        seen_coeff = set()
-        coeff_vecs = OrderedDict()
-        extra_coefficients = []
         self.args_extents = OrderedDict([])
         self.inames = OrderedDict()
-
-        # A first compilation is already hapenning here
-        # but only for tensors and assembled vectors
-        expression_dag = list(traverse_dags([expression]))
-        for tensor in expression_dag:
-
-            # Terminal tensors will always require a temporary.
-            if isinstance(tensor, slate.Tensor):
-                shape = self.shape(tensor)
-                temps.setdefault(tensor, gem.Variable("T%d" % len(temps), shape))
-                gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].name,
-                                          shape=shape,
-                                          dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-
-            # 'AssembledVector's will always require a coefficient temporary.
-            if isinstance(tensor, slate.AssembledVector):
-
-                function = tensor._function
-
-                def dimension(e):
-                    return create_element(e).space_dimension()
-
-                if function not in seen_coeff:
-                    if type(function.ufl_element()) == MixedElement:
-                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
-                        f = function.split()
-                    else:
-                        shapes = [dimension(function.ufl_element())]
-                        f = function
-
-                    name = "VecTemp%d" % len(seen_coeff)
-                    local_temp = gem.Variable(name, tensor.shape)
-                    gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.name,
-                                              shape=tensor.shape,
-                                              dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-
-                    offset = 0
-                    for i, shape in enumerate(shapes):
-                        # Preserves relation between slate Tensor and gem Indexed tensor
-                        # Subblocks of mixed Tensors have distint space, offset index and shape,
-                        # but share the gem Node for the tensor
-                        cinfo = CoefficientInfo(space_index=i,
-                                                offset_index=offset,
-                                                shape=shape,
-                                                vector=tensor,
-                                                local_temp=local_temp,
-                                                function=f)
-                        coeff_vecs.setdefault(((shape, offset), tensor.is_mixed), []).append(cinfo)
-                        offset += shape
-
-                    seen_coeff.add(function)
-
-        # Collect all coefficients which are not wrapped by an AssembledVector (e.g. of Tensor(L))
-        for i, c in enumerate(expression.coefficients()):
-            if c not in seen_coeff:
-                element = c.ufl_element()
-                if type(element) == MixedElement:
-                    for j, c_ in enumerate(c.split()):
-                        name = "w_{}_{}".format(i, j)
-                        extra_coefficients.extend([(c, name)])
-                        self.args_extents.setdefault(name, index_extent(c_))
-                else:
-                    name = "w_{}".format(i)
-                    extra_coefficients.extend([(c, name)])
-                    self.args_extents.setdefault(name, index_extent(c))
-                seen_coeff.add(c)
-
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.temps = temps
-        self.gem_loopy_dict = gem_loopy_dict
-        self.expression_dag = expression_dag
-        self.coefficient_vecs = coeff_vecs
-        self.extra_coefficients = extra_coefficients
-        self._setup()
+        self.expression_dag = list(traverse_dags([expression]))
+        self.coefficient_vecs = OrderedDict()
+        self.coefficients = OrderedDict()
+        self.temporary_variables = OrderedDict()
 
-    @cached_property
-    def context_kernels(self):
+    def context_kernels(self, terminals):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
 
         ctx_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=False)
-                    for i, expr in enumerate(self.temps)]
+                    for i, expr in enumerate(terminals)]
 
         return tuple(itertools.chain.from_iterable(ctx_list))
 
@@ -556,38 +473,19 @@ class LocalLoopyKernelBuilder(object):
             The saved indicies are coming from subarrayereffing kernel arguments
             or from initilizations of Tensors and coefficients.
         """
-        for index, extent in zip(loopy_multiindex, extent):
-            self.inames[index] = extent
+        for index, ext in zip(loopy_multiindex, extent):
+            if isinstance(ext, tuple):
+                ext =ext[0]
+            self.inames[index] = int(ext)
 
     def generate_tsfc_lhs(self, tsfc_kernel, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
             which contains the TSFC assembly of the tensor.
         """
-        if tensor.is_mixed:
-            # For the mixed case output is a slice of the tensor
-            block_index = tsfc_kernel.indices
-            extent = ()
-            offset = ()
-            slices = ()
-
-            # Create offset and extent for the block
-            for i, j in enumerate(block_index):
-                extent += (tensor.shapes[i][j],)
-                offset += (sum(tensor.shapes[i][:j]),)
-            idx = self.create_index(extent, "loopy")
-            self.save_index(idx, extent)
-
-            # Indices for subscripting the tensor with an offset
-            for i, j in enumerate(block_index):
-                slices += (pym.Sum((offset[i], idx[i])),)
-            lhs = pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices)
-
-            output = SubArrayRef(idx, lhs)
-        else:
-            idx = self.create_index(self.shape(tensor), "loopy")
-            self.save_index(idx, self.shape(tensor))
-            lhs = pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), idx)
-            output = SubArrayRef(idx, lhs)
+        idx = self.create_index(self.shape(tensor), "loopy")
+        self.save_index(idx, self.shape(tensor))
+        lhs = pym.Subscript(pym.Variable(temp.name), idx)
+        output = SubArrayRef(idx, lhs)
         return output
 
     def collect_tsfc_kernel_data(self, mesh, coefficients, kinfo):
@@ -599,30 +497,24 @@ class LocalLoopyKernelBuilder(object):
                         self.coordinates_arg)]
 
         if kinfo.oriented:
-            needs_cell_orientations = True
+            self.needs_cell_orientations = True
             kernel_data.append((mesh.cell_orientations(),
                                 self.cell_orientations_arg))
 
         if kinfo.needs_cell_sizes:
-            needs_cell_sizes = True
+            self.needs_cell_sizes = True
             kernel_data.append((mesh.cell_sizes,
                                 self.cell_size_arg))
 
         # Pick the right local coeffs from extra coeffs
         local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-        coeff_vecs_list = [(v.function, v.local_temp.name) for w in self.coefficient_vecs.values() for v in w]
-        for c, name in (self.extra_coefficients + coeff_vecs_list):
+        for c, coeff in self.coefficients.items():
             if c in local_coefficients:
-                if type(c.ufl_element()) == MixedElement:
-                    # Split is always generating new function.
-                    # I procrastinated the split until last possibility here,
-                    # even though that means that extra coefficients
-                    # contais the mixed cofficient twice.
-                    for j, c_ in enumerate(c.split()):
-                        if str(j) == name[-1]:
-                            kernel_data.extend([(c_, name)])
+                if isinstance(coeff[0], tuple):
+                    for c_, info in coeff:
+                        kernel_data.extend([(c_, info[0])])
                 else:
-                    kernel_data.extend([(c, name)])
+                    kernel_data.extend([(c, coeff[0])])
         return kernel_data
     
     def loopify_kernel_data(self, kernel_data):
@@ -699,7 +591,43 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def _setup(self):
+    def collect_coefficients(self, coeffs):
+        for i, c in enumerate(coeffs):
+            if c not in self.coefficients:
+                element = c.ufl_element()
+                if type(element) == MixedElement:
+                    tup = ()
+                    for j, c_ in enumerate(c.split()):
+                        name = "w_{}_{}".format(i, j)
+                        info = (name, index_extent(c_))
+                        tup +=((c_, info),)
+                    self.coefficients[c] = tup
+                else:
+                    name = "w_{}".format(i)
+                    self.coefficients[c] = (name, index_extent(c))
+
+    def initialise_terminals(self, var2terminal):
+        tensor2temp = OrderedDict()
+        inits = []
+        for gem_tensor, slate_tensor in var2terminal.items():
+            extent = self.shape(slate_tensor)
+            indices = self.create_index(extent, "loopy")
+            # Create new indices for inits and save with indexed (gem) key instead of slate tensor
+            self.save_index(indices, extent)
+            loopy_tensor =  loopy.TemporaryVariable(gem_tensor.name, shape=gem_tensor.shape, dtype="double", address_space=loopy.AddressSpace.LOCAL)
+            inames = {var.name for var in indices}
+            tensor2temp[slate_tensor] = loopy_tensor
+            if isinstance(slate_tensor, slate.Tensor):
+                inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices),  "0", id="init%d" % len(inits), within_inames=frozenset(inames)))
+            
+            elif isinstance(slate_tensor, slate.AssembledVector):
+                coeff_name = self.coefficients[slate_tensor._function][0]
+                inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable(coeff_name), indices), id="init%d" % len(inits), within_inames=frozenset(inames)))
+        
+            self.temporary_variables[gem_tensor.name] = loopy_tensor
+        return tensor2temp, inits
+
+    def _setup(self, var2terminal, terminal2loopy=None):
         """A setup method to initialize all the local assembly
         kernels generated by TSFC. This function also collects any
         information regarding orientations and extra include directories.
@@ -715,12 +643,26 @@ class LocalLoopyKernelBuilder(object):
         needs_mesh_layers = False
         num_facets = 0
 
+        # Collect coefficients
+        self.collect_coefficients(self.expression.coefficients())
+
+        # Initilisation of terminals
+        tensor2temp, inits = self.initialise_terminals(var2terminal)
+        self.tensor2temp = tensor2temp
+        self.inits = inits
+
+        # TSFC calls for terminal tensors
+        terminal_tensors = [tensor for tensor in var2terminal.values() if isinstance(tensor, slate.Tensor)]
+        tsfc_kernels = self.context_kernels(terminal_tensors)
+
+
         # For all terminal tensors provided by TSFC
-        for pos, cxt_kernel in enumerate(self.context_kernels):
+        for pos, cxt_kernel in enumerate(tsfc_kernels):
             coefficients = cxt_kernel.coefficients
+            self.collect_coefficients(coefficients)
             integral_type = cxt_kernel.original_integral_type
             tensor = cxt_kernel.tensor
-            loopy_tensor = self.temps[tensor]
+            loopy_tensor = tensor2temp[tensor]
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -736,7 +678,7 @@ class LocalLoopyKernelBuilder(object):
             for tsfc_kernel in cxt_kernel.tsfc_kernels:
                 kinfo = tsfc_kernel.kinfo
                 reads = []
-                inames = []
+                inames_dep = []
 
                 # Populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
@@ -762,7 +704,7 @@ class LocalLoopyKernelBuilder(object):
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
                                             (pym.Sum((i[0], fidx[0]))))
                     reads.append(SubArrayRef(i, subscript))
-                    inames.append(fidx[0].name)
+                    inames_dep.append(fidx[0].name)
 
                 elif self.is_integral_type(integral_type, "layer_integral"):
                     needs_mesh_layers = True
@@ -777,7 +719,7 @@ class LocalLoopyKernelBuilder(object):
                 call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
                 assembly_calls[integral_type].append(loopy.CallInstruction((output,),
                                                                            call,
-                                                                           within_inames=frozenset(inames),
+                                                                           within_inames=frozenset(inames_dep),
                                                                            predicates=predicates,
                                                                            id=key))
 

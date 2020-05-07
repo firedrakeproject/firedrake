@@ -133,11 +133,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    gem_expr = slate_to_gem(builder)
+    gem_expr, translator = slate_to_gem(builder)
 
-    loopy_outer = gem_to_loopy(gem_expr, builder)
+    loopy_outer = gem_to_loopy(gem_expr, builder, translator)
 
-    loopy_merged = merge_loopy(loopy_outer, builder.templated_subkernels, builder)
+    loopy_merged = merge_loopy(loopy_outer, builder, translator)
 
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
@@ -597,103 +597,33 @@ def slate_to_gem(builder, prec=None):
     Their translations are owned by the builder.
     """
 
-    traversed_gem_dag = SlateTranslator(builder).slate_to_gem_translate()
-    return list([traversed_gem_dag])
+    translator = SlateTranslator(builder)
+    traversed_gem_dag = translator.slate_to_gem_translate()
+    return list([traversed_gem_dag]), translator
 
 
-def gem_to_loopy(traversed_gem_expr_dag, builder):
+def gem_to_loopy(traversed_gem_expr_dag, builder, translator):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
     :return outer_loopy: loopy kernel for slate operations.
     """
-    # Part A: slate to impero_c
-
-    # Add all tensor temporaries as arguments
-    args = []  # loopy args for temporaries (tensors and assembled vectors) and arguments
-    for k, v in builder.temps.items():
-        arg = builder.gem_loopy_dict[v]
-        args.append(arg)
-
     # Creation of return variables for outer loopy
     shape = builder.shape(builder.expression)
     arg = loopy.GlobalArg("output", shape=shape, dtype="double")
-    args.append(arg)
     idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
-    # TODO the global argument generation must be made nicer
-    # Maybe this can be done in the builder?
-    if len(builder.args_extents) > 0:
-        arg = loopy.GlobalArg("coords", shape=(builder.args_extents[builder.coordinates_arg],), dtype="double")
-        args.append(arg)
-    else:
-        arg = loopy.GlobalArg("coords", shape=(builder.expression.shape[0],), dtype="double")
-        args.append(arg)
-
-    if builder.needs_cell_orientations:
-        args.append(loopy.GlobalArg("orientations", shape=(builder.args_extents[builder.cell_orientations_arg],), dtype=np.int32))
-
-    if builder.needs_cell_sizes:
-        args.append(loopy.GlobalArg("cell_sizes", shape=(builder.args_extents[builder.cell_size_arg],), dtype="double"))
-
-    # Add coefficients, where AssembledVectors sit on top to args.
-    # The fact that the coefficients need to go into the order of
-    # builder.expression.coefficients(), plus mixed coefficients,
-    # plus split always generating new functions, makes life a bit harder.
-    coeff_shape_list = []
-    coeff_function_list = []
-    for v in builder.coefficient_vecs.values():
-        for coeff_info in v:
-            coeff_shape_list.append(coeff_info.shape)
-            coeff_function_list.append(coeff_info.vector._function)
-    get = 0
-    for i, c in enumerate(builder.expression.coefficients()):
-        try:
-            indices = [i for i, x in enumerate(coeff_function_list) if x == c]
-            for func_index in indices:
-                arg = loopy.GlobalArg("coeff"+str(get), shape=coeff_shape_list[func_index], dtype="double")
-                args.append(arg)
-                get += 1
-        except ValueError:
-            pass
-        if indices == []:
-            element = c.ufl_element()
-            if type(element) == MixedElement:
-                for j, c_ in enumerate(c.split()):
-                    name = "w_{}_{}".format(i, j)
-                    args.append(loopy.GlobalArg(name,
-                                shape=builder.args_extents[name],
-                                dtype="double"))
-            else:
-                name = "w_{}".format(i)
-                args.append(loopy.GlobalArg(name,
-                            shape=builder.args_extents[name],
-                            dtype="double"))
-
-    # Arg for is exterior (==0)/interior (==1) facet or not
-    if builder.needs_cell_facets:
-        args.append(loopy.GlobalArg(builder.cell_facets_arg,
-                                    shape=(builder.num_facets, 2),
-                                    dtype=np.int8))
-
-    if builder.needs_mesh_layers:
-        args.append(loopy.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
-
-    ############
-    # TODO: preprocessing of gem for removing unneccesary component tensors
-    # print("not peprocessed",traversed_gem_expr_dag)
-    traversed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
-    # print("preprocessed",traversed_gem_expr_dag)
-    # print(traversed_gem_expr_dag[1])
-    # traversed_gem_expr_dag=traversed_gem_expr_dag[1]
+    preprocessed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
 
     # glue assignments to return variable
-    assignments = list(zip(ret_vars, traversed_gem_expr_dag))
+    assignments = list(zip(ret_vars, preprocessed_gem_expr_dag))
+
+    # Part A: slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
     precision = 12
-    loopy_outer = generate_loopy(impero_c, args, precision, "double", "loopy_outer")
+    loopy_outer = generate_loopy(impero_c, [arg], precision, "double", "loopy_outer")
     return loopy_outer
 
 
@@ -724,7 +654,7 @@ class INVCallable(loopy.ScalarCallable):
         name_in_target = "inverse"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(int)}),
+                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(np.int32)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -737,11 +667,10 @@ class INVCallable(loopy.ScalarCallable):
         parameters = list(parameters)
         par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
 
-        parameters.append(insn.assignees[0])
-        par_dtypes.append(self.arg_id_to_dtype[-1])
+        parameters.append(insn.assignees[-1])
+        par_dtypes.append(self.arg_id_to_dtype[0])
 
         mat_descr = self.arg_id_to_descr[0]
-
         arg_c_parameters = [
             expression_to_code_mapper(
                 par,
@@ -761,7 +690,7 @@ class INVCallable(loopy.ScalarCallable):
         c_parameters = []
         c_parameters.insert(0, arg_c_parameters[-1])  # t1
         c_parameters.insert(1, arg_c_parameters[0])  # t0
-        c_parameters.insert(2, mat_descr.shape[0])  # n
+        c_parameters.insert(2, np.int32(mat_descr.shape[0]))  # n
         return var(self.name_in_target)(*c_parameters), False
 
     def generate_preambles(self, target):
@@ -776,7 +705,7 @@ class INVCallable(loopy.ScalarCallable):
 
             static PetscBLASInt ipiv_buffer[BUF_SIZE];
             static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
-            static void inverse(PetscScalar* restrict Aout, const PetscScalar* restrict A, PetscBLASInt N)
+            static void inverse(PetscScalar* restrict Aout, const PetscScalar* restrict A, const PetscBLASInt N)
             {
                 PetscBLASInt info;
                 PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
@@ -827,7 +756,7 @@ class SolveCallable(loopy.ScalarCallable):
         name_in_target = "solve"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(int)}),
+                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(np.int32)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -841,7 +770,7 @@ class SolveCallable(loopy.ScalarCallable):
         par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]  # TODO: get the reads right
 
         parameters.append(insn.assignees[0])
-        par_dtypes.append(self.arg_id_to_dtype[0])
+        par_dtypes.append(self.arg_id_to_dtype[1])
         mat_descr_A = self.arg_id_to_descr[0]
 
         arg_c_parameters = [
