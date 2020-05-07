@@ -273,8 +273,11 @@ def _simplify_abs_expr(o, self, in_abs):
 
 @_simplify_abs.register(Sqrt)
 def _simplify_abs_sqrt(o, self, in_abs):
-    # Square root is always non-negative
-    return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
+    result = ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
+    if self.complex_mode and in_abs:
+        return Abs(result)
+    else:
+        return result
 
 
 @_simplify_abs.register(ScalarValue)
@@ -326,11 +329,13 @@ def _simplify_abs_abs(o, self, in_abs):
     return self(o.ufl_operands[0], True)
 
 
-def simplify_abs(expression):
+def simplify_abs(expression, complex_mode):
     """Simplify absolute values in a UFL expression.  Its primary
     purpose is to "neutralise" CellOrientation nodes that are
     surrounded by absolute values and thus not at all necessary."""
-    return MemoizerArg(_simplify_abs)(expression, False)
+    mapper = MemoizerArg(_simplify_abs)
+    mapper.complex_mode = complex_mode
+    return mapper(expression, False)
 
 
 def apply_mapping(expression, mapping):

@@ -155,7 +155,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
-                      index_cache=index_cache)
+                      index_cache=index_cache,
+                      complex_mode=is_complex(parameters.get("scalar_type")))
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -342,7 +343,8 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
                       ufl_cell=coordinates.ufl_domain().ufl_cell(),
                       precision=parameters["precision"],
                       argument_multiindices=argument_multiindices,
-                      index_cache={})
+                      index_cache={},
+                      complex_mode=complex_mode)
 
     if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
         # This is an optimisation for point-evaluation nodes which
