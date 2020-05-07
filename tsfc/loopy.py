@@ -186,7 +186,8 @@ def active_indices(mapping, ctx):
         ctx.active_indices.pop(key)
 
 
-def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel", index_names=[]):
+def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel", index_names=[],
+             return_increments=True):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -195,6 +196,7 @@ def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel",
     :arg scalar_type: type of scalars as C typename string
     :arg kernel_name: function name of the kernel
     :arg index_names: pre-assigned index names
+    :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
     :returns: loopy kernel
     """
     ctx = LoopyContext()
@@ -203,6 +205,7 @@ def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel",
     ctx.precision = precision
     ctx.scalar_type = scalar_type
     ctx.epsilon = 10.0 ** (-precision)
+    ctx.return_increments = return_increments
 
     # Create arguments
     data = list(args)
@@ -286,7 +289,9 @@ def statement_accumulate(leaf, ctx):
 @statement.register(imp.Return)
 def statement_return(leaf, ctx):
     lhs = expression(leaf.variable, ctx)
-    rhs = lhs + expression(leaf.expression, ctx)
+    rhs = expression(leaf.expression, ctx)
+    if ctx.return_increments:
+        rhs = lhs + rhs
     return [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
 
 
