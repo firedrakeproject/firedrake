@@ -835,7 +835,7 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call(["./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
 
 
