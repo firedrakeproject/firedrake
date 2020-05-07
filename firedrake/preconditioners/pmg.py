@@ -99,6 +99,7 @@ class PMGBase(PCSNESBase):
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
         pdm.setCreateInjection(self.create_injection)
+        pdm.setSNESJacobian(ctx.form_jacobian)
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -144,10 +145,6 @@ class PMGBase(PCSNESBase):
 
         cbcs = []
         for bc in fctx._problem.bcs:
-            # Don't actually need the value, since it's only used for
-            # killing parts of the matrix. This should be generalised
-            # for p-FAS, if anyone ever wants to do that
-
             cV_ = cV
             for index in bc._indices:
                 cV_ = cV_.sub(index)
@@ -177,6 +174,7 @@ class PMGBase(PCSNESBase):
                  call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+        cdm.setSNESJacobian(_SNESContext.form_jacobian)
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
