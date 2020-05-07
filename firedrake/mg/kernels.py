@@ -282,15 +282,12 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
         return kernel_code_ret
 
 
-def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None, init_loop=None):
+def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None):
     if initial is None:
         initial = "coarsei"
         func = "f"
         evaluate_args = "[jj]: R[jj], [c]: coarsei[c], [p]: Xref[p]"
         copy_loop = ""
-        init_loop = """for rd
-                         R[rd] = 0
-                       end """
 
     kernel = """
         for ri
@@ -349,14 +346,12 @@ def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_lo
             %(initial)s[ci] = %(func)s[ci + cell * coarse_cell_inc]
         end
 
-        %(init_loop)s
         loopy_kernel_evaluate(%(evaluate_args)s)
         %(copy_loop)s
         """ % {
         "initial": initial,
         "func": func,
         "evaluate_args": evaluate_args,
-        "init_loop": init_loop,
         "copy_loop": copy_loop
     }
     return kernel
@@ -470,7 +465,7 @@ def restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key):
     kern = construct_common_kernel("Ri", "R", "[jj]: Ri[jj], [c]: b[c], [p]: Xref[p]", """	
              for cci
                  R[cci + cell * coarse_cell_inc] = Ri[cci]
-             end """, "")
+             end """)
 
     parent_knl = lp.make_kernel(
         {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
