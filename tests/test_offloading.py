@@ -50,4 +50,4 @@ def test_linear_variational_solver():
         solve(a, fem_soln, L)
 
     f.interpolate(cos(x*pi*2)*cos(y*pi*2))
-    assert sqrt(assemble(dot(fem_soln - f, fem_soln - f) * dx)) < 1e-2
+    assert sqrt(assemble(dot(fem_soln - f, fem_soln - f) * dx)) < 1e-4

@@ -18,10 +18,8 @@ def run_poisson(typ):
                       "mat_type": "matfree",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
-                      "mg_coarse_ksp_type": "preonly",
-                      "mg_coarse_pc_type": "python",
-                      "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                      "mg_coarse_assembled_pc_type": "lu",
+                      "mg_coarse_ksp_type": "gmres",
+                      "mg_coarse_pc_type": "jacobi",
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
@@ -90,13 +88,13 @@ def run_poisson(typ):
     return norm(assemble(exact - u))
 
 
-@pytest.mark.parametrize("typ",
-                         ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_poisson_gmg(typ):
-    assert run_poisson(typ) < 4e-6
+# @pytest.mark.parametrize("typ",
+#                          ["mg", "mgmatfree", "fas", "newtonfas"])
+def test_poisson_gmg():
+    assert run_poisson("mgmatfree") < 4e-6
 
 
-@pytest.mark.parallel
+#@pytest.mark.parallel
 def test_poisson_gmg_parallel_mg():
     errmat = run_poisson("mg")
     errmatfree = run_poisson("mgmatfree")

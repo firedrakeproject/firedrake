@@ -96,6 +96,7 @@ def exact_primal(mesh, vector, degree):
 
 
 def run_injection(hierarchy, vector, space, degrees):
+    from pyop2.gpu.cuda import cuda_backend as cuda
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
 
@@ -106,14 +107,16 @@ def run_injection(hierarchy, vector, space, degrees):
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
-            tmp = Function(V)
-            inject(actual, tmp)
-            actual = tmp
-            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
+            with offloading(cuda):
+                expect = interpolate(exact_primal(mesh, vector, degree), V)
+                tmp = Function(V)
+                inject(actual, tmp)
+                actual = tmp
+                assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
 def run_prolongation(hierarchy, vector, space, degrees):
+    from pyop2.gpu.cuda import cuda_backend as cuda
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
 
@@ -124,16 +127,17 @@ def run_prolongation(hierarchy, vector, space, degrees):
 
         for mesh in hierarchy[1:]:
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
-            tmp = Function(V)
-            prolong(actual, tmp)
-            actual = tmp
-            # print()
-            # print("HH")
-            # print(expect.dat.data_ro)
-            # print()
-            # print(actual.dat.data_ro)
-            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
+            with offloading(cuda):
+                expect = interpolate(exact_primal(mesh, vector, degree), V)
+                tmp = Function(V)
+                prolong(actual, tmp)
+                actual = tmp
+                print()
+                print("HH")
+                print(expect.dat.norm)
+                print()
+                print(actual.dat.norm)
+                assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
 def run_restriction(hierarchy, vector, space, degrees):
@@ -149,28 +153,31 @@ def run_restriction(hierarchy, vector, space, degrees):
             return dv.dot(v)
 
     for degree in degrees:
+        from pyop2.gpu.cuda import cuda_backend as cuda
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
         for cmesh, fmesh in zip(hierarchy[:-1], hierarchy[1:]):
             Vc = FunctionSpace(cmesh, Ve)
             Vf = FunctionSpace(fmesh, Ve)
-            fine_dual = dual(Vf)
-            coarse_primal = victim(Vc)
+            with offloading(cuda):
+                fine_dual = dual(Vf)
+                coarse_primal = victim(Vc)
 
-            coarse_dual = Function(Vc)
-            fine_primal = Function(Vf)
-            restrict(fine_dual, coarse_dual)
-            prolong(coarse_primal, fine_primal)
-            coarse_functional = functional(coarse_primal, coarse_dual)
-            fine_functional = functional(fine_primal, fine_dual)
-
-            assert numpy.allclose(fine_functional, coarse_functional)
+                coarse_dual = Function(Vc)
+                fine_primal = Function(Vf)
+                restrict(fine_dual, coarse_dual)
+                prolong(coarse_primal, fine_primal)
+                coarse_functional = functional(coarse_primal, coarse_dual)
+                fine_functional = functional(fine_primal, fine_dual)
+                assert numpy.allclose(fine_functional, coarse_functional)
 
 
 def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
-    # if transfer_type == "injection":
-    #     run_injection(hierarchy, vector, space, degrees)
+    if transfer_type == "injection" and space in {"DG", "DQ"}:
+        pytest.skip("Not implemented")
+    if transfer_type == "injection":
+        run_injection(hierarchy, vector, space, degrees)
     if transfer_type == "restriction":
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
@@ -180,12 +187,12 @@ def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
 #@pytest.mark.parallel(nprocs=2)
 def test_grid_transfer_parallel(hierarchy, transfer_type):
     space = "CG"
-    degrees = (1, 2, 3)
+    degrees = (1, 2, 3, 4, 5)
     vector = False
     if not hierarchy.nested and hierarchy.refinements_per_level > 1:
         pytest.skip("Not implemented")
-    # if transfer_type == "injection":
-    #     run_injection(hierarchy, vector, space, degrees)
+    if transfer_type == "injection":
+        run_injection(hierarchy, vector, space, degrees)
     if transfer_type == "restriction":
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":

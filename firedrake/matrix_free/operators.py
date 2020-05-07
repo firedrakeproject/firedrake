@@ -174,10 +174,8 @@ class ImplicitMatrixContext(object):
                                         diagonal=True)
 
     def createVecs(self, mat):
-        with self._x.dat.vec_wo as v:
-            right = v.duplicate()
-        with self._y.dat.vec_wo as v:
-            left = v.duplicate()
+        right = self._x.dof_dset.layout_vec.duplicate()
+        left = self._y.dof_dset.layout_vec.duplicate()
         return right, left
 
     def getDiagonal(self, mat, vec):

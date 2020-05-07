@@ -274,20 +274,23 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
         args = [return_arg]
         if fun_arg:
             args += [fun_arg]
-        args += [poin_arg]
         if bs_arg:
             args += [bs_arg]
+        args += [poin_arg]
         kernel_code_ret = builder.construct_kernel(name, args, impero_c,  parameters["precision"])
 
         return kernel_code_ret
 
 
-def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None):
+def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None, init_loop=None):
     if initial is None:
         initial = "coarsei"
         func = "f"
         evaluate_args = "[jj]: R[jj], [c]: coarsei[c], [p]: Xref[p]"
         copy_loop = ""
+        init_loop = """for rd
+                         R[rd] = 0
+                       end """
 
     kernel = """
         for ri
@@ -346,12 +349,14 @@ def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_lo
             %(initial)s[ci] = %(func)s[ci + cell * coarse_cell_inc]
         end
 
+        %(init_loop)s
         loopy_kernel_evaluate(%(evaluate_args)s)
         %(copy_loop)s
         """ % {
         "initial": initial,
         "func": func,
         "evaluate_args": evaluate_args,
+        "init_loop": init_loop,
         "copy_loop": copy_loop
     }
     return kernel
@@ -399,7 +404,7 @@ def prolong_kernel_loopy(expression, coordinates, hierarchy, levelf, cache, key)
                [lp.TemporaryVariable("coarsei", dtype=np.double, shape=("coarse_cell_inc",))]
 
     parent_knl = lp.make_kernel(
-        {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+        {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri, rd]: 0 <= i < ncandidate and 0 <= j, jj, rd < Rdim and "
          "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
          "0<= c < tdim and 0 <=  ci < coarse_cell_inc}"},
         construct_common_kernel(),
@@ -462,10 +467,10 @@ def restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key):
                    lp.GlobalArg("X", np.double, shape=("tdim",)),
                    lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",))]
     var_list = global_list + common_kernel_args() + [lp.TemporaryVariable("Ri", dtype=np.double,shape=("Rdim",))]
-    kern = construct_common_kernel("Ri", "R", "[jj]: Ri[jj], [p]: Xref[p], [c]: b[c]", """	
+    kern = construct_common_kernel("Ri", "R", "[jj]: Ri[jj], [c]: b[c], [p]: Xref[p]", """	
              for cci
-                 R[cci+ cell * coarse_cell_inc] = Ri[cci]
-             end """)
+                 R[cci + cell * coarse_cell_inc] = Ri[cci]
+             end """, "")
 
     parent_knl = lp.make_kernel(
         {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
@@ -509,10 +514,10 @@ def restrict_kernel(Vf, Vc):
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
-    try:
-        return cache[key]
-    except KeyError:
-        return restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key)
+    # try:
+    #     return cache[key]
+    # except KeyError:
+    return restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key)
 
 
 def inject_kernel_loopy(hierarchy, level, Vc, Vf, key, cache):
@@ -534,7 +539,7 @@ def inject_kernel_loopy(hierarchy, level, Vc, Vf, key, cache):
                [lp.TemporaryVariable("coarsei", dtype=np.double, shape=("coarse_cell_inc",))]
 
     parent_knl = lp.make_kernel(
-        {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
+        {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri, rd]: 0 <= i < ncandidate and 0 <= j, jj, rd < Rdim and "
          "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
          "0<= c < tdim and 0 <=  ci < coarse_cell_inc}"},
         construct_common_kernel(),
