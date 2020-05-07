@@ -100,6 +100,7 @@ class PMGBase(PCSNESBase):
         pdm.setCreateInterpolation(self.create_interpolation)
         pdm.setCreateInjection(self.create_injection)
         pdm.setSNESJacobian(ctx.form_jacobian)
+        pdm.setSNESFunction(ctx.form_function)
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -175,6 +176,7 @@ class PMGBase(PCSNESBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setSNESJacobian(_SNESContext.form_jacobian)
+        cdm.setSNESFunction(_SNESContext.form_function)
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
