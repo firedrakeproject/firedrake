@@ -6,7 +6,7 @@ from ufl import MixedElement, VectorElement, TensorElement, replace
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
@@ -14,7 +14,7 @@ from firedrake.solving_utils import _SNESContext
 import firedrake
 
 
-class PMGPC(PCBase):
+class PMGBase(PCSNESBase):
     """
     A class for implementing p-multigrid.
 
@@ -107,34 +107,10 @@ class PMGPC(PCBase):
         add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
                  call_setup=True)
 
-        ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
-        ppc.setType("mg")
-        ppc.setOperators(*pc.getOperators())
-        ppc.setDM(pdm)
-        ppc.incrementTabLevel(1, parent=pc)
-
-        # PETSc unfortunately requires us to make an ugly hack.
-        # We would like to use GMG for the coarse solve, at least
-        # sometimes. But PETSc will use this p-DM's getRefineLevels()
-        # instead of the getRefineLevels() of the MeshHierarchy to
-        # decide how many levels it should use for PCMG applied to
-        # the p-MG's coarse problem. So we need to set an option
-        # for the user, if they haven't already; I don't know any
-        # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
-        if "mg_coarse_pc_mg_levels" not in opts:
-            opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-
+        ppc = self.configure_pmg(pc, pdm)
         ppc.setFromOptions()
         ppc.setUp()
         self.ppc = ppc
-
-    def apply(self, pc, x, y):
-        return self.ppc.apply(x, y)
-
-    def applyTranspose(self, pc, x, y):
-        return self.ppc.applyTranspose(x, y)
 
     def update(self, pc):
         pass
@@ -175,7 +151,9 @@ class PMGPC(PCBase):
             for index in bc._indices:
                 cV_ = cV_.sub(index)
 
-            cbcs.append(firedrake.DirichletBC(cV_, firedrake.zero(cV_.shape),
+            cbc_value = self.coarsen_bc_value(bc, cV_)
+
+            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
                                               bc.sub_domain,
                                               method=bc.method))
 
@@ -231,7 +209,7 @@ class PMGPC(PCBase):
     def view(self, pc, viewer=None):
         if viewer is None:
             viewer = PETSc.Viewer.STDOUT
-        viewer.printfASCII("p-multigrid PC\n")
+        viewer.printfASCII("p-multigrid\n")
         self.ppc.view(viewer)
 
 
@@ -250,6 +228,41 @@ def prolongation_transfer_kernel(Pk, P1):
     ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
     kernel = op2.Kernel(ast, ast.name)
     return kernel
+
+
+class PMGPC(PCBase, PMGBase):
+    def configure_pmg(self, pc, pdm):
+        odm = pc.getDM()
+        ppc = PETSc.PC().create(comm=pc.comm)
+        ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
+        ppc.setType("mg")
+        ppc.setOperators(*pc.getOperators())
+        ppc.setDM(pdm)
+        ppc.incrementTabLevel(1, parent=pc)
+
+        # PETSc unfortunately requires us to make an ugly hack.
+        # We would like to use GMG for the coarse solve, at least
+        # sometimes. But PETSc will use this p-DM's getRefineLevels()
+        # instead of the getRefineLevels() of the MeshHierarchy to
+        # decide how many levels it should use for PCMG applied to
+        # the p-MG's coarse problem. So we need to set an option
+        # for the user, if they haven't already; I don't know any
+        # other way to get PETSc to know this at the right time.
+        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+        if "mg_coarse_pc_mg_levels" not in opts:
+            opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+
+        return ppc
+
+    def apply(self, pc, x, y):
+        return self.ppc.apply(x, y)
+
+    def applyTranspose(self, pc, x, y):
+        return self.ppc.applyTranspose(x, y)
+
+    def coarsen_bc_value(self, bc, cV):
+        return firedrake.zero(cV.shape)
+
 
 
 def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
