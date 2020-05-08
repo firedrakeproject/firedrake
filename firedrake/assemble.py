@@ -406,7 +406,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             _testmap = get_map(test.function_space()[i])
             _testmap = op2.ComposedMap([_testmap, ])
             return tensor[i](op2.INC, _testmap if _testmap else None)
-
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -566,7 +565,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             c = coefficients[n]
             enabled_parts = coeff_parts[i]
             if enabled_parts:
-                assert c.mixed()
+                #assert c.mixed()
+                assert type(c.function_space().topological.ufl_element()) == ufl.MixedElement
+                # enabled_parts is already sorted. 
                 split = tuple(c.split()[part] for part in enabled_parts)
             else:
                 split = c.split()
@@ -577,6 +578,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     jmesh = c_.function_space().mesh().topology
                     jdim = jmesh._plex.getDimension()
                     m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+                    #m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:
             assert integral_type == "cell"

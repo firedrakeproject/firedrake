@@ -113,7 +113,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self.mixed() or len(self.function_space()) > 1:
-            print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
+            #print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
             return self._split
         else:
             return (self, )
@@ -310,7 +310,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self.mixed() or len(self.function_space()) > 1:
-            print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
+            #print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
             return self._split
         else:
             return (self, )

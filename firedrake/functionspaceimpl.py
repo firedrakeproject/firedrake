@@ -75,7 +75,7 @@ class WithGeometry(ufl.FunctionSpace):
     def split(self):
         r"""Split into a tuple of constituent spaces."""
         if self.mixed() or len(self) > 1:
-            print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
+            #print("mmm: make all MixedFunctionSpace based WithGeometry 'mixed'")
             return self._split
         else:
             return (self, )
@@ -287,6 +287,7 @@ def _sparsity_map(self, trial, i, j, domain_type):
             rm = None
         else:
             rm = op2.ComposedMap([test_map.split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
+            #rm = test_map.split[i]
     if trial_map is None:
         cm = None
     else:
@@ -294,6 +295,7 @@ def _sparsity_map(self, trial, i, j, domain_type):
             cm = None
         else:
             cm = op2.ComposedMap([trial_map.split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
+            #cm = trial_map.split[j]
 
     return self._sparsity_maps.setdefault((trial, i, j, domain_type), (rm, cm))
 
@@ -608,7 +610,7 @@ class MixedFunctionSpace(object):
     """
     def __init__(self, spaces, name=None):
         super(MixedFunctionSpace, self).__init__()
-        print("mmm: move _spaces to _split")
+        #print("mmm: move _spaces to _split")
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         self.name = name or "_".join(str(s.name) for s in spaces)
