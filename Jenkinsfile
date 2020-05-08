@@ -85,6 +85,8 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
 echo $PATH
 echo $VIRTUAL_ENV
 ls $VIRTUAL_ENV/bin
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/bibliography.bib
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
 cd firedrake/src/firedrake/docs; make html
 '''
               }
