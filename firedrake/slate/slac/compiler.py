@@ -257,6 +257,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
                        oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
+                       domain_numbers=[0, ],
                        coefficient_map=tuple(range(len(expr_coeffs))),
                        coefficient_parts=tuple(None for _ in expr_coeffs),
                        needs_cell_facets=builder.needs_cell_facets,
