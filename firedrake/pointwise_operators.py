@@ -153,7 +153,7 @@ class PointexprOperator(AbstractPointwiseOperator):
         or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
-        :param derivatives: tuple scecifiying the derivative multiindex.
+        :param derivatives: tuple specifiying the derivative multiindex.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -210,7 +210,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
-        :param derivatives: tuple scecifiying the derivative multiindex.
+        :param derivatives: tuple specifiying the derivative multiindex.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -224,8 +224,10 @@ class PointsolveOperator(AbstractPointwiseOperator):
                             + fprime: gradient of the function defining the :class:`PointsolveOperator`
                             + maxiter: max number of iterations
                             + tol: tolerance
-                  More parameters are available for the 1d case where we use scipy.optimize.newton. If a more
-                  precise or efficient solver is needed for the pointwise solves, you can subclass the `solver` method.
+                  More parameters are available (cf. documentation of the scipy.optimize.newton).
+                  We have extended to implementation of `scipy.optimize.newton` to handle non-scalar case. If a more
+                  precise or efficient solver is needed for the pointwise solves, you can subclass the `evaluate` method.
+                  TODO: Generate C-code that will be faster.
         :param disp: boolean indication whether we display the max of the number of iterations taken over the pointwise solves.
         """
 
@@ -267,7 +269,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
             return f
 
         fexpr = self.operator_f(*symb)
-        args = tuple(Function(ufl_space).interpolate(pi) for pi in self.ufl_operands)
+        args, constants = self._prepare_args_f(ufl_space)
         vals = tuple(coeff.dat.data_ro for coeff in args)
         for i, di in enumerate(deriv_index):
             if di != 0:
@@ -314,7 +316,12 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     # TODO : Vectorized version ?
                     for j in range(len(res)):
                         fj = f.dat.data_ro[j]
-                        val_ops = tuple(v[j] for v in vals)
+                        val_ops = ()
+                        for k, v in enumerate(vals):
+                            if k in constants:
+                                val_ops += (v,)
+                            else:
+                                val_ops += (v[j],)
                         A = dfds0l(fj.flatten(), *(voj.flatten() for voj in val_ops))
                         B = dfdsil(fj.flatten(), *(voj.flatten() for voj in val_ops))
 
@@ -360,6 +367,16 @@ class PointsolveOperator(AbstractPointwiseOperator):
         return self
 
     def evaluate(self):
+        r"""
+        Let f(x, y_1, ..., y_k) = 0, where y_1, ..., y_k are parameters. We look for the solution x of this equation.
+        This method returns the solution x satisfying this equation or its derivatives: \frac{\partial x}{\partial y_i},
+        using implicit differentiation.
+        The parameters can be Functions, Constants, Expressions or even other PointwiseOperators.
+        For the solution: x belongs to self.function_space.
+        For the parameters: y_1, ..., y_k must either:
+                                                        - have the same shape than x (in which case we interpolate them)
+                                                        - belongs to a suitable function space
+        """
         ufl_space = self.ufl_function_space()
         shape = ufl_space.shape
         solver_params = self.solver_params.copy()  # To avoid breaking immutability
@@ -371,9 +388,13 @@ class PointsolveOperator(AbstractPointwiseOperator):
             xstar = e_master.evaluate()
             return self.compute_derivatives(xstar)
 
+        # Prepare the arguments of f
+        args, constants = self._prepare_args_f(ufl_space)
+        vals = tuple(coeff.dat.data_ro for coeff in args)
+
         # Symbols construction
         symb = (self._sympy_create_symbols(shape, 0),)
-        symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
+        symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(args))
 
         # Pre-processing to get the values of the initial guesses
         if 'x0' in solver_params.keys() and isinstance(solver_params['x0'], Expr):
@@ -382,14 +403,10 @@ class PointsolveOperator(AbstractPointwiseOperator):
         else:
             solver_params_x0 = self.dat.data_ro
 
-        # Prepare the arguments of f
-        args = tuple(Function(ufl_space).interpolate(pi) for pi in self.ufl_operands)
-        vals = tuple(coeff.dat.data_ro for coeff in args)
-
         # We need to define appropriate symbols to impose the right shape on the inputs when lambdifying the sympy expressions
         ops_f = (self._sympy_create_symbols(shape, 0, granular=False),)
         ops_f += tuple(self._sympy_create_symbols(e.ufl_shape, i+1, granular=False)
-                       for i, e in enumerate(self.ufl_operands))
+                       for i, e in enumerate(args))
         new_symb = tuple(e.free_symbols.pop() for e in ops_f)
         new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy', dummify=True)
 
@@ -418,19 +435,47 @@ class PointsolveOperator(AbstractPointwiseOperator):
             solver_params_x0 = np.expand_dims(solver_params_x0, -1)
             vals = tuple(np.expand_dims(e, -1) for e in vals)
         elif len(shape) >= 2:
-            # Sympy does not handle symbolic tensor inversion, so we need to operate on the numpy vector
+            # Sympy does not handle symbolic tensor inversion, as it does for rank <= 2
+            # so we need to operate on the numpy vector
             df = solver_params['fprime']
-            solver_params['fprime'] = self._numpy_tensor_solve(new_f, solver_params['fprime'], shape)
+            solver_params['fprime'] = self._numpy_tensor_solve(new_f, solver_params['fprime'], constants)
 
         # Reshape
         solver_params_x0 = np.rollaxis(solver_params_x0, 0, offset+len(shape)+1)
-        vals = tuple(np.rollaxis(e, 0, offset+len(shape)+1) for e in vals)
+        vals = tuple(np.rollaxis(e, 0, offset+len(args[i].ufl_shape)+1) for i, e in enumerate(vals))
 
         # Vectorized nonlinear solver (e.g. Newton, Halley...)
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
         self.dat.data[:] = np.rollaxis(res.squeeze(), -1)
 
         return self
+
+    def _prepare_args_f(self, space):
+        """
+        Prepare the arguments for the function f satisfying f(x, y_1, ..., y_k) = 0
+        x belongs to self.function_space().
+        y_1, ..., y_k must either:
+                                     - have the same shape than x (in which case we interpolate them)
+                                     - belongs to a suitable function space
+        """
+        shape = space.shape
+        args = ()
+        constants = ()
+        for i, pi in enumerate(self.ufl_operands):
+            if isinstance(pi, Constant):
+                constants += (i,)
+                opi = pi
+            elif pi.ufl_shape == shape:
+                opi = Function(space).interpolate(pi)
+            # We can have an argument with a different shape
+            # The argument should however belong to an appropriate space
+            # TODO: Should we perfom additional procedures for differently shaped arguments?
+            elif len(pi.dat.data_ro) == len(self.dat.data_ro):
+                opi = pi
+            else:
+                raise ValueError('Invalid arguments: incompatible function space for %s', pi)
+            args += (opi,)
+        return args, constants
 
     def _sympy_inv_jacobian(self, x, F):
         """
@@ -449,17 +494,29 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 df = F/df
         return df
 
-    def _numpy_tensor_solve(self, f, df, shape):
+    def _numpy_tensor_solve(self, f, df, constants):
         """
         Solve the linear system involving the Jacobian, where df has a rank greater than 2.
         """
-        def _tensor_solve_(X, *Y):
-            ndat = X.shape[-1]
-            f_X = f(X, *Y)
-            Y = np.array(Y)
-            df_X = np.array([df(X[..., i], *Y[..., i]) for i in range(ndat)])
-            res = np.array([np.linalg.tensorsolve(df_X[i, ...], f_X[..., i]) for i in range(ndat)])
-            return np.rollaxis(res, 0, len(f_X.shape))
+        if len(constants):
+            def _tensor_solve_(X, *Y):
+                ndat = X.shape[-1]
+                f_X = f(X, *Y)
+                # Constants
+                C = tuple(Y[i] for i in constants)
+                # Other arguments
+                Y = np.array(tuple(Y[i] for i in range(Y.shape[0]) if i not in constants))
+                df_X = np.array([df(X[..., i], *Y[..., i], *C) for i in range(ndat)]).squeeze()
+                res = np.array([np.linalg.tensorsolve(df_X[i, ...], f_X[..., i]) for i in range(ndat)])
+                return np.rollaxis(res, 0, len(f_X.shape))
+        else:
+            def _tensor_solve_(X, *Y):
+                ndat = X.shape[-1]
+                f_X = f(X, *Y)
+                Y = np.array(Y)
+                df_X = np.array([df(X[..., i], *Y[..., i]) for i in range(ndat)])
+                res = np.array([np.linalg.tensorsolve(df_X[i, ...], f_X[..., i]) for i in range(ndat)])
+                return np.rollaxis(res, 0, len(f_X.shape))
         return _tensor_solve_
 
     def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50, fprime2=None, x1=None, rtol=0.0, full_output=False, disp=True):
@@ -547,8 +604,15 @@ class PointsolveOperator(AbstractPointwiseOperator):
             return sp.Matrix(coeffs)
 
     def _sympy_subs_symbols(self, old, new, fprime, shape):
-        s1 = tuple(e[i] for e in old for i in range(sum(shape)))
-        s2 = tuple(e[i] for e in new for i in range(sum(shape)))
+        s1 = ()
+        s2 = ()
+        for o, n in zip(old, new):
+            if isinstance(o, sp.Symbol):
+                s1 += (o,)
+                s2 += (n,)
+            else:
+                s1 += tuple(o for o in np.array(o.tolist()).flatten())
+                s2 += tuple(o for o in np.array(n.tolist()).flatten())
         if hasattr(fprime, 'subs'):
             return fprime.subs(dict(zip(s1, s2)))
 
@@ -557,10 +621,29 @@ class PointsolveOperator(AbstractPointwiseOperator):
 
 
 class PointnetOperator(AbstractPointwiseOperator):
-    r"""A :class:`PointnetOperator` ... TODO :
+    r"""A :class:`PointnetOperator`: is an implementation of ExternalOperator that is defined through
+    a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
+        r"""
+        :param operands: operands on which act the :class:`PointnetOperator`.
+        :param function_space: the :class:`.FunctionSpace`,
+        or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+        Alternatively, another :class:`Function` may be passed here and its function space
+        will be used to build this :class:`Function`.  In this case, the function values are copied.
+        :param derivatives: tuple specifiying the derivative multiindex.
+        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+            If val is an existing :class:`Function`, then the data will be shared.
+        :param name: user-defined name for this :class:`Function` (optional).
+        :param dtype: optional data type for this :class:`Function`
+               (defaults to ``ScalarType``).
+        :param operator_data: dictionary containing the:
+                - model: the machine learning model
+                - framework: it specifies wich machine learning framework we are dealing with (e.g. Pytorch or Tensorflow)
+                - ncontrols: the number of controls
+        :param weights_version: a dictionary keeping track of the weights version, to inform if whether we need to update them.
+        """
 
         # Add the weights in the operands list and update the derivatives multiindex
         if not isinstance(operands[-1], Constant):
@@ -634,10 +717,40 @@ class PointnetOperator(AbstractPointwiseOperator):
 
 
 class PytorchOperator(PointnetOperator):
-    r"""A :class:`PyTorchOperator` ... TODO :
+    r"""A :class:`PytorchOperator`: is an implementation of ExternalOperator that is defined through
+    a given PyTorch model N and whose values correspond to the output of the neural network represented by N.
+    The inputs of N are obtained by interpolating `self.ufl_operands[0]` into `self.function_space`.
+
+    +   The evaluation of the PytorchOperator is done by performing a forward pass through the network N
+        The first argument is considered as the input of the network, if one want to correlate different
+        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
+        to either:
+                    - subclass this method to specify how this correlation should be done
+                    or
+                    - construct another pointwise operator that will do this job and pass it in as argument
+     +  The gradient of the PytorchOperator is done by taking the gradient of the outputs of N with respect to
+        its inputs.
      """
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
+        r"""
+        :param operands: operands on which act the :class:`PytorchOperator`.
+        :param function_space: the :class:`.FunctionSpace`,
+        or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+        Alternatively, another :class:`Function` may be passed here and its function space
+        will be used to build this :class:`Function`.  In this case, the function values are copied.
+        :param derivatives: tuple specifiying the derivative multiindex.
+        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+            If val is an existing :class:`Function`, then the data will be shared.
+        :param name: user-defined name for this :class:`Function` (optional).
+        :param dtype: optional data type for this :class:`Function`
+               (defaults to ``ScalarType``).
+        :param operator_data: dictionary containing the:
+                - model: the Pytorch model
+                - ncontrols: the number of controls
+        :param weights_version: a dictionary keeping track of the weights version, to inform if whether we need to update them.
+        """
+
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, weights_version=weights_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
@@ -666,6 +779,7 @@ class PytorchOperator(PointnetOperator):
         return gradient.squeeze(1)
 
     def _eval_update_weights(evaluate):
+        """Check if we need to update the weights"""
         def wrapper(self, *args, **kwargs):
             # Get Constants representing weights
             self_w = self._weights_version['W']
@@ -685,6 +799,15 @@ class PytorchOperator(PointnetOperator):
 
     @_eval_update_weights
     def evaluate(self, model_tape=False):
+        """
+        Evaluate the neural network by performing a forward pass through the network
+        The first argument is considered as the input of the network, if one want to correlate different
+        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
+        to either:
+                    - subclass this method to specify how this correlation should be done
+                    or
+                    - construct another pointwise operator that will do this job and pass it in as argument
+        """
         model = self.model
 
         # Explictly set the eval mode does matter for
@@ -692,7 +815,6 @@ class PytorchOperator(PointnetOperator):
         model.eval()
 
         space = self.ufl_function_space()
-        # Prendre cas general ou plus de 1 operand
         op = Function(space).interpolate(self.ufl_operands[0])
 
         torch_op = self.ml_backend.tensor(op.dat.data_ro, requires_grad=True)

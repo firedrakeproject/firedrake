@@ -213,6 +213,31 @@ def test_sym_grad_check_equality(mesh):
     assert err < 1.0e-09
 
 
+def test_different_shapes(mesh):
+
+    V1 = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    w = TestFunction(V1)
+    u = Function(V1)
+    f = Function(V1).interpolate(cos(x)*sin(y))
+
+    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    solve(F == 0, u)
+
+    a = Constant(1.)
+    b = Constant(1.)
+    u2 = Function(V1)
+    ps = point_solve(lambda x, a, y, b: a*x - y*b, function_space=V1, solver_params={'maxiter': 50})
+    tau2 = ps(a, u2, b)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    solve(F2 == 0, u2)
+
+    err_point_solve = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_solve < 1.0e-09
+
+
 def test_glen_flow_law():
 
     mesh = PeriodicRectangleMesh(3, 3, 1, 1, direction="x")
