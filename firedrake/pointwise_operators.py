@@ -505,7 +505,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 # Constants
                 C = tuple(Y[i] for i in constants)
                 # Other arguments
-                Y = np.array(tuple(Y[i] for i in range(Y.shape[0]) if i not in constants))
+                Y = np.array(tuple(Y[i] for i in range(len(Y)) if i not in constants))
                 df_X = np.array([df(X[..., i], *Y[..., i], *C) for i in range(ndat)]).squeeze()
                 res = np.array([np.linalg.tensorsolve(df_X[i, ...], f_X[..., i]) for i in range(ndat)])
                 return np.rollaxis(res, 0, len(f_X.shape))
