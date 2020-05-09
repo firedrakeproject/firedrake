@@ -205,10 +205,10 @@ def _slate2gem_block(expr, self):
     first_block = tuple(range(ten, ten+1) for ten in first_ind)
     index_offset = ()
     for i, idx in enumerate(first_block):
-            if idx.start == 0:
-                index_offset += (0, )
-            else:
-                index_offset += ((sum(expr.children[0].shapes[i][:idx.start])), )
+        if idx.start == 0:
+            index_offset += (0, )
+        else:
+            index_offset += ((sum(expr.children[0].shapes[i][:idx.start])), )
     
     index_extent = tuple(sum(shape) for shape in expr.shapes.values())
 
