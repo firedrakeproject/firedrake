@@ -221,7 +221,7 @@ def _slate2gem_block(expr, self):
 
 @_slate2gem.register(sl.Inverse)
 def _slate2gem_inverse(expr, self):
-    return Inverse(*map(self, expr.operands))
+    return Inverse(*map(self, expr.children))
 
 
 @_slate2gem.register(sl.Solve)
@@ -235,14 +235,14 @@ def _slate2gem_solve(expr, self):
 
 @_slate2gem.register(sl.Transpose)
 def _slate2gem_transpose(expr, self):
-    child, = map(self, expr.operands)
+    child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
     return ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
 
 
 @_slate2gem.register(sl.Negative)
 def _slate2gem_negative(expr, self):
-    child, = map(self, expr.operands)
+    child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
     return ComponentTensor(Product(Literal(-1),
                                            Indexed(child, indices)),
@@ -251,7 +251,7 @@ def _slate2gem_negative(expr, self):
 
 @_slate2gem.register(sl.Add)
 def _slate2gem_add(expr, self):
-    A, B = map(self, expr.operands)
+    A, B = map(self, expr.children)
     indices = tuple(make_indices(len(A.shape)))
     return ComponentTensor(Sum(Indexed(A, indices),
                                        Indexed(B, indices)),
@@ -260,7 +260,7 @@ def _slate2gem_add(expr, self):
 
 @_slate2gem.register(sl.Mul)
 def _slate2gem_mul(expr, self):
-    A, B = map(self, expr.operands)
+    A, B = map(self, expr.children)
     *i, k = tuple(make_indices(len(A.shape)))
     _, *j = tuple(make_indices(len(B.shape)))
     ABikj = Product(Indexed(A, tuple(i + [k])),
