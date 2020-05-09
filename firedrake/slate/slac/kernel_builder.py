@@ -571,7 +571,7 @@ class LocalLoopyKernelBuilder(object):
         if kinfo.subdomain_id != "otherwise":
             predicates.append("cell_facets["+str(fidx[0])+",1]=="+str(kinfo.subdomain_id))
         
-        return predicates, i, fidx, num_facets
+        return predicates, i, fidx
 
     def is_integral_type(self, integral_type, type):
         types = ["cell", "facet", "layer"]
@@ -658,22 +658,17 @@ class LocalLoopyKernelBuilder(object):
         self.collect_coefficients(self.expression.coefficients())
 
         # Initilisation of terminals
-        tensor2temp, inits = self.initialise_terminals(var2terminal)
-        self.tensor2temp = tensor2temp
-        self.inits = inits
+        self.initialise_terminals(var2terminal)
 
-        # TSFC calls for terminal tensors
+        # TSFC calls only for terminal tensors
         terminal_tensors = [tensor for tensor in var2terminal.values() if isinstance(tensor, slate.Tensor)]
         tsfc_kernels = self.context_kernels(terminal_tensors)
 
-
         # For all terminal tensors provided by TSFC
         for pos, cxt_kernel in enumerate(tsfc_kernels):
-            coefficients = cxt_kernel.coefficients
-            self.collect_coefficients(coefficients)
             integral_type = cxt_kernel.original_integral_type
             tensor = cxt_kernel.tensor
-            loopy_tensor = tensor2temp[tensor]
+            loopy_tensor = self.tensor2temp[tensor]
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
@@ -696,10 +691,8 @@ class LocalLoopyKernelBuilder(object):
 
                 # Prepare loopy tsfc kernel
                 output = self.generate_tsfc_lhs(tsfc_kernel, tensor, loopy_tensor)
-
-                kernel_data = self.collect_tsfc_kernel_data(mesh, coefficients, kinfo)
-                read = self.loopify_kernel_data(kernel_data)
-                reads.extend(read)
+                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
+                reads.extend(self.loopify_kernel_data(kernel_data))
 
                 # Generate predicates for different integral types
                 if self.is_integral_type(integral_type, "cell_integral"):
@@ -708,8 +701,9 @@ class LocalLoopyKernelBuilder(object):
                         raise NotImplementedError("No subdomain markers for cells yet")
 
                 elif self.is_integral_type(integral_type, "facet_integral"):
-                    predicates, i, fidx, num_facets = self.generate_facet_integral_predicates(mesh, integral_type, kinfo)
-                    # Additional facet array argument that has to be fed into tsfc loopy kernel
+                    predicates, i, fidx= self.generate_facet_integral_predicates(mesh, integral_type, kinfo)
+                    
+                    # Additional facet array argument to be fed into tsfc loopy kernel
                     subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
                                             (pym.Sum((i[0], fidx[0]))))
                     reads.append(SubArrayRef(i, subscript))
@@ -721,8 +715,7 @@ class LocalLoopyKernelBuilder(object):
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
 
-                # Later on assemby calls will be used in the merged loopy kernel,
-                # where merging the outer (slate) kernel with this inner (ufl) kernel
+                # TSFC kernel calls
                 key = integral_type+"_tsfc_kernel_call%d" % len(assembly_calls[integral_type])
                 call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
                 assembly_calls[integral_type].append(loopy.CallInstruction((output,),
