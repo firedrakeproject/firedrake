@@ -729,7 +729,7 @@ class LocalLoopyKernelBuilder(object):
         self.num_facets = num_facets
 
 
-def create_index(extent, type, namer):
+def create_index(extent, namer):
     """Gem and loopy Index creator.
     returns tuple of indices
 
@@ -750,10 +750,10 @@ def create_index(extent, type, namer):
     per_dim_per_block = []
     if isinstance(extent[0], tuple):
         for ext_per_block in extent.values():
-            per_dim_per_block.append(_create_index(ext_per_block, type, namer))
+            per_dim_per_block.append(_create_index(ext_per_block, namer))
     # Non-mixed tensors
     else:
-        for index in _create_index(extent, type, namer):
+        for index in _create_index(extent, namer):
             per_dim_per_block.append(index)
     per_dim_per_block = tuple(per_dim_per_block)
 
@@ -761,13 +761,10 @@ def create_index(extent, type, namer):
     return per_dim_per_block
 
 
-def _create_index(ext_per_var, type, namer):
-    """ Creation of loopy or gem index dependent on type."""
+def _create_index(ext_per_var, namer):
+    """ Creation of loopy index."""
     names = tuple(next(namer) for ext_per_dim in ext_per_var)
-    if type == "loopy":
-        per_dim = tuple(pym.Variable(name) for name in names)
-    else:
-        per_dim = tuple(gem.Index(names[i], int(ext_per_var[i])) for i in range(len(ext_per_var)))
+    per_dim = tuple(pym.Variable(name) for name in names)
     return per_dim
 
 
