@@ -109,6 +109,10 @@ class TensorBase(object, metaclass=ABCMeta):
     def _metakernel_cache(self):
         return {}
 
+    @property
+    def children(self):
+        return self.operands
+
     @cached_property
     def expression_hash(self):
         from firedrake.slate.slac.utils import traverse_dags

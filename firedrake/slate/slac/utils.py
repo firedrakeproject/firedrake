@@ -8,7 +8,8 @@ import ufl
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  FlexiblyIndexed, Solve, Inverse, Variable, view)
 from gem import indices as make_indices
-from gem.node import Memoizer
+from gem.node import Memoizer, post_traversal
+from gem.node import pre_traversal as traverse_dags
 
 
 
@@ -354,52 +355,6 @@ def topological_sort(exprs):
 
     return schedule
 
-
-# Adapted from tsfc.gem.node.py
-def post_traversal(expression_dags):
-    """Post-order traversal of the nodes of expression DAGs."""
-    seen = set()
-    lifo = []
-    # Some roots might be same, but they must be visited only once.
-    # Keep the original ordering of roots, for deterministic code
-    # generation.
-    for root in expression_dags:
-        if root not in seen:
-            seen.add(root)
-            lifo.append((root, list(root.operands)))
-
-    while lifo:
-        node, deps = lifo[-1]
-        for i, dep in enumerate(deps):
-            if dep is not None and dep not in seen:
-                lifo.append((dep, list(dep.operands)))
-                deps[i] = None
-                break
-        else:
-            yield node
-            seen.add(node)
-            lifo.pop()
-
-
-def traverse_dags(exprs):
-    """Traverses a set of DAGs and returns each node.
-
-    :arg exprs: An iterable of Slate expressions.
-    """
-    seen = set()
-    container = []
-    for tensor in exprs:
-        if tensor not in seen:
-            seen.add(tensor)
-            container.append(tensor)
-    while container:
-        tensor = container.pop()
-        yield tensor
-
-        for operand in tensor.operands:
-            if operand not in seen:
-                seen.add(operand)
-                container.append(operand)
 
 #If you append global args later you need to specify dimtags
 # Append global args and temporaries
