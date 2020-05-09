@@ -482,7 +482,7 @@ class LocalLoopyKernelBuilder(object):
         """ Generation of an lhs for the loopy kernel,
             which contains the TSFC assembly of the tensor.
         """
-        idx = self.create_index(self.shape(tensor), "loopy")
+        idx = self.create_index(self.shape(tensor))
         self.save_index(idx, self.shape(tensor))
         lhs = pym.Subscript(pym.Variable(temp.name), idx)
         output = SubArrayRef(idx, lhs)
@@ -526,7 +526,7 @@ class LocalLoopyKernelBuilder(object):
         arguments = []
         for c, name in kernel_data:
             extent = index_extent(c)
-            idx = self.create_index(extent, "loopy")
+            idx = self.create_index(extent)
             self.save_index(idx, (extent,))
             arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
             self.args_extents.setdefault(name, extent)
@@ -563,7 +563,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             select = 0
 
-        i = self.create_index((1,), "loopy")
+        i = self.create_index((1,))
         self.save_index(i, (1,))
         predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
 
