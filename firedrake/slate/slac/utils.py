@@ -157,18 +157,6 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-# singledispatch for class functions
-def classsingledispatch(func):
-    dispatcher = singledispatch(func)
-
-    def wrapper(*args, **kw):
-        return dispatcher.dispatch(args[1].__class__)(*args, **kw)
-
-    wrapper.register = dispatcher.register
-    update_wrapper(wrapper, func)
-    return wrapper
-
-
 class SlateTranslator():
     """Multifunction for translating Slate -> GEM.  """
 
@@ -187,15 +175,6 @@ class SlateTranslator():
         return mapper
 
 
-def get_shape(tensor):
-    """ A helper method to retrieve tensor shape information.
-    In particular needed for the right shape of scalar tensors.
-    """
-    if tensor.shape == ():
-        return (1, )  # scalar tensor
-    else:
-        return tensor.shape
-
 @singledispatch
 def _slate2gem(expr, self):
         raise AssertionError("Cannot handle terminal type: %s" % type(expr))
@@ -203,7 +182,7 @@ def _slate2gem(expr, self):
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
 def _slate2gem_tensor(expr, self):
-    shape = get_shape(expr)
+    shape = expr.shape if not len(expr.shape) == 0 else (1, )
     name = f"T{len(self.var2terminal)}"
     assert expr not in self.var2terminal.values()
     var = Variable(name, shape)
@@ -215,7 +194,6 @@ def _slate2gem_tensor(expr, self):
 def _slate2gem_block(expr, self):
     slices = []
     child, = map(self, expr.children)
-    indices = expr._indices
 
     # get first block while handling ranges handle ranges
     first_ind = ()
