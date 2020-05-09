@@ -232,7 +232,10 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    ops = (expr.operands[0].operands[0], expr.operands[1])
+    if isinstance(expr.children[0], sl.Factorization):
+        ops = (expr.children[0].children[0], expr.children[1])
+    else:
+        ops = expr.children
     return Solve(*map(self, ops))
 
 
