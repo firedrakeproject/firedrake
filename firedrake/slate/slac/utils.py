@@ -449,12 +449,14 @@ def generate_kernel_arguments(builder, loopy_outer):
 # A) subarrayreffing the subkernel args
 # B) inames from initialisations
 def create_domains(indices):
+    domains = []
     for var, extent in indices.items():
         name = var.name
         if not isinstance(extent, Integral) and len(extent)==1:
             extent = extent[0]
-        isl.make_zero_and_vars([name], [])
-        yield BasicSet("{ ["+name+"]: 0<="+name+"<"+str(extent)+"}")
+        inames = isl.make_zero_and_vars([name], [])
+        domains.append(BasicSet(str((inames[0].le_set(inames[name])) & (inames[name].lt_set(inames[0] + extent)))))
+    return domains
 
 def merge_loopy(loopy_outer, builder, translator):
 
