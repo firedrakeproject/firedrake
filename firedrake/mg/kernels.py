@@ -527,8 +527,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
-    coarse_builder.set_coordinates(Vc.mesh())
+    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, [0, ], ScalarType_c)
+    coarse_builder.set_coordinates([Vc.mesh(), ])
     argument_multiindices = (Vce.get_indices(), )
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
@@ -616,7 +616,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType_c))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
-                                                   coarse_builder.coordinates_arg]
+                                                   coarse_builder.coordinates_arg[0]]
 
     # Now we have the kernel that computes <f, phi_c>dx_c
     # So now we need to hit it with the inverse mass matrix on dx_c
@@ -628,7 +628,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     Ainv = Ainv.kinfo.kernel
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")
-    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
+    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg[0].sym, A))
     from coffee.base import Node
     assert isinstance(Ainv._code, Node)
     return op2.Kernel(ast.Node([Ainv._code,
