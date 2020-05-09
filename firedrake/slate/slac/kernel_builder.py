@@ -612,22 +612,34 @@ class LocalLoopyKernelBuilder(object):
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
-            extent = self.shape(slate_tensor)
-            indices = self.create_index(extent, "loopy")
-            # Create new indices for inits and save with indexed (gem) key instead of slate tensor
-            self.save_index(indices, extent)
+            # Terminal to be initialised
             loopy_tensor =  loopy.TemporaryVariable(gem_tensor.name, shape=gem_tensor.shape, dtype="double", address_space=loopy.AddressSpace.LOCAL)
-            inames = {var.name for var in indices}
             tensor2temp[slate_tensor] = loopy_tensor
+            self.temporary_variables[gem_tensor.name] = loopy_tensor  
+            # Initilisation instruction
             if isinstance(slate_tensor, slate.Tensor):
-                inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices),  "0", id="init%d" % len(inits), within_inames=frozenset(inames)))
-            
+                # Loop for initialisation
+                extent = self.shape(slate_tensor)
+                indices = self.create_index(extent)
+                self.save_index(indices, extent)
+                inames = {var.name for var in indices}
+                inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices),  "0.", id="init%d" % len(inits), within_inames=frozenset(inames)))
             elif isinstance(slate_tensor, slate.AssembledVector):
-                coeff_name = self.coefficients[slate_tensor._function][0]
-                inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), indices), pym.Subscript(pym.Variable(coeff_name), indices), id="init%d" % len(inits), within_inames=frozenset(inames)))
-        
-            self.temporary_variables[gem_tensor.name] = loopy_tensor
-        return tensor2temp, inits
+                coeff = self.coefficients[slate_tensor._function]
+                offset = 0
+                for i, shp in enumerate(*slate_tensor.shapes.values()):
+                    # Loop for initialisation
+                    indices = self.create_index((shp,))
+                    self.save_index(indices, (shp,))
+                    inames = {var.name for var in indices}
+
+                    offset_index = (pym.Sum((offset, indices[0])),)
+                    name = coeff[0] if isinstance(coeff[0], str) else coeff[i][1][0]
+                    inits.append(loopy.Assignment(pym.Subscript(pym.Variable(loopy_tensor.name), offset_index), pym.Subscript(pym.Variable(name), indices), id="init%d" % len(inits), within_inames=frozenset(inames)))
+                    offset += shp
+
+        self.tensor2temp = tensor2temp
+        self.inits = inits
 
     def _setup(self, var2terminal, terminal2loopy=None):
         """A setup method to initialize all the local assembly
