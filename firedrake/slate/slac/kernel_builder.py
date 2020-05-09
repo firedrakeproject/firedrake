@@ -549,13 +549,13 @@ class LocalLoopyKernelBuilder(object):
         self.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
-            num_facets = mesh._base_mesh.ufl_cell().num_facets()
+            self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
         else:
-            num_facets = mesh.ufl_cell().num_facets()
+            self.num_facets = mesh.ufl_cell().num_facets()
 
         # Index for loop over cell faces of reference cell
-        fidx = self.create_index((num_facets,), "loopy")
-        self.save_index(fidx, (num_facets,))
+        fidx = self.create_index((self.num_facets,))
+        self.save_index(fidx, (self.num_facets,))
 
         # Cell is interior or exterior
         if integral_type.startswith("interior_facet"):
