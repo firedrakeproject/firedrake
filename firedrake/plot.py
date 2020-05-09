@@ -292,13 +292,12 @@ def quiver(function, **kwargs):
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
-def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
+def plot(function, *args, num_sample_points=10, **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
     :arg function: The :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
-    :arg bezier: whether to use Bezier curves for higher-degree functions or piecewise linear
-    :arg num_sample_points: number of extra points when sampling higher-degree functions
+    :arg num_sample_points: number of sample points for high-degree functions
     :arg kwargs: same as for matplotlib
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
@@ -318,18 +317,16 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
         axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
-        return _bezier_plot(function, axes, **kwargs)
+        result = _bezier_plot(function, axes, **kwargs)
+    else:
+        degree = function.ufl_element().degree()
+        num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
+        points = calculate_one_dim_points(function, num_sample_points)
+        num_cells = function.function_space().mesh().num_cells()
+        result = _interp_bezier(points, num_cells, axes, **kwargs)
 
-    if bezier:
-        num_sample_points = max((num_sample_points // 3) * 3 + 1, 4)
-    points = calculate_one_dim_points(function, num_sample_points)
-
-    if bezier:
-        return _interp_bezier(points,
-                              function.function_space().mesh().num_cells(),
-                              axes, **kwargs)
-
-    return axes.plot(points[0], points[1], *args, **kwargs)
+    _autoscale_view(axes, None)
+    return result
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):

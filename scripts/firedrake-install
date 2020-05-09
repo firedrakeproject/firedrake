@@ -835,7 +835,7 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call(["./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
 
 
@@ -1289,9 +1289,9 @@ if mode == "install":
     if sys.version_info >= (3, 8):
         log.info("Pip installing VTK for Python3.8")
         if osname == "Darwin":
-            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl")
+            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl"])
         elif osname == "Linux":
-            run_pip_install("https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl")
+            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl"])
 
 
 petsc_dir, petsc_arch = get_petsc_dir()
