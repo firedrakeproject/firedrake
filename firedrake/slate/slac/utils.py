@@ -213,16 +213,32 @@ def _slate2gem_tensor(expr, self):
 
 @_slate2gem.register(sl.Block)
 def _slate2gem_block(expr, self):
-    raise NotImplementedError("blocks")
-    # slices = []
-    # child, = map(self, expr.operands)
-    # indices = expr._indices
-    # tmp = list(zip(list((indices,)), expr.operands[0].shapes.values()))
-    # for idxs, extents in tmp:
-    #     sidx = idxs[0]
-    #     eidx = idxs[-1]
-    #     slices.append(slice(sum(extents[:sidx]), sum(extents[:eidx+1])))
-    # return view(child, *slices)
+    slices = []
+    child, = map(self, expr.children)
+    indices = expr._indices
+
+    # get first block while handling ranges handle ranges
+    first_ind = ()
+    for index in expr._indices:
+        if type(index) != range:
+            first_ind += (index,)
+        else:
+            first_ind += (index.start,)
+    first_block = tuple(range(ten, ten+1) for ten in first_ind)
+    index_offset = ()
+    for i, idx in enumerate(first_block):
+            if idx.start == 0:
+                index_offset += (0, )
+            else:
+                index_offset += ((sum(expr.children[0].shapes[i][:idx.start])), )
+    
+    index_extent = tuple(sum(shape) for shape in expr.shapes.values())
+
+    tmp = list(zip(index_offset, index_extent))
+    for idx, extent in tmp:
+        slices.append(slice(idx, idx+extent))
+    v = view(child, *slices)
+    return v
 
 
 @_slate2gem.register(sl.Inverse)
