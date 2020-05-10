@@ -39,7 +39,7 @@ class _CFunction(ctypes.Structure):
 class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
-    def __init__(self, function_space, index=None, parent=None, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
@@ -47,8 +47,6 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param index: index into the parent CoordinatelessFunction.
-        :param parent: the parent CoordinatelessFunction defined on a :class:`MixedFunctionSpace`
         :param val: NumPy array-like (or :class:`pyop2.Dat` or
             :class:`~.Vector`) providing initial values (optional).
             This :class:`Function` will share data with the provided
@@ -61,7 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Coefficient.__init__(self, function_space.ufl_element(), part=index, parent=parent)
+        ufl.Coefficient.__init__(self, function_space.ufl_element())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -104,8 +102,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _split(self):
-        # Mimic ufl.Coefficient._split, but with data.
-        return tuple(CoordinatelessFunction(fs, index=i, parent=self, val=dat, name="%s[%d]" % (self.name(), i))
+        return tuple(CoordinatelessFunction(fs, val=dat, name="%s[%d]" % (self.name(), i))
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
@@ -232,15 +229,13 @@ class Function(ufl.Coefficient, FunctionMixin):
     """
 
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, index=None, parent=None, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.  In this
             case, the function values are copied.
-        :param index: index into the parent Function.
-        :param parent: the parent Function defined on a :class:`MixedFunctionSpace`
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -265,7 +260,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                 val=val, name=name, dtype=dtype)
 
         self._function_space = V
-        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space(), part=index, parent=parent)
+        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
 
         if cachetools:
             # LRU cache for expressions assembled onto this function
@@ -301,9 +296,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @utils.cached_property
     def _split(self):
-        # Mimic ufl.Coefficient._split, but with data.
-        return tuple(type(self)(V, index=i, parent=self, val=val)
-                     for i, (V, val) in enumerate(zip(self.function_space(), self.topological.split())))
+        return tuple(type(self)(V, val=val)
+                     for (V, val) in zip(self.function_space(), self.topological.split()))
 
     @FunctionMixin._ad_annotate_split
     def split(self):
