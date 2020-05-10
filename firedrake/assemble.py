@@ -404,7 +404,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         #    return tensor[i](op2.INC, _testmap if _testmap else None)
         def vec(get_map, i):
             _testmap = get_map(test.function_space()[i])
-            _testmap = op2.ComposedMap([_testmap, ])
+            if _testmap:
+                _testmap = op2.ComposedMap([_testmap, ])
+            else:
+                # RealFunctionSpace has no map
+                pass
             return tensor[i](op2.INC, _testmap if _testmap else None)
         result = lambda: result_function
     else:
@@ -564,21 +568,24 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for i, n in enumerate(coeff_map):
             c = coefficients[n]
             enabled_parts = coeff_parts[i]
-            if enabled_parts:
+            if enabled_parts is None:
+                split = c.split()
+            else:
                 #assert c.mixed()
                 assert type(c.function_space().topological.ufl_element()) == ufl.MixedElement
                 # enabled_parts is already sorted. 
                 split = tuple(c.split()[part] for part in enabled_parts)
-            else:
-                split = c.split()
             for c_ in split:
                 if isinstance(c_, Constant):
                     m_ = get_map(c_)
                 else:
                     jmesh = c_.function_space().mesh().topology
                     jdim = jmesh._plex.getDimension()
-                    m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
-                    #m_ = get_map(c_)
+                    if get_map(c_):
+                        m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+                    else:
+                        # RealFunctionSpace has no map.
+                        m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
         if needs_cell_facets:
             assert integral_type == "cell"

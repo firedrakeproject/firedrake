@@ -287,7 +287,6 @@ def _sparsity_map(self, trial, i, j, domain_type):
             rm = None
         else:
             rm = op2.ComposedMap([test_map.split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
-            #rm = test_map.split[i]
     if trial_map is None:
         cm = None
     else:
@@ -295,7 +294,6 @@ def _sparsity_map(self, trial, i, j, domain_type):
             cm = None
         else:
             cm = op2.ComposedMap([trial_map.split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
-            #cm = trial_map.split[j]
 
     return self._sparsity_maps.setdefault((trial, i, j, domain_type), (rm, cm))
 
@@ -932,6 +930,10 @@ class RealFunctionSpace(FunctionSpace):
         self._mesh = mesh
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
         self.node_set = self.dof_dset.set
+        # Cache sparsity maps on test function space object;
+        # we set items when allocating, and get values when
+        # actually assembling.
+        self._sparsity_maps = {}
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
