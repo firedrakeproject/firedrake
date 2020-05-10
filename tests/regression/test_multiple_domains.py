@@ -5,16 +5,21 @@ from functools import partial
 
 
 @pytest.fixture(params=["interval", "tri", "quad", "tet"])
-def typ(request):
-    return {"interval": partial(UnitIntervalMesh, 1),
-            "tri": UnitTriangleMesh,
-            "quad": partial(UnitSquareMesh, 1, 1, quadrilateral=True),
-            "tet": UnitTetrahedronMesh}[request.param]
+def mesh_vol(request):
+    msh = {"interval": partial(UnitIntervalMesh, 1),
+           "tri": UnitTriangleMesh,
+           "quad": partial(UnitSquareMesh, 1, 1, quadrilateral=True),
+           "tet": UnitTetrahedronMesh}[request.param]
+    vol = {"interval": 1.0 + 2.0,
+           "tri": 0.5 + 1.0,
+           "quad": 1.0 + 2.0,
+           "tet": 1/6 + 2/6}[request.param]
+    return msh, vol
 
 
 @pytest.fixture
-def mesh1(typ):
-    return typ()
+def mesh1(mesh_vol):
+    return mesh_vol[0]()
 
 
 @pytest.fixture
@@ -25,8 +30,13 @@ def mesh2(mesh1):
 
 
 @pytest.fixture
-def mesh3(typ):
-    return typ()
+def mesh3(mesh_vol):
+    return mesh_vol[0]()
+
+
+@pytest.fixture
+def vol(mesh_vol):
+    return mesh_vol[1]
 
 
 def test_mismatching_meshes_indexed_function(mesh1, mesh3):
@@ -58,9 +68,9 @@ def test_mismatching_meshes_constant(mesh1, mesh3):
         project(donor, target)
 
 
-def test_mismatching_topologies(mesh1, mesh3):
-    with pytest.raises(NotImplementedError):
-        assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))
+def test_mismatching_topologies(mesh1, mesh3, vol):
+    v = assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))
+    assert v == vol
 
 
 def test_functional(mesh1, mesh2):
