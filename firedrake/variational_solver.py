@@ -21,18 +21,15 @@ def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
-        print("variational_problem_check::::Fix this later")
-    #    raise ValueError("Provided residual is not a linear form")
+        raise ValueError("Provided residual is not a linear form")
     if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
         raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
     if len(J.arguments()) != 2:
-        print("variational_problem_check::::Fix this later")
-    #    raise ValueError("Provided Jacobian is not a bilinear form")
+        raise ValueError("Provided Jacobian is not a bilinear form")
     if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
         raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
-        print("variational_problem_check::::Fix this later")
-    #    raise ValueError("Provided preconditioner is not a bilinear form")
+        raise ValueError("Provided preconditioner is not a bilinear form")
 
 
 def is_form_consistent(is_linear, bcs):
@@ -80,6 +77,7 @@ class NonlinearVariationalProblem(object):
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
+
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
 
