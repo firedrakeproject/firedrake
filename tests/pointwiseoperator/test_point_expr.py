@@ -59,7 +59,7 @@ def test_pointwise_expr_operator(mesh):
     try:
         assert abs(assemble_a1 - assemble_a2) < 1.0e-3
     except:
-        raise ValueError('\n p2.ufl_operands:', p2.ufl_operands, '\n Value p2 operands: ', *tuple(e.dat.data_ro for e in p2.ufl_operands), '\n\t u: ', u, u.dat.data_ro, '\n\t v:', v, v.dat.data_ro, '\n\n assemble_a1: ', assemble_a1, ' assemble_a2:', assemble_a2, '\n\t assemble(p2.expr(u,v)): ', assemble(p2.expr(u, v)*dx), '\n\t intepol P: ', assemble(Function(P).interpolate(p2.expr(u, v)*dx)))
+        raise ValueError('\n p2.ufl_operands:', p2.ufl_operands, '\n Value p2 operands: ', *tuple(e.dat.data_ro for e in p2.ufl_operands), '\n\t u: ', u, u.dat.data_ro, '\n\t v:', v, v.dat.data_ro, '\n\n assemble_a1: ', assemble_a1, ' assemble_a2:', assemble_a2, '\n\t assemble(p2.expr(u,v)): ', assemble(p2.expr(u, v)*dx), '\n\t intepol P: ', assemble(Function(P).interpolate(p2.expr(u, v))*dx))
 
     u2 = Function(V)
     g = Function(V).interpolate(cos(x))
