@@ -24,7 +24,7 @@ def test_submesh_facet_extraction():
 
     x, y = SpatialCoordinate(msh)
     RTCF = FunctionSpace(msh, 'RTCF', 1)
-    fltr = Function(RTCF).project(as_vector([ufl.conditional(x < 1, n * (x - 1), 0), 0]))
+    fltr = Function(RTCF).project(as_vector([ufl.conditional(real(x) < 1, n * (x - 1), 0), 0]))
 
     # mark facet only using coordinates
     msh.markSubdomain("custom_facet", 111, "facet", fltr, filterName="exterior_facets", filterValue=1)
@@ -122,8 +122,8 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
 
     dx = Measure("cell", submsh)
 
-    a = - dot(grad(v), grad(u)) * dx
-    L = f * v * dx
+    a = - inner(grad(u), grad(v)) * dx
+    L = inner(f, v) * dx
 
     g = Function(V)
     g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
@@ -148,7 +148,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     x, y = SpatialCoordinate(msh)
     DP = FunctionSpace(msh, 'DP', 0)
     fltr = Function(DP)
-    fltr = Function(DP).interpolate(ufl.conditional(x < 1, 1, 0))
+    fltr = Function(DP).interpolate(ufl.conditional(real(x) < 1, 1, 0))
 
     msh.markSubdomain("half_domain", 111, "cell", fltr, geometric_expr = f_lambda)
 
@@ -158,7 +158,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     # This makes it difficult to create a FunctionSpace here.
     # So for now we only allow lambda expression to set dmplex.FACE_SETS_LABEL.
     #RTCF = FunctionSpace(submsh, 'RTCF', 1)
-    #fltr = Function(RTCF).project(as_vector([ufl.conditional(x < 1, n * (x - 1), 0), 0]))
+    #fltr = Function(RTCF).project(as_vector([ufl.conditional(real(x) < 1, n * (x - 1), 0), 0]))
     submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", None, geometric_expr = b_lambda, filterName="exterior_facets", filterValue=1)
 
     V = FunctionSpace(submsh, "CG", 1)
@@ -172,8 +172,8 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
 
     dx = Measure("cell", submsh)
 
-    a = - dot(grad(v), grad(u)) * dx
-    L = f * v * dx
+    a = - inner(grad(u), grad(v)) * dx
+    L = inner(f, v) * dx
 
     g = Function(V)
     g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
@@ -187,7 +187,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
 
     solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
 
-    assert(sqrt(assemble(dot(u - g, u - g) * dx)) < 0.00016)
+    assert(sqrt(assemble(inner(u - g, u - g) * dx)) < 0.00016)
 
 
 def test_submesh_poisson_cell_error2():
@@ -216,8 +216,8 @@ def test_submesh_poisson_cell_error2():
     dx1 = Measure("cell", domain=submsh)
 
 
-    a = u0 * v0 * dx0 + (u0 - u1) * v1 * dx1
-    L = f0 * v0 * dx0
+    a = inner(u0, v0) * dx0 + inner(u0 - u1, v1) * dx1
+    L = inner(f0, v0) * dx0
 
     mat = assemble(a)
     print(mat.M[1][0].values)
@@ -278,7 +278,7 @@ def test_submesh_helmholtz():
     dx1 = Measure("cell", domain=submsh)
 
 
-    a = inner(grad(u0), grad(v0)) * dx0 + (u0 - u1) * v1 * dx1
-    L = f0 * v0 * dx0
+    a = inner(grad(u0), grad(v0)) * dx0 + inner(u0 - u1, v1) * dx1
+    L = inner(f0, v0) * dx0
 
     mat = assemble(a)
