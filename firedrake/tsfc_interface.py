@@ -11,7 +11,7 @@ import tempfile
 import collections
 
 import ufl
-from ufl import Form
+from ufl import Form, conj
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
@@ -233,7 +233,7 @@ def _real_mangle(form):
             replacements[arg] = 1
     # If only the test space is Real, we need to turn the trial function into a test function.
     if reals == [True, False]:
-        replacements[a[1]] = TestFunction(a[1].function_space())
+        replacements[a[1]] = conj(TestFunction(a[1].function_space()))
     return ufl.replace(form, replacements)
 
 
