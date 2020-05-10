@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
@@ -13,6 +14,7 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             OverloadedType.__init__(self, *args,
                                     block_class=kwargs.pop("block_class", None),
@@ -27,6 +29,7 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_assign(assign):
+        @wraps(assign)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             if annotate:
