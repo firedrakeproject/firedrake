@@ -885,7 +885,7 @@ class MeshTopology(object):
           :returns: A list of :class:`pyop2.Map`s that, when composed by :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim) from a submesh to the original mesh.
         """
         if self.submesh_get_base() is not other.submesh_get_base():
-            raise RuntimeError("`self` and `other` must share the same base mesh")
+            raise NotImplementedError("Currently, `self` and `other` must share the same base mesh")
         if self.submesh_get_depth() < other.submesh_get_depth():
             return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
         else:
