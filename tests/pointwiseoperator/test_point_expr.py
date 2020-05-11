@@ -31,36 +31,24 @@ def test_properties(mesh):
 
 def test_pointwise_expr_operator(mesh):
     V = FunctionSpace(mesh, "CG", 1)
-    P = FunctionSpace(mesh, "DG", 0)
 
     x, y = SpatialCoordinate(mesh)
 
     v = Function(V).interpolate(sin(x))
     u = Function(V).interpolate(cos(x))
 
-    m = u*v
-    a1 = m*dx
-
-    p = point_expr(lambda x, y: x*y, function_space=P)
+    p = point_expr(lambda x, y: x*y, function_space=V)
     p2 = p(u, v)
-    a2 = p2*dx
 
     assert p2.ufl_operands[0] == u
     assert p2.ufl_operands[1] == v
-    assert p2._ufl_function_space == P
+    assert p2._ufl_function_space == V
     assert p2.derivatives == (0, 0)
     assert p2.ufl_shape == ()
     assert p2.expr(u, v) == u*v
 
-    assemble_a1 = assemble(a1)
-    assemble_a2 = assemble(a2)
-
-    err = assemble((u*v-p2)**2*dx)
-    # Not evaluate on the same space hence the lack of precision
-    try:
-        assert abs(assemble_a1 - assemble_a2) < 1.0e-3
-    except:
-        raise ValueError('\n p2.ufl_operands:', p2.ufl_operands, '\n Value p2 operands: ', *tuple(e.dat.data_ro for e in p2.ufl_operands), '\n\t u: ', u, u.dat.data_ro, '\n\t v:', v, v.dat.data_ro, '\n\n assemble_a1: ', assemble_a1, ' assemble_a2:', assemble_a2, '\n\t assemble(p2.expr(u,v)): ', assemble(p2.expr(u, v)*dx), '\n\t intepol P: ', assemble(Function(P).interpolate(p2.expr(u, v))*dx), '\n\t err:', err)
+    error = assemble((u*v-p2)**2*dx)
+    assert error < 1.0e-3
 
     u2 = Function(V)
     g = Function(V).interpolate(cos(x))
