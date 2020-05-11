@@ -51,6 +51,7 @@ from loopy.expression import dtype_to_type_context
 from pymbolic.mapper.stringifier import PREC_NONE
 from loopy.symbolic import SubArrayRef
 from pymbolic import var
+from tsfc.parameters import default_parameters
 
 __all__ = ['compile_expression']
 
@@ -619,8 +620,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder, translator):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    precision = 12
-    loopy_outer = generate_loopy(impero_c, [arg], precision, "double", "loopy_outer")
+    loopy_outer = generate_loopy(impero_c, [arg], default_parameters()["precision"], "double", "loopy_outer")
     return loopy_outer
 
 
