@@ -108,7 +108,7 @@ def to_reference_coordinates_loopy(element, ufl_coordinate_element, parameters, 
     return knl
 
 
-def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=True, dim=0):
+def to_reference_coordinates(ufl_coordinate_element, parameters=None, dim=0):
     if parameters is None:
         parameters = tsfc.default_parameters()
     else:
@@ -123,13 +123,13 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None, coffee=Tru
     return to_reference_coordinates_loopy(element, ufl_coordinate_element, parameters, cell, dim)
 
 
-def compile_element(expression, dual_space=None, parameters=None, coffee=True,
+def compile_element(expression, dual_space=None, parameters=None,
                     name="evaluate"):
-    """Generate code for point evaluations.
+    """Generate Loopy kernel for point evaluations.
 
     :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
     :arg dual_space: if the expression has an argument, should we also distribute residual data?
-    :returns: Some coffee AST or loopy kernel
+    :returns: Loopy kernel
     """
     if parameters is None:
         parameters = default_parameters()
@@ -142,14 +142,9 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
 
     # # Collect required coefficients
 
-    ## Choose builder
-    if coffee:
-        import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-        interface = firedrake_interface_coffee.KernelBuilderBase
-    else:
-        # Delayed import, loopy is a runtime dependency
-        import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-        interface = firedrake_interface_loopy.KernelBuilderBase
+    # Delayed import, loopy is a runtime dependency
+    import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+    interface = firedrake_interface_loopy.KernelBuilderBase
 
     try:
         arg, = extract_coefficients(expression)
@@ -177,11 +172,8 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
-    point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
-
-    if not coffee:
-        poin_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=(dim,))
+    point = gem.Variable("X", (dim,))
+    point_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -197,55 +189,38 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
     # Translate UFL -> GEM
     if coefficient:
         assert dual_space is None
-        #if coffee:
-        f_arg = [builder._coefficient(arg, "f")]
-        #else:
-        #fun_arg = [builder._coefficient(arg, "f")]
-        fun_arg = lp.GlobalArg("f", dtype=parameters["scalar_type"], shape=lp.auto)
+        builder._coefficient(arg, "f")
+        f_arg = lp.GlobalArg("f", dtype=parameters["scalar_type"], shape=lp.auto)
     else:
-        #if coffee:
-        f_arg = []
-        #else:
-        fun_arg = None
+        f_arg = None
     translator = tsfc.fem.Translator(context)
     result, = map_expr_dags(translator, [expression])
 
-    b_arg = []
-    bs_arg = []
+    b_arg = None
     if coefficient:
         if expression.ufl_shape:
-            return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
+            return_variable = gem.Indexed(gem.Variable("R", expression.ufl_shape), tensor_indices)
             result = gem.Indexed(result, tensor_indices)
-            if not coffee:
-                return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=expression.ufl_shape, is_output_only=False)
+            return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=expression.ufl_shape, is_output_only=False)
         else:
-            return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=(1,)))
-            if not coffee:
-                return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=(1,), is_output_only=False)
+            return_variable = gem.Indexed(gem.Variable("R", (1,)), (0,))
+            return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=(1,), is_output_only=False)
 
     else:
-        return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
+        return_variable = gem.Indexed(gem.Variable("R", finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
             elem = create_element(dual_space.ufl_element())
             if elem.value_shape:
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
-                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=elem.value_shape))]
-                if not coffee:
-                    bs_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=elem.value_shape)
+                b_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=elem.value_shape)
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
-                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=(1, )))]
-                if not coffee:
-                    bs_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=(1,))
+                b_arg = lp.GlobalArg("b", dtype=parameters["scalar_type"], shape=(1,))
             result = gem.Product(result, var)
 
-        result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
-        if not coffee:
-            return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=finat_elem.index_shape, is_output_only=False)
+        return_arg = lp.GlobalArg("R", dtype=parameters["scalar_type"], shape=finat_elem.index_shape, is_output_only=False)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -258,28 +233,16 @@ def compile_element(expression, dual_space=None, parameters=None, coffee=True,
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
 
-    if coffee:
-        body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
-        kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
-        return kernel_code
+    # Add arguments in order to the Loopy arg list
+    args = [return_arg]
+    if f_arg:
+        args += [f_arg]
+    if b_arg:
+        args += [b_arg]
+    args += [point_arg]
 
-    if not coffee:
-        #builder.register_requirements([result])
-        from tsfc.loopy import generate as generate_loopy
-        # Build kernel tuple
-        #builder.set_coefficients(builder.coefficient_map)
-        #kernel = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
-
-                                     # base_storage="base"#kernel_code_ret = generate_loopy(impero_c, [return_arg, fun_arg, poin_arg],  parameters["precision"], ScalarType_c)
-        args = [return_arg]
-        if fun_arg:
-            args += [fun_arg]
-        if bs_arg:
-            args += [bs_arg]
-        args += [poin_arg]
-        kernel_code_ret = builder.construct_kernel(name, args, impero_c,  parameters["precision"])
-
-        return kernel_code_ret
+    # Build and return Loopy kernel
+    return builder.construct_kernel(name, args, impero_c, parameters["precision"])
 
 
 def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None):
@@ -385,11 +348,10 @@ def common_kernel_args():
 
 def prolong_kernel_loopy(expression, coordinates, hierarchy, levelf, cache, key):
     mesh = coordinates.ufl_domain()
-    evaluate_kernel = compile_element(expression, coffee=False)
+    evaluate_kernel = compile_element(expression)
     element = create_element(expression.ufl_element())
     coords_element = create_element(coordinates.ufl_element())
-    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False,
-                                                   dim=coords_element.space_dimension())
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), dim=coords_element.space_dimension())
 
     global_list = [ lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
                     lp.GlobalArg("f", np.double, shape=("coords_space_dim",)),
@@ -446,10 +408,9 @@ def prolong_kernel(expression):
 
 def restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key):
     mesh = coordinates.ufl_domain()
-    evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf, coffee=False)
+    evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
     coords_element = create_element(coordinates.ufl_element())
-    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False,
-                                                   dim=coords_element.space_dimension())
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), dim=coords_element.space_dimension())
     element = create_element(Vc.ufl_element())
     eval_args = evaluate_kernel.args[:-1]
 
@@ -521,9 +482,9 @@ def inject_kernel_loopy(hierarchy, level, Vc, Vf, key, cache):
         return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
     coordinates = Vf.ufl_domain().coordinates
-    evaluate_kernel = compile_element(ufl.Coefficient(Vf), coffee=False)
+    evaluate_kernel = compile_element(ufl.Coefficient(Vf))
     coords_element = create_element(coordinates.ufl_element())
-    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), coffee=False, dim=coords_element.space_dimension())
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), dim=coords_element.space_dimension())
     Vf_element = create_element(Vf.ufl_element())
 
     global_list = [lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
@@ -625,7 +586,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
 
 def dg_injection_kernel(Vf, Vc, ncell):
-    raise NotImplementedError('Not yet implemented')
+    #raise NotImplementedError('Not yet implemented')
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
     macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
