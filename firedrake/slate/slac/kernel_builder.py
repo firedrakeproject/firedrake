@@ -557,20 +557,17 @@ class LocalLoopyKernelBuilder(object):
         self.save_index(fidx, (self.num_facets,))
 
         # Cell is interior or exterior
-        if integral_type.startswith("interior_facet"):
-            select = 1
-        else:
-            select = 0
+        select = 1 if integral_type.startswith("interior_facet") else 0
 
         i = self.create_index((1,))
         self.save_index(i, (1,))
-        predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
+        predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select)]
 
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
         # "otherwise" is treated incorrectly as "everywhere"
         # However, this replicates an existing slate bug.
         if kinfo.subdomain_id != "otherwise":
-            predicates.append("cell_facets["+str(fidx[0])+",1]=="+str(kinfo.subdomain_id))
+            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", select))
         
         return predicates, i, fidx
 
