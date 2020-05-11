@@ -162,7 +162,6 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
 
 
-@pytest.mark.xfail(reason="Incorrect reconstruction of subspace for real_tensorproduct")
 def test_real_tensorproduct_mixed(V):
     mesh = V.mesh()
     Q = FunctionSpace(mesh, "P", 2)
@@ -173,7 +172,6 @@ def test_real_tensorproduct_mixed(V):
         assert s_.dof_dset is s.dof_dset
 
 
-@pytest.mark.xfail(reason="Incorrect reconstruction of subspace for real_tensorproduct")
 def test_real_tensorproduct_component(V):
     for i in range(V.value_size):
         s = V.sub(i)
