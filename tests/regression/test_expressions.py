@@ -356,22 +356,9 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
-@pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
+@pytest.mark.parametrize('value', [10, -10],
                          ids=lambda v: "(f = %d)" % v)
-@pytest.mark.parametrize('expr', ['f',
-                                  '2*f',
-                                  'tanh(f)',
-                                  '2 * tanh(f)',
-                                  'f + tanh(f)',
-                                  'cos(f) + sin(f)',
-                                  'cos(f)*cos(f) + sin(f)*sin(f)',
-                                  'tanh(f) + cos(f) + sin(f)',
-                                  '1.0/tanh(f) + 1.0/f',
-                                  'sqrt(f*f)',
-                                  'sin(cos(f))',
-                                  'sqrt(2 + cos(f))',
-                                  'sin(sqrt(abs(f)))',
-                                  '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'])
+@pytest.mark.parametrize('expr', ['f', '2*f', 'tanh(f)'])
 def test_math_functions(expr, value):
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, 'CG', 1)
