@@ -5,6 +5,8 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+from firedrake.functionspace import FunctionSpace
+from firedrake.interpolation import interpolate
 
 from collections import namedtuple
 import operator
@@ -571,8 +573,28 @@ class PlaneSmoother(object):
     def coords(dm, p):
         mesh = dm.getAttr("__firedrake_mesh__")
 
-        data = mesh.coordinates.dat.data_ro
-        coordsDM = mesh.coordinates.function_space().dm
+        ele = mesh.coordinates.function_space().ufl_element()
+        assert ele.family() in ["Lagrange", "Discontinuous Lagrange"]
+        if ele.family() == "Discontinuous Lagrange":
+            # Ah, we got a periodic mesh. We need to interpolate to CGk
+            # with access descriptor MAX to define a consistent opinion
+            # about where the vertices are.
+
+            coords = dm.getAttr("__firedrake_interpolated_coords__")
+            if coords is None:
+                CGkele = ele.reconstruct(family="Lagrange")
+                # Can't do
+                # CGk = FunctionSpace(mesh, CGkele)
+                # because equality fails between a mesh and a weakref.proxy.
+                CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
+                coords = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+                dm.setAttr("__firedrake_interpolated_coords__", coords)
+        else:
+            coords = mesh.coordinates
+
+        coordsV = coords.function_space()
+        data = coords.dat.data_ro
+        coordsDM = coordsV.dm
         coordsSection = coordsDM.getDefaultSection()
 
         closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordsSection.getDof(x) > 0]
