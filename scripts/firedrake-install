@@ -355,7 +355,7 @@ else:
     complex_group.add_argument("--complex", action="store_true",
                                help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
     complex_group.add_argument("--real", action="store_true",
-                               help="Updates to the real version of Firedrake; rebuilds PETSc in complex mode.")
+                               help="Updates to the real version of Firedrake; rebuilds PETSc in real mode.")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--show-dependencies", action="store_true",
