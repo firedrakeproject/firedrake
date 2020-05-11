@@ -282,7 +282,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        return getattr(self._data, name)
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Function, self).__dir__()
