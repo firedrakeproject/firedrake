@@ -5,7 +5,8 @@ pipeline {
     DOCKER_CREDENTIALS = credentials('f52ccab9-5250-4b17-9fb6-c3f1ebdcc986')
     PETSC_CONFIGURE_OPTIONS = "--with-make-np=11"
   }
-  stages('BuildAndTest') {
+  stages {
+    stage('BuildAndTest') {
     matrix {
       agent {
         docker {
@@ -149,4 +150,5 @@ pipeline {
       }
     }
   }
+}
 }
