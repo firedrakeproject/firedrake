@@ -58,37 +58,31 @@ pipeline {
             }
           }
         }
-        stage('Test') {
-          parallel {
-            stage('Test Firedrake') {
-              steps {
-                dir('tmp') {
-                  timestamps {
-                    sh '''
+        stage('Test Firedrake') {
+          steps {
+            dir('tmp') {
+              timestamps {
+                sh '''
     . ./firedrake/bin/activate
     cd firedrake/src/firedrake
     python -m pytest --durations=200 -n 11 --cov firedrake -v tests
     '''
-                  }
-                }
-              }
-            }
-            stage('Test pyadjoint'){
-              steps {
-                dir('tmp') {
-                  timestamps {
-                    sh '''
-    . ./firedrake/bin/activate
-    cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
-    '''
-                  }
-                }
               }
             }
           }
         }
-        stage('Post-test') {
-          parallel {
+        stage('Test pyadjoint'){
+          steps {
+            dir('tmp') {
+              timestamps {
+                sh '''
+    . ./firedrake/bin/activate
+    cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
+    '''
+              }
+            }
+          }
+        }
             stage('Test build documentation') {
               steps {
                 dir('tmp') {
@@ -127,8 +121,6 @@ pipeline {
                 }
               }
             }
-          }
-        }
         stage('Docker'){
           when {
             branch 'master'
