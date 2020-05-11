@@ -18,6 +18,7 @@ import numbers
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
+from pyop2.codegen.rep2loopy import TARGET
 
 from functools import singledispatch, partial
 import firedrake.slate.slate as slate
@@ -611,7 +612,7 @@ class LocalLoopyKernelBuilder(object):
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
             # Terminal to be initialised
-            loopy_tensor =  loopy.TemporaryVariable(gem_tensor.name, shape=gem_tensor.shape, dtype="double", address_space=loopy.AddressSpace.LOCAL)
+            loopy_tensor =  loopy.TemporaryVariable(gem_tensor.name, shape=gem_tensor.shape, dtype="double", address_space=loopy.AddressSpace.LOCAL, target=TARGET)
             tensor2temp[slate_tensor] = loopy_tensor
             self.temporary_variables[gem_tensor.name] = loopy_tensor  
             # Initilisation instruction

@@ -25,6 +25,7 @@ import numpy as np
 import islpy as isl
 import pymbolic.primitives as pym
 from numbers import Integral
+from pyop2.codegen.rep2loopy import TARGET
 
 
 class RemoveRestrictions(MultiFunction):
@@ -368,11 +369,11 @@ def generate_kernel_arguments(builder, loopy_outer):
     for coeff in builder.coefficients.values():
         if isinstance(coeff[0], tuple):
             for c_, (name,extent) in coeff:
-                arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"])
+                arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"], target=TARGET)
                 args.append(arg)
         else:
             (name, extent) = coeff
-            arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"])
+            arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"], target=TARGET)
             args.append(arg)
 
     if builder.needs_cell_facets:
@@ -380,17 +381,19 @@ def generate_kernel_arguments(builder, loopy_outer):
         args.append(lp.GlobalArg(builder.cell_facets_arg,
                                     shape=(builder.num_facets, 2),
                                     dtype=np.int8,
-                                    dim_tags=["N1","N0"]))
+                                    dim_tags=["N1","N0"],
+                                    target=TARGET))
         
         loopy_outer.temporary_variables[builder.local_facet_array_arg] = lp.TemporaryVariable(builder.local_facet_array_arg,
                                         shape=(builder.num_facets,),
                                         dtype=np.uint32,
                                         address_space=lp.AddressSpace.LOCAL,
                                         read_only=True,
-                                        initializer=np.arange(builder.num_facets, dtype=np.uint32))
+                                        initializer=np.arange(builder.num_facets, dtype=np.uint32),
+                                        target=TARGET)
 
     if builder.needs_mesh_layers:
-        loopy_outer.temporary_variables["layer"] = lp.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=lp.AddressSpace.GLOBAL)
+        loopy_outer.temporary_variables["layer"] = lp.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=lp.AddressSpace.GLOBAL, target=TARGET)
 
     for tensor_temp in builder.tensor2temp.values():
         loopy_outer.temporary_variables[tensor_temp.name] = tensor_temp

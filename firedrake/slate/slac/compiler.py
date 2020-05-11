@@ -38,6 +38,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
+from pyop2.codegen.rep2loopy import TARGET
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -142,11 +143,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
 
-    # WORKAROUND: Generate code directly from the loopy kernel here,
-    # then attach code as a c-string to the op2kernel
-    code = loopy.generate_code_v2(loopy_merged).device_code()
-    code.replace('void slate_kernel', 'static void slate_kernel')
-    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+    loopykernel = op2.Kernel(loopy_merged, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -609,7 +606,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder, translator):
     """
     # Creation of return variables for outer loopy
     shape = builder.shape(builder.expression)
-    arg = loopy.GlobalArg("output", shape=shape, dtype="double")
+    arg = loopy.GlobalArg("output", shape=shape, dtype="double", target=TARGET)
     idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
@@ -654,7 +651,7 @@ class INVCallable(loopy.ScalarCallable):
         name_in_target = "inverse"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(np.int32)}),
+                            arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(np.int32, target=TARGET)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -756,7 +753,7 @@ class SolveCallable(loopy.ScalarCallable):
         name_in_target = "solve"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype), 0: NumpyType(mat_dtype), 1: NumpyType(mat_dtype), 2: NumpyType(np.int32)}),
+                            arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(mat_dtype, target=TARGET), 2: NumpyType(np.int32, target=TARGET)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):

@@ -16,6 +16,7 @@ import loopy
 import pymbolic.primitives as p
 from pyop2 import op2
 from pyop2.profiling import timed_function
+from pyop2.codegen.rep2loopy import TARGET
 
 from firedrake import constant
 from firedrake import function
@@ -81,7 +82,7 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def arg(self):
-        return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
+        return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto, target=TARGET)
 
 
 class AssignmentBase(Operator):
