@@ -65,7 +65,12 @@ def test_vertical_average(V, expr, solution, tolerance):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
+@pytest.fixture(params=[False, True],
+                ids=["prism", "hex"])
+def quadrilateral(request):
+    return request.param
+
+
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
     tolerance = 1e-14
@@ -96,11 +101,11 @@ def test_vertical_average_variable(quadrilateral):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
-                          (("CG", 3), 2e-7)])
+                          (("CG", 3), 2e-7)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""
     family, degree = testcase
@@ -127,11 +132,11 @@ def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("CG", 1, (4, 6)), 1.9),
                           (("CG", 2, (3, 5)), 2.9),
-                          (("CG", 3, (2, 4)), 3.9)])
+                          (("CG", 3, (2, 4)), 3.9)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
     """Test convergence of depth-independent H. problem on Pn x Real space."""
     family, degree, (start, end) = testcase
