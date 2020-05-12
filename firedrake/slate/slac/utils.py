@@ -22,7 +22,9 @@ import numpy as np
 import islpy as isl
 from numbers import Integral
 from pyop2.codegen.rep2loopy import TARGET
+from tsfc.parameters import default_parameters
 
+SCALAR_TYPE = default_parameters()["scalar_type"]
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -160,16 +162,12 @@ class SlateTranslator():
     def __init__(self, builder):
         self.builder = builder
         self.decomp_dict = OrderedDict()
-        self.var2terminal = OrderedDict()
-        self.mapper = None
 
     def slate_to_gem_translate(self):
         mapper, var2terminal = slate2gem(self.builder.expression)
         if not (type(mapper) == Indexed or type(mapper) == FlexiblyIndexed):
             mapper = Indexed(mapper, make_indices(len(self.builder.shape(mapper))))
-        self.mapper = mapper
-        self.var2terminal = var2terminal
-        return mapper
+        return mapper, var2terminal
 
 
 @singledispatch
@@ -366,12 +364,12 @@ def generate_kernel_arguments(builder, loopy_outer):
     for coeff in builder.coefficients.values():
         if isinstance(coeff, OrderedDict):
             for (name, extent) in coeff.values():
-                arg = lp.GlobalArg(name, shape=extent, dtype="double",
+                arg = lp.GlobalArg(name, shape=extent, dtype=SCALAR_TYPE,
                                    dim_tags=["N0"], target=TARGET)
                 args.append(arg)
         else:
             (name, extent) = coeff
-            arg = lp.GlobalArg(name, shape=extent, dtype="double",
+            arg = lp.GlobalArg(name, shape=extent, dtype=SCALAR_TYPE,
                                dim_tags=["N0"], target=TARGET)
             args.append(arg)
 
@@ -419,10 +417,10 @@ def create_domains(indices):
     return domains
 
 
-def merge_loopy(loopy_outer, builder, translator):
+def merge_loopy(loopy_outer, builder, var2terminal):
 
     # Builder takes care of data management, i.e. loopifying arguments for tsfc call
-    builder._setup(translator.var2terminal)
+    builder._setup(var2terminal)
 
     # Munge instructions
     inits = builder.inits

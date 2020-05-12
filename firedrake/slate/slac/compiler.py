@@ -37,20 +37,16 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import TARGET
+from pyop2.codegen.rep2loopy import TARGET, sol_fn_lookup, inv_fn_lookup
 
 import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
 from tsfc.loopy import generate as generate_loopy
-from loopy.target.c import CTarget
-from loopy.types import NumpyType
-from loopy.expression import dtype_to_type_context
-from pymbolic.mapper.stringifier import PREC_NONE
-from loopy.symbolic import SubArrayRef
-from pymbolic import var
 from tsfc.parameters import default_parameters
+
+SCALAR_TYPE = default_parameters()["scalar_type"]
 
 __all__ = ['compile_expression']
 
@@ -141,7 +137,12 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
 
-    loopykernel = op2.Kernel(loopy_merged, loopy_merged.name, ldargs=["-llapack"])
+    # loopykernel = op2.Kernel(loopy_merged, loopy_merged.name, ldargs=["-llapack"])
+    # WORKAROUND: Generate code directly from the loopy kernel here,
+    # then attach code as a c-string to the op2kernel
+    code = loopy.generate_code_v2(loopy_merged).device_code()
+    code.replace('void slate_kernel', 'static void slate_kernel')
+    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -602,7 +603,7 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     """
     # Creation of return variables for outer loopy
     shape = builder.shape(builder.expression)
-    arg = loopy.GlobalArg("output", shape=shape, dtype="double", target=TARGET)
+    arg = loopy.GlobalArg("output", shape=shape, dtype=SCALAR_TYPE, target=TARGET)
     idx = traversed_gem_expr_dag[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
@@ -615,216 +616,8 @@ def gem_to_loopy(traversed_gem_expr_dag, builder):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    loopy_outer = generate_loopy(impero_c, [arg], default_parameters()["precision"], "double", "loopy_outer")
+    loopy_outer = generate_loopy(impero_c, [arg], default_parameters()["precision"], SCALAR_TYPE, "loopy_outer")
     return loopy_outer
-
-
-# TODO: those should got into firedrake loopy!
-# STAGE 2c: register external function calls
-# the get_*_callable replaces the according callable
-# with the c-function which is defined in the preamble
-class INVCallable(loopy.ScalarCallable):
-    def __init__(self, name, arg_id_to_dtype=None,
-                 arg_id_to_descr=None, name_in_target=None):
-
-        super(INVCallable, self).__init__(name,
-                                          arg_id_to_dtype=arg_id_to_dtype,
-                                          arg_id_to_descr=arg_id_to_descr)
-
-        self.name = name
-        self.name_in_target = name_in_target
-
-    def with_types(self, arg_id_to_dtype, kernel, callables_table):
-        for i in range(len(arg_id_to_dtype)):
-            if arg_id_to_dtype.get(i) is None:
-                # the types provided aren't mature enough to specialize the
-                # callable
-                return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
-                        callables_table)
-
-        mat_dtype = arg_id_to_dtype[0].numpy_dtype
-        name_in_target = "inverse"
-
-        return (self.copy(name_in_target=name_in_target,
-                          arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(np.int32, target=TARGET)}),
-                callables_table)
-
-    def emit_call_insn(self, insn, target, expression_to_code_mapper):
-        assert self.is_ready_for_codegen()
-
-        assert isinstance(insn, loopy.CallInstruction)
-
-        parameters = insn.expression.parameters
-
-        parameters = list(parameters)
-        par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
-
-        parameters.append(insn.assignees[-1])
-        par_dtypes.append(self.arg_id_to_dtype[0])
-
-        mat_descr = self.arg_id_to_descr[0]
-        arg_c_parameters = [
-            expression_to_code_mapper(
-                par,
-                PREC_NONE,
-                dtype_to_type_context(target, par_dtype),
-                par_dtype
-            ).expr
-            if isinstance(par, SubArrayRef) else
-            expression_to_code_mapper(
-                par,
-                PREC_NONE,
-                dtype_to_type_context(target, par_dtype),
-                par_dtype
-            ).expr
-            for par, par_dtype in zip(parameters, par_dtypes)
-        ]
-        c_parameters = []
-        c_parameters.insert(0, arg_c_parameters[-1])  # t1
-        c_parameters.insert(1, arg_c_parameters[0])  # t0
-        c_parameters.insert(2, np.int32(mat_descr.shape[0]))  # n
-        return var(self.name_in_target)(*c_parameters), False
-
-    def generate_preambles(self, target):
-        assert isinstance(target, CTarget)
-        inverse_preamble = """
-            #include <string.h>
-            #include <stdio.h>
-            #include <stdlib.h>
-            #ifndef Inverse_HPP
-            #define Inverse_HPP
-            #define BUF_SIZE 30
-
-            static PetscBLASInt ipiv_buffer[BUF_SIZE];
-            static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
-            static void inverse(PetscScalar* restrict Aout, const PetscScalar* restrict A, const PetscBLASInt N)
-            {
-                PetscBLASInt info;
-                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
-                PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
-                memcpy(Aout,A,N*N*sizeof(PetscScalar));
-                LAPACKgetrf_(&N,&N,Aout,&N,ipiv,&info);
-                if(info==0)
-                    LAPACKgetri_(&N,Aout,&N,ipiv,Awork,&N,&info);
-                if(info!=0)
-                    fprintf(stderr,\"Getri throws nonzero info.\");
-                if ( N > BUF_SIZE ) {
-                    free(Awork);
-                    free(ipiv);
-                }
-            }
-            #endif
-        """
-        yield("inverse", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+inverse_preamble)
-        return
-
-
-def inv_fn_lookup(target, identifier):
-    if identifier == 'inv':
-        return INVCallable(name='inv')
-    else:
-        return None
-
-
-class SolveCallable(loopy.ScalarCallable):
-    def __init__(self, name, arg_id_to_dtype=None,
-                 arg_id_to_descr=None, name_in_target=None):
-
-        super(SolveCallable, self).__init__(name,
-                                            arg_id_to_dtype=arg_id_to_dtype,
-                                            arg_id_to_descr=arg_id_to_descr)
-
-        self.name = name
-        self.name_in_target = name_in_target
-
-    def with_types(self, arg_id_to_dtype, kernel, callables_table):
-        for i in range(len(arg_id_to_dtype)):
-            if arg_id_to_dtype.get(i) is None:
-                # the types provided aren't mature enough to specialize the
-                # callable
-                return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
-                        callables_table)
-
-        mat_dtype = arg_id_to_dtype[0].numpy_dtype
-        name_in_target = "solve"
-
-        return (self.copy(name_in_target=name_in_target,
-                arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(mat_dtype, target=TARGET), 2: NumpyType(np.int32, target=TARGET)}),
-                callables_table)
-
-    def emit_call_insn(self, insn, target, expression_to_code_mapper):
-        assert self.is_ready_for_codegen()
-        assert isinstance(insn, loopy.CallInstruction)  # for batched this should be call instruction
-
-        parameters = insn.expression.parameters
-
-        if type(parameters) != list:
-            parameters = list(parameters)
-        par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]  # TODO: get the reads right
-
-        parameters.append(insn.assignees[0])
-        par_dtypes.append(self.arg_id_to_dtype[1])
-        mat_descr_A = self.arg_id_to_descr[0]
-
-        arg_c_parameters = [
-            expression_to_code_mapper(
-                par,
-                PREC_NONE,
-                dtype_to_type_context(target, par_dtype),
-                par_dtype
-            ).expr
-            if isinstance(par, SubArrayRef) else
-            expression_to_code_mapper(
-                par,
-                PREC_NONE,
-                dtype_to_type_context(target, par_dtype),
-                par_dtype
-            ).expr
-            for par, par_dtype in zip(parameters, par_dtypes)
-        ]
-        c_parameters = []
-        c_parameters.insert(0, arg_c_parameters[-1])  # out
-        c_parameters.insert(1, arg_c_parameters[0])  # A
-        c_parameters.insert(2, arg_c_parameters[1])  # B
-        c_parameters.insert(3, mat_descr_A.shape[1])  # n
-        return var(self.name_in_target)(*c_parameters), False
-
-    def generate_preambles(self, target):
-        assert isinstance(target, CTarget)
-        code = """#include <string.h>
-            #include <stdio.h>
-            #include <stdlib.h>
-            #ifndef Solve_HPP
-            #define Solve_HPP
-            #define BUF_SIZE 30
-
-            static PetscBLASInt ipiv_buffer[BUF_SIZE];
-            static void solve(PetscScalar* restrict out, const PetscScalar* restrict A, PetscScalar* restrict B, PetscBLASInt N)
-            {
-                PetscBLASInt info;
-                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
-                memcpy(out,B,N*sizeof(PetscScalar));
-                PetscBLASInt NRHS;
-                NRHS=1;
-                LAPACKgesv_(&N,&NRHS,A,&N,ipiv,out,&N,&info);
-                if(info!=0)
-                    fprintf(stderr,\"Gesv throws nonzero info.\");
-                if ( N > BUF_SIZE ) {
-                    free(ipiv);
-                }
-            }
-            #endif
-        """
-
-        yield("solve", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+code)
-        return
-
-
-def sol_fn_lookup(target, identifier):
-    if identifier == 'solve':
-        return SolveCallable(name='solve')
-    else:
-        return None
 
 
 def slate_to_cpp(expr, temps, prec=None):
