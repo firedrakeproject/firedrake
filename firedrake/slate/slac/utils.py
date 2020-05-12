@@ -3,17 +3,14 @@ from coffee.visitor import Visitor
 from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
-import ufl
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  FlexiblyIndexed, Solve, Inverse, Variable, view)
 from gem import indices as make_indices
-from gem.node import Memoizer, post_traversal
+from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
 
-
-
-from functools import singledispatch, update_wrapper
+from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
@@ -23,7 +20,6 @@ from islpy import BasicSet
 
 import numpy as np
 import islpy as isl
-import pymbolic.primitives as pym
 from numbers import Integral
 from pyop2.codegen.rep2loopy import TARGET
 
@@ -167,7 +163,7 @@ class SlateTranslator():
         self.var2terminal = OrderedDict()
         self.mapper = None
 
-    def slate_to_gem_translate(self):  
+    def slate_to_gem_translate(self):
         mapper, var2terminal = slate2gem(self.builder.expression)
         if not (type(mapper) == Indexed or type(mapper) == FlexiblyIndexed):
             mapper = Indexed(mapper, make_indices(len(self.builder.shape(mapper))))
@@ -178,7 +174,8 @@ class SlateTranslator():
 
 @singledispatch
 def _slate2gem(expr, self):
-        raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
 
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
@@ -193,28 +190,24 @@ def _slate2gem_tensor(expr, self):
 
 @_slate2gem.register(sl.Block)
 def _slate2gem_block(expr, self):
-    slices = []
     child, = map(self, expr.children)
 
-    # get first block while handling ranges handle ranges
+    # get index of first block in a range of blocks
     first_ind = ()
+    is_range = lambda index: (type(index) == range)
     for index in expr._indices:
-        if type(index) != range:
-            first_ind += (index,)
-        else:
-            first_ind += (index.start,)
-    first_block = tuple(range(ten, ten+1) for ten in first_ind)
-    index_offset = ()
-    for i, idx in enumerate(first_block):
-        if idx.start == 0:
-            index_offset += (0, )
-        else:
-            index_offset += ((sum(expr.children[0].shapes[i][:idx.start])), )
-    
-    index_extent = tuple(sum(shape) for shape in expr.shapes.values())
+        first_ind += (index.start,) if is_range(index) else (index,)
 
-    tmp = list(zip(index_offset, index_extent))
-    for idx, extent in tmp:
+    # get offset of th
+    offset = ()
+    for i, idx in enumerate([idx for idx in first_ind]):
+        offset += ((sum(expr.children[0].shapes[i][:idx])), )
+
+    extent = tuple(sum(shape) for shape in expr.shapes.values())
+
+    # generate a FlexiblyIndexed (sliced view)
+    slices = []
+    for idx, extent in list(zip(offset, extent)):
         slices.append(slice(idx, idx+extent))
     v = view(child, *slices)
     return v
@@ -246,8 +239,8 @@ def _slate2gem_negative(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
     return ComponentTensor(Product(Literal(-1),
-                                           Indexed(child, indices)),
-                               indices)
+                           Indexed(child, indices)),
+                           indices)
 
 
 @_slate2gem.register(sl.Add)
@@ -255,8 +248,8 @@ def _slate2gem_add(expr, self):
     A, B = map(self, expr.children)
     indices = tuple(make_indices(len(A.shape)))
     return ComponentTensor(Sum(Indexed(A, indices),
-                                       Indexed(B, indices)),
-                               indices)
+                           Indexed(B, indices)),
+                           indices)
 
 
 @_slate2gem.register(sl.Mul)
@@ -265,8 +258,9 @@ def _slate2gem_mul(expr, self):
     *i, k = tuple(make_indices(len(A.shape)))
     _, *j = tuple(make_indices(len(B.shape)))
     ABikj = Product(Indexed(A, tuple(i + [k])),
-                        Indexed(B, tuple([k] + j)))
+                    Indexed(B, tuple([k] + j)))
     return ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+
 
 @_slate2gem.register(sl.Factorization)
 def slate2gem_factorization(self, tensor):
@@ -354,43 +348,50 @@ def topological_sort(exprs):
     return schedule
 
 
-#If you append global args later you need to specify dimtags
+# TODO If you append global args later you need to specify dimtags
+# might be another reason to actually generate a wrapper kernel
+# rather than extent the slate kernel
+
 # Append global args and temporaries
 def generate_kernel_arguments(builder, loopy_outer):
     args = []
     for loopy_inner in builder.templated_subkernels:
         for arg in loopy_inner.args[1:]:
-                if arg.name == builder.coordinates_arg or\
-                    arg.name == builder.cell_orientations_arg or\
-                        arg.name == builder.cell_size_arg:
-                    if arg not in args:
-                        args.append(arg)
-    
+            if arg.name == builder.coordinates_arg or\
+               arg.name == builder.cell_orientations_arg or\
+               arg.name == builder.cell_size_arg:
+                if arg not in args:
+                    args.append(arg)
+
     for coeff in builder.coefficients.values():
-        if isinstance(coeff[0], tuple):
-            for c_, (name,extent) in coeff:
-                arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"], target=TARGET)
+        if isinstance(coeff, OrderedDict):
+            for (name, extent) in coeff.values():
+                arg = lp.GlobalArg(name, shape=extent, dtype="double",
+                                   dim_tags=["N0"], target=TARGET)
                 args.append(arg)
         else:
             (name, extent) = coeff
-            arg = lp.GlobalArg(name, shape=extent, dtype="double", dim_tags=["N0"], target=TARGET)
+            arg = lp.GlobalArg(name, shape=extent, dtype="double",
+                               dim_tags=["N0"], target=TARGET)
             args.append(arg)
 
     if builder.needs_cell_facets:
         # Arg for is exterior (==0)/interior (==1) facet or not
         args.append(lp.GlobalArg(builder.cell_facets_arg,
-                                    shape=(builder.num_facets, 2),
-                                    dtype=np.int8,
-                                    dim_tags=["N1","N0"],
-                                    target=TARGET))
-        
-        loopy_outer.temporary_variables[builder.local_facet_array_arg] = lp.TemporaryVariable(builder.local_facet_array_arg,
-                                        shape=(builder.num_facets,),
-                                        dtype=np.uint32,
-                                        address_space=lp.AddressSpace.LOCAL,
-                                        read_only=True,
-                                        initializer=np.arange(builder.num_facets, dtype=np.uint32),
-                                        target=TARGET)
+                                 shape=(builder.num_facets, 2),
+                                 dtype=np.int8,
+                                 dim_tags=["N1", "N0"],
+                                 target=TARGET))
+
+        facet_arg = builder.local_facet_array_arg
+        loopy_outer.temporary_variables[facet_arg] = (
+            lp.TemporaryVariable(facet_arg,
+                                 shape=(builder.num_facets,),
+                                 dtype=np.uint32,
+                                 address_space=lp.AddressSpace.LOCAL,
+                                 read_only=True,
+                                 initializer=np.arange(builder.num_facets, dtype=np.uint32),
+                                 target=TARGET))
 
     if builder.needs_mesh_layers:
         loopy_outer.temporary_variables["layer"] = lp.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=lp.AddressSpace.GLOBAL, target=TARGET)
@@ -399,6 +400,10 @@ def generate_kernel_arguments(builder, loopy_outer):
         loopy_outer.temporary_variables[tensor_temp.name] = tensor_temp
 
     return args
+
+
+# TODO domain generation is double code because its already somewhere in tsfc
+# can be reused when generating wrapper kernel
 # Fix domains
 # We have to add additional indices coming from
 # A) subarrayreffing the subkernel args
@@ -407,17 +412,18 @@ def create_domains(indices):
     domains = []
     for var, extent in indices.items():
         name = var.name
-        if not isinstance(extent, Integral) and len(extent)==1:
+        if not isinstance(extent, Integral) and len(extent) == 1:
             extent = extent[0]
         inames = isl.make_zero_and_vars([name], [])
         domains.append(BasicSet(str((inames[0].le_set(inames[name])) & (inames[name].lt_set(inames[0] + extent)))))
     return domains
 
+
 def merge_loopy(loopy_outer, builder, translator):
 
     # Builder takes care of data management, i.e. loopifying arguments for tsfc call
     builder._setup(translator.var2terminal)
-    
+
     # Munge instructions
     inits = builder.inits
     kitting_insn = []
@@ -425,15 +431,16 @@ def merge_loopy(loopy_outer, builder, translator):
         kitting_insn += builder.assembly_calls[integral_type]
     loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
 
-    # Munge args, dependencies and domains
+    # Munge args, temp, dependencies and domains
     args = generate_kernel_arguments(builder, loopy_outer)
     loopy_merged = loopy_merged.copy(args=loopy_merged.args+args)
     loopy_merged = add_sequential_dependencies(loopy_merged)
+    domains = list(create_domains(builder.inames))
+    loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
+
     # Remove priorities generated from tsfc compile call (TODO do we need this?)
     for insn in loopy_merged.instructions[-len(loopy_outer.instructions):]:
         loopy_merged = lp.set_instruction_priority(loopy_merged, "id:"+insn.id, None)
-    domains = list(create_domains(builder.inames))
-    loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
 
     # Generate program from kernel, register inner kernel and inline inner kernel
     prg = make_program(loopy_merged)
