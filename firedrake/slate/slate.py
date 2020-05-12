@@ -816,8 +816,8 @@ class Inverse(UnaryOp):
             "The inverse can only be computed on square tensors."
         )
 
-        # if A.shape > (4, 4) and not isinstance(A, Factorization):
-        #     A = Factorization(A, decomposition="PartialPivLU")
+        if A.shape > (4, 4) and not isinstance(A, Factorization):
+            A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 

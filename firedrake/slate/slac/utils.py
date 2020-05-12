@@ -26,6 +26,7 @@ from tsfc.parameters import default_parameters
 
 SCALAR_TYPE = default_parameters()["scalar_type"]
 
+
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
     integrals of forms.
@@ -218,11 +219,7 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    if isinstance(expr.children[0], sl.Factorization):
-        ops = (expr.children[0].children[0], expr.children[1])
-    else:
-        ops = expr.children
-    return Solve(*map(self, ops))
+    return Solve(*map(self, expr.children))
 
 
 @_slate2gem.register(sl.Transpose)
@@ -262,7 +259,7 @@ def _slate2gem_mul(expr, self):
 
 @_slate2gem.register(sl.Factorization)
 def slate2gem_factorization(self, tensor):
-    return []
+    return Variable(*map(self, tensor.children))
 
 
 def slate2gem(expressions):
@@ -352,11 +349,12 @@ def topological_sort(exprs):
 
 # Append global args and temporaries
 def generate_kernel_arguments(builder, loopy_outer):
-    args = []
+    args = [lp.GlobalArg(builder.coordinates_arg, shape=builder.coords_extent,
+                         dtype=SCALAR_TYPE, dim_tags=["N0"], target=TARGET)]
+
     for loopy_inner in builder.templated_subkernels:
         for arg in loopy_inner.args[1:]:
-            if arg.name == builder.coordinates_arg or\
-               arg.name == builder.cell_orientations_arg or\
+            if arg.name == builder.cell_orientations_arg or\
                arg.name == builder.cell_size_arg:
                 if arg not in args:
                     args.append(arg)
