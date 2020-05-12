@@ -1359,19 +1359,24 @@ values from f.)"""
             entities = range(pStart, pEnd)
         else:
             if not plex.hasLabel(filterName):
-                raise NameError("Unknown filterName: '%s'", filterName)
+                raise NameError("Unknown filterName: '%s'" % filterName)
             entitySize = plex.getStratumSize(filterName, filterValue)
             if entitySize > 0:
                 entities = plex.getStratumIS(filterName, filterValue).getIndices()
             else:
                 entities = []
         if filter_func:
+            if geometric_expr:
+                raise RuntimeError("geometric_expr must not be set when using filter_func.")
             if len(filter_func.dat.data.shape) != 1:
                 raise RuntimeError("filter_func must have a one-dimensional array.")
             fs = filter_func.topological.function_space()
+            ff_data = filter_func.dat.data_with_halos
             for entity in entities:
+                if fs.global_numbering.getDof(entity) != 1:
+                    raise RuntimeError( "filter_func must have 1 dof per entity: found %s dofs per entity." % fs.global_numbering.getDof(entity))
                 idx = fs.global_numbering.getOffset(entity)
-                if filter_func.dat.data[idx] > 0.999:
+                if ff_data[idx] > 0.999:
                     plex.setLabelValue(labelName, entity, labelValue)
         elif geometric_expr:
             coords = plex.getCoordinatesLocal()
