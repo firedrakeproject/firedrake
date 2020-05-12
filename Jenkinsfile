@@ -3,7 +3,7 @@ pipeline {
   environment {
     FIREDRAKE_CI_TESTS = "1"
     DOCKER_CREDENTIALS = credentials('f52ccab9-5250-4b17-9fb6-c3f1ebdcc986')
-    PETSC_CONFIGURE_OPTIONS = "--with-make-np=11"
+    PETSC_CONFIGURE_OPTIONS = "--with-make-np=12"
   }
   stages {
     stage('BuildAndTest') {
@@ -65,7 +65,7 @@ pipeline {
                 sh '''
     . ./firedrake/bin/activate
     cd firedrake/src/firedrake
-    python -m pytest --durations=200 -n 11 --cov firedrake -v tests
+    python -m pytest --durations=200 -n 12 --cov firedrake -v tests
     '''
               }
             }
@@ -77,7 +77,7 @@ pipeline {
               timestamps {
                 sh '''
     . ./firedrake/bin/activate
-    cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
+    cd firedrake/src/pyadjoint; python -m pytest --durations=200 -n 12 -v tests/firedrake_adjoint
     '''
               }
             }
@@ -123,7 +123,10 @@ pipeline {
             }
         stage('Docker'){
           when {
-            branch 'master'
+            allOf {
+              branch 'master'
+              environment name: 'SCALAR_TYPE', value: 'complex'
+            }
           }
           steps {
             sh '''
@@ -136,6 +139,22 @@ pipeline {
     sudo docker push firedrakeproject/firedrake:latest
     sudo docker build --no-cache -t firedrakeproject/firedrake-notebooks:latest -f docker/Dockerfile.jupyter .
     sudo docker push firedrakeproject/firedrake-notebooks:latest
+    '''
+          }
+        }
+        stage('DockerComplex'){
+          when {
+            allOf {
+              branch 'complex-sprint'
+              environment name: 'SCALAR_TYPE', value: 'complex'
+            }
+          }
+          steps {
+            sh '''
+    sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
+    sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
+    sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-complex:latest -f docker/Dockerfile.complex .
+    sudo docker push firedrakeproject/firedrake:latest
     '''
           }
         }
