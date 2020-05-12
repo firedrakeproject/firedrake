@@ -11,6 +11,7 @@ from tsfc.finatinterface import create_element
 from ufl import MixedElement
 import loopy
 from numbers import Integral
+from tsfc import default_parameters
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
@@ -40,7 +41,7 @@ Context information for creating coefficient temporaries.
 :param local_temp: The local temporary for the coefficient vector.
 """
 
-SCALAR_TYPE = "double"
+SCALAR_TYPE = default_parameters()["scalar_type"]
 
 
 class LocalKernelBuilder(object):
@@ -661,7 +662,7 @@ class LocalLoopyKernelBuilder(object):
         for gem_tensor, slate_tensor in var2terminal.items():
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    shape=gem_tensor.shape,
-                                                   dtype="double",
+                                                   dtype=SCALAR_TYPE,
                                                    address_space=loopy.AddressSpace.LOCAL,
                                                    target=TARGET)
             tensor2temp[slate_tensor] = loopy_tensor
