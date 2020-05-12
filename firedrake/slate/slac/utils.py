@@ -197,7 +197,7 @@ def _slate2gem_block(expr, self):
     for index in expr._indices:
         first_ind += (index.start,) if is_range(index) else (index,)
 
-    # get offset of th
+    # get offset of the first index
     offset = ()
     for i, idx in enumerate([idx for idx in first_ind]):
         offset += ((sum(expr.children[0].shapes[i][:idx])), )
@@ -258,8 +258,9 @@ def _slate2gem_mul(expr, self):
 
 
 @_slate2gem.register(sl.Factorization)
-def slate2gem_factorization(self, tensor):
-    return Variable(*map(self, tensor.children))
+def _slate2gem_factorization(expr, self):
+    A, = map(self, expr.children)
+    return A
 
 
 def slate2gem(expressions):
@@ -274,7 +275,7 @@ def eigen_tensor(expr, temporary, index):
     :meth:`block` of the eigen tensor is provided. Otherwise, no block
     information is needed and the tensor is returned as is.
 
-    :arg expr: a `sl.Tensor` node.
+    :arg expr: a `slate.Tensor` node.
     :arg temporary: the associated temporary of the expr argument.
     :arg index: a tuple of integers used to determine row and column
                 information. This is provided by the SplitKernel
