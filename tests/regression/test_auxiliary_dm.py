@@ -70,7 +70,7 @@ def test_auxiliary_dm():
         + 0.5 * inner(u, u)*dx
         + inner(alpha, v)*dx + inner(div(alpha), u)*dx
         - inner(f, u)*dx
-        )  # noqa: E121
+    )  # noqa: E121
 
     F = derivative(L, z, w)
 
@@ -123,7 +123,7 @@ def test_auxiliary_dm():
                  "fieldsplit_1_aux_mg_coarse_pc_type": "lu",
                  "fieldsplit_1_aux_mg_coarse_pc_factor_mat_solver_type": "mumps",
                  "fieldsplit_1_aux_mg_coarse_mat_mumps_icntl_14": 200,
-                 }
+    }
 
     # Solve variational form
     nvproblem = NonlinearVariationalProblem(F, z, bcs=bcs)
