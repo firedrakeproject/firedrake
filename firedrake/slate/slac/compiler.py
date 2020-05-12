@@ -15,7 +15,6 @@ all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
 from coffee import base as ast
-from ufl import MixedElement
 
 import time
 from hashlib import md5
@@ -135,11 +134,9 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    gem_expr, translator = slate_to_gem(builder)
-
-    loopy_outer = gem_to_loopy(gem_expr, builder, translator)
-
-    loopy_merged = merge_loopy(loopy_outer, builder, translator)
+    gem_expr, var2terminal = slate_to_gem(builder)
+    loopy_outer = gem_to_loopy(gem_expr, builder)
+    loopy_merged = merge_loopy(loopy_outer, builder, var2terminal)
 
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
@@ -594,13 +591,11 @@ def slate_to_gem(builder, prec=None):
     Tensor and assembled vectors are already translated before this pass.
     Their translations are owned by the builder.
     """
-
-    translator = SlateTranslator(builder)
-    traversed_gem_dag = translator.slate_to_gem_translate()
-    return list([traversed_gem_dag]), translator
+    gem_dag, var2terminal = SlateTranslator(builder).slate_to_gem_translate()
+    return list([gem_dag]), var2terminal
 
 
-def gem_to_loopy(traversed_gem_expr_dag, builder, translator):
+def gem_to_loopy(traversed_gem_expr_dag, builder):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
     :return outer_loopy: loopy kernel for slate operations.
@@ -630,11 +625,11 @@ def gem_to_loopy(traversed_gem_expr_dag, builder, translator):
 # with the c-function which is defined in the preamble
 class INVCallable(loopy.ScalarCallable):
     def __init__(self, name, arg_id_to_dtype=None,
-                    arg_id_to_descr=None, name_in_target=None):
+                 arg_id_to_descr=None, name_in_target=None):
 
         super(INVCallable, self).__init__(name,
-                                            arg_id_to_dtype=arg_id_to_dtype,
-                                            arg_id_to_descr=arg_id_to_descr)
+                                          arg_id_to_dtype=arg_id_to_dtype,
+                                          arg_id_to_descr=arg_id_to_descr)
 
         self.name = name
         self.name_in_target = name_in_target
@@ -651,7 +646,7 @@ class INVCallable(loopy.ScalarCallable):
         name_in_target = "inverse"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(np.int32, target=TARGET)}),
+                          arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(np.int32, target=TARGET)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -720,8 +715,9 @@ class INVCallable(loopy.ScalarCallable):
             }
             #endif
         """
-        yield("lapack_inverse", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+inverse_preamble)
+        yield("inverse", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+inverse_preamble)
         return
+
 
 def inv_fn_lookup(target, identifier):
     if identifier == 'inv':
@@ -732,7 +728,7 @@ def inv_fn_lookup(target, identifier):
 
 class SolveCallable(loopy.ScalarCallable):
     def __init__(self, name, arg_id_to_dtype=None,
-                    arg_id_to_descr=None, name_in_target=None):
+                 arg_id_to_descr=None, name_in_target=None):
 
         super(SolveCallable, self).__init__(name,
                                             arg_id_to_dtype=arg_id_to_dtype,
@@ -753,7 +749,7 @@ class SolveCallable(loopy.ScalarCallable):
         name_in_target = "solve"
 
         return (self.copy(name_in_target=name_in_target,
-                            arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(mat_dtype, target=TARGET), 2: NumpyType(np.int32, target=TARGET)}),
+                arg_id_to_dtype={-1: NumpyType(mat_dtype, target=TARGET), 0: NumpyType(mat_dtype, target=TARGET), 1: NumpyType(mat_dtype, target=TARGET), 2: NumpyType(np.int32, target=TARGET)}),
                 callables_table)
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
@@ -820,13 +816,13 @@ class SolveCallable(loopy.ScalarCallable):
             #endif
         """
 
-        yield("lapack_solve", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+code)
+        yield("solve", "#include <petscsystypes.h>\n#include <petscblaslapack.h>\n"+code)
         return
+
 
 def sol_fn_lookup(target, identifier):
     if identifier == 'solve':
         return SolveCallable(name='solve')
-
     return None
 
 
