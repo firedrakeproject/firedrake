@@ -722,8 +722,8 @@ class INVCallable(loopy.ScalarCallable):
 def inv_fn_lookup(target, identifier):
     if identifier == 'inv':
         return INVCallable(name='inv')
-
-    return None
+    else:
+        return None
 
 
 class SolveCallable(loopy.ScalarCallable):
@@ -823,7 +823,8 @@ class SolveCallable(loopy.ScalarCallable):
 def sol_fn_lookup(target, identifier):
     if identifier == 'solve':
         return SolveCallable(name='solve')
-    return None
+    else:
+        return None
 
 
 def slate_to_cpp(expr, temps, prec=None):
