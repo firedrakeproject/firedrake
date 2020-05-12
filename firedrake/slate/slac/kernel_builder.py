@@ -442,6 +442,7 @@ class LocalLoopyKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.coefficients = OrderedDict()
         self.tensor2temp = OrderedDict()
+        self.coords_extent = None
 
     def context_kernels(self, terminals):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
@@ -712,6 +713,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.collect_coefficients(self.expression.coefficients())
         self.initialise_terminals(var2terminal)
+        self.coords_extent = self.index_extent(self.expression.ufl_domain().coordinates)
 
         # TSFC calls only for terminal tensors
         terminal_tensors = [tensor for tensor in var2terminal.values() if isinstance(tensor, slate.Tensor)]
