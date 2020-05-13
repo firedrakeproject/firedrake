@@ -100,8 +100,8 @@ dep_links = ['git+https://github.com/coneoproject/COFFEE#egg=COFFEE-dev']
 
 version = sys.version_info[:2]
 
-if version < (3, 5):
-    raise ValueError("Python version >= 3.5 required")
+if version < (3, 6):
+    raise ValueError("Python version >= 3.6 required")
 
 test_requires = [
     'flake8>=2.1.0',
@@ -142,7 +142,7 @@ setup(name='PyOP2',
           'Programming Language :: C',
           'Programming Language :: Cython',
           'Programming Language :: Python :: 3',
-          'Programming Language :: Python :: 3.5',
+          'Programming Language :: Python :: 3.6',
       ],
       install_requires=install_requires,
       dependency_links=dep_links,

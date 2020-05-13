@@ -4,7 +4,7 @@ notifications:
     secure: ZHRHwEmv0B5pu3HxFPTkk70chHxupN45X8CkMtY6PTapMatICxRIIJNDhUWZGepmkXZB/JnXM7f4pKQe3p83jGLTM4PCQJCoHju9G6yus3swiS6JXQ85UN/acL4K9DegFZPGEi+PtA5gvVP/4HMwOeursbgrm4ayXgXGQUx94cM=
 language: python
 python:
-  - "3.5"
+  - "3.6"
 addons:
   apt:
     packages:
@@ -29,8 +29,9 @@ before_install:
   - "xargs -l1 pip install < requirements-git.txt"
   - pip install pulp
   - pip install -U flake8
-install: "python setup.py develop"
+install:
+  - pip install -e .
 # command to run tests
 script:
-  - "make lint"
-  - "py.test test -v --tb=native"
+  - make lint
+  - py.test test -v --tb=native
