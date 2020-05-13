@@ -692,7 +692,7 @@ def boundary_nodes(V, sub_domain, method):
 
     local_nodes = np.empty((len(boundary_dofs),
                             len(boundary_dofs[0])),
-                           dtype=IntType)
+                           dtype=np.int32)
     for k, v in boundary_dofs.items():
         local_nodes[k, :] = v
 

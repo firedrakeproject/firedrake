@@ -59,7 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Coefficient.__init__(self, function_space.ufl_element())
+        ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space

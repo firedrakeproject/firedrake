@@ -31,7 +31,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         self.mat_type = mat_type
         """Matrix type.
 
-        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', or 'nest',
+        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
         or 'matfree' for matrix-free."""
 
     @property
@@ -96,7 +96,7 @@ class Matrix(MatrixBase):
         # sets self._a, self._bcs, and self._mat_type
         super(Matrix, self).__init__(a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
-        self.M = op2.Mat(*args, **kwargs)
+        self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
         self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
