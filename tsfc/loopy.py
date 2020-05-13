@@ -2,13 +2,12 @@
 
 This is the final stage of code generation in TSFC."""
 
-from math import isnan
-
 import numpy
-from functools import singledispatch
+from functools import singledispatch, partial
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.node import Memoizer
 
 import islpy as isl
 import loopy as lp
@@ -21,6 +20,85 @@ from pytools import UniqueNameGenerator
 from tsfc.parameters import is_complex
 
 from contextlib import contextmanager
+
+
+maxtype = partial(numpy.find_common_type, [])
+
+
+@singledispatch
+def _assign_dtype(expression, self):
+    return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.Terminal)
+def _assign_dtype_terminal(expression, self):
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.Zero)
+@_assign_dtype.register(gem.Identity)
+@_assign_dtype.register(gem.Delta)
+def _assign_dtype_real(expression, self):
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Literal)
+def _assign_dtype_identity(expression, self):
+    return expression.array.dtype
+
+
+@_assign_dtype.register(gem.Power)
+def _assign_dtype_power(expression, self):
+    # Conservative
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.MathFunction)
+def _assign_dtype_mathfunction(expression, self):
+    if expression.name in {"abs", "real", "imag"}:
+        return self.real_type
+    elif expression.name == "sqrt":
+        return self.scalar_type
+    else:
+        return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.MinValue)
+@_assign_dtype.register(gem.MaxValue)
+def _assign_dtype_minmax(expression, self):
+    # UFL did correctness checking
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Conditional)
+def _assign_dtype_conditional(expression, self):
+    return maxtype(map(self, expression.children[1:]))
+
+
+@_assign_dtype.register(gem.Comparison)
+@_assign_dtype.register(gem.LogicalNot)
+@_assign_dtype.register(gem.LogicalAnd)
+@_assign_dtype.register(gem.LogicalOr)
+def _assign_dtype_logical(expression, self):
+    return numpy.int8
+
+
+def assign_dtypes(expressions, scalar_type):
+    """Assign numpy data types to expressions.
+
+    Used for declaring temporaries when converting from Impero to lower level code.
+
+    :arg expressions: List of GEM expressions.
+    :arg scalar_type: Default scalar type.
+
+    :returns: list of tuples (expression, dtype)."""
+    mapper = Memoizer(_assign_dtype)
+    mapper.scalar_type = scalar_type
+    if scalar_type.kind == "c":
+        mapper.real_type = numpy.finfo(scalar_type).dtype
+    else:
+        mapper.real_type = scalar_type
+    return [(e, mapper(e)) for e in expressions]
 
 
 class LoopyContext(object):
@@ -128,13 +206,13 @@ def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel",
 
     # Create arguments
     data = list(args)
-    for i, temp in enumerate(impero_c.temporaries):
+    for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
-            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=temp.array.dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
+            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
             shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
-            data.append(lp.TemporaryVariable(name, shape=shape, dtype=numpy.float64, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
@@ -310,53 +388,39 @@ def _expression_power(expr, ctx):
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, ctx):
-
-    from tsfc.coffee import math_table
-
-    math_table = math_table.copy()
-    math_table['abs'] = ('abs', 'cabs')
-
-    complex_mode = int(is_complex(ctx.scalar_type))
-
-    # Bessel functions
     if expr.name.startswith('cyl_bessel_'):
-        if complex_mode:
-            msg = "Bessel functions for complex numbers: missing implementation"
-            raise NotImplementedError(msg)
+        # Bessel functions
+        if is_complex(ctx.scalar_type):
+            raise NotImplementedError("Bessel functions for complex numbers: "
+                                      "missing implementation")
         nu, arg = expr.children
-        nu_thunk = lambda: expression(nu, ctx)
-        arg_loopy = expression(arg, ctx)
-        if expr.name == 'cyl_bessel_j':
-            if nu == gem.Zero():
-                return p.Variable("j0")(arg_loopy)
-            elif nu == gem.one:
-                return p.Variable("j1")(arg_loopy)
-            else:
-                return p.Variable("jn")(nu_thunk(), arg_loopy)
-        if expr.name == 'cyl_bessel_y':
-            if nu == gem.Zero():
-                return p.Variable("y0")(arg_loopy)
-            elif nu == gem.one:
-                return p.Variable("y1")(arg_loopy)
-            else:
-                return p.Variable("yn")(nu_thunk(), arg_loopy)
-
+        nu_ = expression(nu, ctx)
+        arg_ = expression(arg, ctx)
         # Modified Bessel functions (C++ only)
         #
         # These mappings work for FEniCS only, and fail with Firedrake
         # since no Boost available.
-        if expr.name in ['cyl_bessel_i', 'cyl_bessel_k']:
+        if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
             name = 'boost::math::' + expr.name
-            return p.Variable(name)(nu_thunk(), arg_loopy)
-
-        assert False, "Unknown Bessel function: {}".format(expr.name)
-
-    # Other math functions
-    name = math_table[expr.name][complex_mode]
-    if name is None:
-        raise RuntimeError("{} not supported in complex mode".format(expr.name))
-
-    return p.Variable(name)(*[expression(c, ctx) for c in expr.children])
+            return p.Variable(name)(nu_, arg_)
+        else:
+            # cyl_bessel_{jy} -> {jy}
+            name = expr.name[-1:]
+            if nu == gem.Zero():
+                return p.Variable(f"{name}0")(arg_)
+            elif nu == gem.one:
+                return p.Variable(f"{name}1")(arg_)
+            else:
+                return p.Variable(f"{name}n")(nu_, arg_)
+    else:
+        if expr.name == "ln":
+            name = "log"
+        else:
+            name = expr.name
+        # Not all mathfunctions apply to complex numbers, but this
+        # will be picked up in loopy. This way we allow erf(real(...))
+        # in complex mode (say).
+        return p.Variable(name)(*(expression(c, ctx) for c in expr.children))
 
 
 @_expression.register(gem.MinValue)
@@ -399,10 +463,10 @@ def _expression_conditional(expr, ctx):
 def _expression_scalar(expr, parameters):
     assert not expr.shape
     v = expr.value
-    if isnan(v):
+    if numpy.isnan(v):
         return p.Variable("NAN")
-    r = round(v, 1)
-    if r and abs(v - r) < parameters.epsilon:
+    r = numpy.round(v, 1)
+    if r and numpy.abs(v - r) < parameters.epsilon:
         return r
     return v
 
