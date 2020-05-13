@@ -516,15 +516,15 @@ class LocalLoopyKernelBuilder(object):
         for index, ext in zip(loopy_multiindex, extent):
             if isinstance(ext, tuple) and len(ext) == 1:
                 ext = ext[0]
-            self.inames[index] = int(ext)
+            self.inames[index.name] = int(ext)
 
-    def generate_tsfc_lhs(self, tsfc_kernel, tensor, temp):
+    def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
             which contains the TSFC assembly of the tensor.
         """
         idx = self.create_index(self.shape(tensor))
         self.save_index(idx, self.shape(tensor))
-        lhs = pym.Subscript(pym.Variable(temp.name), idx)
+        lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
     def collect_tsfc_kernel_data(self, mesh, coefficients, kinfo):
@@ -556,7 +556,7 @@ class LocalLoopyKernelBuilder(object):
                         kernel_data.extend([(c_, info[0])])
         return kernel_data
 
-    def loopify_kernel_data(self, kernel_data):
+    def loopify_tsfc_kernel_data(self, kernel_data):
         """ This method generates loopy arguments from the kernel data,
             which are then fed to the TSFC loopy kernel. The arguments
             are arrays and have to be fed element by element to loopy
@@ -633,11 +633,12 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, coeffs):
+    def collect_coefficients(self):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
         """
+        coeffs = self.expression.coefficients()
         for i, c in enumerate(coeffs):
             element = c.ufl_element()
             if type(element) == MixedElement:
@@ -738,9 +739,9 @@ class LocalLoopyKernelBuilder(object):
                 templated_subkernels.append(kinfo.kernel.code)
 
                 # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_tsfc_lhs(tsfc_kernel, tensor, loopy_tensor)
+                output = self.generate_lhs(tensor, pym.Variable(loopy_tensor.name))
                 kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
-                reads.extend(self.loopify_kernel_data(kernel_data))
+                reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
                 # Generate predicates for different integral types
                 if self.is_integral_type(integral_type, "cell_integral"):
