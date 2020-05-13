@@ -77,10 +77,10 @@ def test_p_multigrid_vector():
 
     # Linear elastic energy
     E = 0.5 * (
-                2*mu * inner(sym(grad(u)), sym(grad(u)))*dx  # noqa: E126
-              + lmbda * inner(div(u), div(u))*dx             # noqa: E126
-              - inner(B, u)*dx                               # noqa: E126
-              )                                              # noqa: E126
+               2*mu * inner(sym(grad(u)), sym(grad(u)))*dx     # noqa: E126
+               + lmbda * inner(div(u), div(u))*dx             # noqa: E126
+               - inner(B, u)*dx                               # noqa: E126
+    )                                                         # noqa: E126
 
     bcs = DirichletBC(V, zero((2,)), 1)
 
