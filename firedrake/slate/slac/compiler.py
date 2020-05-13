@@ -608,7 +608,7 @@ def gem_to_loopy(gem_expr):
 
     # Part B: impero_c to loopy
     slate_loopy = generate_loopy(impero_c, arg, default_parameters()["precision"],
-                                 SCALAR_TYPE, "slate_loopy", [], False)
+                                 SCALAR_TYPE, "slate_loopy", [])
     return slate_loopy
 
 
