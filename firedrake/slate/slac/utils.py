@@ -15,14 +15,9 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
-from loopy.kernel.creation import add_sequential_dependencies
-from islpy import BasicSet
 
-import numpy as np
-import islpy as isl
-from numbers import Integral
-from pyop2.codegen.rep2loopy import TARGET
 from tsfc.parameters import default_parameters
+from tsfc.loopy import create_domains
 
 SCALAR_TYPE = default_parameters()["scalar_type"]
 
@@ -157,18 +152,13 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-class SlateTranslator():
-    """Multifunction for translating Slate -> GEM.  """
-
-    def __init__(self, builder):
-        self.builder = builder
-        self.decomp_dict = OrderedDict()
-
-    def slate_to_gem_translate(self):
-        mapper, var2terminal = slate2gem(self.builder.expression)
-        if not (type(mapper) == Indexed or type(mapper) == FlexiblyIndexed):
-            mapper = Indexed(mapper, make_indices(len(self.builder.shape(mapper))))
-        return mapper, var2terminal
+def slate_to_gem(expression):
+    """ Method encapsulating stage 1 of tsslac. """
+    mapper, var2terminal = slate2gem(expression)
+    if not (type(mapper) == Indexed or type(mapper) == FlexiblyIndexed):
+        shape = mapper.shape if len(mapper.shape) != 0 else (1,)
+        mapper = Indexed(mapper, make_indices(len(shape)))
+    return list([mapper]), var2terminal
 
 
 @singledispatch
@@ -344,104 +334,36 @@ def topological_sort(exprs):
     return schedule
 
 
-# TODO If you append global args later you need to specify dimtags
-# might be another reason to actually generate a wrapper kernel
-# rather than extent the slate kernel
+def merge_loopy(slate_loopy, builder, var2terminal):
+    """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
-# Append global args and temporaries
-def generate_kernel_arguments(builder, loopy_outer):
-    args = [lp.GlobalArg(builder.coordinates_arg, shape=builder.coords_extent,
-                         dtype=SCALAR_TYPE, dim_tags=["N0"], target=TARGET)]
+    # In the initialisation the loopy tensors for the terminals are generated
+    # Those are the needed again for generating the TSFC calls
+    inits, tensor2temp = builder.initialise_terminals(var2terminal)
+    builder.generate_tsfc_calls(var2terminal, tensor2temp)
 
-    for loopy_inner in builder.templated_subkernels:
-        for arg in loopy_inner.args[1:]:
-            if arg.name == builder.cell_orientations_arg or\
-               arg.name == builder.cell_size_arg:
-                if arg not in args:
-                    args.append(arg)
-
-    for coeff in builder.coefficients.values():
-        if isinstance(coeff, OrderedDict):
-            for (name, extent) in coeff.values():
-                arg = lp.GlobalArg(name, shape=extent, dtype=SCALAR_TYPE,
-                                   dim_tags=["N0"], target=TARGET)
-                args.append(arg)
-        else:
-            (name, extent) = coeff
-            arg = lp.GlobalArg(name, shape=extent, dtype=SCALAR_TYPE,
-                               dim_tags=["N0"], target=TARGET)
-            args.append(arg)
-
-    if builder.needs_cell_facets:
-        # Arg for is exterior (==0)/interior (==1) facet or not
-        args.append(lp.GlobalArg(builder.cell_facets_arg,
-                                 shape=(builder.num_facets, 2),
-                                 dtype=np.int8,
-                                 dim_tags=["N1", "N0"],
-                                 target=TARGET))
-
-        facet_arg = builder.local_facet_array_arg
-        loopy_outer.temporary_variables[facet_arg] = (
-            lp.TemporaryVariable(facet_arg,
-                                 shape=(builder.num_facets,),
-                                 dtype=np.uint32,
-                                 address_space=lp.AddressSpace.LOCAL,
-                                 read_only=True,
-                                 initializer=np.arange(builder.num_facets, dtype=np.uint32),
-                                 target=TARGET))
-
-    if builder.needs_mesh_layers:
-        loopy_outer.temporary_variables["layer"] = lp.TemporaryVariable("layer", shape=(), dtype=np.int32, address_space=lp.AddressSpace.GLOBAL, target=TARGET)
-
-    for tensor_temp in builder.tensor2temp.values():
-        loopy_outer.temporary_variables[tensor_temp.name] = tensor_temp
-
-    return args
-
-
-# TODO domain generation is double code because its already somewhere in tsfc
-# can be reused when generating wrapper kernel
-# Fix domains
-# We have to add additional indices coming from
-# A) subarrayreffing the subkernel args
-# B) inames from initialisations
-def create_domains(indices):
-    domains = []
-    for var, extent in indices.items():
-        name = var.name
-        if not isinstance(extent, Integral) and len(extent) == 1:
-            extent = extent[0]
-        inames = isl.make_zero_and_vars([name], [])
-        domains.append(BasicSet(str((inames[0].le_set(inames[name])) & (inames[name].lt_set(inames[0] + extent)))))
-    return domains
-
-
-def merge_loopy(loopy_outer, builder, var2terminal):
-
-    # Builder takes care of data management, i.e. loopifying arguments for tsfc call
-    builder._setup(var2terminal)
+    # Construct args
+    args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp)
 
     # Munge instructions
-    inits = builder.inits
-    kitting_insn = []
+    insns = inits
     for integral_type in builder.assembly_calls:
-        kitting_insn += builder.assembly_calls[integral_type]
-    loopy_merged = loopy_outer.copy(instructions=inits+kitting_insn+loopy_outer.instructions)
+        insns += builder.assembly_calls[integral_type]
+    insns += builder.slate_call(slate_loopy)
 
-    # Munge args, temp, dependencies and domains
-    args = generate_kernel_arguments(builder, loopy_outer)
-    loopy_merged = loopy_merged.copy(args=loopy_merged.args+args)
-    loopy_merged = add_sequential_dependencies(loopy_merged)
-    domains = list(create_domains(builder.inames))
-    loopy_merged = loopy_merged.copy(domains=domains+loopy_merged.domains)
+    # Inames come from initialisations + loopyfying kernel args and lhs
+    domains = create_domains(builder.inames.items())
 
-    # Remove priorities generated from tsfc compile call (TODO do we need this?)
-    for insn in loopy_merged.instructions[-len(loopy_outer.instructions):]:
-        loopy_merged = lp.set_instruction_priority(loopy_merged, "id:"+insn.id, None)
+    # Generates the loopy wrapper kernel
+    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
+                                     seq_dependencies=True, target=lp.CTarget(),)
 
-    # Generate program from kernel, register inner kernel and inline inner kernel
-    prg = make_program(loopy_merged)
-    for loopy_inner in builder.templated_subkernels:
-        prg = register_callable_kernel(prg, loopy_inner)
-        prg = inline_callable_kernel(prg, loopy_inner.name)
+    # Generate program from kernel, so that one can register and inline kernels
+    prg = make_program(slate_wrapper)
+    for tsfc_loopy in builder.templated_subkernels:
+        prg = register_callable_kernel(prg, tsfc_loopy)
+        prg = inline_callable_kernel(prg, tsfc_loopy.name)
+    prg = register_callable_kernel(prg, slate_loopy)
+    prg = inline_callable_kernel(prg, slate_loopy.name)
+
     return prg

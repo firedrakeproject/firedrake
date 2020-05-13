@@ -23,7 +23,7 @@ import os.path
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, SlateTranslator, merge_loopy
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -127,12 +127,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
+    gem_expr, var2terminal = slate_to_gem(slate_expr)
+    slate_loopy = gem_to_loopy(gem_expr)
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
-
-    gem_expr, var2terminal = slate_to_gem(builder)
-    loopy_outer = gem_to_loopy(gem_expr, builder)
-    loopy_merged = merge_loopy(loopy_outer, builder, var2terminal)
+    loopy_merged = merge_loopy(slate_loopy, builder, var2terminal)
 
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
@@ -587,38 +586,30 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def slate_to_gem(builder, prec=None):
-    """ Method encapsulating stage 1.
-    Converts the slate expression dag of the LocalKernelBuilder into a gem expression dag.
-    Tensor and assembled vectors are already translated before this pass.
-    Their translations are owned by the builder.
-    """
-    gem_dag, var2terminal = SlateTranslator(builder).slate_to_gem_translate()
-    return list([gem_dag]), var2terminal
-
-
-def gem_to_loopy(traversed_gem_expr_dag, builder):
+def gem_to_loopy(gem_expr):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return outer_loopy: loopy kernel for slate operations.
+    :return slate_loopy: loopy kernel for slate operations.
     """
     # Creation of return variables for outer loopy
-    shape = builder.shape(builder.expression)
-    arg = loopy.GlobalArg("output", shape=shape, dtype=SCALAR_TYPE, target=TARGET)
-    idx = traversed_gem_expr_dag[0].multiindex
+    shape = gem_expr[0].children[0].shape
+    shape = shape if len(shape) != 0 else (1,)
+    arg = [loopy.GlobalArg("output", shape=shape, dtype=SCALAR_TYPE, target=TARGET)]
+    idx = gem_expr[0].multiindex
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
-    preprocessed_gem_expr_dag = impero_utils.preprocess_gem(traversed_gem_expr_dag)
+    preprocessed_gem_expr = impero_utils.preprocess_gem(gem_expr)
 
     # glue assignments to return variable
-    assignments = list(zip(ret_vars, preprocessed_gem_expr_dag))
+    assignments = list(zip(ret_vars, preprocessed_gem_expr))
 
     # Part A: slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    loopy_outer = generate_loopy(impero_c, [arg], default_parameters()["precision"], SCALAR_TYPE, "loopy_outer")
-    return loopy_outer
+    slate_loopy = generate_loopy(impero_c, arg, default_parameters()["precision"],
+                                 SCALAR_TYPE, "slate_loopy", [], False)
+    return slate_loopy
 
 
 def slate_to_cpp(expr, temps, prec=None):
