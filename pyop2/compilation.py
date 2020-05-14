@@ -47,6 +47,7 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
 from pyop2.base import JITModule
+from pyop2.datatypes import ScalarType
 
 
 def _check_hashes(x, y, datatype):
@@ -219,6 +220,8 @@ class Compiler(object):
                 # combination (disappears without
                 # -fno-tree-loop-vectorize!)
                 return ["-fno-tree-loop-vectorize", "-mno-avx512f"]
+            if ver == version.StrictVersion("7.5.0") and ScalarType.kind == 'c':
+                return ["-fno-tree-loop-vectorize"]
         return []
 
     @collective

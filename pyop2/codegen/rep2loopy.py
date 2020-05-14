@@ -460,7 +460,7 @@ def generate(builder, wrapper_name=None):
     # register kernel
     kernel = builder.kernel
     headers = set(kernel._headers)
-    headers = headers | set(["#include <math.h>"])
+    headers = headers | set(["#include <math.h>", "#include <complex.h>", "#include <petsc.h>"])
     preamble = "\n".join(sorted(headers))
 
     from coffee.base import Node
