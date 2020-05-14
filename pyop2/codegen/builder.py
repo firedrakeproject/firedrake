@@ -51,7 +51,10 @@ class Map(object):
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
         if offset is not None:
-            offset = NamedLiteral(offset, name=values.name + "_offset")
+            if len(set(map_.offset)) == 1:
+                offset = Literal(offset[0], casting=True)
+            else:
+                offset = NamedLiteral(offset, name=values.name + "_offset")
 
         self.values = values
         self.offset = offset
@@ -68,21 +71,33 @@ class Map(object):
         n, i, f = multiindex
         if layer is not None and self.offset is not None:
             # For extruded mesh, prefetch the indirections for each map, so that they don't
-            # need to be recomputed. Different f values need to be treated separately.
+            # need to be recomputed.
+            # First prefetch the base map (not dependent on layers)
+            base_key = None
+            if base_key not in self.prefetch:
+                j = Index()
+                base = Indexed(self.values, (n, j))
+                self.prefetch[base_key] = Materialise(PackInst(), base, MultiIndex(j))
+
+            base = self.prefetch[base_key]
+
+            # Now prefetch the extruded part of the map (inside the layer loop).
+            # This is necessary so loopy DTRT for MatSetValues
+            # Different f values need to be treated separately.
             key = f.extent
             if key is None:
                 key = 1
             if key not in self.prefetch:
                 bottom_layer, _ = self.layer_bounds
-                offset_extent, = self.offset.shape
-                j = Index(offset_extent)
-                base = Indexed(self.values, (n, j))
-                if f.extent:
-                    k = Index(f.extent)
-                else:
-                    k = Index(1)
+                k = Index(f.extent if f.extent is not None else 1)
                 offset = Sum(Sum(layer, Product(Literal(numpy.int32(-1)), bottom_layer)), k)
-                offset = Product(offset, Indexed(self.offset, (j,)))
+                j = Index()
+                # Inline map offsets where all entries are identical.
+                if self.offset.shape == ():
+                    offset = Product(offset, self.offset)
+                else:
+                    offset = Product(offset, Indexed(self.offset, (j,)))
+                base = Indexed(base, (j, ))
                 self.prefetch[key] = Materialise(PackInst(), Sum(base, offset), MultiIndex(k, j))
 
             return Indexed(self.prefetch[key], (f, i)), (f, i)
