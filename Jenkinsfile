@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch tsfc reuse-create-domains --package-branch loopy allow-callablestables-gen-with-functionsnotinhistory --package-branch petsc 0d9a514b7d7c5c0bcef72be50478634c8ea73815 --package-branch PyOP2 inverse-solve-callables|| (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch tsfc reuse-create-domains --package-branch loopy allow-callablestables-gen-with-functionsnotinhistory --package-branch PyOP2 inverse-solve-callables|| (cat firedrake-install.log && /bin/false)'
           }
         }
       }

@@ -522,7 +522,6 @@ class LocalLoopyKernelBuilder(object):
             which contains the TSFC assembly of the tensor.
         """
         idx = self.create_index(self.shape(tensor))
-        self.save_index(idx, self.shape(tensor))
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
@@ -565,7 +564,6 @@ class LocalLoopyKernelBuilder(object):
         for c, name in kernel_data:
             extent = self.index_extent(c)
             idx = self.create_index(extent)
-            self.save_index(idx, (extent,))
             arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
         return arguments
 
@@ -575,10 +573,10 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = tensor.ufl_domain().layers-1
-        which = {"interior_facet_horiz_top": str(layer)+"<"+str(nlayer-1),
-                 "interior_facet_horiz_bottom": str(layer)+">"+str(0),
-                 "exterior_facet_top": str(layer)+"=="+str(nlayer-1),
-                 "exterior_facet_bottom": str(layer)+"=="+str(0)}[integral_type]
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
 
         return [which]
 
@@ -592,20 +590,18 @@ class LocalLoopyKernelBuilder(object):
 
         # Index for loop over cell faces of reference cell
         fidx = self.create_index((self.num_facets,))
-        self.save_index(fidx, (self.num_facets,))
 
         # Cell is interior or exterior
         select = 1 if integral_type.startswith("interior_facet") else 0
 
         i = self.create_index((1,))
-        self.save_index(i, (1,))
         predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select)]
 
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
         # "otherwise" is treated incorrectly as "everywhere"
         # However, this replicates an existing slate bug.
         if kinfo.subdomain_id != "otherwise":
-            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", select))
+            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", kinfo.subdomain_id))
 
         # Additional facet array argument to be fed into tsfc loopy kernel
         subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
@@ -735,9 +731,8 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
                                         dtype=np.int8, target=TARGET))
 
-            facet_arg = self.local_facet_array_arg
             args.append(
-                loopy.TemporaryVariable(facet_arg,
+                loopy.TemporaryVariable(self.local_facet_array_arg,
                                         shape=(self.num_facets,),
                                         dtype=np.uint32,
                                         address_space=loopy.AddressSpace.LOCAL,
@@ -746,8 +741,8 @@ class LocalLoopyKernelBuilder(object):
                                         target=TARGET))
 
         if self.needs_mesh_layers:
-            args.append(loopy.GlobalArg(self.layer_arg, shape=(),
-                                        dtype=np.int32, target=TARGET))
+            args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
+                        dtype=np.int32, target=TARGET, address_space=loopy.AddressSpace.GLOBAL))
 
         for tensor_temp in tensor2temp.values():
             args.append(tensor_temp)
