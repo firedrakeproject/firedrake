@@ -99,6 +99,8 @@ class Index(Terminal, Scalar):
         elif self.extent != value:
             raise ValueError("Inconsistent index extents")
 
+    dtype = numpy.int32
+
 
 class FixedIndex(Terminal, Scalar):
     __slots__ = ("value", )
@@ -108,7 +110,9 @@ class FixedIndex(Terminal, Scalar):
 
     def __init__(self, value):
         assert isinstance(value, numbers.Integral)
-        self.value = int(value)
+        self.value = numpy.int32(value)
+
+    dtype = numpy.int32
 
 
 class RuntimeIndex(Scalar):
@@ -266,7 +270,7 @@ class Max(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Sum(Scalar):
@@ -280,7 +284,7 @@ class Sum(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Product(Scalar):
@@ -294,7 +298,7 @@ class Product(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Indexed(Scalar):
