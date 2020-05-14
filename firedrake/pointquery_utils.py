@@ -16,7 +16,7 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
-from firedrake.utils import ScalarType, ScalarType_c
+from firedrake.utils import ScalarType_c, ScalarType, complex_mode
 
 from coffee.base import ArrayInit
 
@@ -107,8 +107,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
 
     # Translation to GEM
     C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-    expr = ufl_utils.preprocess_expression(expr, complex_mode=(ScalarType.kind == 'c'))
-    expr = ufl_utils.simplify_abs(expr)
+    expr = ufl_utils.preprocess_expression(expr, complex_mode=complex_mode)
+    expr = ufl_utils.simplify_abs(expr, complex_mode)
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
@@ -123,6 +123,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
         precision=parameters["precision"],
         point_indices=(),
         point_expr=point,
+        complex_mode=complex_mode
     )
     translator = tsfc.fem.Translator(context)
     ir = map_expr_dag(translator, expr)

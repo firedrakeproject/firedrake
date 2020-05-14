@@ -7,9 +7,9 @@ from firedrake_configuration import get_config
 
 _current_uid = 0
 
-complex_mode = get_config()['options']['complex']
-
 ScalarType_c = as_cstr(ScalarType)
+
+complex_mode = get_config()["options"].get("complex", False)
 
 
 def _new_uid():

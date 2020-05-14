@@ -37,7 +37,7 @@ def compile_element(expression, coordinates, parameters=None):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
     # Apply UFL preprocessing
-    expression = tsfc.ufl_utils.preprocess_expression(expression)
+    expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=utils.complex_mode)
 
     # Collect required coefficients
     coefficient, = extract_coefficients(expression)
@@ -69,13 +69,14 @@ def compile_element(expression, coordinates, parameters=None):
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
                   point_indices=(),
-                  point_expr=point)
+                  point_expr=point,
+                  complex_mode=utils.complex_mode)
     # TODO: restore this for expression evaluation!
     # config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression)
+    expression = tsfc.ufl_utils.simplify_abs(expression, utils.complex_mode)
 
     # Translate UFL -> GEM
     translator = tsfc.fem.Translator(context)

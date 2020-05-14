@@ -276,6 +276,8 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
+        # Used for reconstruction of mixed/component spaces
+        self.real_tensorproduct = real_tensorproduct
         sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -290,7 +292,7 @@ class FunctionSpace(object):
             self.shape = element.value_shape()[:1]
         else:
             self.shape = ()
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
         self._mesh = mesh
 
@@ -389,7 +391,12 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __len__(self):
         return 1
@@ -534,11 +541,12 @@ class MixedFunctionSpace(object):
         super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s
-                                               in spaces])
+        mesh, = set(s.mesh() for s in spaces)
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
+                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
-        self._mesh = spaces[0].mesh()
+        self._mesh = mesh
         self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
@@ -556,8 +564,12 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace):
@@ -717,7 +729,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None):
+    def __new__(cls, mesh, element, name=None, real_tensorproduct=False):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
@@ -772,7 +784,8 @@ def IndexedFunctionSpace(index, space, parent):
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name,
+                                 real_tensorproduct=space.real_tensorproduct)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -794,7 +807,8 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name,
+                             real_tensorproduct=parent.real_tensorproduct)
     new.identifier = "component"
     new.component = component
     new.parent = parent
@@ -818,7 +832,7 @@ class RealFunctionSpace(FunctionSpace):
     value_size = 1
 
     def __init__(self, mesh, element, name):
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh

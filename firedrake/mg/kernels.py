@@ -104,7 +104,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         _.update(parameters)
         parameters = _
 
-    expression = tsfc.ufl_utils.preprocess_expression(expression)
+    expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
 
     # # Collect required coefficients
 
@@ -142,11 +142,12 @@ def compile_element(expression, dual_space=None, parameters=None,
                   precision=parameters["precision"],
                   point_indices=(),
                   point_expr=point,
-                  argument_multiindices=argument_multiindices)
+                  argument_multiindices=argument_multiindices,
+                  complex_mode=complex_mode)
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression)
+    expression = tsfc.ufl_utils.simplify_abs(expression, complex_mode)
 
     # Translate UFL -> GEM
     if coefficient:
@@ -521,12 +522,14 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
-                     quadrature_rule=macro_quadrature_rule)
+                     quadrature_rule=macro_quadrature_rule,
+                     complex_mode=complex_mode)
 
     fexpr, = fem.compile_ufl(f, **macro_cfg)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, **macro_cfg)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())))
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
+                                           complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
 
     Vce = create_element(Vc.ufl_element())
@@ -547,10 +550,12 @@ def dg_injection_kernel(Vf, Vc, ncell):
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
-                      quadrature_rule=quadrature_rule)
+                      quadrature_rule=quadrature_rule,
+                      complex_mode=complex_mode)
 
     X = ufl.SpatialCoordinate(Vc.mesh())
-    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()))
+    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
+                                        complex_mode=complex_mode)
     C_0, = fem.compile_ufl(X, **coarse_cfg)
     K, = fem.compile_ufl(K, **coarse_cfg)
 
