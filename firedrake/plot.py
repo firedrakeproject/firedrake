@@ -31,7 +31,8 @@ def toreal(array, component):
 def _autoscale_view(axes, coords):
     axes.autoscale_view()
 
-    coords = toreal(coords, "real")
+    if coords is not None:
+        coords = toreal(coords, "real")
     # Dirty hack; autoscale_view doesn't appear to work for 3D plots.
     if isinstance(axes, mpl_toolkits.mplot3d.Axes3D):
         setters = ["set_xlim", "set_ylim", "set_zlim"]
@@ -656,8 +657,7 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     else:
         degree = function.ufl_element().degree()
         num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
-        xs, vals = calculate_one_dim_points(function, num_sample_points)
-        points = toreal(xs, "real"), toreal(vals, complex_component)
+        points = calculate_one_dim_points(function, num_sample_points)
         num_cells = function.function_space().mesh().num_cells()
         result = _interp_bezier(points, num_cells, axes, **kwargs)
 
@@ -814,7 +814,8 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        return _bezier_plot(interpolate(function, V), axes, **kwargs)
+        return _bezier_plot(interpolate(function, V), axes, complex_component=complex_component,
+                            **kwargs)
     y_vals = _bezier_calculate_points(function)
     x = SpatialCoordinate(mesh)
     coords = Function(FunctionSpace(mesh, 'DG', deg))
@@ -836,12 +837,14 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     return patch
 
 
-def _interp_bezier(pts, num_cells, axes, **kwargs):
+def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
     """Interpolate points of a 1D function into piece-wise Bezier curves
 
     :arg pts: Points of the 1D function evaluated by _calculate_one_dim_points
     :arg num_cells: Number of cells containing the points
     :arg axes: Axes to be plotted on
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :arg kwargs: Addition key word argument for plotting
     """
     pts = pts.T.reshape(num_cells, -1, 2)
@@ -858,7 +861,9 @@ def _interp_bezier(pts, num_cells, axes, **kwargs):
 
     for i in range(num_cells):
         xs = np.dot(M, pts[i, idx])
-        vertices = np.append(vertices, xs.transpose([1, 0, 2]).reshape(-1, 2))
+        vertices = np.append(toreal(vertices, "real"),
+                             toreal(xs.transpose([1, 0, 2]).reshape(-1, 2),
+                                    complex_component))
 
     vertices = vertices.reshape(-1, 2)
     codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
