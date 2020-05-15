@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import numpy as np
 import pytest
 
@@ -101,7 +102,7 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     dW0 = W0.dof_count
     dW1 = W1.dof_count
 
-    A = np.zeros((dW0+dW1, dW0+dW1))
+    A = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
     A[:dW0, :dW0] = L.M[0, 0].values
     A[:dW0, dW0:dW0+dW1] = L.M[0, 1].values
     A[dW0:dW0+dW1, :dW0] = L.M[1, 0].values
@@ -118,7 +119,7 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     L0 = assemble((inner(sigma, tau) - inner(u, cross(outward_normal, grad(tau))) + inner(cross(outward_normal, grad(sigma)), v)
                    + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
-    A0 = np.zeros((dW0+dW1, dW0+dW1))
+    A0 = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
     A0[:dW0, :dW0] = L0.M[0, 0].values
     A0[:dW0, dW0:dW0+dW1] = L0.M[0, 1].values
     A0[dW0:dW0+dW1, :dW0] = L0.M[1, 0].values
@@ -176,7 +177,7 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     dW1 = W1.dof_count
     dW2 = W2.dof_count
 
-    A = np.zeros((dW1+dW2, dW1+dW2))
+    A = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
     A[:dW1, :dW1] = L.M[0, 0].values
     A[:dW1, dW1:dW1+dW2] = L.M[0, 1].values
     A[dW1:dW1+dW2, :dW1] = L.M[1, 0].values
@@ -187,7 +188,7 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 0)
 
-    A0 = np.zeros((dW1+dW2, dW1+dW2))
+    A0 = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
     A0[:dW1, :dW1] = L0.M[0, 0].values
     A0[:dW1, dW1:dW1+dW2] = L0.M[0, 1].values
     A0[dW1:dW1+dW2, :dW1] = L0.M[1, 0].values

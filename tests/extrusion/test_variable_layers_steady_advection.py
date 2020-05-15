@@ -43,7 +43,7 @@ def test_steady_advection_variable_layers():
     layers = numpy.empty((10, 2), dtype=IntType)
 
     layers[:, 0] = 0
-    layers[:, 1] = selector.dat.data_ro
+    layers[:, 1] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
