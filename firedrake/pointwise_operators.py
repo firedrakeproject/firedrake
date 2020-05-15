@@ -1,5 +1,7 @@
 from abc import ABCMeta, abstractmethod
-from functools import partial
+from functools import partial, reduce
+from operator import mul
+from hashlib import md5
 import types
 import sympy as sp
 import numpy as np
@@ -203,6 +205,8 @@ class PointsolveOperator(AbstractPointwiseOperator):
     https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html
      """
 
+    _cache = {}
+
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, disp=False):
         r"""
         :param operands: operands on which act the :class:`PointsolveOperator`.
@@ -258,6 +262,29 @@ class PointsolveOperator(AbstractPointwiseOperator):
     def solver_params(self):
         return self.operator_data['solver_params']
 
+    def _cache_key_inv_jac(self, F, y, same_shape):
+        return md5((str(F) + str(y) + str(same_shape)).encode()).hexdigest()
+
+    def _cache_symbolic_inv_jac(inv):
+        # _symbolic_inv_jac just depends on the expression and the shapes involved
+        # The symbolic inversion by itself is not so problematic however the lambdification (sp.lambdify)
+        # of the result can quickly be horrifically slow
+        # TODO: we can generate C code using sp.codegen to compute the expression obtained (it will still be
+        # associated to this caching mechanism)
+        def wrapper(self, *args, **kwargs):
+            F = args[1]
+            y = kwargs.get('y')
+            same_shape = kwargs.get('same_shape')
+            key = self._cache_key_inv_jac(F, y, same_shape)
+            cache = self._cache
+            try:
+                return cache[key]
+            except KeyError:
+                result = inv(self, *args, **kwargs)
+                cache[key] = result
+                return result
+        return wrapper
+
     def compute_derivatives(self, f):
         deriv_index = (0,) + self.derivatives
         symb = (self._sympy_create_symbols(self.ufl_function_space().shape, 0),)
@@ -273,6 +300,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         fexpr = self.operator_f(*symb)
         args = self._prepare_args_f(ufl_space)
         vals = tuple(coeff.dat.data_ro for coeff in args)
+        fj, vj = self._reshape_args(args, (f.dat.data_ro,) + vals, f)
 
         # Symbols construction
         symb = (self._sympy_create_symbols(shape, 0),)
@@ -283,22 +311,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
                        for i, e in enumerate(args))
         new_symb = tuple(e.free_symbols.pop() for e in ops_f)
 
-        # Helper function
-        def _tensor_numpy_solve(x, A, B):
-            if not isinstance(x, sp.Array):
-                res = sp.lambdify(new_symb, x, modules='numpy', dummify=True)
-                return res(f.dat.data_ro, *vals)
-
-            # Sympy does not handle symbolic tensor inversion, as it does for rank <= 2
-            # so we need to operate on the numpy vector
-            B = self._sympy_subs_symbols(symb, ops_f, B)
-            B_func = sp.lambdify(new_symb, B, modules='numpy', dummify=True)
-            fj, vj = self._reshape_args(args, (f.dat.data_ro,) + vals, f)
-            tens_func = self._numpy_tensor_solve(B_func, A, inverse=True)
-            res = tens_func(fj, *vj)
-            res = np.rollaxis(res.squeeze(), -1)
-            return res
-
         # Compute derivatives
         for i, di in enumerate(deriv_index):
             # -> Sympy idiff does not work for high dimension
@@ -306,13 +318,16 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 # We want to compute dsymb[0]/dsymb[i]
                 # We know by Implicit Function Theorem that :
                 # if f(x,y) = 0 =>  df/dx + dy/dx*df/dy = 0
-                dfdsi = self._sympy_diff(fexpr, symb[i])
-                dydx_symb = self._sympy_inv_jacobian(symb[0], fexpr, -dfdsi)
-                dydx_symb = self._sympy_subs_symbols(symb, ops_f, dydx_symb)
-                dydx = sp.lambdify(new_symb, dydx_symb, modules='numpy', dummify=True)
+                dfdsi = sp.diff(fexpr, symb[i])
+                dydx_symb = sp.diff(fexpr, symb[0])
+                dydx = self._sympy_inv_jacobian(symb, fexpr, new_symb, ops_f, -dfdsi, same_shape=True)
 
                 # dy/dx
-                res = _tensor_numpy_solve(dydx_symb, dydx, -dfdsi)
+                res = np.array(dydx(fj, *vj))
+                if len(self.ufl_shape) > 2:
+                    # for sp.Array (i.e rank > 2)
+                    res = np.rollaxis(res.squeeze(), -1)
+                    res = res.reshape(-1, *self.ufl_shape)
 
                 if di > 1:
                     # ImpDiff : (df/dy)*(d2y/dx) = -(d2f/dx)+(d2f/dy)*(dy/dx)**2
@@ -320,11 +335,15 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     d2fdsi = sp.diff(fexpr, symb[i], 2)
 
                     C = - d2fdsi + d2fds0*dydx_symb*dydx_symb
-                    d2ydx_symb = self._sympy_inv_jacobian(symb[0], fexpr, C)
-                    d2ydx_symb = self._sympy_subs_symbols(symb, ops_f, d2ydx_symb)
+                    d2ydx_symb = sp.diff(fexpr, symb[0], symb[0])
+                    d2ydx = self._sympy_inv_jacobian(symb, fexpr, new_symb, ops_f, C, same_shape=True)
 
                     # d2y/dx
-                    res = _tensor_numpy_solve(d2ydx_symb, dydx, C)
+                    res = np.array(d2ydx(fj, *vj))
+                    if len(self.ufl_shape) > 2:
+                        # for sp.Array (i.e rank > 2)
+                        res = np.rollaxis(res.squeeze(), -1)
+                        res = res.reshape(-1, *self.ufl_shape)
 
                     if di == 3:
                         # ImpDiff : (df/dy)*(d3y/dx) = -(d3f/dx)+(d2f/dy)*(d2y/dx)*(dy/dx)+(d3f/dy)*(dy/dx)**3
@@ -332,11 +351,14 @@ class PointsolveOperator(AbstractPointwiseOperator):
                         d3fdsi = sp.diff(fexpr, symb[i], 3)
 
                         C = - d3fdsi + d2fds0*d2ydx_symb*dydx_symb + d3fds0*(dydx_symb)**3
-                        d3ydx_symb = self._sympy_inv_jacobian(symb[0], fexpr, C)
-                        d3ydx_symb = self._sympy_subs_symbols(symb, ops_f, d3ydx_symb)
+                        d3ydx = self._sympy_inv_jacobian(symb, fexpr, new_symb, ops_f, C, same_shape=True)
 
                         # d3y/dx
-                        res = _tensor_numpy_solve(d3ydx_symb, dydx, C)
+                        res = np.array(d3ydx(fj, *vj))
+                        if len(self.ufl_shape) > 2:
+                            # for sp.Array (i.e rank > 2)
+                            res = np.rollaxis(res.squeeze(), -1)
+                            res = res.reshape(-1, *self.ufl_shape)
 
                     elif di != 2:
                         # The implicit differentiation order can be extended if needed
@@ -391,16 +413,15 @@ class PointsolveOperator(AbstractPointwiseOperator):
         ops_f += tuple(self._sympy_create_symbols(e.ufl_shape, i+1, granular=False)
                        for i, e in enumerate(args))
         new_symb = tuple(e.free_symbols.pop() for e in ops_f)
+        # TODO: Cache this lambdify?
         new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy', dummify=True)
 
         # Computation of the jacobian
         if self.solver_name in ('newton', 'halley'):
             if 'fprime' not in solver_params.keys():
                 fexpr = f(*symb)
-                df = self._sympy_inv_jacobian(symb[0], fexpr)
-                df = self._sympy_subs_symbols(symb, ops_f, df)
-                fprime = sp.lambdify(new_symb, df, modules='numpy', dummify=True)
-                solver_params['fprime'] = fprime
+                df = self._sympy_inv_jacobian(symb, fexpr, new_symb, ops_f)
+                solver_params['fprime'] = df
 
         # Computation of the hessian
         if self.solver_name == 'halley':
@@ -414,16 +435,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # Reshape numpy arrays
         solver_params_x0, vals = self._reshape_args(args, (solver_params_x0,) + vals)
 
-        if isinstance(df, sp.Array):
-            # Sympy does not handle symbolic tensor inversion, as it does for rank <= 2
-            # so we need to operate on the numpy vector
-            df = solver_params['fprime']
-            solver_params['fprime'] = self._numpy_tensor_solve(new_f, df)
-
         # Vectorized nonlinear solver (e.g. Newton, Halley...)
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
         self.dat.data[:] = np.rollaxis(res.squeeze(), -1)
-
         return self
 
     def _prepare_args_f(self, space):
@@ -452,56 +466,62 @@ class PointsolveOperator(AbstractPointwiseOperator):
             args += (opi,)
         return args
 
-    def _sympy_inv_jacobian(self, x, F, y=None):
+    @_cache_symbolic_inv_jac
+    def _sympy_inv_jacobian(self, symb, F, new_symb, ops_f, y=None, same_shape=False):
+        r"""
+        Symbolically solves J_{F} \delta x = y, where J_{F} is the Jacobian of F wrt x
+        (abuse of notation, i.e. it refers to \frac{\partial F}{\partial x}).
+        and \delta x the solution we are solving for and y the rhs, it can either be:
+                            - F(x): when evaluating the PointSolveOperator
+                            - \frac{\partial F(x)}{\partial y_i}: when evaluating the derivatives of the the PointSolveOperator
+        Solving symbolically leverages the fact that we are at the end solving the same equation over all the points,
+        we then just have to replace the symbolic expression by the numerical values when needed.
         """
-        Symbolically performs the inversion of the Jacobian of F, except if x is an Array (i.e. rank>2)
-        in which case we return the Jacobian of F and perform later on the inversion numerically.
-        This is because sympy does not allow for symbolic inversion of Array objects.
-        """
+        x = symb[0]
         y = y or F
-        if isinstance(x, sp.Matrix) and x.shape[-1] == 1:
+        df = sp.diff(F, x)
+
+        if isinstance(df, sp.Matrix):
+            sol = df.LUsolve(y)
+        elif isinstance(x, sp.Symbol):
+            sol = y/df
+        else:
+            # Sympy does not handle symbolic tensor inversion, as it does for rank <= 2, so we reshape the problem.
+            # For instance, DF \delta x = y where DF.shape = (2,2,2,2) and x.shape/y.shape = (2,2)
+            # will be turn into DF \delta x = y where DF.shape = (4,4) and x.shape/y.shape = (4,1)
+            self_shape = self.ufl_shape
+            if len(self_shape) == 1:
+                self_shape += (1,)
+            sol = df
+
+            # Matrix
+            shape = df.shape
+            n_elts = int(reduce(mul, shape)**0.5)
+            if n_elts**2 != reduce(mul, shape):
+                raise ValueError('Incompatible dimension: %', shape)
+            dfMat = np.array(df.tolist()).reshape(n_elts, n_elts)
+            dfMat = sp.Matrix(dfMat)
+
             # Vector
-            jac = self._sympy_diff(F, x)
-            # Symbolically compute J_{F}^{-1}*y
-            df = jac.inv() * y
-        else:
-            df = self._sympy_diff(F, x)
-            if isinstance(x, sp.Symbol):
-                df = y/df
-        return df
+            yVec = np.array(y.tolist()).flatten()
+            yVec = sp.Matrix(yVec)
+            if same_shape:
+                # Ax=B with A.shape/B.shape/x.shape = (2,2) (happens frequently for implicit differentiation)
+                yVec = yVec.reshape(n_elts, n_elts)
 
-    def _sympy_diff(self, f, symb):
-        if isinstance(symb, sp.Matrix) and symb.shape[-1] == 1:
-            dfds = f.jacobian(symb)
-        else:
-            dfds = sp.diff(f, symb)
-        return dfds
+            # Compute solution and reshape (symbolically)
+            sol = dfMat.LUsolve(yVec)
+            """
+            if len(self_shape) > 2:
+                return sp.Array(sol, self_shape)
+            sol = sol.reshape(*self_shape)
+            """
+            if len(self_shape) < 3:
+                sol = sol.reshape(*self_shape)
 
-    def _numpy_tensor_solve(self, f, df, inverse=False):
-        """
-        Solve the linear system involving the Jacobian, where df has a rank greater than 2.
-        """
-        if inverse:
-            def _tensor_solve_(X, *Y):
-                ndat = X.shape[-1]
-                Y = np.array(Y)
-                res = []
-                for i in range(ndat):
-                    f_X = np.array(f(X[..., i], *Y[..., i])).squeeze()
-                    df_X = np.array(df(X[..., i], *Y[..., i])).squeeze()
-                    res += [np.linalg.tensorinv(df_X)*f_X]
-                return np.rollaxis(np.array(res), 0, len(f_X.shape)+1)
-        else:
-            def _tensor_solve_(X, *Y):
-                ndat = X.shape[-1]
-                Y = np.array(Y)
-                res = []
-                for i in range(ndat):
-                    f_X = np.array(f(X[..., i], *Y[..., i])).squeeze()
-                    df_X = np.array(df(X[..., i], *Y[..., i])).squeeze()
-                    res += [np.linalg.tensorsolve(df_X, f_X)]
-                return np.rollaxis(np.array(res), 0, len(f_X.shape)+1)
-        return _tensor_solve_
+        sol = self._sympy_subs_symbols(symb, ops_f, sol)
+        sol = sp.lambdify(new_symb, sol, modules='numpy', dummify=True)
+        return sol
 
     def _reshape_args(self, args, values, f=None):
         f = f or self
@@ -579,7 +599,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # if full_output:
         #     result = namedtuple('result', ('root', 'converged', 'zero_der'))
         #     p = result(p, ~failures, zero_der)
-
         return p
 
     def _sympy_create_symbols(self, xshape, i, granular=True):

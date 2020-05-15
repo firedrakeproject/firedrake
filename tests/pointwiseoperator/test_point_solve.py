@@ -261,7 +261,8 @@ def test_glen_flow_law():
 
     # Glen's flow law
     power = 2
-    ps = point_solve(lambda sol, y: Matrix(sol) * (Matrix(sol).norm())**power - y,
+    eps = 1e-5
+    ps = point_solve(lambda sol, y: Matrix(sol) * (Matrix(sol).norm() + eps)**power - y,
                      function_space=V3,
                      solver_name='newton',
                      solver_params={'maxiter': 50, 'x0': Function(V3).interpolate(Identity(2))})
@@ -270,8 +271,8 @@ def test_glen_flow_law():
     tau2 = ps(sym(grad(u2)))
 
     F2 = inner(p2, div(w))*dx - inner(grad(w), tau2)*dx - inner(div(u2), phi)*dx
-    solve(F2 == 0, soln2, bcs=bcs)
-
+    solve(F2 == 0, soln2, bcs=bcs, solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
+                                                      "mat_type": "aij", "pc_factor_mat_solver_type": "mumps"})
     u2_out, p2_out = soln2.split()
 
     # Verification #
@@ -279,10 +280,10 @@ def test_glen_flow_law():
     SG = Function(V3).interpolate(sym(grad(u2)))
 
     # L2 error
-    fexpr = T*inner(T, T) - SG
+    fexpr = T*(inner(T, T) + eps) - SG
     assert assemble(inner(fexpr, fexpr)*dx) < 1.e-7
 
     # l2 error
-    fct = lambda x, y: np.linalg.norm(x)**2*x - y
+    fct = lambda x, y: (np.linalg.norm(x)+eps)**2*x - y
     res = np.array([fct(A, B) for A, B in zip(T.dat.data_ro, SG.dat.data_ro)])
     assert 0.5*np.linalg.norm(res)/np.sqrt(V3.node_count) < 1.e-7
