@@ -16,7 +16,7 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
-from firedrake.utils import ScalarType_c, ScalarType, complex_mode
+from firedrake.utils import ScalarType_c, complex_mode
 
 from coffee.base import ArrayInit
 
