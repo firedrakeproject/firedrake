@@ -592,8 +592,10 @@ class PlaneSmoother(object):
 
         mesh = dm.getAttr("__firedrake_mesh__")
         ele = mesh.coordinates.function_space().ufl_element()
-        if ele.family() in ["Discontinuous Lagrange", "DQ"]:
-            # Ah, we got a periodic mesh. We need to interpolate to CGk
+        V = mesh.coordinates.function_space()
+        if V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs():
+            # We're using DG or DQ for our coordinates, so we got
+            # a periodic mesh. We need to interpolate to CGk
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
             CGkele = ele.reconstruct(family="Lagrange")
