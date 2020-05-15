@@ -821,7 +821,10 @@ class PatchBase(PCSNESBase):
     def destroy(self, obj):
         # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
         d = self.plex.getDict()
-        del d["__firedrake_mesh__"]
+        try:
+            del d["__firedrake_mesh__"]
+        except KeyError:
+            pass
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()
