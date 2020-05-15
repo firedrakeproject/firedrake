@@ -33,7 +33,7 @@ def periodise(m):
 
 
 def test_line_smoother_periodic():
-    N = 10
+    N = 3
     H = 0.1
     nsmooth = 3
     nref = 1
@@ -95,4 +95,4 @@ def test_line_smoother_periodic():
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 
-    assert solver.snes.ksp.its <= 4
+    assert solver.snes.ksp.its <= 5

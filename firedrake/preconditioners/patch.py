@@ -570,39 +570,18 @@ def select_entity(p, dm=None, exclude=None):
 
 class PlaneSmoother(object):
     @staticmethod
-    def coords(dm, p):
-        mesh = dm.getAttr("__firedrake_mesh__")
+    def coords(dm, p, coordinates):
+        coordinatesV = coordinates.function_space()
+        data = coordinates.dat.data_ro_with_halos
+        coordinatesDM = coordinatesV.dm
+        coordinatesSection = coordinatesDM.getDefaultSection()
 
-        ele = mesh.coordinates.function_space().ufl_element()
-        assert ele.family() in ["Lagrange", "Discontinuous Lagrange"]
-        if ele.family() == "Discontinuous Lagrange":
-            # Ah, we got a periodic mesh. We need to interpolate to CGk
-            # with access descriptor MAX to define a consistent opinion
-            # about where the vertices are.
-
-            coords = dm.getAttr("__firedrake_interpolated_coords__")
-            if coords is None:
-                CGkele = ele.reconstruct(family="Lagrange")
-                # Can't do
-                # CGk = FunctionSpace(mesh, CGkele)
-                # because equality fails between a mesh and a weakref.proxy.
-                CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
-                coords = interpolate(mesh.coordinates, CGk, access=op2.MAX)
-                dm.setAttr("__firedrake_interpolated_coords__", coords)
-        else:
-            coords = mesh.coordinates
-
-        coordsV = coords.function_space()
-        data = coords.dat.data_ro
-        coordsDM = coordsV.dm
-        coordsSection = coordsDM.getDefaultSection()
-
-        closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordsSection.getDof(x) > 0]
+        closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordinatesSection.getDof(x) > 0]
 
         gdim = data.shape[1]
         bary = numpy.zeros(gdim)
         for p_ in closure_of_p:
-            (dof, offset) = (coordsSection.getDof(p_), coordsSection.getOffset(p_))
+            (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
             bary += data[offset:offset+dof].reshape(gdim)
         bary /= len(closure_of_p)
         return bary
@@ -610,8 +589,24 @@ class PlaneSmoother(object):
     def sort_entities(self, dm, axis, dir, ndiv):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+
+        mesh = dm.getAttr("__firedrake_mesh__")
+        ele = mesh.coordinates.function_space().ufl_element()
+        if ele.family() in ["Discontinuous Lagrange", "DQ"]:
+            # Ah, we got a periodic mesh. We need to interpolate to CGk
+            # with access descriptor MAX to define a consistent opinion
+            # about where the vertices are.
+            CGkele = ele.reconstruct(family="Lagrange")
+            # Need to supply the actual mesh to the FunctionSpace constructor,
+            # not its weakref proxy (the variable `mesh`)
+            # as interpolation fails because they are not hashable
+            CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
+            coordinates = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+        else:
+            coordinates = mesh.coordinates
+
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
-        entities = [(p, self.coords(dm, p)) for p in
+        entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
         minx = min(entities, key=lambda z: z[1][axis])[1][axis]
@@ -691,6 +686,10 @@ class PatchBase(PCSNESBase):
 
         mesh = J.ufl_domain()
         self.plex = mesh._plex
+        # We need to attach the mesh to the plex, so that
+        # PlaneSmoothers (and any other user-customised patch
+        # constructors) can use firedrake's opinion of what
+        # the coordinates are, rather than plex's.
         self.plex.setAttr("__firedrake_mesh__", weakref.proxy(mesh))
         self.ctx = ctx
 
@@ -816,6 +815,11 @@ class PatchBase(PCSNESBase):
         patch.setFromOptions()
         patch.setUp()
         self.patch = patch
+
+    def destroy(self, obj):
+        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
+        d = self.plex.getDict()
+        del d["__firedrake_mesh__"]
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()
