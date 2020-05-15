@@ -333,7 +333,8 @@ def _step_to_boundary(mesh, x, u, dt, loc_tolerance):
     return bracket[0]
 
 
-def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10):
+def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10,
+               complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
 
     :arg function: the Firedrake :class:`~.Function` to plot
@@ -341,23 +342,27 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :arg direction: either +1 or -1 to integrate forward or backward
     :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
     :arg loc_tolerance: tolerance for point location
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = function.ufl_domain()
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = direction * function.at(x, tolerance=loc_tolerance)
-    r = cell_sizes.at(x, tolerance=loc_tolerance)
+    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
+    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
     dt = 0.5 * r / np.sqrt(np.sum(v1**2))
 
     while True:
         try:
-            v2 = direction * function.at(x + dt * v1, tolerance=loc_tolerance)
+            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+                        complex_component)
         except PointNotInDomainError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = direction * function.at(y, tolerance=loc_tolerance)
+            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                        complex_component)
             yield y, v1, ds
             break
 
@@ -368,13 +373,15 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = direction * function.at(y, tolerance=loc_tolerance)
-                r = cell_sizes.at(y, tolerance=loc_tolerance)
+                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                            complex_component)
+                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
             except PointNotInDomainError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = direction * function.at(y, tolerance=loc_tolerance)
+                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                            complex_component)
                 yield y, v1, ds
                 break
 
@@ -399,11 +406,15 @@ class Reason(enum.IntEnum):
 
 class Streamplotter(object):
     def __init__(self, function, resolution, min_length, max_time, tolerance,
-                 loc_tolerance):
+                 loc_tolerance, *, complex_component="real"):
         r"""Generates a dense set of streamlines of a vector field
 
         This class is a utility for the :func:`~firedrake.plot.streamplot`
         function.
+
+        :kwarg complex_component: If plotting complex data, which
+            component? (real or imag).
+
         """
         self.function = function
         self.resolution = resolution
@@ -411,10 +422,11 @@ class Streamplotter(object):
         self.max_time = max_time
         self.tolerance = tolerance
         self.loc_tolerance = loc_tolerance
+        self.complex_component = complex_component
 
         # Create a grid to track the distance to the nearest streamline
         mesh = self.function.ufl_domain()
-        coords = mesh.coordinates.dat.data_ro
+        coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
         self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
@@ -447,7 +459,8 @@ class Streamplotter(object):
         T = 0.
         reason = Reason.BOUNDARY
         for x, v, dt in streamline(self.function, start_point, direction,
-                                   self.tolerance, self.loc_tolerance):
+                                   self.tolerance, self.loc_tolerance,
+                                   complex_component=self.complex_component):
             delta = x - s[-1]
             s.append(x)
             T += dt
@@ -536,7 +549,7 @@ class Streamplotter(object):
 
 def streamplot(function, resolution=None, min_length=None, max_time=None,
                start_width=0.5, end_width=1.5, tolerance=3e-3, loc_tolerance=1e-10,
-               seed=None, **kwargs):
+               seed=None, complex_component="real", **kwargs):
     r"""Create a streamline plot of a vector field
 
     Similar to matplotlib :func:`streamplot <matplotlib.pyplot.streamplot>`
@@ -549,6 +562,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     :arg end_width: line width at end of streamline, to convey direction
     :arg tolerance: dimensionless tolerance for adaptive ODE integration
     :arg loc_tolerance: point location tolerance for :meth:`~firedrake.functions.Function.at`
+    :kwarg complex_component: If plotting complex data, which
+        component? (real or imag).
     :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`
     """
     import randomgen
@@ -563,7 +578,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     mesh = function.ufl_domain()
     if resolution is None:
-        coords = mesh.coordinates.dat.data_ro
+        coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
 
     if min_length is None:
@@ -575,7 +590,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
         max_time = 50 * min_length / average_speed
 
     streamplotter = Streamplotter(function, resolution, min_length, max_time,
-                                  tolerance, loc_tolerance)
+                                  tolerance, loc_tolerance,
+                                  complex_component=complex_component)
 
     # TODO: better way of seeding start points
     shape = streamplotter._grid.shape
@@ -594,7 +610,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = np.array(function.at(streamline, tolerance=loc_tolerance))
+        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+                          complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])
 
@@ -613,6 +630,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = np.array(speeds)
     widths = np.array(widths)
 
+    points = np.asarray(points)
     vmin = kwargs.pop("vmin", speeds.min())
     vmax = kwargs.pop("vmax", speeds.max())
     norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
