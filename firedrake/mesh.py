@@ -441,7 +441,6 @@ class MeshTopology(object):
         else:
             # If dim = 0, nfacets = 1 for simplex
             nfacets = plex.getConeSize(cStart) if dim > 0 else 1
-        # TODO: this needs to be updated for mixed-cell meshes.
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
@@ -1613,12 +1612,16 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
                          a larger topological dimension that actual")
     subplex = plex.createSubmesh('DMPLEX_SUBMESH_CLOSURE', filterName, filterValue, height, 0, 0, 0, 0)
 
-    # Create "exterior_facets" label
+    # Create "exterior_facets" label and dmplex.FACE_SETS_LABEL
     dmplex.submesh_label_exterior_facets(subplex, plex, filterName, filterValue)
+    # Mark additional facets: this must happen here before calling Mesh.
+
 
     subgdim = subplex.getCoordinateDim()
     distribution_parameters = mesh._topology._distribution_parameters.copy()
+    # Submesh is already partitioned
     distribution_parameters["partition"] = False
+    # Overlap has already been added in plex.createSubmesh
     distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.NONE, 0)
 
     submsh = Mesh(subplex, dim=subgdim, distribution_parameters=distribution_parameters)

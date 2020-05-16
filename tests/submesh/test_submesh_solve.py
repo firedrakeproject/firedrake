@@ -26,7 +26,6 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
     msh.markSubdomain("half_domain", 111, "cell", None, geometric_expr = f_lambda)
 
     submsh = SubMesh(msh, "half_domain", 111, "cell")
-    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", None, geometric_expr = b_lambda, filterName="exterior_facets", filterValue=1)
 
     V = FunctionSpace(submsh, "CG", 1)
 
@@ -45,7 +44,8 @@ def test_submesh_poisson_cell(f_lambda, b_lambda):
     g = Function(V)
     g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
 
-    bc1 = DirichletBC(V, g, 1)
+    # New boundary is labeled as max({1, 2, 3, 4}) + 1 = 5.
+    bc1 = DirichletBC(V, g, 5)
 
     parameters = {"mat_type": "aij",
                   "snes_type": "ksponly",
@@ -67,17 +67,9 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     fltr = Function(DP)
     fltr = Function(DP).interpolate(ufl.conditional(real(x) < 1, 1, 0))
 
-    #msh.markSubdomain("half_domain", 111, "cell", fltr, geometric_expr = f_lambda)
     msh.markSubdomain("half_domain", 111, "cell", fltr)
 
     submsh = SubMesh(msh, "half_domain", 111, "cell")
-    # mesh_topology._facets (exterior_facets, interior_facets) is cached,
-    # so dmplex.FACE_SETS_LABEL must be set before any call of _facets.
-    # This makes it difficult to create a FunctionSpace here.
-    # So for now we only allow lambda expression to set dmplex.FACE_SETS_LABEL.
-    #RTCF = FunctionSpace(submsh, 'RTCF', 1)
-    #fltr = Function(RTCF).project(as_vector([ufl.conditional(real(x) < 1, n * (x - 1), 0), 0]))
-    submsh.markSubdomain(dmplex.FACE_SETS_LABEL, 1, "facet", None, geometric_expr = b_lambda, filterName="exterior_facets", filterValue=1)
 
     V = FunctionSpace(submsh, "CG", 1)
 
@@ -96,7 +88,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     g = Function(V)
     g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
 
-    bc1 = DirichletBC(V, g, 1)
+    bc1 = DirichletBC(V, g, 5)
 
     parameters = {"mat_type": "aij",
                   "snes_type": "ksponly",

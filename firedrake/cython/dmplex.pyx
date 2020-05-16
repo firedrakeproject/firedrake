@@ -785,48 +785,65 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def submesh_label_exterior_facets(PETSc.DM subplex, PETSc.DM plex, filterName, filterValue):
-    """Add labels to facets in the the plex
+    """Add labels to facets in the the subplex
 
     Facets on the boundary are marked with "exterior_facets" while all
     others are marked with "interior_facets".
 
-    :arg label_boundary: if False, don't label the boundary faces
-         (they must have already been labelled)."""
+    :arg subplex: subplex to create labels for.
+    :arg plex: Parent of subplex.
+    :arg filterName: filterName used to extract subplex from plex.
+    :arg filterValue: filterValue used to extract subplex from plex.
+    """
     cdef:
-        PetscInt fStart, fEnd, facet, pStart, pEnd
+        PetscInt dim, subdim, fStart, fEnd, facet, pStart, pEnd, next_label_val, a
         char *ext_label = <char *>"exterior_facets"
         DMLabel lbl_ext, plbl_ext
         PetscBool has_point
+        MPI.Comm comm = plex.comm.tompi4py()
+
+    from mpi4py import MPI
+
+    dim = plex.getDimension()
+    subdim = subplex.getDimension()
+
+    # Find max. value in FACE_SETS_LABEL of the parent plex.
+    fStart, fEnd = plex.getHeightStratum(1)
+    next_label_val = -1
+    for f in range(fStart, fEnd):
+        a = plex.getLabelValue(FACE_SETS_LABEL, f)
+        next_label_val = a if a > next_label_val else next_label_val
+    next_label_val = comm.allreduce(next_label_val, op=MPI.MAX)
+    next_label_val += 1
 
     subplex.createLabel("exterior_facets")
+    subplex.createLabel(FACE_SETS_LABEL)
     _subpoint_map = subplex.getSubpointIS().getIndices()
     fStart, fEnd = subplex.getHeightStratum(1)
-    for f in range(fStart, fEnd):
-        # parent facet
-        pf = _subpoint_map[f]
-        # parent facet supports
-        pfsupports = plex.getSupport(pf)
-        if pfsupports.shape[0] == 1:
-            if plex.getLabelValue("exterior_facets", pf) == 1:
-                # Exterior boundary
+    if subdim == dim:
+        for f in range(fStart, fEnd):
+            # parent facet
+            pf = _subpoint_map[f]
+            # parent facet supports
+            pfsupports = plex.getSupport(pf)
+            if pfsupports.shape[0] == 1:
+                if plex.getLabelValue("exterior_facets", pf) == 1:
+                    # Exterior boundary
+                    subplex.setLabelValue("exterior_facets", f, 1)
+                    subplex.setLabelValue(FACE_SETS_LABEL, f, plex.getLabelValue(FACE_SETS_LABEL, pf))
+            elif pfsupports.shape[0] == 2:
+                if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
+                    # New boundary: one support is in the domain and the other is not.
+                    subplex.setLabelValue("exterior_facets", f, 1)
+                    subplex.setLabelValue(FACE_SETS_LABEL, f, next_label_val)
+            else:
+                raise RuntimeError("Facet must have 1 or 2 supports.  Something is wrong.")
+    else:
+        for f in range(fStart, fEnd):
+            supports = subplex.getSupport(f)
+            if supports.shape[0] == 1:
                 subplex.setLabelValue("exterior_facets", f, 1)
-        elif pfsupports.shape[0] == 2:
-            if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
-                # Subdomain boundary: one support is in the domain and the other is not.
-                subplex.setLabelValue("exterior_facets", f, 1)
-        else:
-            raise RuntimeError("Facet must have 1 or 2 supports.  Something is wrong.")
-        #pf = _subpoint_map[f]
-        #supports = subplex.getSupport(f)
-        #if supports.shape[0] == 1:
-        #    if plex.getLabelValue("exterior_facets", pf) == 1:
-        #        # Exterior boundary
-        #        subplex.setLabelValue("exterior_facets", f, 1)
-        #        continue
-        #pfsupports = plex.getSupport(pf)
-        #if sorted([plex.getLabelValue(filterName, pfsupports[i]) == filterValue for i in [0, 1]]) == [False, True]:
-        #    # Subdomain boundary: one support is in the domain and the other is not.
-        #    subplex.setLabelValue("exterior_facets", f, 1)
+                subplex.setLabelValue(FACE_SETS_LABEL, f, next_label_val)
 
 
 @cython.boundscheck(False)
