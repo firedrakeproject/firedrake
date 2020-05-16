@@ -203,11 +203,16 @@ def test_filter_poisson():
     L1 = f * v_d * dx - dot(grad(g_b), grad(v_d)) * dx + g * v_b * ds
 
     u1 = Function(V)
-    solve(a1 == L1, u1, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    #solve(a1 == L1, u1, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    solve(a1 == L1, u1, solver_parameters={"ksp_type": "cg", 
+                                           "ksp_rtol": 1.e-15,
+                                           "pc_type": "ilu"})
 
     # Assert u1 == u0
-    assert(sqrt(assemble(dot(u1 - u0, u1 - u0) * dx)) < 1e-15)
+    assert(sqrt(assemble(dot(u1 - u0, u1 - u0) * dx)) < 1e-13)
     assert(sqrt(assemble(dot(u1 - g, u1 - g) * dx)) < 1e-4)
+    # Check that Dirichlet B.C. is strongly applied
+    assert(sqrt(assemble(dot(u1 - g, u1 - g) * ds)) < 1e-15)
 
 
 def test_filter_stokes():
@@ -583,7 +588,7 @@ def _poisson_get_forms_original(V, x, y, xi, eta, f, n):
     return a, L
 
 
-def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
+def _poisson_get_forms_hermite(V, xi, eta, f):
 
     # Define op2.subsets to be used when defining filters
     subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
@@ -592,38 +597,20 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
     subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
 
-
-    print("val:", subset_value)
-    print("del:", subset_deriv)
     # Define filters
-    function0 = Function(V).project(xi)
-    function1 = Function(V).project(eta)
     # -- domain nodes
     fltr0 = Function(V)
     fltr0.assign(Constant(1.))
     fltr0.assign(Constant(0.), subset=subset_1234)
-    #fltr0.assign(function0, subset=subset_12.difference(subset_34).intersection(subset_deriv))
-    #fltr0.assign(function1, subset=subset_34.difference(subset_12).intersection(subset_deriv))
     # -- boundary normal derivative nodes
-    #print("\nfltr00::\n", fltr0.dat.data)
-    fltr4 = Function(V)
-    fltr4.assign(Constant(1), subset=subset_12.difference(subset_34).intersection(subset_deriv))
-    fltr5 = Function(V)
-    fltr5.assign(Constant(1), subset=subset_34.difference(subset_12).intersection(subset_deriv))
-    print("fltr5::\n", fltr5.dat.data)
-    #print("fltr02::\n", fltr0.dat.data)
+    fltr0.assign(project(xi, V), subset=subset_12.difference(subset_34).intersection(subset_deriv))
+    fltr0.assign(project(eta, V), subset=subset_34.difference(subset_12).intersection(subset_deriv))
     # -- boundary tangent derivative nodes 
-    fltr1 = Function(V)
-    #fltr1.assign(function1, subset=subset_12.intersection(subset_deriv))
-    fltr1.assign(Constant(1), subset=subset_12.intersection(subset_deriv))
-    fltr2 = Function(V)
-    #fltr2.assign(function0, subset=subset_34.intersection(subset_deriv))
-    fltr2.assign(Constant(1), subset=subset_34.intersection(subset_deriv))
+    fltr1 = Function(V).assign(project(eta, V), subset=subset_12.intersection(subset_deriv))
+    fltr2 = Function(V).assign(project(xi, V), subset=subset_34.intersection(subset_deriv))
     # -- boundary value nodes
-    fltr3 = Function(V)
-    #fltr3.assign(Constant(1.), subset=subset_1234.intersection(subset_value))
-    fltr3.assign(Function(V).project(Constant(1.)), subset=subset_1234.intersection(subset_value))
-    print("fltr3:", fltr3.dat.data)
+    fltr3 = Function(V).assign(project(Constant(1.), V), subset=subset_1234.intersection(subset_value))
+
     # Filter test function
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -632,37 +619,20 @@ def _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f):
     v1 = Transformed(v, fltr1)
     v2 = Transformed(v, fltr2)
     v3 = Transformed(v, fltr3)
-    v4 = Transformed(v, fltr4)
-    v5 = Transformed(v, fltr5)
-    #gradv12 = dot(grad(v1), as_vector([1, 1])) * e_eta
-    #gradv34 = dot(grad(v2), as_vector([1, 1])) * e_xi
-    #gradv12 = dot(grad(v1), e_eta) * e_eta
-    #gradv34 = dot(grad(v2), e_xi) * e_xi
+    u0 = Transformed(u, fltr0)
+    u1 = Transformed(u, fltr1)
+    u2 = Transformed(u, fltr2)
+    u3 = Transformed(u, fltr3)
     a = dot(grad(v0), grad(u)) * dx + \
-        dot(e_xi, grad(v4)) * dot(grad(u), e_xi) * dx + \
-        dot(e_eta, grad(v5)) * dot(grad(u), e_eta) * dx + \
-        v1 * Transformed(u, fltr1) * ds((1, 2)) + \
-        v2 * Transformed(u, fltr2) * ds((3, 4)) + \
-        v3 * Transformed(u, fltr3) * ds
-    aa = assemble(a)
-    print(aa.M.values)
-    #a = dot(grad(v0), grad(u)) * dx + \
-    #    dot(gradv12, dot(grad(Transformed(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
-    #    dot(gradv34, dot(grad(Transformed(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
-    #    v3 * Transformed(u, fltr3) * ds
-    #a = dot(grad(v0), grad(u)) * dx + \
-    #    dot(dot(e_xi, grad(v4)) * e_xi, dot(grad(u), e_xi) * e_xi) * dx + \
-    #    dot(dot(e_eta, grad(v5)) * e_eta, dot(grad(u), e_eta) * e_eta) * dx + \
-    #    dot(gradv12, dot(grad(Transformed(u, fltr1)), e_eta) * e_eta) * ds((1, 2)) + \
-    #    dot(gradv34, dot(grad(Transformed(u, fltr2)), e_xi) * e_xi) * ds((3, 4)) + \
-    #    v3 * Transformed(u, fltr3) * ds
+        dot(grad(v1), grad(u1))* ds((1, 2)) + \
+        dot(grad(v2), grad(u2))* ds((3, 4)) + \
+        v3 * u3 * ds
     L = f * v0 * dx
     return a, L
 
 
 def _poisson(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
-    mesh = UnitSquareMesh(2**n, 2**0)
     if perturb:
         V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
         eps = Constant(1 / 2**(n+1))
@@ -683,16 +653,12 @@ def _poisson(n, el_type, degree, perturb):
     xi = cos(theta_rot) * x + sin(theta_rot) * y
     eta = -sin(theta_rot) * x + cos(theta_rot) * y
 
-    # Rotate base
-    e_xi = Constant([cos(theta_rot), sin(theta_rot)])
-    e_eta = Constant([-sin(theta_rot), cos(theta_rot)])
-
     # normal and tangential components are not separable, 
     # have to do it algebraically
 
     # Define forms
     f = Function(V).project(_poisson_analytical(V, xi, eta, 'force'))
-    a, L = _poisson_get_forms_hermite(V, xi, eta, e_xi, e_eta, f)
+    a, L = _poisson_get_forms_hermite(V, xi, eta, f)
     # Solve
     sol = Function(V)
     solve(a == L, sol, bcs=[], solver_parameters={"mat_type": "aij",
@@ -706,7 +672,6 @@ def _poisson(n, el_type, degree, perturb):
                                                   #"ksp_atol": 1.e-12,
                                                   #"ksp_max_it": 500000,
                                                   })
-    print("sol:", sol.dat.data)
 
     # Postprocess
     g_form = _poisson_analytical(V, xi, eta, 'solution')
@@ -728,13 +693,12 @@ def _poisson(n, el_type, degree, perturb):
     """
     return err, berr
 
-@pytest.mark.skip(reason="not yet supported")
+#@pytest.mark.skip(reason="not yet supported")
 def test_filter_poisson_zany():
     err, berr = _poisson(1, 'Hermite', 3, True)
     print("err:", err)
     print("berr:", berr)
     assert(berr < 1e-8)
-    exit(0)
     """
     for el, deg, convrate in [('CG', 3, 4),
                               ('CG', 4, 5),

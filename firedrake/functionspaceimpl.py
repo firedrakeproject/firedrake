@@ -507,10 +507,10 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
             entity_set = self.mesh().exterior_facets.set
         else:
             raise TypeError("Unknown entity name.")
-        if derivative_order:
-            node_list = self._shared_data.entity_node_lists_per_derivative_order[derivative_order][entity_set]
-        else:
+        if derivative_order is None:
             node_list = self._shared_data.entity_node_lists[entity_set]
+        else:
+            node_list = self._shared_data.entity_node_lists_per_derivative_order[derivative_order][entity_set]
         return numpy.unique(node_list[:])
 
     def node_subset(self, name="cell", derivative_order=None):
