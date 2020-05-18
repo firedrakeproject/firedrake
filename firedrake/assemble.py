@@ -343,14 +343,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             fs_names = (test.function_space().name, trial.function_space().name)
 
             try:
+                #Check this for complex mesh hierarchy.
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
-                                        map_pairs,
-                                        maps_ij=map_pairs_ij,
-                                        iteration_regions=iteration_regions,
-                                        name="%s_%s_sparsity" % fs_names,
-                                        nest=nest,
-                                        block_sparse=baij)
+                                         map_pairs,
+                                         maps_ij=map_pairs_ij,
+                                         iteration_regions=iteration_regions,
+                                         name="%s_%s_sparsity" % fs_names,
+                                         nest=nest,
+                                         block_sparse=baij)
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 

@@ -42,7 +42,6 @@ def test_submesh_poisson_cell_error2():
     L = inner(f0, v0) * dx0
 
     mat = assemble(a)
-    print(mat.M[1][0].values)
 
     m00 = np.array([[2./9. , 1./9. , 1./36., 1./18., 1./18., 1./36.],
                     [1./9. , 2./9. , 1./18., 1./36., 1./36., 1./18.],

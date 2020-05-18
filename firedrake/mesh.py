@@ -826,6 +826,13 @@ class MeshTopology(object):
     def submesh_parent(self, p):
         self._submesh_parent = p
 
+    #@utils.cached_property
+    @property
+    def submesh_parents(self):
+        if self.submesh_parent is None:
+            return [self, ]
+        return [self, ] + self.submesh_parent.submesh_parents
+
     def submesh_get_base(self):
         if self.submesh_parent is None:
             return self
@@ -881,14 +888,34 @@ class MeshTopology(object):
           :arg other: The other mesh.
           :dim: Dimension to create map for.
 
-          :returns: A list of :class:`pyop2.Map`s that, when composed by :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim) from a submesh to the original mesh.
+          :returns: A list of :class:`pyop2.Map`s that, when composed by
+             :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim)
+             from "other" to "self".
         """
-        if self.submesh_get_base() is not other.submesh_get_base():
+        self_parents = self.submesh_parents
+        other_parents = other.submesh_parents
+        if self_parents[-1] is not other_parents[-1]:
             raise NotImplementedError("Currently, `self` and `other` must share the same base mesh")
-        if self.submesh_get_depth() < other.submesh_get_depth():
-            return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
-        else:
-            return []
+        # Find the shortest path from self to other.
+        #
+        #  self --- m --- m --- m --- m --- m --- base    self_parents
+        #                      /
+        #           other --- m                           other_parents
+        while self_parents[-1] is other_parents[-1]:
+            self_parents = self_parents[:-1]
+            other_parents = other_parents[:-1]
+            if len(self_parents) == 0 or len(other_parents) == 0:
+                break
+        #if self.submesh_get_depth() < other.submesh_get_depth():
+        #    return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
+        #else:
+        #    return []
+        map_list = []
+        for m in self_parents:
+            map_list.append(m.submesh_super_sub_map(dim))
+        for m in reversed(other_parents):
+            map_list.append(m.submesh_sub_super_map(dim))
+        return map_list
 
     def __iter__(self):
         yield self
