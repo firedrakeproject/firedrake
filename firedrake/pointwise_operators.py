@@ -262,28 +262,34 @@ class PointsolveOperator(AbstractPointwiseOperator):
     def solver_params(self):
         return self.operator_data['solver_params']
 
-    def _cache_key_inv_jac(self, F, y, same_shape):
-        return md5((str(F) + str(y) + str(same_shape)).encode()).hexdigest()
+    @property
+    def symbolic_sympy_optim(self):
+        return self.operator_data['sympy_optim']
 
-    def _cache_symbolic_inv_jac(inv):
-        # _symbolic_inv_jac just depends on the expression and the shapes involved
-        # The symbolic inversion by itself is not so problematic however the lambdification (sp.lambdify)
-        # of the result can quickly be horrifically slow
-        # TODO: we can generate C code using sp.codegen to compute the expression obtained (it will still be
-        # associated to this caching mechanism)
-        def wrapper(self, *args, **kwargs):
-            F = args[1]
-            y = kwargs.get('y')
-            same_shape = kwargs.get('same_shape')
-            key = self._cache_key_inv_jac(F, y, same_shape)
-            cache = self._cache
-            try:
-                return cache[key]
-            except KeyError:
-                result = inv(self, *args, **kwargs)
-                cache[key] = result
-                return result
-        return wrapper
+    def _cache_key(self, F, y, mode, same_shape):
+        return md5((str(F) + str(y) + str(mode) + str(same_shape)).encode()).hexdigest()
+
+    def _cache_symbolic(mode):
+        def eval_function(eval_func):
+            # _symbolic_inv_jac just depends on the expression and the shapes involved
+            # The symbolic inversion by itself is not so problematic however the lambdification (sp.lambdify)
+            # of the result can quickly be horrifically slow
+            # TODO: we can generate C code using sp.codegen to compute the expression obtained (it will still be
+            # associated to this caching mechanism)
+            def wrapper(self, *args, **kwargs):
+                F = args[1]
+                y = kwargs.get('y')
+                same_shape = kwargs.get('same_shape')
+                key = self._cache_key(F, y, mode, same_shape)
+                cache = self._cache
+                try:
+                    return cache[key]
+                except KeyError:
+                    result = eval_func(self, *args, **kwargs)
+                    cache[key] = result
+                    return result
+            return wrapper
+        return eval_function
 
     def compute_derivatives(self, f):
         deriv_index = (0,) + self.derivatives
@@ -326,7 +332,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 res = np.array(dydx(fj, *vj))
                 if len(self.ufl_shape) > 2:
                     # for sp.Array (i.e rank > 2)
-                    res = np.rollaxis(res.squeeze(), -1)
                     res = res.reshape(-1, *self.ufl_shape)
 
                 if di > 1:
@@ -342,7 +347,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     res = np.array(d2ydx(fj, *vj))
                     if len(self.ufl_shape) > 2:
                         # for sp.Array (i.e rank > 2)
-                        res = np.rollaxis(res.squeeze(), -1)
                         res = res.reshape(-1, *self.ufl_shape)
 
                     if di == 3:
@@ -357,7 +361,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
                         res = np.array(d3ydx(fj, *vj))
                         if len(self.ufl_shape) > 2:
                             # for sp.Array (i.e rank > 2)
-                            res = np.rollaxis(res.squeeze(), -1)
                             res = res.reshape(-1, *self.ufl_shape)
 
                     elif di != 2:
@@ -382,6 +385,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
                                                         - have the same shape than x (in which case we interpolate them)
                                                         - belongs to a suitable function space
         """
+        # import time
+        # eval_time = time.time()
+        # part1_time = time.time()
         ufl_space = self.ufl_function_space()
         shape = ufl_space.shape
         solver_params = self.solver_params.copy()  # To avoid breaking immutability
@@ -393,14 +399,18 @@ class PointsolveOperator(AbstractPointwiseOperator):
             xstar = e_master.evaluate()
             return self.compute_derivatives(xstar)
 
+        # print('\n time elapsed: part1: ', time.time() - part1_time)
+        # part2_time = time.time()
         # Prepare the arguments of f
         args = self._prepare_args_f(ufl_space)
         vals = tuple(coeff.dat.data_ro for coeff in args)
 
+        # print('\n time elapsed: part2: ', time.time() - part2_time)
         # Symbols construction
         symb = (self._sympy_create_symbols(shape, 0),)
         symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(args))
 
+        # part3_time = time.time()
         # Pre-processing to get the values of the initial guesses
         if 'x0' in solver_params.keys() and isinstance(solver_params['x0'], Expr):
             val_x0 = solver_params.pop('x0')
@@ -413,9 +423,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
         ops_f += tuple(self._sympy_create_symbols(e.ufl_shape, i+1, granular=False)
                        for i, e in enumerate(args))
         new_symb = tuple(e.free_symbols.pop() for e in ops_f)
-        # TODO: Cache this lambdify?
-        new_f = sp.lambdify(new_symb, f(*ops_f), modules='numpy', dummify=True)
+        new_f = self._sympy_eval_function(symb, f(*symb))
 
+        # print('\n time elapsed: part3: ', time.time() - part3_time)
         # Computation of the jacobian
         if self.solver_name in ('newton', 'halley'):
             if 'fprime' not in solver_params.keys():
@@ -436,8 +446,11 @@ class PointsolveOperator(AbstractPointwiseOperator):
         solver_params_x0, vals = self._reshape_args(args, (solver_params_x0,) + vals)
 
         # Vectorized nonlinear solver (e.g. Newton, Halley...)
+        # cpu = time.time()
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
-        self.dat.data[:] = np.rollaxis(res.squeeze(), -1)
+        # print('\n newton time elapsed: ', time.time() - cpu)
+        self.dat.data[:] = res.squeeze()
+        # print('\n evaluate time elapsed: ', time.time() - eval_time)
         return self
 
     def _prepare_args_f(self, space):
@@ -466,7 +479,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
             args += (opi,)
         return args
 
-    @_cache_symbolic_inv_jac
+    @_cache_symbolic(mode='solve_jacobian')
     def _sympy_inv_jacobian(self, symb, F, new_symb, ops_f, y=None, same_shape=False):
         r"""
         Symbolically solves J_{F} \delta x = y, where J_{F} is the Jacobian of F wrt x
@@ -480,6 +493,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
         x = symb[0]
         y = y or F
         df = sp.diff(F, x)
+        self_shape = self.ufl_shape
+        if len(self_shape) == 1:
+            self_shape += (1,)
 
         if isinstance(df, sp.Matrix):
             sol = df.LUsolve(y)
@@ -489,9 +505,6 @@ class PointsolveOperator(AbstractPointwiseOperator):
             # Sympy does not handle symbolic tensor inversion, as it does for rank <= 2, so we reshape the problem.
             # For instance, DF \delta x = y where DF.shape = (2,2,2,2) and x.shape/y.shape = (2,2)
             # will be turn into DF \delta x = y where DF.shape = (4,4) and x.shape/y.shape = (4,1)
-            self_shape = self.ufl_shape
-            if len(self_shape) == 1:
-                self_shape += (1,)
             sol = df
 
             # Matrix
@@ -519,28 +532,138 @@ class PointsolveOperator(AbstractPointwiseOperator):
             if len(self_shape) < 3:
                 sol = sol.reshape(*self_shape)
 
-        sol = self._sympy_subs_symbols(symb, ops_f, sol)
-        sol = sp.lambdify(new_symb, sol, modules='numpy', dummify=True)
-        return sol
+        nsize = self.dat.data_ro.shape[0]
+        if hasattr(sol, 'shape'):
+            self_shape = sol.shape
+
+        return self._generate_eval_sympy_C_kernel(sol, symb, self_shape, nsize)
+
+    @_cache_symbolic(mode='eval_f')
+    def _sympy_eval_function(self, symb, F):
+        """TODO: """
+        self_shape = self.ufl_shape
+        if len(self_shape) == 1:
+            self_shape += (1,)
+
+        nsize = self.dat.data_ro.shape[0]
+        return self._generate_eval_sympy_C_kernel(F, symb, self_shape, nsize)
+
+    def _generate_eval_sympy_C_kernel(self, symbolic_expr, symb, shape, n):
+        r"""TODO: Explain: only generated once call when performing solve and cache + on simple expressions does not make big difference but as an expr gets more complicated significant impact + optimization can considerably speed up (it basically introduces intermediate variables for redundant terms and appends the assignment lines in the C code) ...
+        """
+
+        from sympy.utilities.autowrap import ufuncify
+
+        new_expr = symbolic_expr
+        if self.symbolic_sympy_optim:
+            rep, new_expr = sp.cse(symbolic_expr)
+            new_expr = new_expr[0]
+
+        # Scalar eval kernel
+        def eval_ufunc_scalar(S, symb, n):
+            r""" Wrapper for the C evaluation code generated for scalar
+            """
+            # Get symbols
+            symbs = ()
+            for e in symb:
+                symbs += (e,)
+
+            if self.symbolic_sympy_optim:
+                # Helpers block for optimization
+                H = ()
+                extra_symbs = []
+                for var, sub_expr in rep:
+                    H += ((str(var), sub_expr, list(symbs) + extra_symbs),)
+                    extra_symbs += [var]
+                # TODO: define directory (add name path tempdir="[name_path]")
+                gen_func = ufuncify(symbs, S, language='C', backend='Cython', helpers=list(H))
+            else:
+                # Special case because helpers=list( () ) slows down the code generation
+                # TODO: define directory (add name path tempdir="[name_path]")
+                gen_func = ufuncify(symbs, S, language='C', backend='Cython')
+
+            def python_eval_wrapper(*args, n=n):
+                result = np.empty((n,))
+                vals = ()
+                for e in args:
+                    if len(e.shape) == 1:
+                        vals += (e.copy(),)
+                    else:
+                        vals += tuple(e[:, i, j].copy() for i in range(e.shape[1]) for j in range(e.shape[2]))
+
+                result[:] = gen_func(*vals)
+                return result
+            return python_eval_wrapper
+
+        # Vector, Matrix and Array eval kernel
+        def eval_ufunc_Matrix(M, symb, shape, n):
+            r""" Wrapper for the C evaluation code generated for sp.Matrix, this also encompasses Vectors and Arrays
+            since both are are reshaped to matrix
+            TODO: Explain that shape the python bit is shape dependent ()
+            Dire ufuncify vectorized version of autowrap but does not handle non scalar expression so element wise kernel
+            """
+            nn = shape[0]
+            mm = shape[1]
+
+            # Get symbols
+            symbs = ()
+            for e in symb:
+                symbs += tuple(np.array(e.tolist()).flatten())
+            expr = [mi for mi in M]
+
+            if self.symbolic_sympy_optim:
+                # Helpers block for optimization
+                H = ()
+                extra_symbs = []
+                for var, sub_expr in rep:
+                    H += ((str(var), sub_expr, list(symbs) + extra_symbs),)
+                    extra_symbs += [var]
+                # TODO: define directory (add name path tempdir="[name_path]")
+                ufuncs = [ufuncify(symbs, expr[i], language='C', backend='Cython', helpers=list(H)) for i in range(nn*mm)]
+            else:
+                # Special case because helpers=list( () ) slows down the code generation
+                # TODO: define directory (add name path tempdir="[name_path]")
+                ufuncs = [ufuncify(symbs, expr[i], language='C', backend='Cython') for i in range(nn*mm)]
+
+            def python_eval_wrapper(*args, n=n, M=M, expr=expr, symbs=symbs):
+                result = np.empty((n, nn, mm))
+                vals = ()
+                for e in args:
+                    if len(e.shape) == 1:
+                        vals += (e.copy(),)
+                    else:
+                        vals += tuple(e[:, i, j].copy() for i in range(e.shape[1]) for j in range(e.shape[2]))
+
+                for idx, gen_func in enumerate(ufuncs):
+                    i = int(idx/mm)
+                    j = idx % mm
+                    result[:, i, j] = gen_func(*vals)
+                return result[:]
+            return python_eval_wrapper
+
+        # Return the eval kernel
+        if len(shape) > 1:
+            return eval_ufunc_Matrix(new_expr, symb, shape, n)
+        return eval_ufunc_scalar(new_expr, symb, n)
 
     def _reshape_args(self, args, values, f=None):
         f = f or self
         res = ()
         args = (f,) + args
         for a, v in zip(args, values):
-            offset = 0
-            if len(a.ufl_shape) <= 1:
-                offset = 1
+            if len(a.ufl_shape) == 1:
                 v = np.expand_dims(v, -1)
-            res += (np.rollaxis(v, 0, len(a.ufl_shape)+offset+1),)
+            res += (v,)
         return res[0], res[1:]
 
     def _vectorized_newton(self, func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50, fprime2=None, x1=None, rtol=0.0, full_output=False, disp=True):
         """
-        A vectorized version of Newton, Halley, and secant methods for arrays
+        A vectorized version of Newton and Halley methods for arrays
         This version is a modification of the 'optimize.newton' function
         from the SciPy library which handles non-scalar cases.
         """
+        # import time
+        # newton_time = time.time()
         # Explicitly copy `x0` as `p` will be modified inplace, but, the
         # user's array should not be altered.
         try:
@@ -549,25 +672,38 @@ class PointsolveOperator(AbstractPointwiseOperator):
             # can't convert complex to float
             p = np.array(x0, copy=True)
 
+        # print('\n NEWTON time elapsed: PART 1: ', time.time() - newton_time)
+        # newton_time = time.time()
         failures = np.ones_like(p, dtype=bool)
         zero_val = np.zeros_like(p, dtype=bool)
         nz_der = np.ones_like(failures)
+        # print('\n NEWTON time elapsed: PART 2: ', time.time() - newton_time)
         if fprime is not None:
             # Newton-Raphson method
             for iteration in range(maxiter):
+                # print('\n iter i: ', iteration)
+                # iter_time = time.time()
+                # newton_time = time.time()
                 # first evaluate fval
                 fval = np.asarray(func(p, *args))
+                # print('\n NEWTON time elapsed: PART 3: ', time.time() - newton_time)
                 # If all fval are 0, all roots have been found, then terminate
+                # newton_time = time.time()
                 if not fval.any():
                     failures = fval.astype(bool)
                     break
+                # print('\n NEWTON time elapsed: PART 3bis: ', time.time() - newton_time)
+                # newton_time = time.time()
                 fder = np.asarray(fprime(p, *args))
                 nz_der = (fder != 0)
+                # print('\n NEWTON time elapsed: PART 4: ', time.time() - newton_time)
                 # stop iterating if all derivatives are zero
                 if not nz_der.any():
                     break
                 # Newton step
+                # newton_time = time.time()
                 dp = fder[nz_der]
+                # print('\n NEWTON time elapsed: PART 5: ', time.time() - newton_time)
 
                 if fprime2 is not None:
                     fder2 = np.asarray(fprime2(p, *args))
@@ -580,7 +716,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
                 if not failures[nz_der].any():
                     zero_val = np.abs(fval) < tol
                     break
+                # print('\n NEWTON time elapsed: PART 6 ITER TIME: ', time.time() - iter_time)
 
+        # check_time = time.time()
         zero_der = ~nz_der & failures  # don't include converged with zero-ders
         if not zero_val.all():
             if zero_der.any():
@@ -599,6 +737,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # if full_output:
         #     result = namedtuple('result', ('root', 'converged', 'zero_der'))
         #     p = result(p, ~failures, zero_der)
+        # print('\n NEWTON time elapsed: PART 7 CHECK TIME: ', time.time() - check_time)
         return p
 
     def _sympy_create_symbols(self, xshape, i, granular=True):
@@ -895,7 +1034,7 @@ def point_expr(point_expr, function_space):
     return partial(PointexprOperator, operator_data=point_expr, function_space=function_space)
 
 
-def point_solve(point_solve, function_space, solver_name='newton', solver_params=None, disp=False):
+def point_solve(point_solve, function_space, solver_name='newton', solver_params=None, disp=False, sympy_optim=False):
     r"""The point_solve function returns the `PointsolveOperator` class initialised with :
         - point_solve : a function expression (e.g. lambda expression)
         - function space
@@ -905,9 +1044,12 @@ def point_solve(point_solve, function_space, solver_name='newton', solver_params
     """
     if solver_params is None:
         solver_params = {}
-    operator_data = {'point_solve': point_solve, 'solver_name': solver_name, 'solver_params': solver_params}
+    operator_data = {'point_solve': point_solve, 'solver_name': solver_name,
+                     'solver_params': solver_params, 'sympy_optim': sympy_optim}
     if disp not in (True, False):
         disp = False
+    if sympy_optim not in (True, False):
+        sympy_optim = True
     return partial(PointsolveOperator, operator_data=operator_data, function_space=function_space, disp=disp)
 
 
