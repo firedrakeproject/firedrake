@@ -20,14 +20,15 @@ def mesh(request):
         degree_shift = 1
         cell = triangle
     if request.param == 3:
-        m = RectangleMesh(10, 10, 100, 100, quadrilateral = True)
+        m = RectangleMesh(10, 10, 100, 100, quadrilateral=True)
         S1family = "RTCF"
         S2family = "DG"
         degree_shift = 1
         cell = quadrilateral
     mex = ExtrudedMesh(m, layers, layer_height)
-    return {'mesh':mex, 'layers':layers, 'S1family':S1family, 'S2family':S2family,
-            'degree_shift':degree_shift, 'cell':cell}
+    return {'mesh': mex, 'layers': layers, 'S1family': S1family, 'S2family': S2family,
+            'degree_shift': degree_shift, 'cell': cell}
+
 
 @pytest.fixture
 def expected(mesh):
@@ -56,13 +57,13 @@ def test_linesmoother(mesh, expected):
 
         V = FunctionSpace(mesh["mesh"], V2_elt)
         Q = FunctionSpace(mesh["mesh"], V3_elt)
-        
+
         W = MixedFunctionSpace((V, Q))
 
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
 
-        a = (inner(v,u) - div(v)*p + p*q + div(u)*q)*dx
+        a = (inner(v, u) - div(v)*p + p*q + div(u)*q)*dx
         bcs = [DirichletBC(W.sub(0), 0, "on_boundary"),
                DirichletBC(W.sub(0), 0, "top"),
                DirichletBC(W.sub(0), 0, "bottom")]
@@ -85,17 +86,17 @@ def test_linesmoother(mesh, expected):
                            'pc_python_type': 'firedrake.HybridizationPC',
                            'hybridization': {'ksp_type': 'cg',
                                              'ksp_max_it': expected[degree],
-                                             'ksp_monitor':None}}
-        ls = {  'pc_type': 'composite',
-                'pc_composite_pcs': 'bjacobi,python',
-                'pc_composite_type': 'additive',
-                'sub_0': {'sub_pc_type': 'jacobi'},
-                'sub_1': {  'pc_type': 'python',
-                            'pc_python_type': 'firedrake.ASMLinesmoothPC',
-                            'pc_asm_codims': '0'}}
+                                             'ksp_monitor': None}}
+        ls = {'pc_type': 'composite',
+              'pc_composite_pcs': 'bjacobi,python',
+              'pc_composite_type': 'additive',
+              'sub_0': {'sub_pc_type': 'jacobi'},
+              'sub_1': {'pc_type': 'python',
+                        'pc_python_type': 'firedrake.ASMLinesmoothPC',
+                        'pc_asm_codims': '0'}}
 
         wave_parameters['hybridization'].update(ls)
-        
+
         solver = LinearVariationalSolver(problem, solver_parameters=wave_parameters)
         solver.solve()
         ctx = solver.snes.ksp.pc.getPythonContext()
