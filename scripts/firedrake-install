@@ -1311,6 +1311,8 @@ if mode == "install":
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
+should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
+
 # Set up the MPI wrappers
 for opt in ["mpicc", "mpicxx", "mpif90"]:
     if options.get(opt):
@@ -1319,23 +1321,25 @@ for opt in ["mpicc", "mpicxx", "mpif90"]:
     else:
         src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
     dest = os.path.join(firedrake_env, "bin", opt)
-    log.debug("Creating a symlink from %s to %s" % (src, dest))
     if os.path.lexists(dest):
         os.remove(dest)
-    os.symlink(src, dest)
+    if should_link:
+        log.debug("Creating a symlink from %s to %s" % (src, dest))
+        os.symlink(src, dest)
 
 if options.get("mpiexec"):
     mpiexec_loc = shutil.which(options.get("mpiexec"))
 else:
     mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
 mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
 if os.path.exists(mpiexecf):
     os.remove(mpiexecf)
-with open(mpiexecf, "w") as mpiexec:
-    contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
-    mpiexec.write(contents)
-os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+if should_link:
+    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
+    with open(mpiexecf, "w") as mpiexec:
+        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
+        mpiexec.write(contents)
+    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
