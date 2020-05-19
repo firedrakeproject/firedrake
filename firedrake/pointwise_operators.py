@@ -396,8 +396,8 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # If we want to evaluate derivative, we first have to evaluate the solution and then use implicit differentiation
         if self.derivatives != (0,)*len(self.derivatives):
             e_master = self._extop_master
-            xstar = e_master.evaluate()
-            return self.compute_derivatives(xstar)
+            #xstar = e_master.evaluate()
+            return self.compute_derivatives(e_master) #xstar)
 
         # print('\n time elapsed: part1: ', time.time() - part1_time)
         # part2_time = time.time()
