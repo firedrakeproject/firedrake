@@ -151,12 +151,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
                       integral_type=integral_type,
-                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
                       index_cache=index_cache,
-                      complex_mode=is_complex(parameters.get("scalar_type")))
+                      scalar_type=parameters["scalar_type"])
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -265,7 +264,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
 
-    return builder.construct_kernel(kernel_name, impero_c, parameters["precision"], index_names, quad_rule)
+    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
 
 def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
@@ -341,10 +340,9 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     # Translate to GEM
     kernel_cfg = dict(interface=builder,
                       ufl_cell=coordinates.ufl_domain().ufl_cell(),
-                      precision=parameters["precision"],
                       argument_multiindices=argument_multiindices,
                       index_cache={},
-                      complex_mode=complex_mode)
+                      scalar_type=parameters["scalar_type"])
 
     if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
         # This is an optimisation for point-evaluation nodes which
@@ -426,7 +424,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     # Handle kernel interface requirements
     builder.register_requirements([ir])
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], index_names)
+    return builder.construct_kernel(return_arg, impero_c, index_names)
 
 
 def lower_integral_type(fiat_cell, integral_type):

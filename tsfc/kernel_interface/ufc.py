@@ -104,7 +104,7 @@ class KernelBuilder(KernelBuilderBase):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
-    def construct_kernel(self, name, impero_c, precision, index_names, quadrature_rule=None):
+    def construct_kernel(self, name, impero_c, index_names, quadrature_rule=None):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -112,13 +112,12 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg precision: floating-point precision for printing
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
         :returns: a COFFEE function definition object
         """
         from tsfc.coffee import generate as generate_coffee
-        body = generate_coffee(impero_c, index_names, precision, scalar_type=self.scalar_type)
+        body = generate_coffee(impero_c, index_names, scalar_type=self.scalar_type)
         return self._construct_kernel_from_body(name, body)
 
     def _construct_kernel_from_body(self, name, body, quadrature_rule):
