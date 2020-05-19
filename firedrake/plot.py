@@ -1,5 +1,7 @@
+import enum
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors
 import matplotlib.patches
 import matplotlib.tri
 from matplotlib.path import Path
@@ -9,11 +11,12 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from ufl import Cell
 from tsfc.fiatinterface import create_element
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
-                       FunctionSpace, VectorFunctionSpace)
+                       FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
+                       Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry
 
 __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
-           "quiver"]
+           "quiver", "streamplot"]
 
 
 def _autoscale_view(axes, coords):
@@ -292,13 +295,317 @@ def quiver(function, **kwargs):
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
-def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
+def _step_to_boundary(mesh, x, u, dt, loc_tolerance):
+    bracket = (0., dt)
+    while bracket[1] - bracket[0] > loc_tolerance * dt:
+        ds = (bracket[1] + bracket[0]) / 2
+        if mesh.locate_cell(x + ds * u, tolerance=loc_tolerance) is None:
+            bracket = (bracket[0], ds)
+        else:
+            bracket = (ds, bracket[1])
+
+    return bracket[0]
+
+
+def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10):
+    r"""Generate a streamline of a vector field starting from a point
+
+    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg point: the starting point of the streamline
+    :arg direction: either +1 or -1 to integrate forward or backward
+    :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
+    :arg loc_tolerance: tolerance for point location
+    :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
+    """
+    mesh = function.ufl_domain()
+    cell_sizes = mesh.cell_sizes
+
+    x = np.array(point)
+    v1 = direction * function.at(x, tolerance=loc_tolerance)
+    r = cell_sizes.at(x, tolerance=loc_tolerance)
+    dt = 0.5 * r / np.sqrt(np.sum(v1**2))
+
+    while True:
+        try:
+            v2 = direction * function.at(x + dt * v1, tolerance=loc_tolerance)
+        except PointNotInDomainError:
+            ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
+            y = x + ds * v1
+            v1 = direction * function.at(y, tolerance=loc_tolerance)
+            yield y, v1, ds
+            break
+
+        dx1 = dt * v1
+        dx2 = dt * (v1 + v2) / 2
+        error = np.sqrt(np.sum((dx2 - dx1)**2)) / r
+
+        if error <= tolerance:
+            y = x + dx2
+            try:
+                vy = direction * function.at(y, tolerance=loc_tolerance)
+                r = cell_sizes.at(y, tolerance=loc_tolerance)
+            except PointNotInDomainError:
+                v = (v1 + v2) / 2
+                ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
+                y = x + ds * v
+                v1 = direction * function.at(y, tolerance=loc_tolerance)
+                yield y, v1, ds
+                break
+
+            x[:] = y
+            v1[:] = vy
+            yield y, v1, dt
+
+        # TODO: increase the step length if the error < fraction * tol
+        max_step_length = 0.5 * r / np.sqrt(np.sum(v1**2))
+        if error == 0.:
+            dt = max(1.5 * dt, max_step_length)
+        else:
+            proposed_dt = 0.85 * np.sqrt(tolerance / error) * dt
+            dt = min(max_step_length, proposed_dt)
+
+
+class Reason(enum.IntEnum):
+    LENGTH = enum.auto()
+    TIME = enum.auto()
+    BOUNDARY = enum.auto()
+
+
+class Streamplotter(object):
+    def __init__(self, function, resolution, min_length, max_time, tolerance,
+                 loc_tolerance):
+        r"""Generates a dense set of streamlines of a vector field
+
+        This class is a utility for the :func:`~firedrake.plot.streamplot`
+        function.
+        """
+        self.function = function
+        self.resolution = resolution
+        self.min_length = min_length
+        self.max_time = max_time
+        self.tolerance = tolerance
+        self.loc_tolerance = loc_tolerance
+
+        # Create a grid to track the distance to the nearest streamline
+        mesh = self.function.ufl_domain()
+        coords = mesh.coordinates.dat.data_ro
+        self._xmin = coords.min(axis=0)
+        xmax = coords.max(axis=0)
+        self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
+        shape = tuple(((xmax - self._xmin) / self._r).astype(int) + 2)
+        self._grid = np.full(shape, 4 * self.resolution)
+
+        self.streamlines = []
+
+    def _grid_index(self, x):
+        r"""Return the indices in the grid where the given point lies"""
+        return tuple(((x - self._xmin) / self._r).astype(int))
+
+    def _grid_point(self, index):
+        r"""Return the position of the given grid index"""
+        return self._xmin + self._r * np.array(index)
+
+    def _approx_distance_to_streamlines(self, x):
+        r"""Return the approximate distance to the set of streamlines that have
+        been added, capped out to twice the resolution"""
+        index = self._grid_index(x)
+        g = self._grid[index[0]:index[0] + 2, index[1]:index[1] + 2]
+        lx, ly = (x - self._grid_point(index)) / self._r
+        return ((1 - ly) * ((1 - lx) * g[0, 0] + lx * g[1, 0])
+                + ly * ((1 - lx) * g[0, 1] + lx * g[1, 1]))
+
+    def _compute_chunk(self, start_point, direction):
+        r"""Compute a short segment of a streamline starting at a given point"""
+        s = [start_point]
+        L = 0.
+        T = 0.
+        reason = Reason.BOUNDARY
+        for x, v, dt in streamline(self.function, start_point, direction,
+                                   self.tolerance, self.loc_tolerance):
+            delta = x - s[-1]
+            s.append(x)
+            T += dt
+            L += np.sqrt(np.sum(delta**2))
+
+            if L >= self.min_length:
+                reason = Reason.LENGTH
+                break
+
+            if T >= self.max_time:
+                reason = Reason.TIME
+                break
+
+        return np.array(s), reason
+
+    def _enter_distance_to_chunk(self, chunk):
+        shape = self._grid.shape
+        # TODO: Make this distance to segments, not just distance to points --
+        # could be overestimating the distance in the case of very long segments
+        for x in chunk:
+            ix, iy = self._grid_index(x)
+            for i in range(max(ix - 2, 0), min(ix + 4, shape[0])):
+                for j in range(max(iy - 2, 0), min(iy + 4, shape[1])):
+                    y = self._grid_point((i, j))
+                    dist = min(np.sqrt(np.sum((x - y)**2)), 2 * self.resolution)
+                    self._grid[i, j] = min(dist, self._grid[i, j])
+
+    def _index_of_first_bad_point(self, chunk):
+        r"""Return the index of the first point in the chunk that is close to
+        another streamline"""
+        for k, x in enumerate(chunk):
+            if self._approx_distance_to_streamlines(x) < self.resolution:
+                return k
+
+        return None
+
+    def _add_streamline_direction(self, chunk, index, reason, direction):
+        chunks = []
+        while (index is None) and (reason == Reason.LENGTH):
+            next_point = chunk[-1, :]
+            next_chunk, next_reason = self._compute_chunk(next_point, direction)
+
+            # Cut off the first point of the next chunk -- it's identical to
+            # the last point of the previous one
+            next_chunk = next_chunk[1:, :]
+            next_index = self._index_of_first_bad_point(next_chunk)
+
+            # Add the previous chunk
+            self._enter_distance_to_chunk(chunk[:index, :])
+            chunks.append(chunk[:index, :])
+            chunk, reason, index = next_chunk, next_reason, next_index
+
+        if index != 0:
+            self._enter_distance_to_chunk(chunk[:index])
+            chunks.append(chunk[:index])
+
+        return np.concatenate(chunks, axis=0)
+
+    def add_streamline(self, point):
+        # If the point isn't inside the domain, bail out
+        outside = self.function.ufl_domain().locate_cell(point) is None
+        too_close = self._approx_distance_to_streamlines(point) < self.resolution
+        if outside or too_close:
+            return
+
+        # Compute the first segments of the forward and backward chunks from
+        # the current point
+        fchunk, freason = self._compute_chunk(point, direction=+1)
+        findex = self._index_of_first_bad_point(fchunk)
+
+        bchunk, breason = self._compute_chunk(point, direction=-1)
+        bindex = self._index_of_first_bad_point(bchunk)
+
+        # If the initial segments aren't long enough, bail out
+        flength = np.sum(np.sqrt(np.sum(np.diff(fchunk[:findex], axis=0)**2, axis=1)))
+        blength = np.sum(np.sqrt(np.sum(np.diff(bchunk[:bindex], axis=0)**2, axis=1)))
+        if flength + blength < self.min_length:
+            return
+
+        forward = self._add_streamline_direction(fchunk, findex, freason, +1)
+        backward = self._add_streamline_direction(bchunk, bindex, breason, -1)
+
+        streamline = np.vstack((backward[::-1], forward[1:]))
+        self.streamlines.append(streamline)
+
+
+def streamplot(function, resolution=None, min_length=None, max_time=None,
+               start_width=0.5, end_width=1.5, tolerance=3e-3, loc_tolerance=1e-10,
+               seed=None, **kwargs):
+    r"""Create a streamline plot of a vector field
+
+    Similar to matplotlib :func:`streamplot <matplotlib.pyplot.streamplot>`
+
+    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg resolution: minimum spacing between streamlines (defaults to domain size / 20)
+    :arg min_length: minimum length of a streamline (defaults to 4x resolution)
+    :arg max_time: maximum time to integrate a streamline
+    :arg start_width: line width at beginning of streamline
+    :arg end_width: line width at end of streamline, to convey direction
+    :arg tolerance: dimensionless tolerance for adaptive ODE integration
+    :arg loc_tolerance: point location tolerance for :meth:`~firedrake.functions.Function.at`
+    :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`
+    """
+    import randomgen
+
+    if function.ufl_shape != (2,):
+        raise ValueError("Streamplot only defined for 2D vector fields!")
+
+    axes = kwargs.pop("axes", None)
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot(111)
+
+    mesh = function.ufl_domain()
+    if resolution is None:
+        coords = mesh.coordinates.dat.data_ro
+        resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
+
+    if min_length is None:
+        min_length = 4 * resolution
+
+    if max_time is None:
+        area = assemble(Constant(1) * dx(mesh))
+        average_speed = np.sqrt(assemble(inner(function, function) * dx) / area)
+        max_time = 50 * min_length / average_speed
+
+    streamplotter = Streamplotter(function, resolution, min_length, max_time,
+                                  tolerance, loc_tolerance)
+
+    # TODO: better way of seeding start points
+    shape = streamplotter._grid.shape
+    xmin = streamplotter._grid_point((0, 0))
+    xmax = streamplotter._grid_point((shape[0] - 2, shape[1] - 2))
+    X, Y = np.meshgrid(np.linspace(xmin[0], xmax[0], shape[0] - 2),
+                       np.linspace(xmin[1], xmax[1], shape[1] - 2))
+    start_points = np.vstack((X.ravel(), Y.ravel())).T
+
+    # Randomly shuffle the start points
+    generator = randomgen.MT19937(seed).generator
+    for x in generator.permutation(np.array(start_points)):
+        streamplotter.add_streamline(x)
+
+    # Colors are determined by the speed, thicknesses by arc length
+    speeds = []
+    widths = []
+    for streamline in streamplotter.streamlines:
+        velocity = np.array(function.at(streamline, tolerance=loc_tolerance))
+        speed = np.sqrt(np.sum(velocity**2, axis=1))
+        speeds.extend(speed[:-1])
+
+        delta = np.sqrt(np.sum(np.diff(streamline, axis=0)**2, axis=1))
+        arc_length = np.cumsum(delta)
+        length = arc_length[-1]
+        s = arc_length / length
+        linewidth = (1 - s) * start_width + s * end_width
+        widths.extend(linewidth)
+
+    points = []
+    for streamline in streamplotter.streamlines:
+        pts = streamline.reshape(-1, 1, 2)
+        points.extend(np.hstack((pts[:-1], pts[1:])))
+
+    speeds = np.array(speeds)
+    widths = np.array(widths)
+
+    vmin = kwargs.pop("vmin", speeds.min())
+    vmax = kwargs.pop("vmax", speeds.max())
+    norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
+    cmap = plt.get_cmap(kwargs.pop("cmap", None))
+
+    collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths)
+    collection.set_array(speeds)
+    axes.add_collection(collection)
+
+    _autoscale_view(axes, function.ufl_domain().coordinates.dat.data_ro)
+    return collection
+
+
+def plot(function, *args, num_sample_points=10, **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
     :arg function: The :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
-    :arg bezier: whether to use Bezier curves for higher-degree functions or piecewise linear
-    :arg num_sample_points: number of extra points when sampling higher-degree functions
+    :arg num_sample_points: number of sample points for high-degree functions
     :arg kwargs: same as for matplotlib
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
@@ -318,18 +625,16 @@ def plot(function, *args, bezier=False, num_sample_points=10, **kwargs):
         axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
-        return _bezier_plot(function, axes, **kwargs)
+        result = _bezier_plot(function, axes, **kwargs)
+    else:
+        degree = function.ufl_element().degree()
+        num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
+        points = calculate_one_dim_points(function, num_sample_points)
+        num_cells = function.function_space().mesh().num_cells()
+        result = _interp_bezier(points, num_cells, axes, **kwargs)
 
-    if bezier:
-        num_sample_points = max((num_sample_points // 3) * 3 + 1, 4)
-    points = calculate_one_dim_points(function, num_sample_points)
-
-    if bezier:
-        return _interp_bezier(points,
-                              function.function_space().mesh().num_cells(),
-                              axes, **kwargs)
-
-    return axes.plot(points[0], points[1], *args, **kwargs)
+    _autoscale_view(axes, None)
+    return result
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):

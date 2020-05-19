@@ -202,7 +202,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-    if mat_type not in ["matfree", "aij", "baij", "nest"]:
+    if mat_type not in ["matfree", "aij", "baij", "nest", "dense"]:
         raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
