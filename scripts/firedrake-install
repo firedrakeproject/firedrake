@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 import atexit
 import json
+import pprint
 import shlex
 
 # Packages which we wish to ensure are always recompiled
@@ -545,17 +546,12 @@ def check_output(args):
 
 
 def brew_install(name, options=None):
-    try:
-        # Check if it's already installed
-        check_call(["brew", "list", name])
-    except subprocess.CalledProcessError:
-        # If not found, go ahead and install
-        arguments = [name]
-        if options:
-            arguments = options + arguments
-        if args.verbose:
-            arguments = ["--verbose"] + arguments
-        check_call(["brew", "install"] + arguments)
+    arguments = [name]
+    if options:
+        arguments = options + arguments
+    if args.verbose:
+        arguments = ["--verbose"] + arguments
+    check_call(["brew", "install"] + arguments)
 
 
 def apt_check(name):
@@ -1194,8 +1190,8 @@ if mode == "install" or not args.update_script:
         log.info("* A Fortran compiler (for PETSc)")
         log.info("* Blas and Lapack")
         log.info("* Boost")
-        log.info("* Git, Mercurial")
-        log.info("* Python version >=3.5")
+        log.info("* Git")
+        log.info("* Python version >=3.6")
         log.info("* The Python headers")
         log.info("* autoconf, automake, libtool")
         log.info("* CMake")
@@ -1226,10 +1222,25 @@ if mode == "install" or not args.update_script:
             except subprocess.CalledProcessError:
                 quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
-            log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
+            log.info("Checking brew doctor...")
+            try:
+                check_call(["brew", "doctor"])
+            except subprocess.CalledProcessError:
+                pass
+            log.info("Installing required packages via homebrew...")
             # Ensure a fortran compiler is available
+            installed_packages = dict((p["name"], p)
+                                      for p in json.loads(check_output(["brew", "info", "--installed", "--json"])))
+            # Handle homebrew migration of default python == python3
+            if installed_packages["python"]["oldname"] == "python3":
+                installed_packages["python3"] = installed_packages["python"]
             for package in required_packages:
-                brew_install(package)
+                if package in installed_packages:
+                    log.info(f"Required package '{package}' is already installed via Homebrew.")
+                    log.debug(pprint.pformat(installed_packages[package]))
+                else:
+                    log.info(f"Installing required package '{package}' via Homebrew.")
+                    brew_install(package)
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
