@@ -51,3 +51,37 @@ def test_submesh_submesh():
         assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
 
 
+def test_submesh_submesh_check_cell_closure_order():
+
+    msh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
+    msh.init()
+
+    x0, y0 = SpatialCoordinate(msh)
+    DP = FunctionSpace(msh, 'DP', 0)
+    fltr = Function(DP)
+    fltr = Function(DP).interpolate(ufl.conditional(real(x0) > 1, 1, 0))
+    msh.markSubdomain("half_domain", 222, "cell", fltr)
+
+    submsh = SubMesh(msh, "half_domain", 222, "cell")
+    submsh.init()
+    plex = msh.topology._plex
+    subplex = submsh.topology._plex
+
+
+    cell_numbering = msh._cell_numbering
+    cell_closure = msh.cell_closure
+    subcell_numbering = submsh._cell_numbering
+    subcell_closure = submsh.cell_closure
+    subcStart, subcEnd = subplex.getHeightStratum(0)
+    subpoint_map = subplex.getSubpointIS().getIndices()
+    for subc in range(subcStart, subcEnd):
+        # parent mesh cell closure
+        c = subpoint_map[subc]
+        c_ = cell_numbering.getOffset(c)
+        cc = cell_closure[c_]
+        # submesh cell closure
+        subc_ = subcell_numbering.getOffset(subc)
+        subcc = subcell_closure[subc_]
+        print("cc::::::", cc)
+        print("subcc:::", subpoint_map[subcc])
+        assert(np.all(cc == subpoint_map[subcc]))

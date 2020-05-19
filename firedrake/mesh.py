@@ -532,54 +532,86 @@ class MeshTopology(object):
         """
         plex = self._plex
         dim = plex.getDimension()
+        if self.submesh_parent is None:
+            # Deal with dim == 0 separately
+            if dim == 0:
+                cStart, cEnd = plex.getHeightStratum(0) 
+                entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
+                return np.zeros((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
 
-        # Deal with dim == 0 separately
-        if dim == 0:
-            cStart, cEnd = plex.getHeightStratum(0) 
-            entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
-            return np.zeros((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
+            # Cell numbering and global vertex numbering
+            cell_numbering = self._cell_numbering
+            vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
-        # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+            cell = self.ufl_cell()
+            assert dim == cell.topological_dimension()
+            if cell.is_simplex():
+                # Simplex mesh
+                #entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
+                import FIAT
+                topology = FIAT.ufc_cell(cell).get_topology()
+                entity_per_cell = np.zeros(len(topology), dtype=IntType)
+                for d, ents in topology.items():
+                    entity_per_cell[d] = len(ents)
 
-        cell = self.ufl_cell()
-        assert dim == cell.topological_dimension()
-        if cell.is_simplex():
-            # Simplex mesh
-            #entity_per_cell = np.array(num_cell_entities[_cells[dim][dim + 1]], dtype=IntType)
-            import FIAT
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
+                return dmplex.closure_ordering(plex, vertex_numbering,
+                                               cell_numbering, entity_per_cell)
 
-            return dmplex.closure_ordering(plex, vertex_numbering,
-                                           cell_numbering, entity_per_cell)
+            elif cell.cellname() == "quadrilateral":
+                from firedrake_citations import Citations
+                Citations().register("Homolya2016")
+                Citations().register("McRae2016")
+                # Quadrilateral mesh
+                cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
-        elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
-            # Quadrilateral mesh
-            cell_ranks = dmplex.get_cell_remote_ranks(plex)
+                facet_orientations = dmplex.quadrilateral_facet_orientations(
+                    plex, vertex_numbering, cell_ranks)
 
-            facet_orientations = dmplex.quadrilateral_facet_orientations(
-                plex, vertex_numbering, cell_ranks)
+                cell_orientations = dmplex.orientations_facet2cell(
+                    plex, vertex_numbering, cell_ranks,
+                    facet_orientations, cell_numbering)
 
-            cell_orientations = dmplex.orientations_facet2cell(
-                plex, vertex_numbering, cell_ranks,
-                facet_orientations, cell_numbering)
+                dmplex.exchange_cell_orientations(plex,
+                                                  cell_numbering,
+                                                  cell_orientations)
 
-            dmplex.exchange_cell_orientations(plex,
-                                              cell_numbering,
-                                              cell_orientations)
+                return dmplex.quadrilateral_closure_ordering(
+                    plex, vertex_numbering, cell_numbering, cell_orientations)
 
-            return dmplex.quadrilateral_closure_ordering(
-                plex, vertex_numbering, cell_numbering, cell_orientations)
-
+            else:
+                raise NotImplementedError("Cell type '%s' not supported." % cell)
         else:
-            raise NotImplementedError("Cell type '%s' not supported." % cell)
+            # Inherit cell_closure from parent for consistent ordering.
+
+            import FIAT
+
+            # 
+            cStart, cEnd = plex.getHeightStratum(0)
+            cell = self.ufl_cell()
+            assert dim == cell.topological_dimension()
+            topology = FIAT.ufc_cell(cell).get_topology()
+            num_entity_per_cell = 0
+            for _, ents in topology.items():
+                num_entity_per_cell += len(ents)
+            cell_closure = np.empty((cEnd - cStart, num_entity_per_cell), dtype=IntType)
+            cell_numbering = self._cell_numbering
+            parent_cell_closure = self.submesh_parent.cell_closure
+            parent_cell_numbering = self.submesh_parent._cell_numbering
+            # child_parent map
+            subpoint_map = plex.getSubpointIS().getIndices()
+            # parent-child map
+            parent_child_map = {}
+            pStart, pEnd = plex.getChart()
+            for p in range(pStart, pEnd):
+                pp = subpoint_map[p]
+                parent_child_map[pp] = p
+            #
+            for c in range(cStart, cEnd):
+                pc = subpoint_map[c]
+                c_ = cell_numbering.getOffset(c)
+                pc_ = parent_cell_numbering.getOffset(pc)
+                cell_closure[c_, :] = np.array(tuple(map(lambda x: parent_child_map[x], parent_cell_closure[pc_, :])))
+            return cell_closure
 
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
@@ -1655,10 +1687,10 @@ def SubMesh(mesh, filterName, filterValue, entity_type):
 
     def wrap_callback(old_callback, mesh):
         def callback(self):
-            old_callback(self)
             self._topology.submesh_parent = mesh._topology
             self.submesh_parent = mesh
             self._ufl_parent = mesh
+            old_callback(self)
         return callback;
 
     submsh._callback = wrap_callback(submsh._callback, mesh)

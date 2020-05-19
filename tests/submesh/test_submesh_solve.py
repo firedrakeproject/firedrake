@@ -101,17 +101,18 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
 
 def test_submesh_helmholtz():
 
-    msh = RectangleMesh(8, 4, 2., 1., quadrilateral=False)
+    msh = RectangleMesh(2**8, 2**7, 2., 1., quadrilateral=True)
     msh.init()
 
     x0, y0 = SpatialCoordinate(msh)
     DP = FunctionSpace(msh, 'DP', 0)
     fltr = Function(DP)
     fltr = Function(DP).interpolate(ufl.conditional(real(x0) > 1, 1, 0))
-    #msh.markSubdomain("half_domain", 222, "cell", fltr, geometric_expr = lambda x: x[0] > 0.9999)
+    #msh.markSubdomain("half_domain", 222, "cell", None, geometric_expr = lambda x: x[0] > 0.9999)
     msh.markSubdomain("half_domain", 222, "cell", fltr)
 
     submsh = SubMesh(msh, "half_domain", 222, "cell")
+    submsh.init()
 
     V0 = FunctionSpace(msh, "CG", 1)
     V1 = FunctionSpace(submsh, "CG", 1)
@@ -120,8 +121,8 @@ def test_submesh_helmholtz():
 
     w = Function(W)
     u = Function(W)
-    u0, u1 = split(u)
-    #u0, u1 = TrialFunctions(W)
+    #u0, u1 = split(u)
+    u0, u1 = TrialFunctions(W)
     v0, v1 = TestFunctions(W)
 
     g0 = Function(V0).interpolate(cos(2 * pi * x0) * cos(2 * pi * y0))
@@ -132,25 +133,40 @@ def test_submesh_helmholtz():
 
     a = - inner(grad(u0), grad(v0)) * dx0 + inner(u0 - u1, v1) * dx1
     L = inner(f0, v0) * dx0
-
-    bc0 = DirichletBC(W.sub(0), g0, (1, 2, 3, 4))
+    bcs = [DirichletBC(W.sub(0), g0, (1, 2, 3, 4)), ]
+    #a = inner(u0, v0) * dx0 + inner(u1 - u0, v1) * dx1
+    #L = inner(g0, v0) * dx0
+    #bcs = []
 
     parameters = {"mat_type": "aij",
                   "snes_type": "ksponly",
                   "ksp_type": "preonly",
                   "pc_type": "lu"}
 
+    """
+    mat = assemble(a)
+    print("")
+    print("00")
+    print(mat.M[0][0].values)
+    print("01")
+    print(mat.M[0][1].values)
+    print("10")
+    print(mat.M[1][0].values)
+    print("11")
+    print(mat.M[1][1].values)
     #u = Function(W)
-    #solve(a == L, u, bcs = [bc0, ], solver_parameters=parameters)
-    solve(a - L == 0, u, bcs = [bc0, ])
+    """
+    solve(a == L, u, bcs = bcs, solver_parameters=parameters)
+    #solve(a - L == 0, u, bcs = [bc0, ])
 
     x1, y1 = SpatialCoordinate(submsh)
     g1 = Function(V1).interpolate(cos(2 * pi * x1) * cos(2 * pi * y1))
 
     u0, u1 = u.split()
 
-    mat = assemble(a)
-    #print(mat.M[1][0].values)
-    print(np.allclose(u1.dat.data, g1.dat.data))
-    print(u1.dat.data-g1.dat.data)
-
+    print("L2:", assemble((u1 - g1) ** 2 * dx1))
+    #print(np.allclose(u1.dat.data, g1.dat.data))
+    #print(u0.dat.data)
+    #print(g0.dat.data)
+    #print(u1.dat.data)
+    #print(g1.dat.data)
