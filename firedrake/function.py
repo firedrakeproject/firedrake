@@ -373,9 +373,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif (isinstance(expr, Function)
+              and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
             return self
 
