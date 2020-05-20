@@ -10,7 +10,6 @@ from firedrake.utils import cached_property
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
 
-from firedrake_configuration import get_config
 import firedrake.slate.slate as slate
 
 
@@ -132,12 +131,6 @@ class LocalKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-
-        config = get_config()
-        if config['options']['complex']:
-            # Changing this to PetscScalar did not change the types in coffee
-            self.tsfc_parameters['scalar_type'] = 'double complex'
-
         self.temps = temps
         self.ref_counter = counter
         self.expression_dag = expression_dag

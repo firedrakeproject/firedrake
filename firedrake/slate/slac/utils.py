@@ -118,8 +118,6 @@ class Transformer(Visitor):
         """
         name = kwargs.get("name", "A")
         if o.sym.symbol != name:
-            if o.typ == "double complex":
-                o.typ = "PetscScalar"
             return o
         newtype = "const Eigen::MatrixBase<Derived> &"
 

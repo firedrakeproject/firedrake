@@ -8,6 +8,7 @@ from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint import annotate_project
+from firedrake.slate.slac import SUPPORTS_COMPLEX as SLATE_SUPPORTS_COMPLEX
 from pyop2.utils import as_tuple
 
 
@@ -130,7 +131,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             is_dg = False
             is_variable_layers = True
         self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
-                                      and not complex_mode)
+                                      and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
 
     @cached_property
     def A(self):

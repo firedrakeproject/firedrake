@@ -27,7 +27,7 @@ from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
 
@@ -51,17 +51,19 @@ except ValueError:
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
-if COMM_WORLD.rank == 0:
-    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
-    with open(filepath) as file:
-        for line in file:
-            if line.find("EIGEN_INCLUDE") == 0:
-                EIGEN_INCLUDE_DIR = line[18:].rstrip()
-                break
-    if EIGEN_INCLUDE_DIR is None and not complex_mode:
-        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
 if not complex_mode:
-    EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+    if COMM_WORLD.rank == 0:
+        filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
+        with open(filepath) as file:
+            for line in file:
+                if line.find("EIGEN_INCLUDE") == 0:
+                    EIGEN_INCLUDE_DIR = line[18:].rstrip()
+                    break
+        if EIGEN_INCLUDE_DIR is None:
+            raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+    else:
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -73,8 +75,6 @@ class SlateKernel(TSFCKernel):
                     + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters):
-        if complex_mode:
-            raise NotImplementedError("SLATE doesn't work in complex mode yet")
         if self._initialized:
             return
         self.split_kernel = generate_kernel(expr, tsfc_parameters)
@@ -91,6 +91,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    if complex_mode:
+        raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
@@ -98,8 +100,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
     if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"].copy()
-    tsfc_parameters['scalar_type'] = "PetscScalar"
+        tsfc_parameters = parameters["form_compiler"]
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
@@ -177,10 +178,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl("PetscScalar", ast.Symbol(result_data_sym), pointers=[("restrict",)])
+    result = ast.Decl(ScalarType_c, ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             "PetscScalar",
+                                                             ScalarType_c,
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -191,7 +192,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("PetscScalar", builder.coord_sym,
+    args = [result, ast.Decl(ScalarType_c, builder.coord_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"])]
 
@@ -204,7 +205,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        args.extend([ast.Decl("PetscScalar", csym,
+        args.extend([ast.Decl(ScalarType_c, csym,
                               pointers=[("restrict",)],
                               qualifiers=["const"]) for csym in builder.coefficient(c)])
 
@@ -229,7 +230,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
 
     # Cell size information
     if builder.needs_cell_sizes:
-        args.append(ast.Decl("PetscScalar", builder.cell_size_sym,
+        args.append(ast.Decl(ScalarType_c, builder.cell_size_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"]))
 
@@ -251,9 +252,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
                            cpp=True,
                            include_dirs=include_dirs,
                            headers=['#include <Eigen/Dense>',
-                                    '#define restrict __restrict',
-                                    '#include <complex>',
-                                    '#include <petsc.h>'])
+                                    '#define restrict __restrict'])
 
     op2kernel.num_flops = builder.expression_flops + builder.terminal_flops
     # Send back a "TSFC-like" SplitKernel object with an
@@ -655,49 +654,4 @@ def eigen_matrixbase_type(shape):
     else:
         order = ""
 
-    if complex_mode:
-        return "Eigen::Matrix<PetscScalar, %d, %d%s>" % (rows, cols, order)
-    else:
-        return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
-
-
-def eigen_tensor(expr, temporary, index):
-    """Returns an appropriate assignment statement for populating a particular
-    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
-    :meth:`block` of the eigen tensor is provided. Otherwise, no block
-    information is needed and the tensor is returned as is.
-
-    :arg expr: a `slate.Tensor` node.
-    :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column
-                information. This is provided by the SplitKernel
-                associated with the expr.
-    """
-    if expr.rank == 0:
-        tensor = temporary
-    else:
-        try:
-            row, col = index
-        except ValueError:
-            row = index[0]
-            col = 0
-        rshape = expr.shapes[0][row]
-        rstart = sum(expr.shapes[0][:row])
-        try:
-            cshape = expr.shapes[1][col]
-            cstart = sum(expr.shapes[1][:col])
-        except KeyError:
-            cshape = 1
-            cstart = 0
-
-        # Create sub-block if tensor is mixed
-        if (rshape, cshape) != expr.shape:
-            tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                                 rshape,
-                                                                 cshape,
-                                                                 rstart,
-                                                                 cstart))
-        else:
-            tensor = temporary
-
-    return tensor
+    return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
