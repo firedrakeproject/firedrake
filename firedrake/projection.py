@@ -2,13 +2,12 @@ import abc
 import ufl
 
 import firedrake
-from firedrake.utils import cached_property, complex_mode
+from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint import annotate_project
-from firedrake.slate.slac import SUPPORTS_COMPLEX as SLATE_SUPPORTS_COMPLEX
 from pyop2.utils import as_tuple
 
 

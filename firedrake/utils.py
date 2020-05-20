@@ -11,6 +11,9 @@ ScalarType_c = as_cstr(ScalarType)
 
 complex_mode = get_config()["options"].get("complex", False)
 
+# Remove this (and update test suite) when Slate supports complex mode.
+SLATE_SUPPORTS_COMPLEX = False
+
 
 def _new_uid():
     global _current_uid

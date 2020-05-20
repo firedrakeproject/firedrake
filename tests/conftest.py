@@ -94,12 +94,12 @@ def pytest_runtest_call(item):
 
 
 def pytest_collection_modifyitems(session, config, items):
-    from firedrake.slate.slac import SUPPORTS_COMPLEX
+    from firedrake.utils import SLATE_SUPPORTS_COMPLEX
     for item in items:
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
-            if item.get_closest_marker("skipcomplexnoslate") and not SUPPORTS_COMPLEX:
+            if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
                 item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
         else:
             if item.get_closest_marker("skipreal") is not None:
