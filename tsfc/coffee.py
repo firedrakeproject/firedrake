@@ -20,20 +20,20 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, precision, scalar_type):
+def generate(impero_c, index_names, scalar_type):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
-    :arg precision: floating-point precision for printing
     :arg scalar_type: type of scalars as C typename string
     :returns: COFFEE function body
     """
     params = Bunch()
     params.declare = impero_c.declare
     params.indices = impero_c.indices
-    params.precision = precision
-    params.epsilon = 10.0 * eval("1e-%d" % precision)
+    finfo = numpy.finfo(scalar_type)
+    params.precision = finfo.precision
+    params.epsilon = finfo.resolution
     params.scalar_type = scalar_type
 
     params.names = {}

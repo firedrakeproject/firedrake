@@ -39,7 +39,7 @@ from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
-from tsfc.parameters import PARAMETERS
+from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             entity_avg, one_times, simplify_abs,
                             preprocess_expression)
@@ -53,11 +53,10 @@ class ContextBase(ProxyKernelInterface):
                 'integral_type',
                 'integration_dim',
                 'entity_ids',
-                'precision',
                 'argument_multiindices',
                 'facetarea',
                 'index_cache',
-                'complex_mode')
+                'scalar_type')
 
     def __init__(self, interface, **kwargs):
         ProxyKernelInterface.__init__(self, interface)
@@ -77,12 +76,13 @@ class ContextBase(ProxyKernelInterface):
 
     entity_ids = [0]
 
-    precision = PARAMETERS["precision"]
-
     @cached_property
     def epsilon(self):
-        # Rounding tolerance mimicking FFC
-        return 10.0 * eval("1e-%d" % self.precision)
+        return numpy.finfo(self.scalar_type).resolution
+
+    @cached_property
+    def complex_mode(self):
+        return is_complex(self.scalar_type)
 
     def entity_selector(self, callback, restriction):
         """Selects code for the correct entity at run-time.  Callback
@@ -131,7 +131,7 @@ class CoordinateMapping(PhysicalGeometry):
     @property
     def config(self):
         config = {name: getattr(self.interface, name)
-                  for name in ["ufl_cell", "precision", "index_cache", "complex_mode"]}
+                  for name in ["ufl_cell", "index_cache", "scalar_type"]}
         config["interface"] = self.interface
         return config
 
@@ -273,7 +273,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
-                  for name in ["ufl_cell", "precision", "index_cache", "complex_mode"]}
+                  for name in ["ufl_cell", "index_cache", "scalar_type"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, point_sum=True, **config)
@@ -288,9 +288,9 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         integrand, degree, argument_multiindices = entity_avg(integrand / FacetArea(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
-                  for name in ["ufl_cell", "precision", "index_cache",
+                  for name in ["ufl_cell", "index_cache", "scalar_type",
                                "integration_dim", "entity_ids",
-                               "integral_type", "complex_mode"]}
+                               "integral_type"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, point_sum=True, **config)
@@ -451,7 +451,7 @@ def translate_cellvolume(terminal, mt, ctx):
     interface = CellVolumeKernelInterface(ctx, mt.restriction)
 
     config = {name: getattr(ctx, name)
-              for name in ["ufl_cell", "precision", "index_cache", "complex_mode"]}
+              for name in ["ufl_cell", "index_cache", "scalar_type"]}
     config.update(interface=interface, quadrature_degree=degree)
     expr, = compile_ufl(integrand, point_sum=True, **config)
     return expr
@@ -464,8 +464,8 @@ def translate_facetarea(terminal, mt, ctx):
     integrand, degree = one_times(ufl.Measure(ctx.integral_type, domain=domain))
 
     config = {name: getattr(ctx, name)
-              for name in ["ufl_cell", "integration_dim",
-                           "entity_ids", "precision", "index_cache", "complex_mode"]}
+              for name in ["ufl_cell", "integration_dim", "scalar_type",
+                           "entity_ids", "index_cache"]}
     config.update(interface=ctx, quadrature_degree=degree)
     expr, = compile_ufl(integrand, point_sum=True, **config)
     return expr
@@ -479,7 +479,7 @@ def translate_cellorigin(terminal, mt, ctx):
     point_set = PointSingleton((0.0,) * domain.topological_dimension())
 
     config = {name: getattr(ctx, name)
-              for name in ["ufl_cell", "precision", "index_cache", "complex_mode"]}
+              for name in ["ufl_cell", "index_cache", "scalar_type"]}
     config.update(interface=ctx, point_set=point_set)
     context = PointSetContext(**config)
     return context.translator(expression)
@@ -492,7 +492,7 @@ def translate_cell_vertices(terminal, mt, ctx):
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
 
     config = {name: getattr(ctx, name)
-              for name in ["ufl_cell", "precision", "index_cache", "complex_mode"]}
+              for name in ["ufl_cell", "index_cache", "scalar_type"]}
     config.update(interface=ctx, point_set=ps)
     context = PointSetContext(**config)
     expr = context.translator(ufl_expr)

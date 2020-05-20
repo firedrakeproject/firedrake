@@ -143,7 +143,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, precision, index_names):
+    def construct_kernel(self, return_arg, impero_c, index_names):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg return_arg: COFFEE argument for the return value
@@ -157,7 +157,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             args.append(self.cell_sizes_arg)
         args.extend(self.kernel_args)
 
-        body = generate_coffee(impero_c, index_names, precision, self.scalar_type)
+        body = generate_coffee(impero_c, index_names, self.scalar_type)
 
         for name_, shape in self.tabulations:
             args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
@@ -260,7 +260,7 @@ class KernelBuilder(KernelBuilderBase):
         knl = self.kernel
         knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, precision, index_names, quadrature_rule):
+    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -268,13 +268,12 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg precision: floating-point precision for printing
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule
 
         :returns: :class:`Kernel` object
         """
-        body = generate_coffee(impero_c, index_names, precision, self.scalar_type)
+        body = generate_coffee(impero_c, index_names, self.scalar_type)
 
         args = [self.local_tensor, self.coordinates_arg]
         if self.kernel.oriented:
