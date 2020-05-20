@@ -12,12 +12,12 @@ def periodise(m):
     <{RealType}> Y = 0
     <float64> pi = 3.141592653589793
     for i
-        Y = Y + old_coords[i, 1]
+        Y = Y + real(old_coords[i, 1])
     end
     for j
-        new_coords[j, 0] = atan2(real(old_coords[j, 1]), real(old_coords[j, 0])) / (pi* 2)
-        new_coords[j, 0] = if(real(new_coords[j, 0]) < 0, new_coords[j, 0] + 1, new_coords[j, 0])
-        new_coords[j, 0] = if(real(new_coords[j, 0]) == 0 and real(Y) < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = atan2(real(old_coords[j, 1]), real(old_coords[j, 0])) / (pi*2)
+        new_coords[j, 0] = new_coords[j, 0] + 1 if real(new_coords[j, 0]) < 0 else new_coords[j, 0]
+        new_coords[j, 0] = 1 if (real(new_coords[j, 0]) == 0 and Y < 0) else new_coords[j, 0]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end
