@@ -1265,7 +1265,9 @@ values from f.)"""
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
-        return getattr(self._topology, name)
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()

@@ -51,7 +51,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 
     # Apply dot(sigma, n) == 0 on left and right boundaries strongly
     # (corresponding to Neumann condition du/dn = 0)
-    bcs = DirichletBC(W.sub(0), Constant((0, 0)), (1, 2))
+    bcs = DirichletBC(W.sub(0), zero(), (1, 2))
     # Compute solution
     w = Function(W)
     solve(a == L, w, bcs=bcs, solver_parameters=parameters)

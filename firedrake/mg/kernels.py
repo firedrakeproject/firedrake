@@ -139,11 +139,10 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  precision=parameters["precision"],
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
-                  complex_mode=complex_mode)
+                  scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
@@ -194,7 +193,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, {}, ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
@@ -518,12 +517,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     precision=parameters["precision"],
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
-                     complex_mode=complex_mode)
+                     scalar_type=parameters["scalar_type"])
 
     fexpr, = fem.compile_ufl(f, **macro_cfg)
     X = ufl.SpatialCoordinate(Vf.mesh())
@@ -546,12 +544,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
-                      complex_mode=complex_mode)
+                      scalar_type=parameters["scalar_type"])
 
     X = ufl.SpatialCoordinate(Vc.mesh())
     K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
@@ -618,7 +615,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, index_names, ScalarType_c)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor

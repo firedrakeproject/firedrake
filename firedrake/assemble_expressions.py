@@ -1,55 +1,109 @@
-import weakref
-
-import ufl
-from ufl.algorithms import ReuseTransformer
-from ufl.algorithms.comparison_checker import CheckComparisons
-from ufl.corealg.map_dag import MultiFunction, map_expr_dag
-from ufl.constantvalue import ConstantValue, Zero, IntValue
-from ufl.core.multiindex import MultiIndex
-from ufl.core.operator import Operator
-from ufl.mathfunctions import MathFunction
-from ufl.core.ufl_type import ufl_type as orig_ufl_type
-from ufl import classes
-from collections import defaultdict
 import itertools
+import weakref
+from collections import OrderedDict, defaultdict
 
+import gem
 import loopy
-import pymbolic.primitives as p
+import ufl
+from gem.impero_utils import compile_gem, preprocess_gem
+from gem.node import traversal as gem_traversal
 from pyop2 import op2
-from pyop2.profiling import timed_function
+from pyop2.sequential import Arg
+from tsfc import ufl2gem
+from tsfc.loopy import generate
+from ufl.algorithms.apply_algebra_lowering import LowerCompoundAlgebra
+from ufl.classes import Index, MultiIndex, ConstantValue
+from ufl.corealg.map_dag import map_expr_dags
+from ufl.corealg.multifunction import MultiFunction
+from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
 
-from firedrake import constant
-from firedrake import function
-from firedrake import utils
-
-from functools import singledispatch
+import firedrake
+from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
-def ufl_type(*args, **kwargs):
-    r"""Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
+def extract_coefficients(expr):
+    return tuple(e for e in ufl_traversal(expr) if isinstance(e, ufl.Coefficient))
 
-    Additionally adds the class decorated to the appropriate set of ufl classes."""
-    def decorator(cls):
-        orig_ufl_type(*args, **kwargs)(cls)
-        classes.all_ufl_classes.add(cls)
-        if cls._ufl_is_abstract_:
-            classes.abstract_classes.add(cls)
+
+class Translator(MultiFunction, ufl2gem.Mixin):
+    def __init__(self):
+        self.varmapping = OrderedDict()
+        MultiFunction.__init__(self)
+        ufl2gem.Mixin.__init__(self)
+
+    # Override shape-based things
+    # Need to inspect GEM shape not UFL shape, due to Coefficients changing shape.
+    def sum(self, o, *ops):
+        shape, = set(o.shape for o in ops)
+        indices = gem.indices(len(shape))
+        return gem.ComponentTensor(gem.Sum(*[gem.Indexed(op, indices) for op in ops]),
+                                   indices)
+
+    def real(self, o, expr):
+        indices = gem.indices(len(expr.shape))
+        return gem.ComponentTensor(gem.MathFunction('real', gem.Indexed(expr, indices)),
+                                   indices)
+
+    def imag(self, o, expr):
+        indices = gem.indices(len(expr.shape))
+        return gem.ComponentTensor(gem.MathFunction('imag', gem.Indexed(expr, indices)),
+                                   indices)
+
+    def conj(self, o, expr):
+        indices = gem.indices(len(expr.shape))
+        return gem.ComponentTensor(gem.MathFunction('conj', gem.Indexed(expr, indices)),
+                                   indices)
+
+    def abs(self, o, expr):
+        indices = gem.indices(len(expr.shape))
+        return gem.ComponentTensor(gem.MathFunction('abs', gem.Indexed(expr, indices)),
+                                   indices)
+
+    def conditional(self, o, condition, then, else_):
+        assert condition.shape == ()
+        shape, = set([then.shape, else_.shape])
+        indices = gem.indices(len(shape))
+        return gem.ComponentTensor(gem.Conditional(condition, gem.Indexed(then, indices),
+                                                   gem.Indexed(else_, indices)),
+                                   indices)
+
+    def indexed(self, o, aggregate, index):
+        return gem.Indexed(aggregate, index[:len(aggregate.shape)])
+
+    def index_sum(self, o, summand, indices):
+        index, = indices
+        indices = gem.indices(len(summand.shape))
+        return gem.ComponentTensor(gem.IndexSum(gem.Indexed(summand, indices), (index,)),
+                                   indices)
+
+    def component_tensor(self, o, expression, index):
+        index = tuple(i for i in index if i in expression.free_indices)
+        return gem.ComponentTensor(expression, index)
+
+    def expr(self, o):
+        raise ValueError(f"Expression of type {type(o)} unsupported in pointwise expressions")
+
+    def coefficient(self, o):
+        # Because we act on dofs, the ufl_shape is not the right thing to check
+        shape = o.dat.dim
+        try:
+            var = self.varmapping[o]
+        except KeyError:
+            name = f"C{len(self.varmapping)}"
+            var = gem.Variable(name, shape)
+            self.varmapping[o] = var
+        if o.ufl_shape == ():
+            assert shape == (1, )
+            return gem.Indexed(var, (0, ))
         else:
-            classes.ufl_classes.add(cls)
-        if cls._ufl_is_terminal_:
-            classes.terminal_classes.add(cls)
-        else:
-            classes.nonterminal_classes.add(cls)
-        return cls
-    return decorator
+            return var
 
 
 class IndexRelabeller(MultiFunction):
-
     def __init__(self):
         super().__init__()
         self._reset()
-        self.index_cache = defaultdict(lambda: classes.Index(next(self.count)))
+        self.index_cache = defaultdict(lambda: Index(next(self.count)))
 
     def _reset(self):
         self.count = itertools.count()
@@ -57,610 +111,314 @@ class IndexRelabeller(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def multi_index(self, o):
-        return type(o)(tuple(self.index_cache[i] if isinstance(i, classes.Index) else i for i in o._indices))
+        return type(o)(tuple(self.index_cache[i] if isinstance(i, Index) else i
+                             for i in o.indices()))
 
 
-class DummyFunction(ufl.Coefficient):
-
-    r"""A dummy object to take the place of a :class:`.Function` in the
-    expression. This has the sole role of producing the right strings
-    when the expression is unparsed and when the arguments are
-    formatted.
-    """
-
-    def __init__(self, function, argnum, intent=op2.READ):
-        ufl.Coefficient.__init__(self, function.ufl_function_space())
-
-        self.argnum = argnum
-        self.name = "fn_{0}".format(argnum)
-        self.function = function
-
-        # All arguments in expressions are read, except those on the
-        # LHS of augmented assignment operators. In those cases, the
-        # operator will have to change the intent.
-        self.intent = intent
-
-    @property
-    def arg(self):
-        return loopy.GlobalArg(self.name, dtype=self.function.dat.dtype, shape=loopy.auto)
-
-
-class AssignmentBase(Operator):
-
-    r"""Base class for UFL augmented assignments."""
-
-    __slots__ = ("ufl_shape",)
-    _identity = Zero()
-
-    def __init__(self, lhs, rhs):
-        operands = list(map(ufl.as_ufl, (lhs, rhs)))
-        super(AssignmentBase, self).__init__(operands)
-        self.ufl_shape = lhs.ufl_shape
-        # Sub function assignment, we've put a Zero in the lhs
-        # indicating we should do nothing.
-        if type(lhs) is Zero:
-            return
-        if not (isinstance(lhs, function.Function)
-                or isinstance(lhs, DummyFunction)):
-            raise TypeError("Can only assign to a Function")
-
-    def __str__(self):
-        return (" %s " % self._symbol).join(map(str, self.ufl_operands))
-
-    def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__,
-                           ", ".join(repr(o) for o in self.ufl_operands))
-
-
-@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
-class Assign(AssignmentBase):
-
-    r"""A UFL assignment operator."""
-    _symbol = "="
-    __slots__ = ("ufl_shape",)
-
-    def _visit(self, transformer):
-        lhs = self.ufl_operands[0]
-
-        transformer._result = lhs
-
-        try:
-            # If lhs is int the dictionary, this indicates that it is
-            # also on the RHS and therefore needs to be RW.
-            new_lhs = transformer._args[lhs]
-            new_lhs.intent = op2.RW
-
-        except KeyError:
-            if transformer._function_space is None:
-                transformer._function_space = lhs._function_space
-            elif transformer._function_space != lhs._function_space:
-                raise ValueError("Expression has incompatible function spaces")
-            transformer._args[lhs] = DummyFunction(lhs, len(transformer._args),
-                                                   intent=op2.WRITE)
-            new_lhs = transformer._args[lhs]
-
-        return [new_lhs, self.ufl_operands[1]]
-
-
-class AugmentedAssignment(AssignmentBase):
-
-    r"""Base for the augmented assignment operators `+=`, `-=,` `*=`, `/=`"""
-    __slots__ = ()
-
-    def _visit(self, transformer):
-        lhs = self.ufl_operands[0]
-
-        transformer._result = lhs
-
-        try:
-            new_lhs = transformer._args[lhs]
-        except KeyError:
-            if transformer._function_space is None:
-                transformer._function_space = lhs._function_space
-            elif transformer._function_space != lhs._function_space:
-                raise ValueError("Expression has incompatible function spaces")
-            transformer._args[lhs] = DummyFunction(lhs, len(transformer._args))
-            new_lhs = transformer._args[lhs]
-
-        new_lhs.intent = op2.RW
-
-        return [new_lhs, self.ufl_operands[1]]
-
-
-@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
-class IAdd(AugmentedAssignment):
-
-    r"""A UFL `+=` operator."""
-    _symbol = "+="
-    __slots__ = ()
-
-
-@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
-class ISub(AugmentedAssignment):
-
-    r"""A UFL `-=` operator."""
-    _symbol = "-="
-    __slots__ = ()
-
-
-@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
-class IMul(AugmentedAssignment):
-
-    r"""A UFL `*=` operator."""
-    _symbol = "*="
-    _identity = IntValue(1)
-    __slots__ = ()
-
-
-@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
-class IDiv(AugmentedAssignment):
-
-    r"""A UFL `/=` operator."""
-    _symbol = "/="
-    _identity = IntValue(1)
-    __slots__ = ()
-
-
-class ExpressionSplitter(ReuseTransformer):
-    r"""Split an expression tree into a subtree for each component of the
-    appropriate :class:`.FunctionSpace`."""
-
-    def split(self, expr):
-        r"""Split the given expression."""
-        self._identity = expr._identity
-        self._trees = None
-        lhs, rhs = expr.ufl_operands
-        # If the expression is not an assignment, the function spaces for both
-        # operands have to match
-        if not isinstance(expr, AssignmentBase) and \
-                lhs.function_space() != rhs.function_space():
-            raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
-        self._fs = lhs.function_space()
-        return [expr._ufl_expr_reconstruct_(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
-
-    def indexed(self, o, *operands):
-        r"""Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
-        is defined on a :class:`.FunctionSpace` with rank 1."""
-        def reconstruct_if_vec(coeff, idx, i):
-            # If the MultiIndex contains a FixedIndex we only want to return
-            # the indexed coefficient if its position matches the FixedIndex
-            # Since we don't split rank-1 function spaces, we have to
-            # reconstruct the fixed index expression for those (and only those)
-            if isinstance(idx._indices[0], ufl.core.multiindex.FixedIndex):
-                if idx._indices[0]._value != i:
-                    return self._identity
-                elif coeff.function_space().rank == 1:
-                    return o._ufl_expr_reconstruct_(coeff, idx)
-                elif coeff.function_space().rank >= 2:
-                    raise NotImplementedError("Not implemented for tensor spaces")
-            return coeff
-        return [reconstruct_if_vec(*ops, i=i)
-                for i, ops in enumerate(zip(*operands))]
-
-    def component_tensor(self, o, *operands):
-        r"""Only return the first operand."""
-        return operands[0]
+class CoefficientSplitter(MultiFunction):
+    def coefficient(self, o):
+        return o.split()
 
     def terminal(self, o):
-        if isinstance(o, function.Function):
-            # A function must either be defined on the same function space
-            # we're assigning to, in which case we split it into components
-            if o.function_space() == self._fs:
-                return o.split()
-            # If the function space we're assigning into is /not/
-            # Mixed, o must be indexed and the functionspace component
-            # much match us.
-            if len(self._fs) == 1 and self._fs.index is None:
-                idx = o.function_space().index
-                if idx is None:
-                    raise ValueError("Coefficient %r is not indexed" % o)
-                if o.function_space() != self._fs:
-                    raise ValueError("Mismatching function spaces")
-                return (o,)
-            # Otherwise the function space must be indexed and we
-            # return the Function for the indexed component and the
-            # identity for this assignment for every other
-            idx = o.function_space().index
-            # LHS is indexed
-            if self._fs.index is not None:
-                # RHS indexed, indexed RHS function space must match
-                # indexed LHS function space.
-                if idx is not None and self._fs != o.function_space():
-                    raise ValueError("Mismatching indexed function spaces")
-                # RHS not indexed, RHS function space must match
-                # indexed LHS function space
-                elif idx is None and self._fs != o.function_space():
-                    raise ValueError("Mismatching function spaces")
-                # OK, everything checked out. Return RHS
-                return (o,)
-            # LHS not indexed, RHS must be indexed and isn't
-            if idx is None:
-                raise ValueError("Coefficient %r is not indexed" % o)
-            # RHS indexed, parent function space must match LHS function space
-            if self._fs != o.function_space().parent:
-                raise ValueError("Mismatching function spaces")
-            # Return RHS in index slot in expression and
-            # identity otherwise.
-            return tuple(o if i == idx else self._identity
-                         for i, _ in enumerate(self._fs))
-        # We replicate ConstantValue and MultiIndex for each component
-        elif isinstance(o, (constant.Constant, ConstantValue, MultiIndex)):
-            # If LHS is indexed, only return a scalar result
-            if self._fs.index is not None:
-                return (o,)
-            # LHS is mixed and Constant has same shape, use each
-            # component in turn to assign to each component of the
-            # mixed space.
-            if len(self._fs) > 1 and \
-               isinstance(o, constant.Constant) and \
-               o.ufl_element().value_shape() == self._fs.ufl_element().value_shape():
-                offset = 0
-                consts = []
-                val = o.dat.data_ro
-                for fs in self._fs:
-                    shp = fs.ufl_element().value_shape()
-                    if len(shp) == 0:
-                        c = constant.Constant(val[offset], domain=o.ufl_domain())
-                        offset += 1
-                    elif len(shp) == 1:
-                        c = constant.Constant(val[offset:offset+shp[0]],
-                                              domain=o.ufl_domain())
-                        offset += shp[0]
-                    else:
-                        raise NotImplementedError("Broadcasting Constant to TFS not implemented")
-                    consts.append(c)
-                return consts
-            # Broadcast value across sub spaces.
-            return tuple(o for _ in self._fs)
-        raise NotImplementedError("Don't know what to do with %r" % o)
+        return itertools.repeat(o)
 
-    def product(self, o, *operands):
-        r"""Reconstruct a product on each of the component spaces."""
-        return [op0 * op1 for op0, op1 in zip(*operands)]
+    def expr(self, o, *operands):
+        return tuple(self.reuse_if_untouched(o, *ops) for ops in zip(*operands))
 
-    def operator(self, o, *operands):
-        r"""Reconstruct an operator on each of the component spaces."""
-        ret = []
-        for ops in zip(*operands):
-            # Don't try to reconstruct if we've just got the identity
-            # Stops domain errors when calling Log on Zero (for example)
-            if len(ops) == 1 and type(ops[0]) is type(self._identity):
-                ret.append(ops[0])
+    def indexed(self, o, aggregate, mi):
+        _, multiindex = o.ufl_operands
+        indices = multiindex.indices()
+        result = []
+        for agg in aggregate:
+            ncmp = len(agg.ufl_shape)
+            idx = indices[:ncmp]
+            indices = indices[ncmp:]
+            if ncmp == 0:
+                result.append(agg)
             else:
-                ret.append(o._ufl_expr_reconstruct_(*ops))
-        return ret
+                mi = multiindex if multiindex.indices() == idx else MultiIndex(idx)
+                result.append(self.reuse_if_untouched(o, agg, mi))
+        return tuple(result)
 
-
-class ExpressionWalker(ReuseTransformer):
-
-    def __init__(self):
-        ReuseTransformer.__init__(self)
-
-        self._args = {}
-        self._function_space = None
-        self._result = None
-
-    def walk(self, expr):
-        r"""Walk the given expression and return a tuple of the transformed
-        expression, the list of coefficients sorted by their count and the
-        function space the expression is defined on."""
-        return (self.visit(expr),
-                sorted(self._args.values(), key=lambda c: c.count()),
-                self._function_space)
-
-    def coefficient(self, o):
-
-        if isinstance(o, function.Function):
-            if self._function_space is None:
-                self._function_space = o.function_space()
+    def component_tensor(self, o, expressions, multiindices):
+        result = []
+        # Warning, relies on multiindices being an itertools.repeat
+        shape_indices = set(i.count() for i in next(multiindices).indices())
+        for expression, multiindex in zip(expressions, multiindices):
+            if shape_indices <= set(expression.ufl_free_indices):
+                result.append(self.reuse_if_untouched(o, expression, multiindex))
             else:
-                # Peel out (potentially indexed) function space of LHS
-                # and RHS to check for compatibility.
-                sfs = self._function_space
-                ofs = o.function_space()
-                if sfs != ofs:
-                    raise ValueError("Expression has incompatible function spaces %s and %s" %
-                                     (sfs, ofs))
-            try:
-                arg = self._args[o]
-                if arg.intent == op2.WRITE:
-                    # arg occurs on both the LHS and RHS of an assignment.
-                    arg.intent = op2.RW
-                return arg
-            except KeyError:
-                self._args[o] = DummyFunction(o, len(self._args))
-                return self._args[o]
+                result.append(expression)
+        return tuple(result)
 
-        elif isinstance(o, constant.Constant):
-            if self._function_space is None:
-                raise NotImplementedError("Cannot assign to Constant coefficients")
+
+class Assign(object):
+    """Representation of a pointwise assignment expression."""
+    splitter = CoefficientSplitter()
+    relabeller = IndexRelabeller()
+    symbol = "="
+
+    __slots__ = ("lvalue", "rvalue", "__dict__", "__weakref__")
+
+    def __init__(self, lvalue, rvalue):
+        """
+        :arg lvalue: The coefficient to assign into.
+        :arg rvalue: The pointwise expression.
+        """
+        if not isinstance(lvalue, ufl.Coefficient):
+            raise ValueError("lvalue for pointwise assignment must be a coefficient")
+        self.lvalue = lvalue
+        self.rvalue = ufl.as_ufl(rvalue)
+
+    def __str__(self):
+        return f"{self.lvalue} {self.symbol} {self.rvalue}"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.lvalue!r}, {self.rvalue!r})"
+
+    @cached_property
+    def coefficients(self):
+        """Tuple of coefficients involved in the assignment."""
+        return (self.lvalue, ) + tuple(c for c in self.rcoefficients if c.dat != self.lvalue.dat)
+
+    @cached_property
+    def rcoefficients(self):
+        """Coefficients appearing in the rvalue."""
+        return extract_coefficients(self.rvalue)
+
+    @cached_property
+    def split(self):
+        """A tuple of assignment expressions, separated by subspace for mixed spaces."""
+        V = self.lvalue.function_space()
+        if len(V) > 1:
+            # rvalue cases we handle for mixed:
+            # 1. rvalue is a scalar constant (broadcast to all subspaces)
+            # 2. rvalue is a function in the same mixed space (actually
+            #    handled by copy special-case in function.assign)
+            # 3. rvalue is has indexed subspaces and all indices are
+            #    the same (assign to that subspace of the output mixed
+            #    space)
+            # 4. rvalue is an expression only over mixed spaces and
+            #    the spaces match (split and evaluate subspace-wise).
+            spaces = tuple(c.function_space() for c in self.rcoefficients)
+            indices = set(s.index for s in spaces if s is not None)
+            if len(indices) == 0:
+                # rvalue is some combination of constants
+                if self.rvalue.ufl_shape != ():
+                    raise ValueError("Can only broadcast scalar constants to "
+                                     "mixed spaces in pointwise assignment")
+                return tuple(type(self)(s, self.rvalue) for s in self.lvalue.split())
             else:
-                # Constant shape has to match if the constant is not a scalar
-                # If it is a scalar, it gets broadcast across all of
-                # the values of the function.
-                if len(o.ufl_element().value_shape()) > 0:
-                    for fs in self._function_space:
-                        if fs.ufl_element().value_shape() != o.ufl_element().value_shape():
-                            raise ValueError("Constant has mismatched shape for expression function space")
-            try:
-                arg = self._args[o]
-                if arg.intent == op2.WRITE:
-                    arg.intent = op2.RW
-                return arg
-            except KeyError:
-                self._args[o] = DummyFunction(o, len(self._args))
-                return self._args[o]
-        elif isinstance(o, DummyFunction):
-            # Idempotency.
-            return o
-
+                if indices == set([None]):
+                    if len(set(spaces) | {V} - {None}) != 1:
+                        # Check that there were no unindexed coefficients
+                        raise ValueError("Saw unindexed coefficients in rvalue, "
+                                         "perhaps you meant to index the lvalue with .sub(...)")
+                    rvalues, = map_expr_dags(self.splitter, [self.rvalue])
+                    return tuple(type(self)(lvalue, rvalue)
+                                 for lvalue, rvalue in zip(self.lvalue.split(), rvalues))
+                elif indices & set([None]):
+                    raise ValueError("Either all or non of the rvalue coefficients must have "
+                                     "a .sub(...) index")
+                try:
+                    index, = indices
+                except ValueError:
+                    raise ValueError("All rvalue coefficients must have the same .sub(...) index")
+                return (type(self)(self.lvalue.sub(index), self.rvalue), )
         else:
-            raise TypeError("Operand %s is of unsupported type" % o)
+            return (weakref.proxy(self), )
 
-    # Prevent AlgebraOperators falling through to the Operator case.
-    algebra_operator = ReuseTransformer.reuse_if_possible
-    conditional = ReuseTransformer.reuse_if_possible
-    condition = ReuseTransformer.reuse_if_possible
-    math_function = ReuseTransformer.reuse_if_possible
-
-    def operator(self, o):
-
-        # Need pre-traversal of operators so as to correctly set the
-        # intent of the lhs function of Assignments.
-        if isinstance(o, AssignmentBase):
-            operands = o._visit(self)
-            # The left operand is special-cased in the assignment
-            # visit method. The general visitor is applied to the RHS.
-            operands = [operands[0], self.visit(operands[1])]
-
+    @property
+    @known_pyop2_safe
+    def args(self):
+        """Tuple of par_loop arguments for the expression."""
+        args = []
+        if self.lvalue in self.rcoefficients:
+            args.append(Arg(weakref.proxy(self.lvalue.dat), access=op2.RW))
         else:
-            # For all other operators, just visit the children.
-            operands = list(map(self.visit, o.ufl_operands))
+            args.append(Arg(weakref.proxy(self.lvalue.dat), access=op2.WRITE))
+        for c in self.rcoefficients:
+            if c.dat == self.lvalue.dat:
+                continue
+            args.append(Arg(weakref.proxy(c.dat), access=op2.READ))
+        return tuple(args)
 
-        return o._ufl_expr_reconstruct_(*operands)
+    @cached_property
+    def iterset(self):
+        return weakref.proxy(self.lvalue.node_set)
 
+    @cached_property
+    def fast_key(self):
+        """A fast lookup key for this expression."""
+        return (type(self), hash(self.lvalue), hash(self.rvalue))
 
-class Bag():
-    r"""An empty class which will be used to store arbitrary properties."""
-    pass
+    @cached_property
+    def slow_key(self):
+        """A slow lookup key for this expression (relabelling UFL indices)."""
+        self.relabeller._reset()
+        rvalue, = map_expr_dags(self.relabeller, [self.rvalue])
+        return (type(self), hash(self.lvalue), hash(rvalue))
 
+    @cached_property
+    def par_loop_args(self):
+        """Arguments for a parallel loop to evaluate this expression.
 
-def expression_kernel(expr, args):
-    r"""Produce a :class:`pyop2.Kernel` from the processed UFL expression
-    expr and the corresponding args."""
-
-    # Empty slot indicating assignment to indexed LHS, so don't do anything
-    if type(expr) is Zero:
-        return
-
-    fs = args[0].function.function_space()
-
-    import islpy as isl
-    inames = isl.make_zero_and_vars(["d"])
-    domain = (inames[0].le_set(inames["d"])) & (inames["d"].lt_set(inames[0] + fs.dof_dset.cdim))
-
-    context = Bag()
-    context.within_inames = frozenset(["d"])
-    context.indices = (p.Variable("d"),)
-
-    insn = loopy_instructions(expr, context)
-    data = [arg.arg for arg in args]
-    knl = loopy.make_function([domain], [insn], data, name="expression", silenced_warnings=["summing_if_branches_ops"])
-
-    return op2.Kernel(knl, "expression")
-
-
-def evaluate_preprocessed_expression(kernel, args, subset=None):
-    # We need to splice the args according to the components of the
-    # MixedFunctionSpace if we have one
-    for j, dats in enumerate(zip(*tuple(a.function.dat for a in args))):
-
-        itset = subset or args[0].function._function_space[j].node_set
-        parloop_args = [dat(args[i].intent) for i, dat in enumerate(dats)]
-        op2.par_loop(kernel, itset, *parloop_args)
+        If the expression is over a mixed space, this merges kernels
+        for subspaces with the same node_set (resulting in fewer
+        par_loop calls).
+        """
+        result = []
+        grouping = OrderedDict()
+        for e in self.split:
+            grouping.setdefault(e.lvalue.node_set, []).append(e)
+        for iterset, exprs in grouping.items():
+            result.append((pointwise_expression_kernel(exprs, ScalarType),
+                           iterset, tuple(itertools.chain(*(e.args for e in exprs)))))
+        return tuple(result)
 
 
-relabeller = IndexRelabeller()
+class AugmentedAssign(Assign):
+    """Base class for augmented pointwise assignment."""
 
 
-def relabel_indices(expr):
-    relabeller._reset()
-    return map_expr_dag(relabeller, expr, compress=True)
+class IAdd(AugmentedAssign):
+    symbol = "+="
 
 
-@utils.known_pyop2_safe
+class ISub(AugmentedAssign):
+    symbol = "-="
+
+
+class IMul(AugmentedAssign):
+    symbol = "*="
+
+
+class IDiv(AugmentedAssign):
+    symbol = "/="
+
+
+def compile_to_gem(expr, translator):
+    """Compile a single pointwise expression to GEM.
+
+    :arg expr: The expression to compile.
+    :arg translator: a :class:`Translator` instance.
+    :returns: A (lvalue, rvalue) pair of preprocessed GEM."""
+    if not isinstance(expr, Assign):
+        raise ValueError(f"Don't know how to assign expression of type {type(expr)}")
+    spaces = tuple(c.function_space() for c in expr.coefficients)
+    if any(type(s.ufl_element()) is ufl.MixedElement for s in spaces if s is not None):
+        raise ValueError("Not expecting a mixed space at this point, "
+                         "did you forget to index a function with .sub(...)?")
+    if len(set(s.finat_element for s in spaces if s is not None)) != 1:
+        raise ValueError("All coefficients must be defined on the same space")
+    lvalue = expr.lvalue
+    rvalue = expr.rvalue
+    broadcast = isinstance(rvalue, (firedrake.Constant, ConstantValue)) and rvalue.ufl_shape == ()
+    if not broadcast and lvalue.ufl_shape != rvalue.ufl_shape:
+        raise ValueError("Mismatching shapes between lvalue and rvalue in pointwise assignment")
+    rvalue, = map_expr_dags(LowerCompoundAlgebra(), [rvalue])
+    try:
+        lvalue, rvalue = map_expr_dags(translator, [lvalue, rvalue])
+    except (AssertionError, ValueError):
+        raise ValueError("Mismatching shapes in pointwise assignment. "
+                         "For intrinsically vector-/tensor-valued spaces make "
+                         "sure you're not using shaped Constants or literals.")
+
+    indices = gem.indices(len(lvalue.shape))
+    if not broadcast:
+        if rvalue.shape != lvalue.shape:
+            raise ValueError("Mismatching shapes in pointwise assignment. "
+                             "For intrinsically vector-/tensor-valued spaces make "
+                             "sure you're not using shaped Constants or literals.")
+        rvalue = gem.Indexed(rvalue, indices)
+    lvalue = gem.Indexed(lvalue, indices)
+    if isinstance(expr, AugmentedAssign):
+        rvalue = {IAdd: gem.Sum(lvalue, rvalue),
+                  ISub: gem.Sum(lvalue, gem.Product(gem.Literal(-1), rvalue)),
+                  IMul: gem.Product(lvalue, rvalue),
+                  IDiv: gem.Division(lvalue, rvalue)}[type(expr)]
+    return preprocess_gem([lvalue, rvalue])
+
+
+def pointwise_expression_kernel(exprs, scalar_type):
+    """Compile a kernel for pointwise expressions.
+
+    :arg exprs: List of expressions, all on the same iteration set.
+    :arg scalar_type: Default scalar type (numpy.dtype).
+    :returns: a PyOP2 kernel for evaluation of the expressions."""
+    if len(set(e.lvalue.node_set for e in exprs)) > 1:
+        raise ValueError("All expressions must have same node layout.")
+    translator = Translator()
+    assignments = tuple(compile_to_gem(expr, translator) for expr in exprs)
+    prefix_ordering = tuple(OrderedDict.fromkeys(itertools.chain.from_iterable(
+        node.index_ordering()
+        for node in gem_traversal([v for v, _ in assignments])
+        if isinstance(node, gem.Indexed))))
+    impero_c = compile_gem(assignments, prefix_ordering=prefix_ordering,
+                           remove_zeros=False, emit_return_accumulate=False)
+    coefficients = translator.varmapping
+    args = []
+    for expr in exprs:
+        retval = coefficients.pop(expr.lvalue)
+        args.append(loopy.GlobalArg(retval.name, shape=retval.shape, dtype=expr.lvalue.dat.dtype))
+        for c in expr.rcoefficients:
+            if c.dat == expr.lvalue.dat:
+                continue
+            var = coefficients[c]
+            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype))
+    knl = generate(impero_c, args, scalar_type, kernel_name="expression_kernel",
+                   return_increments=False)
+    return firedrake.op2.Kernel(knl, knl.name)
+
+
+@known_pyop2_safe
 def evaluate_expression(expr, subset=None):
-    r"""Evaluates UFL expressions on :class:`.Function`\s."""
+    """Evaluate a pointwise expression.
 
-    # We cache the generated kernel and the argument list on the
-    # result function, keyed on the hash of the expression
-    # (implemented by UFL).  Since the argument list references
-    # objects that we may want collected, we do a little magic in the
-    # cache.  The "function" slot in the DummyFunction argument is
-    # replaced by a weakref to the function in the cached arglist.
-    # This ensures that we don't leak objects.  However, sometimes, it
-    # means that the proxy will have been collected and will be out of
-    # date.  So we catch this error and fall back to the slow code
-    # path in that case.
-    result = expr.ufl_operands[0]
-    if result._expression_cache is not None:
+    :arg expr: The expression to evaluate.
+    :arg subset: An optional subset to apply the expression on.
+    :returns: The lvalue in the provided expression."""
+    lvalue = expr.lvalue
+    cache = lvalue._expression_cache
+    if cache is not None:
+        fast_key = expr.fast_key
         try:
-            # Fast path, look for the expression itself
-            key = hash(expr)
-            vals = result._expression_cache[key]
+            arguments = cache[fast_key]
         except KeyError:
-            # Now relabel indices and check
-            key2 = hash(relabel_indices(expr))
+            slow_key = expr.slow_key
             try:
-                vals = result._expression_cache[key2]
-                result._expression_cache[key] = vals
+                arguments = cache[slow_key]
             except KeyError:
-                vals = None
-        if vals:
+                arguments = None
+        if arguments is not None:
             try:
-                for k, args in vals:
-                    evaluate_preprocessed_expression(k, args, subset=subset)
-                return
+                for kernel, iterset, args in arguments:
+                    firedrake.op2.par_loop(kernel, subset or iterset, *args)
+                return lvalue
             except ReferenceError:
+                # TODO: Is there a situation where some of the kernels
+                # succeed and others don't?
                 pass
-    vals = []
-    for tree in ExpressionSplitter().split(expr):
-        e, args, _ = ExpressionWalker().walk(tree)
-        k = expression_kernel(e, args)
-        evaluate_preprocessed_expression(k, args, subset)
-        # Replace function slot by weakref to avoid leaking objects
-        for a in args:
-            a.function = weakref.proxy(a.function)
-        vals.append((k, args))
-    if result._expression_cache is not None:
-        result._expression_cache[key] = vals
-        result._expression_cache[key2] = vals
+    arguments = expr.par_loop_args
+    if cache is not None:
+        cache[slow_key] = arguments
+        cache[fast_key] = arguments
+    for kernel, iterset, args in arguments:
+        firedrake.op2.par_loop(kernel, subset or iterset, *args)
+    return lvalue
 
 
-@timed_function("AssembleExpression")
 def assemble_expression(expr, subset=None):
-    r"""Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
-    into a new :class:`.Function`."""
+    """Evaluate a UFL expression pointwise and assign it to a new
+    :class:`~.Function`.
 
-    if utils.complex_mode:
-        expr = map_expr_dag(CheckComparisons(), expr)
-    result = function.Function(ExpressionWalker().walk(expr)[2])
-    evaluate_expression(Assign(result, expr), subset)
-    return result
-
-
-@singledispatch
-def loopy_instructions(expr, context):
-    raise AssertionError("Unhandled statement type '%s'" % type(expr))
-
-
-@loopy_instructions.register(Assign)
-def loopy_inst_assign(expr, context):
-    lhs, rhs = expr.ufl_operands
-    lhs = loopy_instructions(lhs, context)
-    rhs = loopy_instructions(rhs, context)
-    return loopy.Assignment(lhs, rhs, within_inames=context.within_inames)
-
-
-@loopy_instructions.register(IAdd)
-@loopy_instructions.register(ISub)
-@loopy_instructions.register(IMul)
-@loopy_instructions.register(IDiv)
-def loopy_inst_aug_assign(expr, context):
-    lhs, rhs = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    import operator
-    op = {IAdd: operator.add,
-          ISub: operator.sub,
-          IMul: operator.mul,
-          IDiv: operator.truediv}[type(expr)]
-    return loopy.Assignment(lhs, op(lhs, rhs), within_inames=context.within_inames)
-
-
-@loopy_instructions.register(DummyFunction)
-def loopy_inst_func(expr, context):
-    if (isinstance(expr.function, constant.Constant) and len(expr.function.ufl_element().value_shape()) == 0):
-        # Broadcast if constant
-        return p.Variable(expr.name).index((0,))
-    return p.Variable(expr.name).index(context.indices)
-
-
-@loopy_instructions.register(ufl.constantvalue.Zero)
-def loopy_inst_zero(expr, context):
-    # Shape doesn't matter because this turns into a scalar assignment
-    # to an indexed expression in loopy.
-    return 0
-
-
-@loopy_instructions.register(ufl.constantvalue.ScalarValue)
-def loopy_inst_scalar(expr, context):
-    return expr._value
-
-
-@loopy_instructions.register(ufl.algebra.Product)
-@loopy_instructions.register(ufl.algebra.Sum)
-@loopy_instructions.register(ufl.algebra.Division)
-def loopy_inst_binary(expr, context):
-    left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    import operator
-    op = {ufl.algebra.Sum: operator.add,
-          ufl.algebra.Product: operator.mul,
-          ufl.algebra.Division: operator.truediv}[type(expr)]
-    return op(left, right)
-
-
-@loopy_instructions.register(MathFunction)
-def loopy_inst_mathfunc(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    if expr._name == "ln":
-        name = "log"
-    else:
-        name = expr._name
-    return p.Variable(name)(*children)
-
-
-@loopy_instructions.register(ufl.algebra.Real)
-def loopy_inst_real(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("real")(*children)
-
-
-@loopy_instructions.register(ufl.algebra.Imag)
-def loopy_inst_imag(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("imag")(*children)
-
-
-@loopy_instructions.register(ufl.algebra.Conj)
-def loopy_inst_conj(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("conj")(*children)
-
-
-@loopy_instructions.register(ufl.algebra.Power)
-def loopy_inst_power(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Power(*children)
-
-
-@loopy_instructions.register(ufl.algebra.Abs)
-def loopy_inst_abs(expr, context):
-    child, = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("abs")(child)
-
-
-@loopy_instructions.register(ufl.classes.MaxValue)
-def loopy_inst_max(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("max")(*children)
-
-
-@loopy_instructions.register(ufl.classes.MinValue)
-def loopy_inst_min(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.Variable("min")(*children)
-
-
-@loopy_instructions.register(ufl.classes.Conditional)
-def loopy_inst_conditional(expr, context):
-    children = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    return p.If(*children)
-
-
-@loopy_instructions.register(ufl.classes.EQ)
-@loopy_instructions.register(ufl.classes.NE)
-@loopy_instructions.register(ufl.classes.LT)
-@loopy_instructions.register(ufl.classes.LE)
-@loopy_instructions.register(ufl.classes.GT)
-@loopy_instructions.register(ufl.classes.GE)
-def loopy_inst_compare(expr, context):
-    left, right = [loopy_instructions(o, context) for o in expr.ufl_operands]
-    op = expr._name
-    return p.Comparison(left, op, right)
-
-
-@loopy_instructions.register(ufl.classes.ComponentTensor)
-@loopy_instructions.register(ufl.classes.Indexed)
-def loopy_inst_component_tensor(expr, context):
-    # The expression walker just needs the tensor operand for these.
-    # The indices are handled elsewhere.
-    return loopy_instructions(expr.ufl_operands[0], context)
+    :arg expr: The UFL expression.
+    :arg subset: Optional subset to apply the expression on.
+    :returns: A new function."""
+    try:
+        coefficients = extract_coefficients(expr)
+        V, = set(c.function_space() for c in coefficients) - {None}
+    except ValueError:
+        raise ValueError("Cannot deduce correct target space from pointwise expression")
+    result = firedrake.Function(V)
+    return evaluate_expression(Assign(result, expr), subset)
