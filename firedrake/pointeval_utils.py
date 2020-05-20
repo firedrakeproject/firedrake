@@ -67,10 +67,9 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
-                  precision=parameters["precision"],
                   point_indices=(),
                   point_expr=point,
-                  complex_mode=utils.complex_mode)
+                  scalar_type=utils.ScalarType)
     # TODO: restore this for expression evaluation!
     # config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
     context = tsfc.fem.GemPointContext(**config)
@@ -102,7 +101,7 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], utils.ScalarType_c)
+    body = generate_coffee(impero_c, {}, utils.ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)

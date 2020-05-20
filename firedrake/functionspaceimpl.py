@@ -227,7 +227,9 @@ class WithGeometry(ufl.FunctionSpace):
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
-        return getattr(self.topological, name)
+        val = getattr(self.topological, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(WithGeometry, self).__dir__()
