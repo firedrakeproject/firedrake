@@ -1,3 +1,4 @@
+import numbers
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint.blocks import AssembleBlock
@@ -15,10 +16,12 @@ def annotate_assemble(assemble):
             output = assemble(*args, **kwargs)
 
         form = args[0]
-        if isinstance(output, float):
+        if isinstance(output, numbers.Complex):
             if not annotate:
                 return output
 
+            if not isinstance(output, float):
+                raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
             output = create_overloaded_object(output)
             block = AssembleBlock(form)
 
