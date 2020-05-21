@@ -84,7 +84,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version >=3.5
+* Python version >=3.6
 * The Python headers
 * autoconf, automake, libtool
 * CMake
@@ -99,9 +99,9 @@ Installation on previous versions of Windows is unlikely to work.
 Supported Python distributions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Firedrake requires Python 3.5 or later.
+Firedrake requires Python 3.6 or later.
 
-On Ubuntu (16.04 or later), the system installed Python 3 is supported and tested.
+On Ubuntu (18.04 or later), the system installed Python 3 is supported and tested.
 
 On Mac OS, the homebrew_ installed Python 3 is supported and tested::
 
@@ -111,12 +111,7 @@ If instead you choose to install Python 3 using the official Mac OS
 installer on the Python website, you need to be aware that that
 installation will not have a working SSL by default. You need to
 follow the SSL certificate instructions given in the installation process (or in
-``/Applications/Python 3.6/ReadMe.rtf`` after installation).
-
-
-.. note::
-
-   Your system still needs to have Python 2 available to build PETSc_.
+``/Applications/Python X.X/ReadMe.rtf`` after installation).
 
 Additional considerations for MacPorts users
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

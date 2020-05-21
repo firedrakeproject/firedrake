@@ -25,8 +25,13 @@ def A(W):
 
 
 @pytest.fixture
-def expect():
-    return Constant((1, 2, 3, 4, 5, 6))
+def expect(W):
+    f = Function(W)
+    f.sub(0).assign(Constant(1))
+    f.sub(1).assign(Constant((2, 3)))
+    f.sub(2).assign(Constant(4))
+    f.sub(3).assign(Constant((5, 6)))
+    return f
 
 
 @pytest.fixture
