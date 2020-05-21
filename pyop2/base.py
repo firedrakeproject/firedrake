@@ -3589,25 +3589,25 @@ class ParLoop(object):
     @collective
     def global_to_local_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_begin()
 
     @collective
     def global_to_local_end(self):
         """Finish halo exchanges"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_end()
 
     @collective
     def local_to_global_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_begin()
 
     @collective
     def local_to_global_end(self):
         """Finish halo exchanges (wait on irecvs)"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_end()
 
     @cached_property
@@ -3661,11 +3661,24 @@ class ParLoop(object):
 
     @cached_property
     def dat_args(self):
-        return [arg for arg in self.args if arg._is_dat]
+        return tuple(arg for arg in self.args if arg._is_dat)
+
+    @cached_property
+    def unique_dat_args(self):
+        seen = {}
+        unique = []
+        for arg in self.dat_args:
+            if arg.data not in seen:
+                unique.append(arg)
+                seen[arg.data] = arg
+            elif arg.access != seen[arg.data].access:
+                raise ValueError("Same Dat appears multiple times with different "
+                                 "access descriptors")
+        return tuple(unique)
 
     @cached_property
     def global_reduction_args(self):
-        return [arg for arg in self.args if arg._is_global_reduction]
+        return tuple(arg for arg in self.args if arg._is_global_reduction)
 
     @cached_property
     def kernel(self):
