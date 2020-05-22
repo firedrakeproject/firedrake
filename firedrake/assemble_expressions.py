@@ -1,24 +1,27 @@
 import itertools
 import weakref
 from collections import OrderedDict, defaultdict
+from functools import singledispatch
 
+import firedrake
 import gem
 import loopy
 import ufl
+from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 from gem.impero_utils import compile_gem, preprocess_gem
+from gem.node import Memoizer
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
 from pyop2.sequential import Arg
 from tsfc import ufl2gem
 from tsfc.loopy import generate
+from tsfc.ufl_utils import ufl_reuse_if_untouched
 from ufl.algorithms.apply_algebra_lowering import LowerCompoundAlgebra
-from ufl.classes import Index, MultiIndex, ConstantValue
+from ufl.classes import (Coefficient, ComponentTensor, ConstantValue, Expr,
+                         Index, Indexed, MultiIndex, Terminal)
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
-
-import firedrake
-from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
 def extract_coefficients(expr):
@@ -115,49 +118,64 @@ class IndexRelabeller(MultiFunction):
                              for i in o.indices()))
 
 
-class CoefficientSplitter(MultiFunction):
-    def coefficient(self, o):
-        if isinstance(o, firedrake.Constant):
-            return itertools.repeat(o)
+@singledispatch
+def _split(o, self):
+    raise AssertionError(f"Unhandled expression type {type(o)} in splitting")
+
+
+@_split.register(Expr)
+def _split_expr(o, self):
+    return tuple(ufl_reuse_if_untouched(o, *ops)
+                 for ops in zip(*(self(op) for op in o.ufl_operands)))
+
+
+@_split.register(Coefficient)
+def _split_coefficient(o, self):
+    if isinstance(o, firedrake.Constant):
+        return tuple(o for _ in range(self.n))
+    else:
+        split = o.split()
+        assert len(split) == self.n
+        return split
+
+
+@_split.register(Terminal)
+def _split_terminal(o, self):
+    return tuple(o for _ in range(self.n))
+
+
+@_split.register(ComponentTensor)
+def _split_component_tensor(o, self):
+    expressions, multiindices = (self(op) for op in o.ufl_operands)
+    result = []
+    shape_indices = set(i.count() for i in multiindices[0].indices())
+    for expression, multiindex in zip(expressions, multiindices):
+        if shape_indices <= set(expression.ufl_free_indices):
+            result.append(ufl_reuse_if_untouched(o, expression, multiindex))
         else:
-            return o.split()
+            result.append(expression)
+    return tuple(result)
 
-    def terminal(self, o):
-        return itertools.repeat(o)
 
-    def expr(self, o, *operands):
-        return tuple(self.reuse_if_untouched(o, *ops) for ops in zip(*operands))
-
-    def indexed(self, o, aggregate, mi):
-        _, multiindex = o.ufl_operands
-        indices = multiindex.indices()
-        result = []
-        for agg in aggregate:
-            ncmp = len(agg.ufl_shape)
-            idx = indices[:ncmp]
-            indices = indices[ncmp:]
-            if ncmp == 0:
-                result.append(agg)
-            else:
-                mi = multiindex if multiindex.indices() == idx else MultiIndex(idx)
-                result.append(self.reuse_if_untouched(o, agg, mi))
-        return tuple(result)
-
-    def component_tensor(self, o, expressions, multiindices):
-        result = []
-        # Warning, relies on multiindices being an itertools.repeat
-        shape_indices = set(i.count() for i in next(multiindices).indices())
-        for expression, multiindex in zip(expressions, multiindices):
-            if shape_indices <= set(expression.ufl_free_indices):
-                result.append(self.reuse_if_untouched(o, expression, multiindex))
-            else:
-                result.append(expression)
-        return tuple(result)
+@_split.register(Indexed)
+def _split_indexed(o, self):
+    aggregate, multiindex = o.ufl_operands
+    indices = multiindex.indices()
+    result = []
+    for agg in self(aggregate):
+        ncmp = len(agg.ufl_shape)
+        idx = indices[:ncmp]
+        indices = indices[ncmp:]
+        if ncmp == 0:
+            result.append(agg)
+        else:
+            mi = multiindex if multiindex.indices() == idx else MultiIndex(idx)
+            result.append(ufl_reuse_if_untouched(o, agg, mi))
+    return tuple(result)
 
 
 class Assign(object):
     """Representation of a pointwise assignment expression."""
-    splitter = CoefficientSplitter()
     relabeller = IndexRelabeller()
     symbol = "="
 
@@ -172,6 +190,10 @@ class Assign(object):
             raise ValueError("lvalue for pointwise assignment must be a coefficient")
         self.lvalue = lvalue
         self.rvalue = ufl.as_ufl(rvalue)
+        n = len(self.lvalue.function_space())
+        if n > 1:
+            self.splitter = Memoizer(_split)
+            self.splitter.n = n
 
     def __str__(self):
         return f"{self.lvalue} {self.symbol} {self.rvalue}"
@@ -215,9 +237,9 @@ class Assign(object):
                 if indices == set([None]):
                     if len((set(spaces) | {V}) - {None}) != 1:
                         # Check that there were no unindexed coefficients
-                        raise ValueError("Saw unindexed coefficients in rvalue, "
+                        raise ValueError("Saw indexed coefficients in rvalue, "
                                          "perhaps you meant to index the lvalue with .sub(...)")
-                    rvalues, = map_expr_dags(self.splitter, [self.rvalue])
+                    rvalues = self.splitter(self.rvalue)
                     return tuple(type(self)(lvalue, rvalue)
                                  for lvalue, rvalue in zip(self.lvalue.split(), rvalues))
                 elif indices & set([None]):
