@@ -210,7 +210,7 @@ class Assign(object):
                 return tuple(type(self)(s, self.rvalue) for s in self.lvalue.split())
             else:
                 if indices == set([None]):
-                    if len(set(spaces) | {V} - {None}) != 1:
+                    if len((set(spaces) | {V}) - {None}) != 1:
                         # Check that there were no unindexed coefficients
                         raise ValueError("Saw unindexed coefficients in rvalue, "
                                          "perhaps you meant to index the lvalue with .sub(...)")
