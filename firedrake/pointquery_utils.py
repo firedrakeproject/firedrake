@@ -16,7 +16,7 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
-from firedrake.utils import ScalarType_c, complex_mode
+from firedrake.utils import ScalarType, ScalarType_c, complex_mode
 
 from coffee.base import ArrayInit
 
@@ -143,7 +143,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, ScalarType_c)
+    body = tsfc.coffee.generate(impero_c, {}, ScalarType)
     body.open_scope = False
 
     return body
