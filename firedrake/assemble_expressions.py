@@ -117,7 +117,10 @@ class IndexRelabeller(MultiFunction):
 
 class CoefficientSplitter(MultiFunction):
     def coefficient(self, o):
-        return o.split()
+        if isinstance(o, firedrake.Constant):
+            return itertools.repeat(o)
+        else:
+            return o.split()
 
     def terminal(self, o):
         return itertools.repeat(o)
@@ -272,8 +275,8 @@ class Assign(object):
         for e in self.split:
             grouping.setdefault(e.lvalue.node_set, []).append(e)
         for iterset, exprs in grouping.items():
-            result.append((pointwise_expression_kernel(exprs, ScalarType),
-                           iterset, tuple(itertools.chain(*(e.args for e in exprs)))))
+            k, args = pointwise_expression_kernel(exprs, ScalarType)
+            result.append((k, iterset, tuple(args)))
         return tuple(result)
 
 
@@ -361,17 +364,19 @@ def pointwise_expression_kernel(exprs, scalar_type):
                            remove_zeros=False, emit_return_accumulate=False)
     coefficients = translator.varmapping
     args = []
+    plargs = []
     for expr in exprs:
-        retval = coefficients.pop(expr.lvalue)
-        args.append(loopy.GlobalArg(retval.name, shape=retval.shape, dtype=expr.lvalue.dat.dtype))
-        for c in expr.rcoefficients:
-            if c.dat == expr.lvalue.dat:
+        for c, arg in zip(expr.coefficients, expr.args):
+            try:
+                var = coefficients.pop(c)
+            except KeyError:
                 continue
-            var = coefficients[c]
+            plargs.append(arg)
             args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype))
+    assert len(coefficients) == 0
     knl = generate(impero_c, args, scalar_type, kernel_name="expression_kernel",
                    return_increments=False)
-    return firedrake.op2.Kernel(knl, knl.name)
+    return firedrake.op2.Kernel(knl, knl.name), plargs
 
 
 class dereffed(object):

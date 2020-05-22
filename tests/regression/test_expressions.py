@@ -228,6 +228,20 @@ def test_different_fs_asign_fails(fs_combinations):
         f1.assign(f2)
 
 
+def test_assign_mfs_lincomp(mfs):
+    f = Function(mfs)
+    f.assign(1)
+    g = Function(mfs)
+    g.assign(2)
+    h = Function(mfs)
+    h.assign(3)
+    c = Constant(2)
+    d = Constant(4)
+    f.assign(f + c*g + d*h)
+    for f_ in f.dat.data_ro:
+        assert np.allclose(f_, 1 + 2*2 + 3 * 4)
+
+
 def test_asign_to_nonindexed_subspace_fails(mfs):
     """Assigning a Function on a non-indexed sub space of a mixed function
     space to a function on the mixed function space should fail."""
