@@ -332,11 +332,14 @@ def compile_to_gem(expr, translator):
                              "sure you're not using shaped Constants or literals.")
         rvalue = gem.Indexed(rvalue, indices)
     lvalue = gem.Indexed(lvalue, indices)
-    if isinstance(expr, AugmentedAssign):
-        rvalue = {IAdd: gem.Sum(lvalue, rvalue),
-                  ISub: gem.Sum(lvalue, gem.Product(gem.Literal(-1), rvalue)),
-                  IMul: gem.Product(lvalue, rvalue),
-                  IDiv: gem.Division(lvalue, rvalue)}[type(expr)]
+    if isinstance(expr, IAdd):
+        rvalue = gem.Sum(lvalue, rvalue)
+    elif isinstance(expr, ISub):
+        rvalue = gem.Sum(lvalue, gem.Product(gem.Literal(-1), rvalue))
+    elif isinstance(expr, IMul):
+        rvalue = gem.Product(lvalue, rvalue)
+    elif isinstance(expr, IDiv):
+        rvalue = gem.Division(lvalue, rvalue)
     return preprocess_gem([lvalue, rvalue])
 
 
