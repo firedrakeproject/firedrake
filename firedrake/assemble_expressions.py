@@ -234,13 +234,13 @@ class Assign(object):
         """Tuple of par_loop arguments for the expression."""
         args = []
         if self.lvalue in self.rcoefficients:
-            args.append(Arg(weakref.proxy(self.lvalue.dat), access=op2.RW))
+            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
         else:
-            args.append(Arg(weakref.proxy(self.lvalue.dat), access=op2.WRITE))
+            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
         for c in self.rcoefficients:
             if c.dat == self.lvalue.dat:
                 continue
-            args.append(Arg(weakref.proxy(c.dat), access=op2.READ))
+            args.append(Arg(weakref.ref(c.dat), access=op2.READ))
         return tuple(args)
 
     @cached_property
@@ -374,6 +374,23 @@ def pointwise_expression_kernel(exprs, scalar_type):
     return firedrake.op2.Kernel(knl, knl.name)
 
 
+class dereffed(object):
+    def __init__(self, args):
+        self.args = args
+
+    def __enter__(self):
+        for a in self.args:
+            data = a.data()
+            if data is None:
+                raise ReferenceError
+            a.data = a.data()
+        return self.args
+
+    def __exit__(self, *args, **kwargs):
+        for a in self.args:
+            a.data = weakref.ref(a.data)
+
+
 @known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluate a pointwise expression.
@@ -396,7 +413,8 @@ def evaluate_expression(expr, subset=None):
         if arguments is not None:
             try:
                 for kernel, iterset, args in arguments:
-                    firedrake.op2.par_loop(kernel, subset or iterset, *args)
+                    with dereffed(args) as args:
+                        firedrake.op2.par_loop(kernel, subset or iterset, *args)
                 return lvalue
             except ReferenceError:
                 # TODO: Is there a situation where some of the kernels
@@ -407,7 +425,8 @@ def evaluate_expression(expr, subset=None):
         cache[slow_key] = arguments
         cache[fast_key] = arguments
     for kernel, iterset, args in arguments:
-        firedrake.op2.par_loop(kernel, subset or iterset, *args)
+        with dereffed(args) as args:
+            firedrake.op2.par_loop(kernel, subset or iterset, *args)
     return lvalue
 
 
