@@ -210,6 +210,16 @@ def test_mixed_expressions_indexed_fs(expr, msfunctions):
     assert eval(expr)
 
 
+def test_iadd_combination(sfs):
+    f = Function(sfs)
+    g = Function(sfs)
+    t = Constant(2)
+    g.assign(1)
+    f.assign(2)
+    f += t*g
+    assert np.allclose(f.dat.data_ro, 2 + 2)
+
+
 def test_different_fs_asign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
