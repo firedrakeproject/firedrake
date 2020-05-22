@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import ScalarType
 
 
 @pytest.fixture(scope='module')
@@ -95,7 +96,7 @@ def test_one_form(M, f):
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
-    assert isinstance(zero_form, float)
+    assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 

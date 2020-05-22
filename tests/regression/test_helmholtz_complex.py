@@ -73,5 +73,7 @@ def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals(testcase, conv
     degree, (start, end) = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
-        l2err[ii - start] = helmholtz(ii, quadrilateral=True, degree=degree)[0]
+        val = helmholtz(ii, quadrilateral=True, degree=degree)[0]
+        l2err[ii - start] = val.real
+        assert np.allclose(val.imag, 0)
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()

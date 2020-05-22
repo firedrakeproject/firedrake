@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.utils import RealType
+import pytest
 
 
 # Useful for making a periodic hierarchy
@@ -33,6 +34,7 @@ def periodise(m):
     return Mesh(new_coordinates)
 
 
+@pytest.mark.skipcomplex
 def test_line_smoother_periodic():
     N = 3
     H = 0.1
@@ -54,7 +56,7 @@ def test_line_smoother_periodic():
     v = TestFunction(V)
     bc = DirichletBC(V, Constant(0), [1, 2])
 
-    F = dot(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
 
     base = {"snes_type": "ksponly",
             "ksp_type": "fgmres",

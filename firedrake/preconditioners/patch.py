@@ -2,7 +2,7 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import cached_property
+from firedrake.utils import cached_property, complex_mode
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
@@ -633,6 +633,8 @@ class PlaneSmoother(object):
         return out
 
     def __call__(self, pc):
+        if complex_mode:
+            raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
         prefix = pc.getOptionsPrefix()
         sentinel = object()
