@@ -269,6 +269,97 @@ def closure_ordering(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def submesh_closure_ordering(PETSc.DM plex,
+                             PETSc.DM parent_plex,
+                             PETSc.Section cell_numbering,
+                             PETSc.Section parent_cell_numbering,
+                             np.ndarray[PetscInt, ndim=2, mode="c"] parent_cell_closure):
+    """Inherit cell_closure from the parent mesh.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg cell_numbering: Section describing the global cell numbering
+    :arg parent_cell_numbering: Section describing the global cell numbering (parent plex)
+    :arg parent_cell_closure: cell_closure of the parent mesh
+
+    Preserve the order if dim < parent_dim.
+    """
+    cdef:
+        PetscInt  dim, parent_dim
+        PetscInt  cStart, cEnd, c, c_, ci
+        PetscInt  pcStart, pcEnd, pc, pc_
+        PetscInt  pStart, pEnd, p, pp
+        PetscInt  nclosure
+        PetscInt *closure = NULL
+        np.ndarray[PetscInt, ndim=1, mode="c"] cone_closure
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+        MPI.Comm  comm = plex.comm.tompi4py()
+
+    # Get dimensions
+    dim = plex.getDimension()
+    parent_dim = parent_plex.getDimension()
+
+    # Setup cell_closure
+    cStart, cEnd = plex.getHeightStratum(0)
+    if cEnd != cStart:
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cStart, PETSC_TRUE, &nclosure, &closure))
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cStart, PETSC_TRUE, NULL, &closure))
+    else:
+        nclosure = -1
+    nclosure = comm.allreduce(nclosure, op=MPI.MAX)
+    cone_closure = np.empty((nclosure, ), dtype=IntType)
+    cell_closure = np.empty((cEnd - cStart, nclosure), dtype=IntType)
+
+    # child-parent map
+    subpoint_map = plex.getSubpointIS().getIndices()
+
+    # parent-child map
+    parent_child_map = {}
+    pStart, pEnd = plex.getChart()
+    for p in range(pStart, pEnd):
+        pp = subpoint_map[p]
+        parent_child_map[pp] = p
+
+    # Fill cell_closure
+    #if dim == parent_dim:
+    if False:  # just to test the general case below.
+        for c in range(cStart, cEnd):
+            pc = subpoint_map[c]
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &c_))
+            CHKERR(PetscSectionGetOffset(parent_cell_numbering.sec, pc, &pc_))
+            cell_closure[c_, :] = np.array(tuple(map(lambda x: parent_child_map[x], parent_cell_closure[pc_, :])))
+    else:
+        # Works for dim == parent_dim, but more general.
+        pcStart, pcEnd = parent_plex.getHeightStratum(0)
+        for c in range(cStart, cEnd):
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure, &closure))
+            # Set cone_closure
+            for ci in range(nclosure):
+                cone_closure[ci] = closure[2*ci]
+            CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, c, PETSC_TRUE, NULL, &closure))
+            # Sort cell closure preserving the order
+            pc = subpoint_map[c]
+            CHKERR(DMPlexGetTransitiveClosure(parent_plex.dm, pc, PETSC_FALSE, &nclosure, &closure))
+            for ci in range(nclosure):
+                pc_ = closure[2*ci]
+                if pc_ >= pcStart and pc_ < pcEnd:
+                    break
+            else:
+                raise ValueError("Unable to find a cell in the star.")
+            CHKERR(DMPlexRestoreTransitiveClosure(parent_plex.dm, pc, PETSC_FALSE, NULL, &closure))
+            pc = pc_
+            CHKERR(PetscSectionGetOffset(parent_cell_numbering.sec, pc, &pc_))
+            _, _, indx = np.intersect1d(np.array(tuple(map(lambda x: subpoint_map[x], cone_closure))),
+                                        parent_cell_closure[pc_, :], assume_unique=True, return_indices=True)
+            assert len(indx) == cell_closure.shape[1]
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &c_))
+            cell_closure[c_, :] = np.array(tuple(map(lambda x: parent_child_map[x],
+                                                     parent_cell_closure[pc_, sorted(indx)])))
+
+    return cell_closure
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 @cython.cdivision(True)
 def quadrilateral_closure_ordering(PETSc.DM plex,
                                    PETSc.Section vertex_numbering,
