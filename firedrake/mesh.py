@@ -581,37 +581,11 @@ class MeshTopology(object):
             else:
                 raise NotImplementedError("Cell type '%s' not supported." % cell)
         else:
-            # Inherit cell_closure from parent for consistent ordering.
-
-            import FIAT
-
-            # 
-            cStart, cEnd = plex.getHeightStratum(0)
-            cell = self.ufl_cell()
-            assert dim == cell.topological_dimension()
-            topology = FIAT.ufc_cell(cell).get_topology()
-            num_entity_per_cell = 0
-            for _, ents in topology.items():
-                num_entity_per_cell += len(ents)
-            cell_closure = np.empty((cEnd - cStart, num_entity_per_cell), dtype=IntType)
             cell_numbering = self._cell_numbering
             parent_cell_closure = self.submesh_parent.cell_closure
             parent_cell_numbering = self.submesh_parent._cell_numbering
-            # child_parent map
-            subpoint_map = plex.getSubpointIS().getIndices()
-            # parent-child map
-            parent_child_map = {}
-            pStart, pEnd = plex.getChart()
-            for p in range(pStart, pEnd):
-                pp = subpoint_map[p]
-                parent_child_map[pp] = p
-            #
-            for c in range(cStart, cEnd):
-                pc = subpoint_map[c]
-                c_ = cell_numbering.getOffset(c)
-                pc_ = parent_cell_numbering.getOffset(pc)
-                cell_closure[c_, :] = np.array(tuple(map(lambda x: parent_child_map[x], parent_cell_closure[pc_, :])))
-            return cell_closure
+            return dmplex.submesh_closure_ordering(plex, self.submesh_parent._plex,
+                                                   cell_numbering, parent_cell_numbering, parent_cell_closure)
 
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
