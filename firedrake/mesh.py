@@ -853,7 +853,7 @@ class MeshTopology(object):
 
     #@utils.cached_property
     def submesh_sub_super_map(self, dim):
-        """Return the child-to-parent map if self._submesh_parent is not None
+        """Return the self-to-parent map if self._submesh_parent is not None
 
           :arg dim: Dimension of the entities to create mapping for.
 
