@@ -1143,6 +1143,9 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
 
+log.debug("Installer running with: %s" % sys.executable)
+log.debug("Python version: %s" % sys.version)
+
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
