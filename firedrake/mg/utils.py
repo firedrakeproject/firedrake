@@ -23,8 +23,12 @@ def get_or_set_mg_hierarchy_map_cache(cache_dict, entity_dofs_key,
         from pyop2.sequential import sequential_cpu_backend
         host_map = cache_dict.setdefault((entity_dofs_key,
             sequential_cpu_backend), create_map_on_cpu())
+        map_ret = host_map
+        if op2.compute_backend != sequential_cpu_backend:
+            map_ret = op2.compute_backend.Map(host_map)
+
         return cache_dict.setdefault((entity_dofs_key, op2.compute_backend),
-                op2.compute_backend.Map(host_map))
+                                     map_ret)
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):

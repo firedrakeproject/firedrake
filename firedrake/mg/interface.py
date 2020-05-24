@@ -24,7 +24,7 @@ def check_arguments(coarse, fine):
 
 
 def prolong(coarse, fine):
-    #print("Start prolong with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
+    ##print("\nStart prolong with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
     Vf = fine.function_space()
@@ -76,18 +76,18 @@ def prolong(coarse, fine):
             d.dat.global_to_local_end(op2.READ)
         next.dat.zero()
         op2.par_loop(kernel, next.node_set,
-                     next.dat(op2.WRITE),
-                     coarse.dat(op2.READ, fine_to_coarse),
-                     node_locations.dat(op2.READ),
-                     coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+                     next.dat(op2.WRITE), # R
+                     coarse.dat(op2.READ, fine_to_coarse), # f
+                     node_locations.dat(op2.READ), # X
+                     coarse_coords.dat(op2.READ, fine_to_coarse_coords)) # Xc
         coarse = next
         Vc = Vf
-    #print("Been in prolong with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
+    #print("Been in prolong with coarse:{0} and fine:{1}\n".format(coarse.dat.norm, fine.dat.norm))
     return fine
 
 
 def restrict(fine_dual, coarse_dual):
-    #print("Start restrict with coarse:{0} and fine:{1}".format(coarse_dual.dat.norm, fine_dual.dat.norm))
+    #print("\nStart restrict with coarse:{0} and fine:{1}".format(coarse_dual.dat.norm, fine_dual.dat.norm))
     check_arguments(coarse_dual, fine_dual)
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()
@@ -145,12 +145,12 @@ def restrict(fine_dual, coarse_dual):
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
         fine_dual = next
         Vf = Vc
-    #print("Been in restrict with coarse_dual:{0} and fine_dual:{1}".format(coarse_dual.dat.norm, fine_dual.dat.norm))
+    #print("Been in restrict with coarse_dual:{0} and fine_dual:{1}\n".format(coarse_dual.dat.norm, fine_dual.dat.norm))
     return coarse_dual
 
 
 def inject(fine, coarse):
-    #print("Start inject with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
+    #print("\nStart inject with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
     check_arguments(coarse, fine)
     Vf = fine.function_space()
     Vc = coarse.function_space()
@@ -235,5 +235,5 @@ def inject(fine, coarse):
                          coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
         fine = next
         Vf = Vc
-    #print("Been in inject with coarse:{0} and fine:{1}".format(coarse.dat.norm, fine.dat.norm))
+    #print("Been in inject with coarse:{0} and fine:{1}\n".format(coarse.dat.norm, fine.dat.norm))
     return coarse

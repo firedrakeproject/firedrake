@@ -198,82 +198,82 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
     elif transfer_type == "prolongation":
         run_prolongation(hierarchy, vector, space, degrees)
 
-def test_interval_easy_prolong():
-    space = "CG"
-    degree = 1
-    vector = False
-    mesh = UnitIntervalMesh(3)
-    hierarchy = MeshHierarchy(mesh, 2)
-    test_easy_prolong(hierarchy, vector, space, degree)
+# def test_interval_easy_prolong():
+#     space = "CG"
+#     degree = 1
+#     vector = False
+#     mesh = UnitIntervalMesh(3)
+#     hierarchy = MeshHierarchy(mesh, 2)
+#     test_easy_prolong(hierarchy, vector, space, degree)
 
-def test_triangle_prolong():
-    space = "CG"
-    degree = 2
-    refinements_per_level = 1
-    vector = False
-    mesh = UnitSquareMesh(3, 3, quadrilateral=False)
-    nref = {2: 1, 1: 2}[refinements_per_level]
-    hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
-    run_prolongation(hierarchy, vector, space, [degree])
+# def test_triangle_prolong():
+#     space = "CG"
+#     degree = 2
+#     refinements_per_level = 1
+#     vector = False
+#     mesh = UnitSquareMesh(3, 3, quadrilateral=False)
+#     nref = {2: 1, 1: 2}[refinements_per_level]
+#     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
+#     run_prolongation(hierarchy, vector, space, [degree])
+#
+# def test_easy_prolong(hierarchy,vector, space, degree):
+#     Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+#
+#     mesh = hierarchy[0]
+#     V = FunctionSpace(mesh, Ve)
+#
+#     smth= exact_primal(mesh, vector, degree)
+#     actual = interpolate(smth, V)
+#
+#     #for mesh in hierarchy[1:]:
+#
+#     mesh = hierarchy[1:][0]
+#     V = FunctionSpace(mesh, Ve)
+#     expect = interpolate(exact_primal(mesh, vector, degree), V)
+#     tmp = Function(V)
+#     prolong(actual, tmp)
+#     actual = tmp
+#     assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
-def test_easy_prolong(hierarchy,vector, space, degree):
-    Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+# def test_triangle_restrict():
+#     space = "CG"
+#     degree = 2
+#     refinements_per_level = 1
+#     vector = True
+#     mesh = UnitSquareMesh(3, 3, quadrilateral=False)
+#     nref = {2: 1, 1: 2}[refinements_per_level]
+#     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
+#     run_restriction(hierarchy, vector, space, [degree])
 
-    mesh = hierarchy[0]
-    V = FunctionSpace(mesh, Ve)
-
-    smth= exact_primal(mesh, vector, degree)
-    actual = interpolate(smth, V)
-
-    #for mesh in hierarchy[1:]:
-
-    mesh = hierarchy[1:][0]
-    V = FunctionSpace(mesh, Ve)
-    expect = interpolate(exact_primal(mesh, vector, degree), V)
-    tmp = Function(V)
-    prolong(actual, tmp)
-    actual = tmp
-    assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
-
-def test_triangle_restrict():
-    space = "CG"
-    degree = 1
-    refinements_per_level = 1
-    vector = True
-    mesh = UnitSquareMesh(3, 3, quadrilateral=False)
-    nref = {2: 1, 1: 2}[refinements_per_level]
-    hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
-    run_restriction(hierarchy, vector, space, [degree])
-
-def test_easy_restrict(hierarchy,vector, space, degree):
-    def victim(V):
-        return Function(V).assign(1)
-
-    def dual(V):
-        f = Function(V).assign(1)
-        return assemble(inner(f, TestFunction(V)) * dx)
-
-    def functional(victim, dual):
-        with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
-            return dv.dot(v)
-
-    space = "CG"
-    degree = 1
-    vector = False
-    mesh = UnitIntervalMesh(3)
-    hierarchy = MeshHierarchy(mesh, 2)
-    Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
-    for cmesh, fmesh in zip(hierarchy[:-1], hierarchy[1:]):
-        Vc = FunctionSpace(cmesh, Ve)
-        Vf = FunctionSpace(fmesh, Ve)
-        fine_dual = dual(Vf)
-        coarse_primal = victim(Vc)
-
-        coarse_dual = Function(Vc)
-        fine_primal = Function(Vf)
-        restrict(fine_dual, coarse_dual)
-        prolong(coarse_primal, fine_primal)
-        coarse_functional = functional(coarse_primal, coarse_dual)
-        fine_functional = functional(fine_primal, fine_dual)
-
-        assert numpy.allclose(fine_functional, coarse_functional)
+# def test_easy_restrict(hierarchy,vector, space, degree):
+#     def victim(V):
+#         return Function(V).assign(1)
+#
+#     def dual(V):
+#         f = Function(V).assign(1)
+#         return assemble(inner(f, TestFunction(V)) * dx)
+#
+#     def functional(victim, dual):
+#         with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
+#             return dv.dot(v)
+#
+#     space = "CG"
+#     degree = 1
+#     vector = False
+#     mesh = UnitIntervalMesh(3)
+#     hierarchy = MeshHierarchy(mesh, 2)
+#     Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+#     for cmesh, fmesh in zip(hierarchy[:-1], hierarchy[1:]):
+#         Vc = FunctionSpace(cmesh, Ve)
+#         Vf = FunctionSpace(fmesh, Ve)
+#         fine_dual = dual(Vf)
+#         coarse_primal = victim(Vc)
+#
+#         coarse_dual = Function(Vc)
+#         fine_primal = Function(Vf)
+#         restrict(fine_dual, coarse_dual)
+#         prolong(coarse_primal, fine_primal)
+#         coarse_functional = functional(coarse_primal, coarse_dual)
+#         fine_functional = functional(fine_primal, fine_dual)
+#
+#         assert numpy.allclose(fine_functional, coarse_functional)

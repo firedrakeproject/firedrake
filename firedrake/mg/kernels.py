@@ -70,8 +70,8 @@ def to_reference_coordinates_loopy(element, ufl_coordinate_element, parameters, 
         end
         """,
         [
-            lp.GlobalArg("X, x0", dtype=np.double, shape=("topological_dimension",), is_output_only=False),
-            lp.GlobalArg("C", np.double, shape=("coords_space_dim",)),
+            lp.GlobalArg("X, x0", dtype=np.double, shape=(None,), is_output_only=False), #"topological_dimension"
+            lp.GlobalArg("C", np.double, shape=(None,)), #"coords_space_dim"
             lp.TemporaryVariable("converged",
                                  dtype=np.int8,
                                  shape=(),
@@ -234,35 +234,36 @@ def compile_element(expression, dual_space=None, parameters=None,
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
 
     # Add arguments in order to the Loopy arg list
-    args = [return_arg]
+    kernel_args = [return_arg]
     if f_arg:
-        args += [f_arg]
+        kernel_args += [f_arg]
     if b_arg:
-        args += [b_arg]
-    args += [point_arg]
+        kernel_args += [b_arg]
+    kernel_args += [point_arg]
 
     # Build and return Loopy kernel
-    return builder.construct_kernel(name, args, impero_c, parameters["precision"])
+    return builder.construct_kernel(name, kernel_args, impero_c, parameters["precision"])
 
 
-def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_loop=None):
-    if initial is None:
+def construct_common_kernel(restrict=False):
+    # print("Did not hit cache!\n")
+    if not restrict:
         initial = "coarsei"
         func = "f"
         evaluate_args = "[jj]: R[jj], [c]: coarsei[c], [p]: Xref[p]"
-        copy_loop = ""
+    else:
+        initial = "R"
+        func = "R"
+        evaluate_args = "[jj]: R[jj], [c]: b[c], [p]: Xref[p]"
 
     kernel = """
-        for ri
-            Xref[ri] = 0
-        end
         cell = -1
         error = 0
         bestcell = -1
         bestdist = 1e10
         <> stop = 0
+        <> tmp = 0
         for i
-            <> tmp = stop
             if tmp == 0
                 <> tm = i * coords_space_dim
                 for k
@@ -310,12 +311,10 @@ def construct_common_kernel(initial=None, func=None, evaluate_args=None, copy_lo
         end
 
         loopy_kernel_evaluate(%(evaluate_args)s)
-        %(copy_loop)s
         """ % {
         "initial": initial,
         "func": func,
         "evaluate_args": evaluate_args,
-        "copy_loop": copy_loop
     }
     return kernel
 
@@ -353,17 +352,16 @@ def prolong_kernel_loopy(expression, coordinates, hierarchy, levelf, cache, key)
     coords_element = create_element(coordinates.ufl_element())
     to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), dim=coords_element.space_dimension())
 
-    global_list = [ lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
-                    lp.GlobalArg("f", np.double, shape=("coords_space_dim",)),
-                    lp.GlobalArg("X", np.double, shape=("tdim",)),
-                    lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",))]
+    global_list = [ lp.GlobalArg("R", np.double, shape=(None,), is_output_only=True), #"Rdim"
+                    lp.GlobalArg("f", np.double, shape=(None,)), #"coords_space_dim"
+                    lp.GlobalArg("X", np.double, shape=(None,)), #"tdim"
+                    lp.GlobalArg("Xc", np.double, shape=(None,))] #"coords_space_dim"
     var_list = global_list + common_kernel_args() + \
                [lp.TemporaryVariable("coarsei", dtype=np.double, shape=("coarse_cell_inc",))]
 
     parent_knl = lp.make_kernel(
         {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri, rd]: 0 <= i < ncandidate and 0 <= j, jj, rd < Rdim and "
-         "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
-         "0<= c < tdim and 0 <=  ci < coarse_cell_inc}"},
+         "0 <= celldistdim, p, l, ri, c < tdim and 0 <= k, q < coords_space_dim and 0 <= ci < coarse_cell_inc}"},
         construct_common_kernel(),
         var_list,
         name='loopy_kernel_prolong',
@@ -418,21 +416,16 @@ def restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key):
     fine = np.array(fine)
     Rdim = np.prod(R.shape)
 
-    global_list = [lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
-                   lp.GlobalArg("b", np.double, shape=("finedim",)),
-                   lp.GlobalArg("X", np.double, shape=("tdim",)),
-                   lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",))]
-    var_list = global_list + common_kernel_args() + [lp.TemporaryVariable("Ri", dtype=np.double,shape=("Rdim",))]
-    kern = construct_common_kernel("Ri", "R", "[jj]: Ri[jj], [c]: b[c], [p]: Xref[p]", """	
-             for cci
-                 R[cci + cell * coarse_cell_inc] = Ri[cci]
-             end """)
+    global_list = [lp.GlobalArg("R", np.double, shape=(None,), is_output_only=True), #"Rdim"
+                   lp.GlobalArg("b", np.double, shape=(None,)), #"finedim"
+                   lp.GlobalArg("X", np.double, shape=(None,)), #"tdim"
+                   lp.GlobalArg("Xc", np.double, shape=(None,))] #"coords_space_dim"
+    var_list = global_list + common_kernel_args()
 
     parent_knl = lp.make_kernel(
-        {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj < Rdim and "
-         "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
-         "0 <= ci, cci < Rdim and 0 <= c < finedim}"},
-        kern,
+        {"{[i, j, jj, c, cci, celldistdim, k, p, q, ci, l, ri]: 0 <= i < ncandidate and 0 <= j, jj, ci, cci < Rdim and "
+         "0 <= celldistdim, p, l, ri < tdim and 0 <= k, q < coords_space_dim and 0 <= c < finedim}"},
+        construct_common_kernel(restrict=True),
         var_list,
         name='loopy_kernel_restrict',
         seq_dependencies=True,
@@ -470,10 +463,10 @@ def restrict_kernel(Vf, Vc):
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
-    # try:
-    #     return cache[key]
-    # except KeyError:
-    return restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key)
+    try:
+        return cache[key]
+    except KeyError:
+        return restrict_kernel_loopy(Vc, Vf, coordinates, hierarchy, levelf, cache, key)
 
 
 def inject_kernel_loopy(hierarchy, level, Vc, Vf, key, cache):
@@ -487,17 +480,16 @@ def inject_kernel_loopy(hierarchy, level, Vc, Vf, key, cache):
     to_reference_kernel = to_reference_coordinates(coordinates.ufl_element(), dim=coords_element.space_dimension())
     Vf_element = create_element(Vf.ufl_element())
 
-    global_list = [lp.GlobalArg("R", np.double, shape=("Rdim",), is_output_only=True),
-                   lp.GlobalArg("X", np.double, shape=("tdim",)),
-                   lp.GlobalArg("f", np.double, shape=("coords_space_dim",)),
-                   lp.GlobalArg("Xc", np.double, shape=("coords_space_dim",))]
+    global_list = [lp.GlobalArg("R", np.double, shape=(None,), is_output_only=True), #"Rdim"
+                   lp.GlobalArg("X", np.double, shape=(None,)), #"tdim"
+                   lp.GlobalArg("f", np.double, shape=(None,)), #"coords_space_dim"
+                   lp.GlobalArg("Xc", np.double, shape=(None,))] #"coords_space_dim"
     var_list = global_list + common_kernel_args() + \
                [lp.TemporaryVariable("coarsei", dtype=np.double, shape=("coarse_cell_inc",))]
 
     parent_knl = lp.make_kernel(
         {"{[i, j, jj, c, celldistdim, k, p, q, ci, l, ri, rd]: 0 <= i < ncandidate and 0 <= j, jj, rd < Rdim and "
-         "0 <= celldistdim < tdim and 0 <= k, q < coords_space_dim and 0 <= p, l, ri < tdim and "
-         "0<= c < tdim and 0 <=  ci < coarse_cell_inc}"},
+         "0 <= celldistdim, p, l, ri, c < tdim and 0 <= k, q < coords_space_dim and 0 <=  ci < coarse_cell_inc}"},
         construct_common_kernel(),
         var_list,
         name='loopy_kernel_inject',
