@@ -59,7 +59,7 @@ from pyop2.version import __version__ as version
 
 from coffee.base import Node
 from coffee.visitors import EstimateFlops
-from functools import reduce, partial
+from functools import reduce
 
 import loopy
 
@@ -1564,7 +1564,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         loop = loops.get(iterset, None)
 
         if loop is None:
-
             import islpy as isl
             import pymbolic.primitives as p
 
@@ -1589,17 +1588,16 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
         :arg other: The destination :class:`Dat`
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
-
+        if other is self:
+            return
         self._copy_parloop(other, subset=subset).compute()
 
     @collective
     def _copy_parloop(self, other, subset=None):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
-
             import islpy as isl
             import pymbolic.primitives as p
-
             inames = isl.make_zero_and_vars(["i"])
             domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
             _other = p.Variable("other")
@@ -1636,88 +1634,118 @@ class Dat(DataCarrier, _EmptyDataMixin):
             raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
-    def _op(self, other, op):
-
-        ret = _make_object('Dat', self.dataset, None, self.dtype)
-        name = "binop_%s" % op.__name__
-
+    def _op_kernel(self, op, globalp, dtype):
+        key = (op, globalp, dtype)
+        try:
+            if not hasattr(self, "_op_kernel_cache"):
+                self._op_kernel_cache = {}
+            return self._op_kernel_cache[key]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
+        name = "binop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _other = p.Variable("other")
         _self = p.Variable("self")
         _ret = p.Variable("ret")
         i = p.Variable("i")
-
         lhs = _ret.index(i)
-        if np.isscalar(other):
-            other = _make_object('Global', 1, data=other)
+        if globalp:
             rhs = _other.index(0)
+            rshape = (1, )
         else:
-            self._check_shape(other)
             rhs = _other.index(i)
+            rshape = (self.cdim, )
         insn = loopy.Assignment(lhs, op(_self.index(i), rhs), within_inames=frozenset(["i"]))
         data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,)),
+                loopy.GlobalArg("other", dtype=dtype, shape=rshape),
                 loopy.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
         knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
+        return self._op_kernel_cache.setdefault(key, _make_object('Kernel', knl, name))
 
-        par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
-
+    def _op(self, other, op):
+        ret = _make_object('Dat', self.dataset, None, self.dtype)
+        if np.isscalar(other):
+            other = _make_object('Global', 1, data=other)
+            globalp = True
+        else:
+            self._check_shape(other)
+            globalp = False
+        par_loop(self._op_kernel(op, globalp, other.dtype),
+                 self.dataset.set, self(READ), other(READ), ret(WRITE))
         return ret
 
-    def _iop(self, other, op):
-        name = "iop_%s" % op.__name__
-
+    def _iop_kernel(self, op, globalp, other_is_self, dtype):
+        key = (op, globalp, other_is_self, dtype)
+        try:
+            if not hasattr(self, "_iop_kernel_cache"):
+                self._iop_kernel_cache = {}
+            return self._iop_kernel_cache[key]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
+        name = "iop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _other = p.Variable("other")
         _self = p.Variable("self")
         i = p.Variable("i")
-
         lhs = _self.index(i)
-        if np.isscalar(other):
-            other = _make_object('Global', 1, data=other)
+        rshape = (self.cdim, )
+        if globalp:
             rhs = _other.index(0)
+            rshape = (1, )
+        elif other_is_self:
+            rhs = _self.index(i)
         else:
-            self._check_shape(other)
             rhs = _other.index(i)
         insn = loopy.Assignment(lhs, op(lhs, rhs), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,))]
+        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
+        if not other_is_self:
+            data.append(loopy.GlobalArg("other", dtype=dtype, shape=rshape))
         knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
+        return self._iop_kernel_cache.setdefault(key, _make_object('Kernel', knl, name))
 
-        par_loop(k, self.dataset.set, self(INC), other(READ))
-
+    def _iop(self, other, op):
+        globalp = False
+        if np.isscalar(other):
+            other = _make_object('Global', 1, data=other)
+            globalp = True
+        elif other is not self:
+            self._check_shape(other)
+        args = [self(INC)]
+        if other is not self:
+            args.append(other(READ))
+        par_loop(self._iop_kernel(op, globalp, other is self, other.dtype), self.dataset.set, *args)
         return self
 
-    def _uop(self, op):
-        name = "uop_%s" % op.__name__
-
-        _op = {operator.sub: partial(operator.sub, 0)}[op]
-
+    def _inner_kernel(self, dtype):
+        try:
+            if not hasattr(self, "_inner_kernel_cache"):
+                self._inner_kernel_cache = {}
+            return self._inner_kernel_cache[dtype]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _self = p.Variable("self")
+        _other = p.Variable("other")
+        _ret = p.Variable("ret")
+        _conj = p.Variable("conj") if dtype.kind == "c" else lambda x: x
         i = p.Variable("i")
-
-        insn = loopy.Assignment(_self.index(i), _op(_self.index(i)), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
-        knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
-
-        par_loop(k, self.dataset.set, self(RW))
-        return self
+        insn = loopy.Assignment(_ret[0], _ret[0] + _self[i]*_conj(_other[i]),
+                                within_inames=frozenset(["i"]))
+        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("other", dtype=dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("ret", dtype=self.dtype, shape=(1,))]
+        knl = loopy.make_function([domain], [insn], data, name="inner")
+        k = _make_object('Kernel', knl, "inner")
+        return self._inner_kernel_cache.setdefault(dtype, k)
 
     def inner(self, other):
         """Compute the l2 inner product of the flattened :class:`Dat`
@@ -1728,27 +1756,8 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """
         self._check_shape(other)
         ret = _make_object('Global', 1, data=0, dtype=self.dtype)
-
-        import islpy as isl
-        import pymbolic.primitives as p
-
-        inames = isl.make_zero_and_vars(["i"])
-        domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-        _self = p.Variable("self")
-        _other = p.Variable("other")
-        _ret = p.Variable("ret")
-        _conj = p.Variable("conj") if other.dtype.kind == "c" else lambda x: x
-        i = p.Variable("i")
-
-        insn = loopy.Assignment(_ret[0], _ret[0] + _self[i]*_conj(_other[i]),
-                                within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,)),
-                loopy.GlobalArg("ret", dtype=ret.dtype, shape=(1,))]
-        knl = loopy.make_function([domain], [insn], data, name="inner")
-
-        k = _make_object('Kernel', knl, "inner")
-        par_loop(k, self.dataset.set, self(READ), other(READ), ret(INC))
+        par_loop(self._inner_kernel(other.dtype), self.dataset.set,
+                 self(READ), other(READ), ret(INC))
         return ret.data_ro[0]
 
     @property
@@ -1775,9 +1784,27 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.__radd__(other) <==> other + self."""
         return self + other
 
+    @cached_property
+    def _neg_kernel(self):
+        # Copy and negate in one go.
+        import islpy as isl
+        import pymbolic.primitives as p
+        name = "neg"
+        inames = isl.make_zero_and_vars(["i"])
+        domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
+        lvalue = p.Variable("neg")
+        rvalue = p.Variable("self")
+        i = p.Variable("i")
+        insn = loopy.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
+        data = [loopy.GlobalArg("neg", dtype=self.dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
+        knl = loopy.make_function([domain], [insn], data, name=name)
+        return _make_object('Kernel', knl, name)
+
     def __neg__(self):
-        neg = _make_object('Dat', self)
-        return neg._uop(operator.sub)
+        neg = _make_object('Dat', self.dataset, dtype=self.dtype)
+        par_loop(self._neg_kernel, self.dataset.set, neg(WRITE), self(READ))
+        return neg
 
     def __sub__(self, other):
         """Pointwise subtraction of fields."""
@@ -3589,25 +3616,25 @@ class ParLoop(object):
     @collective
     def global_to_local_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_begin()
 
     @collective
     def global_to_local_end(self):
         """Finish halo exchanges"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_end()
 
     @collective
     def local_to_global_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_begin()
 
     @collective
     def local_to_global_end(self):
         """Finish halo exchanges (wait on irecvs)"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_end()
 
     @cached_property
@@ -3661,11 +3688,24 @@ class ParLoop(object):
 
     @cached_property
     def dat_args(self):
-        return [arg for arg in self.args if arg._is_dat]
+        return tuple(arg for arg in self.args if arg._is_dat)
+
+    @cached_property
+    def unique_dat_args(self):
+        seen = {}
+        unique = []
+        for arg in self.dat_args:
+            if arg.data not in seen:
+                unique.append(arg)
+                seen[arg.data] = arg
+            elif arg.access != seen[arg.data].access:
+                raise ValueError("Same Dat appears multiple times with different "
+                                 "access descriptors")
+        return tuple(unique)
 
     @cached_property
     def global_reduction_args(self):
-        return [arg for arg in self.args if arg._is_global_reduction]
+        return tuple(arg for arg in self.args if arg._is_global_reduction)
 
     @cached_property
     def kernel(self):
