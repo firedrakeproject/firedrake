@@ -1,9 +1,11 @@
+from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint.blocks import AssembleBlock
 
 
 def annotate_assemble(assemble):
+    @wraps(assemble)
     def wrapper(*args, **kwargs):
         """When a form is assembled, the information about its nonlinear dependencies is lost,
         and it is no longer easy to manipulate. Therefore, we decorate :func:`.assemble`
