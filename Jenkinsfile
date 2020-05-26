@@ -72,6 +72,7 @@ pipeline {
             }
           }
           stage('Test pyadjoint'){
+            when { environment name: 'SCALAR_TYPE', value: 'real' }
             steps {
               dir('tmp') {
                 timestamps {
@@ -148,7 +149,7 @@ pipeline {
           stage('DockerComplex'){
             when {
               allOf {
-                branch 'complex-sprint'
+                branch 'wence/complex'
                 environment name: 'SCALAR_TYPE', value: 'complex'
               }
             }
