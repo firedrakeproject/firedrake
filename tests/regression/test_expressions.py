@@ -210,12 +210,36 @@ def test_mixed_expressions_indexed_fs(expr, msfunctions):
     assert eval(expr)
 
 
+def test_iadd_combination(sfs):
+    f = Function(sfs)
+    g = Function(sfs)
+    t = Constant(2)
+    g.assign(1)
+    f.assign(2)
+    f += t*g
+    assert np.allclose(f.dat.data_ro, 2 + 2)
+
+
 def test_different_fs_asign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
     f1, f2 = fs_combinations
     with pytest.raises(ValueError):
         f1.assign(f2)
+
+
+def test_assign_mfs_lincomp(mfs):
+    f = Function(mfs)
+    f.assign(1)
+    g = Function(mfs)
+    g.assign(2)
+    h = Function(mfs)
+    h.assign(3)
+    c = Constant(2)
+    d = Constant(4)
+    f.assign(f + c*g + d*h)
+    for f_ in f.dat.data_ro:
+        assert np.allclose(f_, 1 + 2*2 + 3 * 4)
 
 
 def test_asign_to_nonindexed_subspace_fails(mfs):
