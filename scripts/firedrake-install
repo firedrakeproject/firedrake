@@ -731,8 +731,10 @@ def install(package):
     log.info("Installing %s" % package)
     if package == "petsc/":
         build_and_install_petsc()
+    elif package == "slepc/":
+        build_and_install_slepc()
     # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-    elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
+    elif package not in ["petsc4py/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -798,11 +800,7 @@ def get_slepc_dir():
         except KeyError:
             raise InstallError("Need to set SLEPC_DIR for --slepc with --honour-petsc-dir")
     else:
-        try:
-            slepc_dir = check_output(python
-                                     + ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
-        except subprocess.CalledProcessError:
-            raise InstallError("Unable to find installed SLEPc")
+        slepc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "slepc")
     return slepc_dir, petsc_arch
 
 
@@ -980,39 +978,35 @@ def build_and_install_libspatialindex():
 
 def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
-
+    slepc_dir, slepc_arch = get_slepc_dir()
+    assert petsc_arch == slepc_arch
     if args.honour_petsc_dir:
-        slepc_dir, slepc_arch = get_slepc_dir()
-        log.info("Using installed SLEPc from %s/%s", slepc_dir, slepc_arch)
+        log.info("Using installed SLEPc from %s/%s", slepc_dir, petsc_arch)
     else:
         log.info("Installing SLEPc.")
         url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
+        slepc_changed = False
         if os.path.exists("slepc"):
-            slepc_changed = False
-            with directory("slepc"):
-                plain_url = split_requirements_url(url)[1]
-                current_remote = check_output(["git", "remote", "-v"]).split()[1]
-                proto = "https" if current_remote.startswith("https") else "ssh"
-                new_remote = git_url(plain_url, proto)
-                if new_remote != current_remote:
-                    log.info("Updating git remote for SLEPc from %s to %s", current_remote, new_remote)
-                    check_call(["git", "remote", "set-url", "origin", new_remote])
-                    check_call(["git", "fetch", "-p", "origin"])
-                    check_call(["git", "checkout", "firedrake"])
-                    slepc_changed = True
             slepc_changed |= git_update("slepc")
         else:
             git_clone(url)
             slepc_changed = True
         if slepc_changed:
-            install("slepc/")
+            with directory("slepc"):
+                check_call(["rm", "-rf", os.path.join(slepc_dir, petsc_arch)])
+                with environment(PETSC_DIR=petsc_dir,
+                                 SLEPC_DIR=slepc_dir,
+                                 PETSC_ARCH=petsc_arch):
+                    check_call(["python3", "./configure"])
+                    check_call(["make", "all"])
+                    check_call(["make", "check"])
         else:
             log.info("No need to rebuild SLEPc")
 
     log.info("Installing slepc4py.")
     url = "git+https://github.com/firedrakeproject/slepc4py.git@firedrake"
+    slepc4py_changed = slepc_changed
     if os.path.exists("slepc4py"):
-        slepc4py_changed = False
         with directory("slepc4py"):
             plain_url = split_requirements_url(url)[1]
             current_remote = check_output(["git", "remote", "-v"]).split()[1]
@@ -1029,7 +1023,10 @@ def build_and_install_slepc():
         git_clone(url)
         slepc4py_changed = True
     if slepc4py_changed:
-        install("slepc4py/")
+        with environment(PETSC_DIR=petsc_dir,
+                         SLEPC_DIR=slepc_dir,
+                         PETSC_ARCH=petsc_arch):
+            install("slepc4py/")
     else:
         log.info("No need to rebuild slepc4py")
 
