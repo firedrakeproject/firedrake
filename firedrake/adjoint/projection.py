@@ -1,10 +1,11 @@
+from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint.blocks import ProjectBlock
 
 
 def annotate_project(project):
-
+    @wraps(project)
     def wrapper(*args, **kwargs):
         """The project call performs an equation solve, and so it too must be annotated so that the
         adjoint and tangent linear models may be constructed automatically by pyadjoint.

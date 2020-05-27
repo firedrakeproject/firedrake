@@ -125,7 +125,7 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, int const start, int const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 
