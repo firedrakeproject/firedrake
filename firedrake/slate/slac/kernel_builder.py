@@ -6,20 +6,20 @@ import itertools
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
-from firedrake.constant import Constant
-from firedrake.function import Function
-from ufl.coefficient import Coefficient
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
 import loopy
-import gem
+from numbers import Integral
+from tsfc import default_parameters
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
+from pyop2.codegen.rep2loopy import TARGET
 
 from functools import singledispatch, partial
 import firedrake.slate.slate as slate
+from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -41,7 +41,7 @@ Context information for creating coefficient temporaries.
 :param local_temp: The local temporary for the coefficient vector.
 """
 
-SCALAR_TYPE = "double"
+SCALAR_TYPE = default_parameters()["scalar_type"]
 
 
 class LocalKernelBuilder(object):
@@ -351,7 +351,6 @@ class LocalKernelBuilder(object):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
-        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
         cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=True)
@@ -401,7 +400,7 @@ class LocalLoopyKernelBuilder(object):
     layer_arg = "layer"
     cell_size_arg = "cell_sizes"
     result_arg = "result"
-    cell_orientations_arg = "orientations"
+    cell_orientations_arg = "cell_orientations"
 
     # Supported integral types
     supported_integral_types = [
@@ -435,127 +434,25 @@ class LocalLoopyKernelBuilder(object):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        expression_dag = list(traverse_dags([expression]))
-        counter = Counter([expression])
-
-        # For preservation of relations
-        # between slate Tensor and the according gem Indexed tensor
-        # and between gem Indexed tensor and loopy tensor TemporaryVariable
-        temps = OrderedDict()
-        gem_loopy_dict = OrderedDict()
-
         # Creation of gem and loopy indices with automatic naming
-        self.create_index = partial(create_index,
-                                    namer=map("i{}".format, itertools.count()), ctx=self)
-
-        # Storing indices
-        self.loopy_indices = OrderedDict()
-        self.gem_indices = OrderedDict()
-
-        # Save all coefficients
-        # coeff_vecs for coefficient where AssembledVectors sit on top (relation preservation)
-        # extra_coefficients for all other coefficients (no relation preservation)
-        seen_coeff = set()
-        coeff_vecs = OrderedDict()
-        extra_coefficients = []
-        self.args_extents = OrderedDict([])
-
-        # A first compilation is already hapenning here
-        # but only for tensors and assembled vectors
-        for tensor in expression_dag:
-            counter.update(tensor.operands)
-
-            # Terminal tensors will always require a temporary.
-            if isinstance(tensor, slate.Tensor):
-
-                shape = self.shape(tensor)
-
-                self.create_index(shape, tensor)
-
-                temps.setdefault(tensor, gem.Variable("T%d" % len(temps), shape))
-                gem_loopy_dict.setdefault(temps[tensor], loopy.TemporaryVariable(temps[tensor].name,
-                                          shape=shape,
-                                          dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-
-            # 'AssembledVector's will always require a coefficient temporary.
-            if isinstance(tensor, slate.AssembledVector):
-
-                function = tensor._function
-
-                def dimension(e):
-                    return create_element(e).space_dimension()
-
-                if function not in seen_coeff:
-                    if type(function.ufl_element()) == MixedElement:
-                        shapes = [dimension(element) for element in function.ufl_element().sub_elements()]
-                        f = function.split()
-                    else:
-                        shapes = [dimension(function.ufl_element())]
-                        f = function
-
-                    self.create_index(tensor.shape, tensor)
-
-                    name = "VecTemp%d" % len(seen_coeff)
-                    local_temp = gem.Variable(name, tensor.shape)
-                    gem_loopy_dict.setdefault(local_temp, loopy.TemporaryVariable(local_temp.name,
-                                              shape=tensor.shape,
-                                              dtype=SCALAR_TYPE, address_space=loopy.AddressSpace.LOCAL))
-
-                    offset = 0
-                    for i, shape in enumerate(shapes):
-                        # Preserves relation between slate Tensor and gem Indexed tensor
-                        # Subblocks of mixed Tensors have distint space, offset index and shape,
-                        # but share the gem Node for the tensor
-                        cinfo = CoefficientInfo(space_index=i,
-                                                offset_index=offset,
-                                                shape=shape,
-                                                vector=tensor,
-                                                local_temp=local_temp,
-                                                function=f)
-                        coeff_vecs.setdefault(((shape, offset), tensor.is_mixed), []).append(cinfo)
-                        offset += shape
-
-                    seen_coeff.add(function)
-
-        # Collect all coefficients which are not wrapped by an AssembledVector (e.g. of Tensor(L))
-        for i, c in enumerate(expression.coefficients()):
-            if c not in seen_coeff and (type(c) == Constant or type(c) == Function or type(c) == Coefficient):
-                element = c.ufl_element()
-                if type(element) == MixedElement:
-                    for j, c_ in enumerate(c.split()):
-                        name = "w_{}_{}".format(i, j)
-                        extra_coefficients.extend([(c, name)])
-                        self.args_extents.setdefault(name, index_extent(c_))
-                else:
-                    name = "w_{}".format(i)
-                    extra_coefficients.extend([(c, name)])
-                    self.args_extents.setdefault(name, index_extent(c))
-                seen_coeff.add(c)
-
+        self.create_index = partial(self.create_index,
+                                    namer=map("i{}".format, itertools.count()))
+        self.inames = OrderedDict()
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.temps = temps
-        self.gem_loopy_dict = gem_loopy_dict
-        self.ref_counter = counter
-        self.expression_dag = expression_dag
-        self.coefficient_vecs = coeff_vecs
-        self.extra_coefficients = extra_coefficients
-        self._setup()
+        self.coefficients = self.collect_coefficients()
+        self.coords_extent = self.index_extent(expression.ufl_domain().coordinates)
 
-    @cached_property
-    def context_kernels(self):
+    def context_kernels(self, terminals):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
-        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
-        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+        ctx_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
                                           tsfc_parameters=self.tsfc_parameters, coffee=False)
-                    for i, expr in enumerate(self.temps)]
+                    for i, expr in enumerate(terminals)]
 
-        cxt_kernels = [cxt_k for cxt_tuple in cxt_list
-                       for cxt_k in cxt_tuple]
-        return cxt_kernels
+        return tuple(itertools.chain.from_iterable(ctx_list))
 
     def shape(self, tensor):
         """ A helper method to retrieve tensor shape information.
@@ -566,244 +463,353 @@ class LocalLoopyKernelBuilder(object):
         else:
             return tensor.shape
 
-    def _setup(self):
+    def create_index(self, extent, namer):
+        """Loopy multiindex creator.
+
+        :arg extent: a :class:`tuple` or :class:`int` for index extent
+        :arg namer: a function to create names automatically
+        """
+
+        # For non mixed tensors int values are allowed as extent
+        extent = (extent, ) if isinstance(extent, Integral) else extent
+
+        # Indices for scalar tensors
+        extent += (1, ) if len(extent) == 0 else ()
+
+        # Stacked tuple = mixed tensor
+        # -> loop over ext to generate idxs per block
+        per_dim_per_block = []
+        if isinstance(extent[0], tuple):
+            for ext_per_block in extent:
+                idxs = self._create_index(ext_per_block, namer)
+                per_dim_per_block.append(idxs)
+
+        # Non-mixed tensors
+        else:
+            for index in self._create_index(extent, namer):
+                per_dim_per_block.append(index)
+        per_dim_per_block = tuple(per_dim_per_block)
+
+        return per_dim_per_block
+
+    def _create_index(self, ext_per_var, namer):
+        """ Creation of loopy multiindex."""
+        names = tuple(next(namer) for ext_per_dim in ext_per_var)
+        idx_per_dim = tuple(pym.Variable(name) for name in names)
+        self.save_index(idx_per_dim, ext_per_var)
+        return idx_per_dim
+
+    def index_extent(self, coefficient):
+        """ Calculation of the range of a coefficient."""
+        element = coefficient.ufl_element()
+        if element.family() == "Real":
+            return coefficient.dat.cdim
+        else:
+            return create_element(element).space_dimension()
+
+    def save_index(self, loopy_multiindex, extent):
+        """ A helper method to keep track of names and extents of loopy indices.
+            The saved indicies are coming from subarrayereffing kernel arguments
+            or from initilizations of Tensors and coefficients.
+        """
+        for index, ext in zip(loopy_multiindex, extent):
+            if isinstance(ext, tuple) and len(ext) == 1:
+                ext = ext[0]
+            self.inames[index.name] = int(ext)
+
+    def generate_lhs(self, tensor, temp):
+        """ Generation of an lhs for the loopy kernel,
+            which contains the TSFC assembly of the tensor.
+        """
+        idx = self.create_index(self.shape(tensor))
+        lhs = pym.Subscript(temp, idx)
+        return SubArrayRef(idx, lhs)
+
+    def collect_tsfc_kernel_data(self, mesh, coefficients, kinfo):
+        """ Collect the kernel data aka the parameters fed into the subkernel,
+            that are coordinates, orientations, cell sizes and cofficients.
+        """
+
+        kernel_data = [(mesh.coordinates,
+                        self.coordinates_arg)]
+
+        if kinfo.oriented:
+            self.needs_cell_orientations = True
+            kernel_data.append((mesh.cell_orientations(),
+                                self.cell_orientations_arg))
+
+        if kinfo.needs_cell_sizes:
+            self.needs_cell_sizes = True
+            kernel_data.append((mesh.cell_sizes,
+                                self.cell_size_arg))
+
+        # Pick the coefficients associated with a Tensor()/TSFC kernel
+        tsfc_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
+        for c, cinfo in self.coefficients.items():
+            if c in tsfc_coefficients:
+                if isinstance(cinfo, tuple):
+                    kernel_data.extend([(c, cinfo[0])])
+                else:
+                    for c_, info in cinfo.items():
+                        kernel_data.extend([(c_, info[0])])
+        return kernel_data
+
+    def loopify_tsfc_kernel_data(self, kernel_data):
+        """ This method generates loopy arguments from the kernel data,
+            which are then fed to the TSFC loopy kernel. The arguments
+            are arrays and have to be fed element by element to loopy
+            aka they have to be subarrayrefed.
+        """
+        arguments = []
+        for c, name in kernel_data:
+            extent = self.index_extent(c)
+            idx = self.create_index(extent)
+            arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
+        return arguments
+
+    def layer_integral_predicates(self, tensor, integral_type):
+        self.needs_mesh_layers = True
+        layer = pym.Variable(self.layer_arg)
+
+        # TODO: Variable layers
+        nlayer = tensor.ufl_domain().layers-1
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+
+        return [which]
+
+    def facet_integral_predicates(self, mesh, integral_type, kinfo):
+        self.needs_cell_facets = True
+        # Number of recerence cell facets
+        if mesh.cell_set._extruded:
+            self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
+        else:
+            self.num_facets = mesh.ufl_cell().num_facets()
+
+        # Index for loop over cell faces of reference cell
+        fidx = self.create_index((self.num_facets,))
+
+        # Cell is interior or exterior
+        select = 1 if integral_type.startswith("interior_facet") else 0
+
+        i = self.create_index((1,))
+        predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select)]
+
+        # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
+        # "otherwise" is treated incorrectly as "everywhere"
+        # However, this replicates an existing slate bug.
+        if kinfo.subdomain_id != "otherwise":
+            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", kinfo.subdomain_id))
+
+        # Additional facet array argument to be fed into tsfc loopy kernel
+        subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
+                                  (pym.Sum((i[0], fidx[0]))))
+        facet_arg = SubArrayRef(i, subscript)
+
+        return predicates, fidx, facet_arg
+
+    # TODO: is this ugly?
+    def is_integral_type(self, integral_type, type):
+        cell_integral = ["cell"]
+        facet_integral = ["interior_facet",
+                          "interior_facet_vert",
+                          "exterior_facet",
+                          "exterior_facet_vert"]
+        layer_integral = ["interior_facet_horiz_top",
+                          "interior_facet_horiz_bottom",
+                          "exterior_facet_top",
+                          "exterior_facet_bottom"]
+        if ((integral_type in cell_integral and type == "cell_integral")
+           or (integral_type in facet_integral and type == "facet_integral")
+           or (integral_type in layer_integral and type == "layer_integral")):
+            return True
+        else:
+            return False
+
+    def collect_coefficients(self):
+        """ Saves all coefficients of self.expression, where non mixed coefficient
+            are of dict of form {coff: (name, extent)} and mixed coefficient are
+            double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
+        """
+        coeffs = self.expression.coefficients()
+        coeff_dict = OrderedDict()
+        for i, c in enumerate(coeffs):
+            element = c.ufl_element()
+            if type(element) == MixedElement:
+                mixed = OrderedDict()
+                for j, c_ in enumerate(c.split()):
+                    name = "w_{}_{}".format(i, j)
+                    info = (name, self.index_extent(c_))
+                    mixed.update({c_: info})
+                coeff_dict[c] = mixed
+            else:
+                name = "w_{}".format(i)
+                coeff_dict[c] = (name, self.index_extent(c))
+        return coeff_dict
+
+    def initialise_terminals(self, var2terminal):
+        """ Initilisation of the variables in which coefficients
+            and the Tensors coming from TSFC are saved.
+
+            :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
+        """
+
+        tensor2temp = OrderedDict()
+        inits = []
+        for gem_tensor, slate_tensor in var2terminal.items():
+            loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
+                                                   shape=gem_tensor.shape,
+                                                   dtype=SCALAR_TYPE,
+                                                   address_space=loopy.AddressSpace.LOCAL,
+                                                   target=TARGET)
+            tensor2temp[slate_tensor] = loopy_tensor
+
+            if isinstance(slate_tensor, slate.Tensor):
+                extent = self.shape(slate_tensor)
+                indices = self.create_index(extent)
+                inames = {var.name for var in indices}
+                var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
+                inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
+                                              within_inames=frozenset(inames)))
+
+            elif isinstance(slate_tensor, slate.AssembledVector):
+                f = slate_tensor._function
+                coeff = self.coefficients[f]
+                offset = 0
+                ismixed = (type(f.ufl_element()) == MixedElement)
+                names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
+
+                # Mixed coefficients come as seperate parameter (one per space)
+                for i, shp in enumerate(*slate_tensor.shapes.values()):
+                    indices = self.create_index((shp,))
+                    inames = {var.name for var in indices}
+                    offset_index = (pym.Sum((offset, indices[0])),)
+                    name = names[i] if ismixed else names
+                    var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
+                    c = pym.Subscript(pym.Variable(name), indices)
+                    inits.append(loopy.Assignment(var, c, id="init%d" % len(inits),
+                                                  within_inames=frozenset(inames)))
+                    offset += shp
+
+        return inits, tensor2temp
+
+    def slate_call(self, kernel):
+        # Slate kernel call
+        call = pym.Call(pym.Variable(kernel.name), tuple())
+        output_var = pym.Variable(kernel.args[0].name)
+        slate_kernel_call_output = self.generate_lhs(self.expression, output_var)
+        insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
+        return [insn]
+
+    def generate_wrapper_kernel_args(self, tensor2temp):
+        args = [loopy.GlobalArg(self.coordinates_arg, shape=self.coords_extent,
+                                dtype=SCALAR_TYPE, target=TARGET)]
+
+        for loopy_inner in self.templated_subkernels:
+            for arg in loopy_inner.args[1:]:
+                if arg.name == self.cell_orientations_arg or\
+                   arg.name == self.cell_size_arg:
+                    if arg not in args:
+                        args.append(arg)
+
+        for coeff in self.coefficients.values():
+            if isinstance(coeff, OrderedDict):
+                for (name, extent) in coeff.values():
+                    arg = loopy.GlobalArg(name, shape=extent,
+                                          dtype=SCALAR_TYPE, target=TARGET)
+                    args.append(arg)
+            else:
+                (name, extent) = coeff
+                arg = loopy.GlobalArg(name, shape=extent,
+                                      dtype=SCALAR_TYPE, target=TARGET)
+                args.append(arg)
+
+        if self.needs_cell_facets:
+            # Arg for is exterior (==0)/interior (==1) facet or not
+            args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
+                                        dtype=np.int8, target=TARGET))
+
+            args.append(
+                loopy.TemporaryVariable(self.local_facet_array_arg,
+                                        shape=(self.num_facets,),
+                                        dtype=np.uint32,
+                                        address_space=loopy.AddressSpace.LOCAL,
+                                        read_only=True,
+                                        initializer=np.arange(self.num_facets, dtype=np.uint32),
+                                        target=TARGET))
+
+        if self.needs_mesh_layers:
+            args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
+                        dtype=np.int32, target=TARGET, address_space=loopy.AddressSpace.GLOBAL))
+
+        for tensor_temp in tensor2temp.values():
+            args.append(tensor_temp)
+
+        return args
+
+    def generate_tsfc_calls(self, var2terminal, tensor2temp):
         """A setup method to initialize all the local assembly
         kernels generated by TSFC. This function also collects any
         information regarding orientations and extra include directories.
         """
-        include_dirs = []
         templated_subkernels = []
-
         assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
-        coords = None
-        needs_cell_orientations = False
-        needs_cell_sizes = False
-        needs_cell_facets = False
-        needs_mesh_layers = False
-        num_facets = 0
+
+        self.needs_cell_orientations = False
+        self.needs_cell_sizes = False
+        self.needs_cell_facets = False
+        self.needs_mesh_layers = False
+
+        # TSFC calls only for terminal tensors
+        terminal_tensors = [tensor for tensor in var2terminal.values() if isinstance(tensor, slate.Tensor)]
+        tsfc_kernels = self.context_kernels(terminal_tensors)
 
         # For all terminal tensors provided by TSFC
-        for pos, cxt_kernel in enumerate(self.context_kernels):
-            coefficients = cxt_kernel.coefficients
+        for pos, cxt_kernel in enumerate(tsfc_kernels):
             integral_type = cxt_kernel.original_integral_type
             tensor = cxt_kernel.tensor
-            temp = self.temps[tensor]
+            loopy_tensor = tensor2temp[tensor]
             mesh = tensor.ufl_domain()
 
             if integral_type not in self.supported_integral_types:
                 raise ValueError("Integral type '%s' not recognized" % integral_type)
 
-            # Explicit checking of coordinates
-            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
-            if coords is not None:
-                assert coordinates == coords, "Mismatching coordinates!"
-            else:
-                coords = coordinates
-
-            for inner in cxt_kernel.tsfc_kernels:
-                kinfo = inner.kinfo
+            for tsfc_kernel in cxt_kernel.tsfc_kernels:
+                kinfo = tsfc_kernel.kinfo
                 reads = []
-                inames = []
+                inames_dep = []
 
                 # Populate subkernel call to tsfc
                 templated_subkernels.append(kinfo.kernel.code)
-                include_dirs.extend(kinfo.kernel._include_dirs)
 
-                # Generation of output variable of loopy kernel
-                if tensor.is_mixed:
-                    # For the mixed case, the output is a slice of the matrix/vector
-                    block_index = inner.indices
-                    extent = ()
-                    offset = ()
-                    slices = ()
+                # Prepare lhs and args for call to tsfc kernel
+                output = self.generate_lhs(tensor, pym.Variable(loopy_tensor.name))
+                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
+                reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
-                    # e.g. for rank 2 mixed tensor you get two extents, offsets
-                    for i, j in enumerate(block_index):
-                        extent += (tensor.shapes[i][j],)
-                        offset += (sum(tensor.shapes[i][:j]),)
-                    idx = self.create_index(extent, "block_idx"+kinfo.kernel.name)
-
-                    # Indices for subscripting the tensor
-                    for i, j in enumerate(block_index):
-                        slices += (pym.Sum((offset[i], idx[i])),)
-
-                    output = SubArrayRef(idx,
-                                         pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), slices))
-                else:
-                    self.create_index(tensor.shape, str(tensor)+"subcall")
-                    indices = self.loopy_indices[str(tensor)+"subcall"]
-                    output = SubArrayRef(indices, pym.Subscript(pym.Variable(self.gem_loopy_dict[temp].name), indices))
-
-                # Kernel data contains the parameters fed into the subkernel
-                # (after being processed into reads)
-                kernel_data = [(mesh.coordinates,
-                                self.coordinates_arg)]
-                if kinfo.oriented:
-                    needs_cell_orientations = True
-                    kernel_data.append((mesh.cell_orientations(),
-                                        self.cell_orientations_arg))
-                if kinfo.needs_cell_sizes:
-                    needs_cell_sizes = True
-                    kernel_data.append((mesh.cell_sizes,
-                                        self.cell_size_arg))
-
-                # Pick the right local coeffs from extra coeffs
-                local_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-                coeff_vecs_list = [(v.function, v.local_temp.name) for w in self.coefficient_vecs.values() for v in w]
-                for c, name in (self.extra_coefficients + coeff_vecs_list):
-                    if c in local_coefficients:
-                        if type(c.ufl_element()) == MixedElement:
-                            # Split is always generating new function.
-                            # I procrastinated the split until last possibility here,
-                            # even though that means that extra coefficients
-                            # contais the mixed cofficient twice.
-                            for j, c_ in enumerate(c.split()):
-                                if str(j) == name[-1]:
-                                    kernel_data.extend([(c_, name)])
-                        else:
-                            kernel_data.extend([(c, name)])
-
-                # The kernel data eats variables which are vectors (e.g. coords).
-                # In order to feed them into the scalar languages,
-                # they have to be subarrayrefed (fed element by element).
-                for c, name in kernel_data:
-                    extent = index_extent(c)
-                    if c not in self.loopy_indices:
-                        idx = self.create_index(extent, c)
-                    idx = self.loopy_indices[c]
-                    argument = SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx))
-                    reads.append(argument)
-                    self.args_extents.setdefault(name, extent)
-
-                # Append more arguments to subkernel for different integral types
-                if integral_type == "cell":
+                # Generate predicates for different integral types
+                if self.is_integral_type(integral_type, "cell_integral"):
                     predicates = None
                     if kinfo.subdomain_id != "otherwise":
                         raise NotImplementedError("No subdomain markers for cells yet")
-
-                elif integral_type in {"interior_facet",
-                                       "interior_facet_vert",
-                                       "exterior_facet",
-                                       "exterior_facet_vert"}:
-                    # Number of recerence cell facets
-                    if mesh.cell_set._extruded:
-                        num_facets = mesh._base_mesh.ufl_cell().num_facets()
-                    else:
-                        num_facets = mesh.ufl_cell().num_facets()
-
-                    # Index for loop over cell faces of reference cell
-                    if str(self.cell_facets_arg)+inner.kinfo.kernel.name not in self.loopy_indices:
-                        fidx = self.create_index((num_facets,), str(self.cell_facets_arg)+inner.kinfo.kernel.name)
-
-                    # Cell is interior or exterior
-                    needs_cell_facets = True
-                    if integral_type.startswith("interior_facet"):
-                        select = 1
-                    else:
-                        select = 0
-
-                    if self.cell_facets_arg+"_sum"+inner.kinfo.kernel.name not in self.loopy_indices:
-                        i = self.create_index((1,), self.cell_facets_arg+"_sum"+inner.kinfo.kernel.name)
-                    else:
-                        i = self.loopy_indices[self.cell_facets_arg+"_sum"]
-                    predicates = ["cell_facets["+str(fidx[0])+",0]=="+str(select)]
-
-                    # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
-                    # "otherwise" is treated incorrectly as "everywhere"
-                    # However, this replicates an existing slate bug.
-                    if kinfo.subdomain_id != "otherwise":
-                        predicates.append("cell_facets["+str(fidx[0])+",1]=="+str(kinfo.subdomain_id))
-
-                    subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
-                                              (pym.Sum((i[0], fidx[0]))))
-                    reads.append(SubArrayRef(i, subscript))
-                    inames.append(fidx[0].name)
-                elif integral_type in {"interior_facet_horiz_top",
-                                       "interior_facet_horiz_bottom",
-                                       "exterior_facet_top",
-                                       "exterior_facet_bottom"}:
-
-                    needs_mesh_layers = True
-                    layer = pym.Variable(self.layer_arg)
-
-                    # TODO: Variable layers
-                    nlayer = tensor.ufl_domain().layers-1
-                    which = {"interior_facet_horiz_top": str(layer)+"<"+str(nlayer-1),
-                             "interior_facet_horiz_bottom": str(layer)+">"+str(0),
-                             "exterior_facet_top": str(layer)+"=="+str(nlayer-1),
-                             "exterior_facet_bottom": str(layer)+"=="+str(0)}[integral_type]
-                    predicates = [which]
+                elif self.is_integral_type(integral_type, "facet_integral"):
+                    predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo)
+                    reads.append(facet_arg)
+                    inames_dep.append(fidx[0].name)
+                elif self.is_integral_type(integral_type, "layer_integral"):
+                    predicates = self.layer_integral_predicates(tensor, integral_type)
                 else:
                     raise ValueError("Unhandled integral type {}".format(integral_type))
 
-                # Reads are the variables being fed into the subkernel
-                # later on assemby calls will be needed for the kitting instruction
-                # when merging the outer (slate) kernel with the inner (ufl) kernel
-                assembly_calls[integral_type].append(loopy.CallInstruction((output, ),
-                                                                           pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads)),
-                                                                           predicates=predicates,
-                                                                           within_inames=frozenset(inames),
-                                                                           id=integral_type+"_inner_call%d" % len(assembly_calls[integral_type])))
+                # TSFC kernel call
+                key = integral_type+"_tsfc_kernel_call%d" % len(assembly_calls[integral_type])
+                call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
+                insn = loopy.CallInstruction((output,), call,
+                                             within_inames=frozenset(inames_dep),
+                                             predicates=predicates, id=key)
+                assembly_calls[integral_type].append(insn)
 
         self.assembly_calls = assembly_calls
         self.templated_subkernels = templated_subkernels
-        self.include_dirs = list(set(include_dirs))
-        self.needs_cell_orientations = needs_cell_orientations
-        self.needs_cell_sizes = needs_cell_sizes
-        self.needs_cell_facets = needs_cell_facets
-        self.needs_mesh_layers = needs_mesh_layers
-        self.num_facets = num_facets
-
-
-def create_index(extent, key, namer, ctx):
-    """Gem and loopy Index creator.
-    Every time an index is created it is saved in a list (gem as well as loopy)
-    Saved as tuples or tuples of tuples depending if not mixed or mixed
-    Function returns the pymbolic Variables for the indices.
-
-    :arg extent: a :class:`tuple` or :class:`int` for index extent
-    :arg key: for location of created index in its storage
-    :arg namer: a function to create names automatically
-    :ctx: a :class:`object` to which the indices get attached
-    """
-
-    # For non mixed tensors int values are allowed as extent
-    if isinstance(extent, int) or isinstance(extent, np.int64):
-        extent = (extent, )
-
-    # Indices for scalar tensors
-    if len(extent) == 0:
-        extent += (1, )
-
-    # Stacked tuple -> mixed tensor -> loop over ext for vars
-    if isinstance(extent[0], tuple):
-        per_dim_per_var = [(), ()]
-        for ext_per_var in extent.values():
-            for i, per_dim in enumerate(_create_index(ext_per_var, key, namer, ctx)):
-                per_dim_per_var[i] += (per_dim, )
-    # Non-mixed tensors
-    else:
-        per_dim_per_var = []
-        per_dim_per_var += _create_index(extent, key, namer, ctx)
-    # Keep track of generated indices
-    ctx.loopy_indices.setdefault(key, per_dim_per_var[0])
-    ctx.gem_indices.setdefault(key, per_dim_per_var[1])
-    return tuple(per_dim_per_var[0])
-
-
-def _create_index(ext_per_var, key, namer, ctx):
-    names = tuple(next(namer) for ext_per_dim in ext_per_var)
-    rets_per_dim = tuple(pym.Variable(name) for name in names)
-    indices_per_dim = tuple(gem.Index(names[i], int(ext_per_var[i])) for i in range(len(ext_per_var)))
-    return rets_per_dim, indices_per_dim
-
-
-def index_extent(coefficient):
-    """ Calculation of the range of a coefficient,
-        which is needed for index generation.
-    """
-    element = coefficient.ufl_element()
-    if element.family() == "Real":
-        return coefficient.dat.cdim
-    else:
-        return create_element(element).space_dimension()

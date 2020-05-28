@@ -65,7 +65,12 @@ def test_vertical_average(V, expr, solution, tolerance):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
+@pytest.fixture(params=[False, True],
+                ids=["prism", "hex"])
+def quadrilateral(request):
+    return request.param
+
+
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
     tolerance = 1e-14
@@ -96,11 +101,11 @@ def test_vertical_average_variable(quadrilateral):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
-                          (("CG", 3), 2e-7)])
+                          (("CG", 3), 2e-7)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""
     family, degree = testcase
@@ -127,11 +132,11 @@ def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("CG", 1, (4, 6)), 1.9),
                           (("CG", 2, (3, 5)), 2.9),
-                          (("CG", 3, (2, 4)), 3.9)])
+                          (("CG", 3, (2, 4)), 3.9)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
     """Test convergence of depth-independent H. problem on Pn x Real space."""
     family, degree, (start, end) = testcase
@@ -155,3 +160,19 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
         exact.interpolate(cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
         l2err[ii - start] = sqrt(assemble((out-exact)*(out-exact)*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
+
+
+def test_real_tensorproduct_mixed(V):
+    mesh = V.mesh()
+    Q = FunctionSpace(mesh, "P", 2)
+
+    W = V*Q
+    for (s_, s) in zip(W.split(), (V, Q)):
+        assert s_.node_set is s.node_set
+        assert s_.dof_dset is s.dof_dset
+
+
+def test_real_tensorproduct_component(V):
+    for i in range(V.value_size):
+        s = V.sub(i)
+        assert V.node_set is s.node_set

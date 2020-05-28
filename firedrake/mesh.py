@@ -424,7 +424,7 @@ class MeshTopology(object):
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
 
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
@@ -437,8 +437,15 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
-
+        # Note that the geometric dimension of the cell is not set here
+        # despite it being a property of a UFL cell. It will default to
+        # equal the topological dimension.
+        # Firedrake mesh topologies, by convention, which specifically
+        # represent a mesh topology (as here) have geometric dimension
+        # equal their topological dimension. This is reflected in the
+        # corresponding UFL mesh.
+        cell = ufl.Cell(_cells[tdim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -470,7 +477,7 @@ class MeshTopology(object):
                                                                  reordering)
 
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
                 self._cell_numbering = self.create_section(entity_dofs)
@@ -513,8 +520,30 @@ class MeshTopology(object):
         return self
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This is true even for immersed manifold
+            meshes.
+
+        """
+        return self._ufl_mesh.ufl_cell()
+
+    def ufl_mesh(self):
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This convention will be reflected in this
+            UFL mesh and is true even for immersed manifold meshes.
+
+        """
+        return self._ufl_mesh
 
     @utils.cached_property
     def cell_closure(self):
@@ -523,14 +552,14 @@ class MeshTopology(object):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         plex = self._plex
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
         cell_numbering = self._cell_numbering
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
-        assert dim == cell.topological_dimension()
+        assert tdim == cell.topological_dimension()
         if cell.is_simplex():
             import FIAT
             topology = FIAT.ufc_cell(cell).get_topology()
@@ -827,7 +856,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self._plex,
@@ -1219,7 +1249,9 @@ values from f.)"""
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
-        return getattr(self._topology, name)
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()

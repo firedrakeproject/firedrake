@@ -141,7 +141,7 @@ class GTMGPC(PCBase):
         coarse_dm = coarse_space.dm
         coarse_solver.setDM(coarse_dm)
         coarse_solver.setDMActive(False)
-        pcmg.setDM(coarse_dm)
+        pcmg.setDM(pc.getDM())
         pcmg.setFromOptions()
         self.pc = pcmg
         self._dm = coarse_dm

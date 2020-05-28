@@ -181,6 +181,9 @@ class ImplicitMatrixContext(object):
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 
+    def missingDiagonal(self, mat):
+        return (False, -1)
+
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)

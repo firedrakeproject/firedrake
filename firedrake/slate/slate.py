@@ -109,6 +109,10 @@ class TensorBase(object, metaclass=ABCMeta):
     def _metakernel_cache(self):
         return {}
 
+    @property
+    def children(self):
+        return self.operands
+
     @cached_property
     def expression_hash(self):
         from firedrake.slate.slac.utils import traverse_dags
@@ -812,8 +816,8 @@ class Inverse(UnaryOp):
             "The inverse can only be computed on square tensors."
         )
 
-        # if A.shape > (4, 4) and not isinstance(A, Factorization):
-        #     A = Factorization(A, decomposition="PartialPivLU")
+        if A.shape > (4, 4) and not isinstance(A, Factorization):
+            A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 

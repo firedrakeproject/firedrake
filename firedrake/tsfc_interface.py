@@ -30,7 +30,8 @@ from firedrake import utils
 
 
 # Set TSFC default scalar type at load time
-tsfc_default_parameters["scalar_type"] = utils.ScalarType_c
+tsfc_default_parameters["scalar_type"] = utils.ScalarType
+tsfc_default_parameters["scalar_type_c"] = utils.ScalarType_c
 
 
 KernelInfo = collections.namedtuple("KernelInfo",

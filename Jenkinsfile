@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch tsfc translation-of-comptensors --package-branch loopy translation-of-invdetsolve --package-branch petsc 0d9a514b7d7c5c0bcef72be50478634c8ea73815|| (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch tsfc reuse-create-domains --package-branch loopy allow-callablestables-gen-with-functionsnotinhistory --package-branch PyOP2 inverse-solve-callables|| (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -54,7 +54,7 @@ python -m pip list
                 sh '''
 . ./firedrake/bin/activate
 cd firedrake/src/firedrake
-python -m pytest -n 11 --cov firedrake -v tests
+python -m pytest --durations=200 -n 11 --cov firedrake -v tests
 '''
               }
             }
@@ -85,6 +85,8 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
 echo $PATH
 echo $VIRTUAL_ENV
 ls $VIRTUAL_ENV/bin
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/bibliography.bib
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
 cd firedrake/src/firedrake/docs; make html
 '''
               }

@@ -10,10 +10,17 @@ from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 import loopy
 import coffee.base as ast
+from pyop2.codegen.rep2loopy import TARGET
 
 from firedrake.logging import warning
 from firedrake import constant
 from firedrake.utils import ScalarType_c
+try:
+    from cachetools import LRUCache
+    kernel_cache = LRUCache(maxsize=128)
+except ImportError:
+    warning("cachetools not available, firedrake.par_loop calls will be slowed down")
+    kernel_cache = None
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -75,7 +82,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), target=TARGET))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -87,7 +94,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim()  # == 1
-                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), target=TARGET))
                     continue
                 else:
                     if len(func.function_space()) > 1:
@@ -98,16 +105,26 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), target=TARGET))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
-    kargs.append(...)
-    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
-
-    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+    try:
+        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        if kernel_cache is not None:
+            return kernel_cache[key]
+        else:
+            raise KeyError("No cache")
+    except KeyError:
+        kargs.append(...)
+        knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
+                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
+        knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+        if kernel_cache is not None:
+            return kernel_cache.setdefault(key, knl)
+        else:
+            return knl
 
 
 def _form_string_kernel(body, measure, args, **kwargs):
