@@ -220,13 +220,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     instructions = statement(impero_c.tree, ctx)
 
     # Create domains
-    domains = []
-    for idx, extent in ctx.index_extent.items():
-        inames = isl.make_zero_and_vars([idx])
-        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(inames[0] + extent))))
-
-    if not domains:
-        domains = [isl.BasicSet("[] -> {[]}")]
+    domains = create_domains(ctx.index_extent.items())
 
     # Create loopy kernel
     knl = lp.make_function(domains, instructions, data, name=kernel_name, target=lp.CTarget(),
@@ -242,6 +236,22 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     knl = knl.copy(instructions=insn_new)
 
     return knl
+
+
+def create_domains(indices):
+    """ Create ISL domains from indices
+
+    :arg indices: iterable of (index_name, extent) pairs
+    :returns: A list of ISL sets representing the iteration domain of the indices."""
+
+    domains = []
+    for idx, extent in indices:
+        inames = isl.make_zero_and_vars([idx])
+        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(inames[0] + extent))))
+
+    if not domains:
+        domains = [isl.BasicSet("[] -> {[]}")]
+    return domains
 
 
 @singledispatch
