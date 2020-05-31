@@ -531,13 +531,13 @@ class FunctionSpaceData(object):
         if backend is None:
             backend = op2.compute_backend
 
-        from pyop2.sequential import SequentialCPUBackend, sequential_cpu_backend
+        from pyop2.sequential import CPUBackend, cpu_backend
 
         entity_node_list = self.entity_node_lists[entity_set]
 
         val = self.map_cache.get((entity_set, backend))
         if val is None:
-            if isinstance(backend, SequentialCPUBackend):
+            if isinstance(backend, CPUBackend):
                 val = backend.Map(entity_set, self.node_set,
                               map_arity,
                               entity_node_list,
@@ -545,7 +545,7 @@ class FunctionSpaceData(object):
                               offset=offset)
             else:
                 host_map = self.get_map(V, entity_set, map_arity, name,
-                    offset, sequential_cpu_backend)
+                    offset, cpu_backend)
                 val = backend.Map(host_map)
 
         self.map_cache[(entity_set, backend)] = val
