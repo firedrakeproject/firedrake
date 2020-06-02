@@ -311,6 +311,8 @@ void restriction(double *restrict Rc, const double *Rf)
                      self.uc.dat(op2.WRITE, self.Vc.cell_node_map()),
                      self.uf.dat(op2.READ, self.Vf.cell_node_map()))
 
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
@@ -321,6 +323,8 @@ void restriction(double *restrict Rc, const double *Rf)
 
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
