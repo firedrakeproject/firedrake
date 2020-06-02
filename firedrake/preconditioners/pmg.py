@@ -224,7 +224,7 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        I = prolongation_matrix(fV, cV, fbcs, cbcs)
+        I = prolongation_matrix_full(fV, cV, fbcs, cbcs)
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
@@ -235,7 +235,7 @@ class PMGPC(PCBase):
         self.ppc.view(viewer)
 
 
-def prolongation_transfer_kernel(Pk, P1):
+def prolongation_transfer_kernel_full(Pk, P1):
     # Works for Pk, Pm; I just retain the notation
     # P1 to remind you that P1 is of lower degree
     # than Pk
@@ -252,7 +252,55 @@ def prolongation_transfer_kernel(Pk, P1):
     return kernel
 
 
-def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
+class InterpolationMatrix(object):
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+        self.Vf = Vf
+        self.Vc = Vc
+        self.Vf_bcs = Vf_bcs
+        self.Vc_bcs = Vc_bcs
+
+        self.uc = firedrake.Function(Vc)
+        self.uf = firedrake.Function(Vf)
+        self.kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+
+        self.mesh = Vf.mesh()
+
+    @staticmethod
+    def prolongation_transfer_kernel_action(Vf, uc):
+        from tsfc import compile_expression_dual_evaluation
+        from tsfc.fiatinterface import create_element
+
+        expr = uc
+        coords = Vf.ufl_domain().coordinates
+        to_element = create_element(Vf.ufl_element(), vector_is_mixed=False)
+
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
+        kernel = op2.Kernel(ast, ast.name)
+        return kernel
+
+    def mult(self, mat, resf, resc):
+        """
+        Implement restriction: restrict residual on fine grid resf to coarse grid resc.
+        """
+        pass
+
+    def multTranspose(self, mat, xc, xf):
+        """
+        Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
+        """
+
+        with self.uc.dat.vec_wo as xc_:
+            xc.copy(xc_)
+
+        op2.par_loop(self.kernel, self.mesh.cell_set,
+                     self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
+                     self.uc.dat(op2.READ, self.Vc.cell_node_map()))
+
+        with self.uf.dat.vec_ro as xf_:
+            xf_.copy(xf)
+
+
+def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -273,7 +321,7 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel(Pk.sub(i), P1.sub(i)), mesh.cell_set,
+            op2.par_loop(prolongation_transfer_kernel_full(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
     else:
@@ -284,8 +332,11 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel(Pk, P1), mesh.cell_set,
+        op2.par_loop(prolongation_transfer_kernel_full(Pk, P1), mesh.cell_set,
                      matarg)
 
     mat.assemble()
     return mat.handle
+
+
+prolongation_matrix = prolongation_matrix_full
