@@ -225,7 +225,7 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        I = prolongation_matrix_full(fV, cV, fbcs, cbcs)
+        I = prolongation_matrix(fV, cV, fbcs, cbcs)
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
@@ -253,7 +253,10 @@ def prolongation_transfer_kernel_full(Pk, P1):
     return kernel
 
 
-class InterpolationMatrix(object):
+class StandaloneInterpolationMatrix(object):
+    """
+    Interpolation matrix for a single standalone space.
+    """
     def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf = Vf
         self.Vc = Vc
@@ -334,6 +337,58 @@ void restriction(double *restrict Rc, const double *Rf)
             xf_.copy(xf)
 
 
+class MixedInterpolationMatrix(object):
+    """
+    Interpolation matrix for a single standalone space.
+    """
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+        self.Vf = Vf
+        self.Vc = Vc
+        self.Vf_bcs = Vf_bcs
+        self.Vc_bcs = Vc_bcs
+
+        self.standalones = []
+        for (i, (Vf_sub, Vc_sub)) in enumerate(zip(Vf, Vc)):
+            Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
+            Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
+            standalone = StandaloneInterpolationMatrix(Vf_sub, Vc_sub, Vf_sub_bcs, Vc_sub_bcs)
+            self.standalones.append(standalone)
+
+        self.uc = firedrake.Function(Vc)
+        self.uf = firedrake.Function(Vf)
+        self.mesh = Vf.mesh()
+
+    def mult(self, mat, resf, resc):
+
+        with self.uf.dat.vec_wo as xf:
+            resf.copy(xf)
+
+        for (i, standalone) in enumerate(self.standalones):
+            op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
+                         self.uc.split()[i].dat(op2.WRITE, standalone.Vc.cell_node_map()),
+                         self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()))
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(resc)
+
+    def multTranspose(self, mat, xc, xf):
+
+        with self.uc.dat.vec_wo as xc_:
+            xc.copy(xc_)
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        for (i, standalone) in enumerate(self.standalones):
+            op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
+                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
+                         self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
+
+        with self.uf.dat.vec_ro as xf_:
+            xf_.copy(xf)
+
+
 def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
@@ -373,4 +428,18 @@ def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
     return mat.handle
 
 
-prolongation_matrix = prolongation_matrix_full
+def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
+    fele = Vf.ufl_element()
+    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
+        ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+    else:
+        ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+
+    sizes = (Vc.dof_dset.layout_vec.getSizes(), Vf.dof_dset.layout_vec.getSizes())
+    M_shll = PETSc.Mat().createPython(sizes, ctx)
+    M_shll.setUp()
+
+    return M_shll
+
+
+prolongation_matrix = prolongation_matrix_matfree
