@@ -4,6 +4,7 @@ from itertools import chain
 from ufl import MixedElement, VectorElement, TensorElement, replace
 
 from pyop2 import op2
+import loopy
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -261,8 +262,28 @@ class InterpolationMatrix(object):
 
         self.uc = firedrake.Function(Vc)
         self.uf = firedrake.Function(Vf)
-        self.kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
 
+        matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
+        dimc = Vc.dim()
+        dimf = Vf.dim()
+        self.restrict_code = f"""
+{element_kernel}
+
+
+void restriction(double *restrict Rc, const double *Rf)
+{{
+    double Afc[{dimf}*{dimc}] = {{0}};
+    expression_kernel(Afc);
+    for (int32_t i = 0; i < {dimf}; i++)
+       for (int32_t j = 0; j < {dimc}; j++)
+           Rc[j] += Afc[i*{dimc} + j] * Rf[i];
+}}
+"""
+
+        self.restrict_kernel = op2.Kernel(self.restrict_code, "restriction")
         self.mesh = Vf.mesh()
 
     @staticmethod
@@ -282,7 +303,16 @@ class InterpolationMatrix(object):
         """
         Implement restriction: restrict residual on fine grid resf to coarse grid resc.
         """
-        pass
+
+        with self.uf.dat.vec_wo as xf:
+            resf.copy(xf)
+
+        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.WRITE, self.Vc.cell_node_map()),
+                     self.uf.dat(op2.READ, self.Vf.cell_node_map()))
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(resc)
 
     def multTranspose(self, mat, xc, xf):
         """
@@ -292,7 +322,7 @@ class InterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
-        op2.par_loop(self.kernel, self.mesh.cell_set,
+        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
                      self.uc.dat(op2.READ, self.Vc.cell_node_map()))
 
