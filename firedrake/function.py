@@ -74,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             assert val.comm == self.comm
             self.dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
+            self.dat = function_space.make_dat(val, dtype, self.name())
 
     @utils.cached_property
     def topological(self):
