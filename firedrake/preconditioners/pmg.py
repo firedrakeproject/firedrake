@@ -270,8 +270,8 @@ class StandaloneInterpolationMatrix(object):
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
-        dimc = Vc.dim()
-        dimf = Vf.dim()
+        dimc = Vc.finat_element.space_dimension() * Vc.value_size
+        dimf = Vf.finat_element.space_dimension() * Vf.value_size
         self.restrict_code = f"""
 {element_kernel}
 
@@ -319,7 +319,7 @@ void restriction(double *restrict Rc, const double *Rf)
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
-    def multTranspose(self, mat, xc, xf):
+    def multTranspose(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
@@ -334,7 +334,17 @@ void restriction(double *restrict Rc, const double *Rf)
                      self.uc.dat(op2.READ, self.Vc.cell_node_map()))
 
         with self.uf.dat.vec_ro as xf_:
-            xf_.copy(xf)
+            if inc:
+                xf.axpy(1.0, xf_)
+            else:
+                xf_.copy(xf)
+
+    def multTransposeAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.multTranspose(mat, x, w, inc=True)
+        else:
+            self.multTranspose(mat, x, w)
+            w.axpy(1.0, y)
 
 
 class MixedInterpolationMatrix(object):
