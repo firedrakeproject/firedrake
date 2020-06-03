@@ -1,5 +1,4 @@
 from functools import partial
-from itertools import chain
 import numpy as np
 
 from ufl import MixedElement, VectorElement, TensorElement, replace
@@ -237,23 +236,6 @@ class PMGPC(PCBase):
         self.ppc.view(viewer)
 
 
-def prolongation_transfer_kernel_full(Pk, P1):
-    # Works for Pk, Pm; I just retain the notation
-    # P1 to remind you that P1 is of lower degree
-    # than Pk
-    from tsfc import compile_expression_dual_evaluation
-    from tsfc.fiatinterface import create_element
-    from firedrake import TestFunction
-
-    expr = TestFunction(P1)
-    coords = Pk.ufl_domain().coordinates
-    to_element = create_element(Pk.ufl_element(), vector_is_mixed=False)
-
-    ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
-    kernel = op2.Kernel(ast, ast.name)
-    return kernel
-
-
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
@@ -439,46 +421,7 @@ class MixedInterpolationMatrix(object):
             w.axpy(1.0, y)
 
 
-def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
-    sp = op2.Sparsity((Pk.dof_dset,
-                       P1.dof_dset),
-                      (Pk.cell_node_map(),
-                       P1.cell_node_map()))
-    mat = op2.Mat(sp, PETSc.ScalarType)
-    mesh = Pk.ufl_domain()
-
-    fele = Pk.ufl_element()
-    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
-        for i in range(fele.num_sub_elements()):
-            Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
-            P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
-
-            rlgmap, clgmap = mat[i, i].local_to_global_maps
-            rlgmap = Pk.sub(i).local_to_global_map(Pk_bcs_i, lgmap=rlgmap)
-            clgmap = P1.sub(i).local_to_global_map(P1_bcs_i, lgmap=clgmap)
-            unroll = any(bc.function_space().component is not None
-                         for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
-            matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
-                               lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel_full(Pk.sub(i), P1.sub(i)), mesh.cell_set,
-                         matarg)
-
-    else:
-        rlgmap, clgmap = mat.local_to_global_maps
-        rlgmap = Pk.local_to_global_map(Pk_bcs, lgmap=rlgmap)
-        clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
-        unroll = any(bc.function_space().component is not None
-                     for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
-        matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
-                     lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel_full(Pk, P1), mesh.cell_set,
-                     matarg)
-
-    mat.assemble()
-    return mat.handle
-
-
-def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
+def prolongation_matrix(Vf, Vc, Vf_bcs, Vc_bcs):
     fele = Vf.ufl_element()
     if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
         ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
@@ -490,6 +433,3 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
     M_shll.setUp()
 
     return M_shll
-
-
-prolongation_matrix = prolongation_matrix_matfree
