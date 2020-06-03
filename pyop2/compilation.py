@@ -47,7 +47,6 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
 from pyop2.base import JITModule
-from pyop2.datatypes import ScalarType
 
 
 def _check_hashes(x, y, datatype):
@@ -213,15 +212,14 @@ class Compiler(object):
             if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
                 return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("7.3") <= ver < version.StrictVersion("7.5"):
+            if version.StrictVersion("7.3") <= ver <= version.StrictVersion("7.5"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
                 # See also https://github.com/firedrakeproject/firedrake/issues/1442
+                # And https://github.com/firedrakeproject/firedrake/issues/1717
                 # Bug also on skylake with the vectoriser in this
                 # combination (disappears without
                 # -fno-tree-loop-vectorize!)
                 return ["-fno-tree-loop-vectorize", "-mno-avx512f"]
-            if ver == version.StrictVersion("7.5.0") and ScalarType.kind == 'c':
-                return ["-fno-tree-loop-vectorize"]
         return []
 
     @collective
