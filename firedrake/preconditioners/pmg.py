@@ -301,8 +301,7 @@ void restriction(double *restrict Rc, const double *restrict Rf, const double *r
         """
         self.weight = firedrake.Function(Vf)
         firedrake.par_loop((domain, instructions), firedrake.dx, {"w": (self.weight, op2.INC)},
-                 is_loopy_kernel=True)
-
+                           is_loopy_kernel=True)
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, uc):
@@ -328,6 +327,8 @@ void restriction(double *restrict Rc, const double *restrict Rf, const double *r
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.uc.cell_node_map()),
                      self.uf.dat(op2.READ, self.uf.cell_node_map()),
@@ -351,6 +352,8 @@ void restriction(double *restrict Rc, const double *restrict Rf, const double *r
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
                      self.uc.dat(op2.READ, self.Vc.cell_node_map()))
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
@@ -395,6 +398,8 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
                          self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
@@ -417,6 +422,8 @@ class MixedInterpolationMatrix(object):
             op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
                          self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
