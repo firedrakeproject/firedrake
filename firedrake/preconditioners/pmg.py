@@ -1,5 +1,6 @@
 from functools import partial
 from itertools import chain
+import numpy as np
 
 from ufl import MixedElement, VectorElement, TensorElement, replace
 
@@ -276,18 +277,32 @@ class StandaloneInterpolationMatrix(object):
 {element_kernel}
 
 
-void restriction(double *restrict Rc, const double *Rf)
+void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
 {{
     double Afc[{dimf}*{dimc}] = {{0}};
     expression_kernel(Afc);
     for (int32_t i = 0; i < {dimf}; i++)
        for (int32_t j = 0; j < {dimc}; j++)
-           Rc[j] += Afc[i*{dimc} + j] * Rf[i];
+           Rc[j] += Afc[i*{dimc} + j] * Rf[i] / w[i];
 }}
 """
 
         self.restrict_kernel = op2.Kernel(self.restrict_code, "restriction")
         self.mesh = Vf.mesh()
+
+        # Lawrence's magic code for calculating dof multiplicities
+        shapes = (Vf.finat_element.space_dimension(),
+                  np.prod(Vf.shape))
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        self.weight = firedrake.Function(Vf)
+        firedrake.par_loop((domain, instructions), firedrake.dx, {"w": (self.weight, op2.INC)},
+                 is_loopy_kernel=True)
+
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, uc):
@@ -310,9 +325,13 @@ void restriction(double *restrict Rc, const double *Rf)
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
 
+        with self.uc.dat.vec_wo as xc:
+            xc.set(0)
+
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.WRITE, self.Vc.cell_node_map()),
-                     self.uf.dat(op2.READ, self.Vf.cell_node_map()))
+                     self.uc.dat(op2.INC, self.uc.cell_node_map()),
+                     self.uf.dat(op2.READ, self.uf.cell_node_map()),
+                     self.weight.dat(op2.READ, self.weight.cell_node_map()))
 
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
@@ -373,17 +392,21 @@ class MixedInterpolationMatrix(object):
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
 
+        with self.uc.dat.vec_wo as xc:
+            xc.set(0)
+
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
-                         self.uc.split()[i].dat(op2.WRITE, standalone.Vc.cell_node_map()),
-                         self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()))
+                         self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
+                         self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()),
+                         standalone.weight.dat(op2.READ, standalone.weight.cell_node_map()))
 
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
-    def multTranspose(self, mat, xc, xf):
+    def multTranspose(self, mat, xc, xf, inc=False):
 
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
@@ -396,7 +419,17 @@ class MixedInterpolationMatrix(object):
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
 
         with self.uf.dat.vec_ro as xf_:
-            xf_.copy(xf)
+            if inc:
+                xf.axpy(1.0, xf_)
+            else:
+                xf_.copy(xf)
+
+    def multTransposeAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.multTranspose(mat, x, w, inc=True)
+        else:
+            self.multTranspose(mat, x, w)
+            w.axpy(1.0, y)
 
 
 def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
