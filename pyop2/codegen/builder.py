@@ -1,22 +1,23 @@
+import itertools
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
-import numpy
-
-from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
-                                          MultiIndex, Extent, Indexed,
-                                          LogicalAnd, Comparison, DummyInstruction,
-                                          Argument, Literal, NamedLiteral,
-                                          Materialise, Accumulate, FunctionCall, When,
-                                          Symbol, Zero, Sum, Min, Max, Product)
-from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
-
-from pyop2.utils import cached_property
-from pyop2.datatypes import IntType
-from pyop2.op2 import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL, Subset
-from pyop2.op2 import READ, INC, MIN, MAX, WRITE, RW
-from loopy.types import OpaqueType
 from functools import reduce
-import itertools
+
+import numpy
+from loopy.types import OpaqueType
+from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
+                                          DummyInstruction, Extent, FixedIndex,
+                                          FunctionCall, Index, Indexed,
+                                          KernelInst, Literal, LogicalAnd,
+                                          Materialise, Max, Min, MultiIndex,
+                                          NamedLiteral, PackInst,
+                                          PreUnpackInst, Product, RuntimeIndex,
+                                          Sum, Symbol, UnpackInst, Variable,
+                                          When, Zero)
+from pyop2.datatypes import IntType
+from pyop2.op2 import (ALL, INC, MAX, MIN, ON_BOTTOM, ON_INTERIOR_FACETS,
+                       ON_TOP, READ, RW, WRITE, Subset)
+from pyop2.utils import cached_property
 
 
 class PetscMat(OpaqueType):
