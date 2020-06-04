@@ -1232,7 +1232,7 @@ if mode == "install" or not args.update_script:
             installed_packages = dict((p["name"], p)
                                       for p in json.loads(check_output(["brew", "info", "--installed", "--json"])))
             # Handle homebrew migration of default python == python3
-            if installed_packages["python"]["oldname"] == "python3":
+            if installed_packages.get("python", {}).get("oldname") == "python3":
                 installed_packages["python3"] = installed_packages["python"]
             for package in required_packages:
                 if package in installed_packages:
