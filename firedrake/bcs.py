@@ -271,6 +271,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @DirichletBCMixin._ad_annotate_init
     def __init__(self, V, g, sub_domain, method="topological"):
         super().__init__(V, sub_domain, method=method)
+        if len(V) > 1:
+            raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
+                             "Apply to the components by indexing the space with .sub(...)")
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
         # it, we need to remember it so that we can re-interpolate it

@@ -467,7 +467,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
             unroll = any(bc.function_space().component is not None
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
-                               lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+                               lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
             op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
@@ -478,7 +478,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
         unroll = any(bc.function_space().component is not None
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
-                     lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+                     lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
         op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
                      matarg)
 
