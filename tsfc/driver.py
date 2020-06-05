@@ -6,25 +6,22 @@ import sys
 from functools import reduce
 from itertools import chain
 
-from numpy import asarray, allclose, isnan
+from numpy import asarray
 
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
+from ufl.differentiation import ReferenceGrad
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
 
-import FIAT
 from FIAT.reference_element import TensorProductCell
-from FIAT.functional import PointEvaluation
 
-from finat.point_set import PointSet, UnknownPointSet
-from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
-from finat.quadrature_element import QuadratureElement
+from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
 from tsfc.finatinterface import as_fiat_cell
@@ -282,14 +279,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg parameters: parameters object
     :returns: Loopy-based ExpressionKernel object.
     """
-    # Just convert FInAT element to FIAT for now.
-    # Dual evaluation in FInAT will bring a thorough revision.
-    finat_to_element = to_element
-    to_element = finat_to_element.fiat_equivalent
-
-    if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
-        raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
-
     if parameters is None:
         parameters = default_parameters()
     else:
@@ -302,7 +291,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Find out which mapping to apply
     try:
-        mapping, = set(to_element.mapping())
+        mapping, = set((to_element.mapping,))
     except ValueError:
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
     expression = apply_mapping(expression, mapping, domain)
@@ -351,113 +340,12 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
 
-    # A FInAT QuadratureElement with a runtime tabulated UnknownPointSet
-    # point set is the target element on the reference cell for dual evaluation
-    # where the points are specified at runtime. This special casing will not
-    # be necessary when FInAT dual evaluation is done - the dual evaluation
-    # method of every FInAT element will create the necessary gem code.
-    from finat.tensorfiniteelement import TensorFiniteElement
-    runtime_quadrature_rule = (
-        isinstance(finat_to_element, QuadratureElement) or
-        (
-            isinstance(finat_to_element, TensorFiniteElement) and
-            isinstance(finat_to_element.base_element, QuadratureElement)
-        ) and
-        isinstance(finat_to_element._rule.point_set, UnknownPointSet)
-    )
-
-    if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
-        # This is an optimisation for point-evaluation nodes which
-        # should go away once FInAT offers the interface properly
-        config = kernel_cfg.copy()
-        if runtime_quadrature_rule:
-            # Until FInAT dual evaluation is done, FIAT
-            # QuadratureElements with UnknownPointSet point sets
-            # advertise NaNs as their points for each node in the dual
-            # basis. This has to be manually replaced with the real
-            # UnknownPointSet point set used to create the
-            # QuadratureElement rule.
-            point_set = finat_to_element._rule.point_set
-            config.update(point_indices=point_set.indices, point_expr=point_set.expression)
-            context = fem.GemPointContext(**config)
-        else:
-            qpoints = []
-            # Everything is just a point evaluation.
-            for dual in to_element.dual_basis():
-                ptdict = dual.get_point_dict()
-                qpoint, = ptdict.keys()
-                (qweight, component), = ptdict[qpoint]
-                assert allclose(qweight, 1.0)
-                assert component == ()
-                qpoints.append(qpoint)
-            point_set = PointSet(qpoints)
-            config.update(point_set=point_set)
-
-            # Allow interpolation onto QuadratureElements to refer to the quadrature
-            # rule they represent
-            if isinstance(to_element, FIAT.QuadratureElement):
-                assert allclose(asarray(qpoints), asarray(to_element._points))
-                quad_rule = QuadratureRule(point_set, to_element._weights)
-                config["quadrature_rule"] = quad_rule
-
-            context = fem.PointSetContext(**config)
-
-        expr, = fem.compile_ufl(expression, context, point_sum=False)
-        # In some cases point_set.indices may be dropped from expr, but nothing
-        # new should now appear
-        assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
-        shape_indices = tuple(gem.Index() for _ in expr.shape)
-        basis_indices = point_set.indices
-        ir = gem.Indexed(expr, shape_indices)
-    else:
-        # This is general code but is more unrolled than necssary.
-        dual_expressions = []   # one for each functional
-        broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape())
-        shape_indices = tuple(gem.Index() for _ in expression.ufl_shape[:broadcast_shape])
-        expr_cache = {}         # Sharing of evaluation of the expression at points
-        for dual in to_element.dual_basis():
-            pts = tuple(sorted(dual.get_point_dict().keys()))
-            try:
-                expr, point_set = expr_cache[pts]
-            except KeyError:
-                config = kernel_cfg.copy()
-                if runtime_quadrature_rule:
-                    # Until FInAT dual evaluation is done, FIAT
-                    # QuadratureElements with UnknownPointSet point sets
-                    # advertise NaNs as their points for each node in the dual
-                    # basis. This has to be manually replaced with the real
-                    # UnknownPointSet point set used to create the
-                    # QuadratureElement rule.
-                    assert isnan(pts).all()
-                    point_set = finat_to_element._rule.point_set
-                    config.update(point_indices=point_set.indices, point_expr=point_set.expression)
-                    context = fem.GemPointContext(**config)
-                else:
-                    point_set = PointSet(pts)
-                    config.update(point_set=point_set)
-                    context = fem.PointSetContext(**config)
-                expr, = fem.compile_ufl(expression, context, point_sum=False)
-                # In some cases point_set.indices may be dropped from expr, but
-                # nothing new should now appear
-                assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
-                expr = gem.partial_indexed(expr, shape_indices)
-                expr_cache[pts] = expr, point_set
-            weights = collections.defaultdict(list)
-            for p in pts:
-                for (w, cmp) in dual.get_point_dict()[p]:
-                    weights[cmp].append(w)
-            qexprs = gem.Zero()
-            for cmp in sorted(weights):
-                qweights = gem.Literal(weights[cmp])
-                qexpr = gem.Indexed(expr, cmp)
-                qexpr = gem.index_sum(gem.Indexed(qweights, point_set.indices)*qexpr,
-                                      point_set.indices)
-                qexprs = gem.Sum(qexprs, qexpr)
-            assert qexprs.shape == ()
-            assert set(qexprs.free_indices) == set(chain(shape_indices, *argument_multiindices))
-            dual_expressions.append(qexprs)
-        basis_indices = (gem.Index(), )
-        ir = gem.Indexed(gem.ListTensor(dual_expressions), basis_indices)
+    # Use dual evaluation method to get gem tensor with (num_nodes, ) shape.
+    ir_shape = to_element.dual_evaluation(UFLtoGEMCallback(expression, kernel_cfg, complex_mode))
+    broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape)
+    shape_indices = gem.indices(broadcast_shape)
+    basis_indices = tuple(gem.Index(extent=ex) for ex in ir_shape.shape)
+    ir = gem.Indexed(ir_shape, basis_indices)
 
     # Build kernel body
     return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
@@ -475,6 +363,66 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     builder.set_output(return_var)
     # Build kernel tuple
     return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
+
+
+class UFLtoGEMCallback(object):
+    """A callable defined given an UFL expression, returns a GEM expression
+    of the UFL expression evaluated at points. Defined as class to fix
+    for ReferenceGrad of constants having no topological dimension.
+
+    :arg expression: The UFL expression.
+    :arg kernel_cfg: Kernel config for fem.compile_ufl.
+    :arg complex_mode: Determine whether in complex mode.
+    """
+    def __init__(self, expression, kernel_cfg, complex_mode):
+        # UFL expression to turn into GEM
+        self.expression = expression
+
+        # Geometric dimension or topological dimension
+        # For differentiating UFL Zero
+        # Fix for Zero expressions with no dimension
+        # TODO: Fix for topolgical dimension different from geometric
+        try:
+            self.dimension = expression.ufl_domain().topological_dimension()
+        except AttributeError:
+            self.dimension = 0
+
+        # Kernel config for fem.compile_ufl
+        self.kernel_cfg = kernel_cfg
+
+        # Determine whether in complex mode
+        self.complex_mode = complex_mode
+
+    def __call__(self, point_set, derivative=0):
+        '''Wrapper function for converting UFL `expression` into GEM expression.
+
+        :param point_set: FInAT PointSet
+        :param derivative: Maximum order of differentiation
+        '''
+        config = self.kernel_cfg.copy()
+        config.update(point_set=point_set)
+
+        # Using expression directly changes scope
+        dexpression = self.expression
+        for _ in range(derivative):
+            # Hack since UFL derivative of ConstantValue has no dimension
+            if isinstance(dexpression, ufl.constantvalue.Zero):
+                shape = dexpression.ufl_shape
+                free_indices = dexpression.ufl_free_indices
+                index_dimension = self.expression.ufl_index_dimensions
+                dexpression = ufl.constantvalue.Zero(
+                    shape + (self.dimension,), free_indices, index_dimension)
+            else:
+                dexpression = ReferenceGrad(dexpression)
+            dexpression = ufl_utils.preprocess_expression(dexpression, complex_mode=self.complex_mode)
+        # TODO: will need to be fem.GemPointContext in certain cases
+        gem_expr, = fem.compile_ufl(dexpression, fem.PointSetContext(**config), point_sum=False)
+        # In some cases point_set.indices may be dropped from expr, but nothing
+        # new should now appear
+        argument_multiindices = config["argument_multiindices"]
+        assert set(gem_expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
+
+        return gem_expr
 
 
 def lower_integral_type(fiat_cell, integral_type):
