@@ -3531,9 +3531,15 @@ class ParLoop(object):
         with self._parloop_event:
             orig_lgmaps = []
             for arg in self.args:
-                if arg._is_mat and arg.lgmaps is not None:
-                    orig_lgmaps.append(arg.data.handle.getLGMap())
-                    arg.data.handle.setLGMap(*arg.lgmaps)
+                if arg._is_mat:
+                    new_state = {INC: Mat.ADD_VALUES,
+                                 WRITE: Mat.INSERT_VALUES}[arg.access]
+                    for m in arg.data:
+                        m.change_assembly_state(new_state)
+                    arg.data.change_assembly_state(new_state)
+                    if arg.lgmaps is not None:
+                        orig_lgmaps.append(arg.data.handle.getLGMap())
+                        arg.data.handle.setLGMap(*arg.lgmaps)
             self.global_to_local_begin()
             iterset = self.iterset
             arglist = self.arglist
