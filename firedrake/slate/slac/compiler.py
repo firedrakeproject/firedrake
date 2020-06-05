@@ -106,9 +106,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
-    if slate_expr.is_mixed:
-        raise NotImplementedError("Compiling mixed slate expressions")
 
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
