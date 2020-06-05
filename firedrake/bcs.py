@@ -242,6 +242,10 @@ class BCBase(object):
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
+    def extract_forms(self, form_type):
+        # Return boundary condition objects actually used in assembly.
+        raise NotImplementedError("Method to extract form objects not implemented.")
+
 
 class DirichletBC(BCBase, DirichletBCMixin):
     r'''Implementation of a strong Dirichlet boundary condition.
@@ -439,6 +443,10 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def integrals(self):
         return []
 
+    def extract_form(self, form_type):
+        # DirichletBC is directly used in assembly.
+        return self
+
 
 class EquationBC(object):
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
@@ -517,6 +525,16 @@ class EquationBC(object):
     def dirichlet_bcs(self):
         # _F, _J, and _Jp all have the same DirichletBCs
         yield from self._F.dirichlet_bcs()
+
+    def extract_form(self, form_type):
+        r"""Return :class:`.EquationBCSplit` associated with the given 'form_type'.
+
+        :arg form_type: Form to extract; 'F', 'J', or 'Jp'.
+        """
+        if form_type not in {"F", "J", "Jp"}:
+            raise ValueError("Unknown form_type: 'form_type' must be 'F', 'J', or 'Jp'.")
+        else:
+            return getattr(self, f"_{form_type}")
 
     def reconstruct(self, V, subu, u, field):
         _F = self._F.reconstruct(field=field, V=V, subu=subu, u=u)

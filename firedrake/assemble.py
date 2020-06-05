@@ -10,7 +10,7 @@ import ufl
 from firedrake import (assemble_expressions, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
-from firedrake.bcs import DirichletBC, EquationBCSplit
+from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from pyop2 import op2
@@ -200,6 +200,10 @@ def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
     arguments = expr.arguments()
     if bcs is None:
         bcs = ()
+    else:
+        if any(isinstance(bc, EquationBC) for bc in bcs):
+            raise TypeError("EquationBC objects not expected here. "
+                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
     if tensor is not None and tensor.a.arguments() != arguments:
         raise ValueError("Form's arguments do not match provided result tensor")
     if matfree:
@@ -425,9 +429,6 @@ def apply_bcs(tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
     """
     dirichletbcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
     equationbcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
-    if any(not isinstance(bc, (DirichletBC, EquationBCSplit)) for bc in bcs):
-        raise NotImplementedError("Unhandled type of bc object")
-
     if assembly_rank == AssemblyRank.MATRIX:
         op2tensor = tensor.M
         shape = tuple(len(a.function_space()) for a in tensor.a.arguments())
@@ -473,7 +474,10 @@ def apply_bcs(tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
                     yield functools.partial(bc.apply, tensor)
             else:
                 yield functools.partial(bc.zero, tensor)
-        for bc in equationbcs:
+
+        extracted_bcs = (bc.extract_form("F") for bc in bcs
+                         if isinstance(bc, EquationBC))
+        for bc in chain(equationbcs, extracted_bcs):
             if diagonal:
                 raise NotImplementedError("diagonal assembly and EquationBC not supported")
             yield functools.partial(bc.zero, tensor)
