@@ -788,6 +788,7 @@ class Mat(base.Mat):
         blocks in matrices."""
         # One of the path entries was not an Arg.
         if path == (None, None):
+            lgmaps, = lgmaps
             assert all(l is None for l in lgmaps)
             return _make_object('Arg',
                                 data=self.handle.getPythonContext().global_,

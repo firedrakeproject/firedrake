@@ -124,7 +124,7 @@ class Arg(object):
         :param map:  A :class:`Map` to access this :class:`Arg` or the default
                      if the identity map is to be used.
         :param access: An access descriptor of type :class:`Access`
-        :param lgmaps: For :class:`Mat` objects, a 2-tuple of local to
+        :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
             global maps used during assembly.
 
         Checks that:
@@ -148,6 +148,7 @@ class Arg(object):
         self.lgmaps = None
         if self._is_mat and lgmaps is not None:
             self.lgmaps = as_tuple(lgmaps)
+            assert len(self.lgmaps) == self.data.nblocks
         else:
             if lgmaps is not None:
                 raise ValueError("Local to global maps only for matrices")
@@ -3138,6 +3139,10 @@ class Mat(DataCarrier):
             "Abstract Mat base class doesn't know how to set values.")
 
     @cached_property
+    def nblocks(self):
+        return int(np.prod(self.sparsity.shape))
+
+    @cached_property
     def _argtypes_(self):
         """Ctypes argtype for this :class:`Mat`"""
         return tuple(ctypes.c_voidp for _ in self)
@@ -3537,9 +3542,17 @@ class ParLoop(object):
                     for m in arg.data:
                         m.change_assembly_state(new_state)
                     arg.data.change_assembly_state(new_state)
+                    # Boundary conditions applied to the matrix appear
+                    # as modified lgmaps on the Arg. We set them onto
+                    # the matrix so things are correctly dropped in
+                    # insertion, and then restore the original lgmaps
+                    # afterwards.
                     if arg.lgmaps is not None:
-                        orig_lgmaps.append(arg.data.handle.getLGMap())
-                        arg.data.handle.setLGMap(*arg.lgmaps)
+                        olgmaps = []
+                        for m, lgmaps in zip(arg.data, arg.lgmaps):
+                            olgmaps.append(m.handle.getLGMap())
+                            m.handle.setLGMap(*lgmaps)
+                        orig_lgmaps.append(olgmaps)
             self.global_to_local_begin()
             iterset = self.iterset
             arglist = self.arglist
@@ -3556,7 +3569,8 @@ class ParLoop(object):
             self.update_arg_data_state()
             for arg in reversed(self.args):
                 if arg._is_mat and arg.lgmaps is not None:
-                    arg.data.handle.setLGMap(*orig_lgmaps.pop())
+                    for m, lgmaps in zip(arg.data, orig_lgmaps.pop()):
+                        m.handle.setLGMap(*lgmaps)
             self.reduction_end()
             self.local_to_global_end()
 
