@@ -256,38 +256,45 @@ def get_matrix(form, mat_type, sub_mat_type, *, bcs=None,
     return tensor, (), lambda: tensor
 
 
+def collect_lgmaps(tensor, all_bcs, Vrow, Vcol, row, col):
+    if len(Vrow) > 1:
+        bcrow = tuple(bc for bc in all_bcs
+                      if bc.function_space_index() == row)
+    else:
+        bcrow = all_bcs
+    if len(Vcol) > 1:
+        bccol = tuple(bc for bc in all_bcs
+                      if bc.function_space_index() == col
+                      and isinstance(bc, DirichletBC))
+    else:
+        bccol = tuple(bc for bc in all_bcs
+                      if isinstance(bc, DirichletBC))
+    rlgmap, clgmap = tensor.M[row, col].local_to_global_maps
+    rlgmap = Vrow[row].local_to_global_map(bcrow, lgmap=rlgmap)
+    clgmap = Vcol[col].local_to_global_map(bccol, lgmap=clgmap)
+    unroll = any(bc.function_space().component is not None
+                 for bc in chain(bcrow, bccol))
+    return (rlgmap, clgmap), unroll
+
+
 def matrix_arg(access, get_map, row, col, *,
                all_bcs=(), tensor=None, Vrow=None, Vcol=None):
     if row is None and col is None:
         maprow = get_map(Vrow)
         mapcol = get_map(Vcol)
-        if len(all_bcs) > 0:
-            raise NotImplementedError("Sorry")
-        return tensor.M(access, (maprow, mapcol), lgmaps=None,
-                        unroll_map=False)
+        lgmaps, unroll = zip(*(collect_lgmaps(tensor, all_bcs,
+                                              Vrow, Vcol, i, j)
+                               for i, j in numpy.ndindex(tensor.block_shape)))
+        return tensor.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
+                        unroll_map=any(unroll))
     else:
         assert row is not None and col is not None
-        if len(Vrow) > 1:
-            bcrow = tuple(bc for bc in all_bcs
-                          if bc.function_space_index() == row)
-        else:
-            bcrow = all_bcs
-        if len(Vcol) > 1:
-            bccol = tuple(bc for bc in all_bcs
-                          if bc.function_space_index() == col
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in all_bcs
-                          if isinstance(bc, DirichletBC))
         maprow = get_map(Vrow[row])
         mapcol = get_map(Vcol[col])
-        rlgmap, clgmap = tensor.M[row, col].local_to_global_maps
-        rlgmap = Vrow[row].local_to_global_map(bcrow, lgmap=rlgmap)
-        clgmap = Vcol[col].local_to_global_map(bccol, lgmap=clgmap)
-        unroll = any(bc.function_space().component is not None
-                     for bc in chain(bcrow, bccol))
-        return tensor.M[row, col](access, (maprow, mapcol),
-                                  lgmaps=(rlgmap, clgmap), unroll_map=unroll)
+        lgmaps, unroll = collect_lgmaps(tensor, all_bcs,
+                                        Vrow, Vcol, row, col)
+        return tensor.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
+                                  unroll_map=unroll)
 
 
 def get_vector(argument, *, tensor=None):
