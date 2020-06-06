@@ -518,6 +518,10 @@ class MatBlock(base.Mat):
     def _kernel_args_(self):
         return (self.handle.handle, )
 
+    @utils.cached_property
+    def _wrapper_cache_key_(self):
+        return (type(self._parent), self._parent.dtype, self.dims)
+
     @property
     def assembly_state(self):
         # Track our assembly state only
