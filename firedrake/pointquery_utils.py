@@ -189,8 +189,7 @@ struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
 };
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int
-*return_value, %(ScalarType)s *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
@@ -225,7 +224,7 @@ static inline void wrap_to_reference_coords(
 
 int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
-    int return_value;
+    int return_value = 0;
     %(extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, f->coords, f->coords_map);
     return return_value;
 }
