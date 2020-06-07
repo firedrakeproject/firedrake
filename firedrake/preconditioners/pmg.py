@@ -1,9 +1,11 @@
 from functools import partial
 from itertools import chain
+import numpy as np
 
 from ufl import MixedElement, VectorElement, TensorElement, replace
 
 from pyop2 import op2
+import loopy
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -98,6 +100,7 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
+        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -199,6 +202,7 @@ class PMGPC(PCBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -212,9 +216,6 @@ class PMGPC(PCBase):
         return cdm
 
     def create_interpolation(self, dmc, dmf):
-        # This should be generalised to work for arbitrary function
-        # spaces. Currently I think it only works for CG/DG on simplices.
-        # I used the same code as firedrake.P1PC.
         cctx = get_appctx(dmc)
         fctx = get_appctx(dmf)
 
@@ -224,7 +225,16 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        I = prolongation_matrix(fV, cV, fbcs, cbcs)
+        prefix = dmc.getOptionsPrefix()
+        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+
+        if mattype == "matfree":
+            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
+        elif mattype == "aij":
+            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
+        else:
+            raise ValueError("Unknown matrix type")
+
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
@@ -235,7 +245,7 @@ class PMGPC(PCBase):
         self.ppc.view(viewer)
 
 
-def prolongation_transfer_kernel(Pk, P1):
+def prolongation_transfer_kernel_aij(Pk, P1):
     # Works for Pk, Pm; I just retain the notation
     # P1 to remind you that P1 is of lower degree
     # than Pk
@@ -252,7 +262,192 @@ def prolongation_transfer_kernel(Pk, P1):
     return kernel
 
 
-def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
+class StandaloneInterpolationMatrix(object):
+    """
+    Interpolation matrix for a single standalone space.
+    """
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+        self.Vf = Vf
+        self.Vc = Vc
+        self.Vf_bcs = Vf_bcs
+        self.Vc_bcs = Vc_bcs
+
+        self.uc = firedrake.Function(Vc)
+        self.uf = firedrake.Function(Vf)
+        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+
+        matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
+        dimc = Vc.finat_element.space_dimension() * Vc.value_size
+        dimf = Vf.finat_element.space_dimension() * Vf.value_size
+        self.restrict_code = f"""
+{element_kernel}
+
+
+void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
+{{
+    double Afc[{dimf}*{dimc}] = {{0}};
+    expression_kernel(Afc);
+    for (int32_t i = 0; i < {dimf}; i++)
+       for (int32_t j = 0; j < {dimc}; j++)
+           Rc[j] += Afc[i*{dimc} + j] * Rf[i] / w[i];
+}}
+"""
+
+        self.restrict_kernel = op2.Kernel(self.restrict_code, "restriction")
+        self.mesh = Vf.mesh()
+
+        # Lawrence's magic code for calculating dof multiplicities
+        shapes = (Vf.finat_element.space_dimension(),
+                  np.prod(Vf.shape))
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        self.weight = firedrake.Function(Vf)
+        firedrake.par_loop((domain, instructions), firedrake.dx, {"w": (self.weight, op2.INC)},
+                           is_loopy_kernel=True)
+
+    @staticmethod
+    def prolongation_transfer_kernel_action(Vf, uc):
+        from tsfc import compile_expression_dual_evaluation
+        from tsfc.fiatinterface import create_element
+
+        expr = uc
+        coords = Vf.ufl_domain().coordinates
+        to_element = create_element(Vf.ufl_element(), vector_is_mixed=False)
+
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
+        kernel = op2.Kernel(ast, ast.name)
+        return kernel
+
+    def mult(self, mat, resf, resc):
+        """
+        Implement restriction: restrict residual on fine grid resf to coarse grid resc.
+        """
+
+        with self.uf.dat.vec_wo as xf:
+            resf.copy(xf)
+
+        with self.uc.dat.vec_wo as xc:
+            xc.set(0)
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
+        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.INC, self.uc.cell_node_map()),
+                     self.uf.dat(op2.READ, self.uf.cell_node_map()),
+                     self.weight.dat(op2.READ, self.weight.cell_node_map()))
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(resc)
+
+    def multTranspose(self, mat, xc, xf, inc=False):
+        """
+        Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
+        """
+
+        with self.uc.dat.vec_wo as xc_:
+            xc.copy(xc_)
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
+                     self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
+                     self.uc.dat(op2.READ, self.Vc.cell_node_map()))
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
+        with self.uf.dat.vec_ro as xf_:
+            if inc:
+                xf.axpy(1.0, xf_)
+            else:
+                xf_.copy(xf)
+
+    def multTransposeAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.multTranspose(mat, x, w, inc=True)
+        else:
+            self.multTranspose(mat, x, w)
+            w.axpy(1.0, y)
+
+
+class MixedInterpolationMatrix(object):
+    """
+    Interpolation matrix for a single standalone space.
+    """
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+        self.Vf = Vf
+        self.Vc = Vc
+        self.Vf_bcs = Vf_bcs
+        self.Vc_bcs = Vc_bcs
+
+        self.standalones = []
+        for (i, (Vf_sub, Vc_sub)) in enumerate(zip(Vf, Vc)):
+            Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
+            Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
+            standalone = StandaloneInterpolationMatrix(Vf_sub, Vc_sub, Vf_sub_bcs, Vc_sub_bcs)
+            self.standalones.append(standalone)
+
+        self.uc = firedrake.Function(Vc)
+        self.uf = firedrake.Function(Vf)
+        self.mesh = Vf.mesh()
+
+    def mult(self, mat, resf, resc):
+
+        with self.uf.dat.vec_wo as xf:
+            resf.copy(xf)
+
+        with self.uc.dat.vec_wo as xc:
+            xc.set(0)
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
+        for (i, standalone) in enumerate(self.standalones):
+            op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
+                         self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
+                         self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()),
+                         standalone.weight.dat(op2.READ, standalone.weight.cell_node_map()))
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(resc)
+
+    def multTranspose(self, mat, xc, xf, inc=False):
+
+        with self.uc.dat.vec_wo as xc_:
+            xc.copy(xc_)
+
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
+
+        for (i, standalone) in enumerate(self.standalones):
+            op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
+                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
+                         self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
+
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
+        with self.uf.dat.vec_ro as xf_:
+            if inc:
+                xf.axpy(1.0, xf_)
+            else:
+                xf_.copy(xf)
+
+    def multTransposeAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.multTranspose(mat, x, w, inc=True)
+        else:
+            self.multTranspose(mat, x, w)
+            w.axpy(1.0, y)
+
+
+def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -273,7 +468,7 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel(Pk.sub(i), P1.sub(i)), mesh.cell_set,
+            op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
     else:
@@ -284,8 +479,22 @@ def prolongation_matrix(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=(rlgmap, clgmap), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel(Pk, P1), mesh.cell_set,
+        op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
                      matarg)
 
     mat.assemble()
     return mat.handle
+
+
+def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
+    fele = Vf.ufl_element()
+    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
+        ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+    else:
+        ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+
+    sizes = (Vc.dof_dset.layout_vec.getSizes(), Vf.dof_dset.layout_vec.getSizes())
+    M_shll = PETSc.Mat().createPython(sizes, ctx)
+    M_shll.setUp()
+
+    return M_shll

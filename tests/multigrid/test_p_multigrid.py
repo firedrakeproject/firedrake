@@ -15,7 +15,12 @@ def mesh(request):
     return mesh
 
 
-def test_p_multigrid_scalar(mesh):
+@pytest.fixture(params=["matfree", "aij"], scope="module")
+def mat_type(request):
+    return request.param
+
+
+def test_p_multigrid_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)
@@ -39,6 +44,7 @@ def test_p_multigrid_scalar(mesh):
           "pc_python_type": "firedrake.PMGPC",
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
+          "pmg_mg_levels_transfer_mat_type": mat_type,
           "pmg_mg_coarse_ksp_type": "richardson",
           "pmg_mg_coarse_ksp_max_it": 1,
           "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",

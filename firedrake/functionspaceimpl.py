@@ -463,10 +463,10 @@ class FunctionSpace(object):
         See also :attr:`dof_count` and :attr:`node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
+        return op2.Dat(self.dof_dset, val, valuetype, name)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.Map` from cels to
@@ -690,14 +690,14 @@ class MixedFunctionSpace(object):
         If BCs is provided, mask out those dofs which match the BC nodes."""
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
+        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
@@ -865,7 +865,7 @@ class RealFunctionSpace(FunctionSpace):
         dmhooks.set_function_space(dm, self)
         return dm
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self.comm)
