@@ -2,7 +2,7 @@
 
 import numpy
 from firedrake.petsc import PETSc
-from pyop2.datatypes import IntType, ScalarType, RealType
+from firedrake.utils import IntType, ScalarType, RealType
 
 cimport numpy
 cimport petsc4py.PETSc as PETSc

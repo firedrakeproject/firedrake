@@ -5,7 +5,7 @@ import cython
 import numpy as np
 from firedrake.cython import dmplex
 from firedrake.petsc import PETSc
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc

@@ -10,7 +10,7 @@ import enum
 import numbers
 
 from mpi4py import MPI
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm

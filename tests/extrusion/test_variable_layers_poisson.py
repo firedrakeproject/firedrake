@@ -1,6 +1,6 @@
 from firedrake import *
 import numpy
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_poisson_variable_layers():

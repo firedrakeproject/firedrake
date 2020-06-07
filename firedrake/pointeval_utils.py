@@ -1,5 +1,5 @@
 
-from pyop2.datatypes import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr
 
 from coffee import base as ast
 

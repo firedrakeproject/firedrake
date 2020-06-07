@@ -11,11 +11,10 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.mg.utils as utils
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, ScalarType
 import ufl
 from ufl import inner, dx
 import numpy
-from pyop2.datatypes import ScalarType
 from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF

@@ -4,7 +4,7 @@ import numpy
 import islpy as isl
 
 from pyop2 import op2
-from pyop2.datatypes import IntType, RealType, ScalarType
+from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
 

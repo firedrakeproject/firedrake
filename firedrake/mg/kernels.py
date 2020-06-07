@@ -2,10 +2,9 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType_c, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
-from firedrake.utils import complex_mode
 from firedrake.mg import utils
 
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
@@ -30,7 +29,6 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
-from firedrake.utils import ScalarType_c, ScalarType
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):

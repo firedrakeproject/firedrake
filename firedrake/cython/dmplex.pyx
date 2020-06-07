@@ -5,7 +5,7 @@ import cython
 import numpy as np
 from firedrake.petsc import PETSc
 from mpi4py import MPI
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 

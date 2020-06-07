@@ -3,7 +3,7 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType, RealType
+from firedrake.utils import IntType, RealType
 
 from firedrake import (VectorFunctionSpace, Function, Constant,
                        par_loop, dx, WRITE, READ, interpolate, mesh, function,

@@ -20,7 +20,7 @@ from decorator import decorator
 from functools import partial
 
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum

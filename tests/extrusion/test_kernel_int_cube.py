@@ -1,6 +1,6 @@
 import numpy as np
 from firedrake import *
-from pyop2.datatypes import RealType
+from firedrake.utils import RealType
 
 
 def integrate_unit_cube(family, degree):

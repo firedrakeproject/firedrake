@@ -2,7 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_disconnected():

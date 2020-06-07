@@ -1,5 +1,5 @@
 from firedrake import *
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 import pytest
 import numpy
 

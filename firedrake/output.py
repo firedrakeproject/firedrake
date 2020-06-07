@@ -6,7 +6,7 @@ import ufl
 import weakref
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\

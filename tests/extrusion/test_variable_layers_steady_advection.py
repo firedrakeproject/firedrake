@@ -1,6 +1,6 @@
 from firedrake import *
 import numpy
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_steady_advection_variable_layers():

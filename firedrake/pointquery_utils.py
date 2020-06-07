@@ -3,7 +3,8 @@ import numpy
 import sympy
 
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
+
 from pyop2.sequential import generate_single_cell_wrapper
 
 import ufl
@@ -15,8 +16,6 @@ import gem.impero_utils as impero_utils
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
-
-from firedrake.utils import ScalarType, ScalarType_c, complex_mode
 
 from coffee.base import ArrayInit
 
