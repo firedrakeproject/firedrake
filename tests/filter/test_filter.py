@@ -261,8 +261,8 @@ def test_filter_stokes():
     f = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
                                             sin(theta) * x + cos(theta) * y]))
     mesh.coordinates.assign(f)
-    normal = Constant([-sin(theta), cos(theta)])
-    tangent = Constant([cos(theta), sin(theta)])
+    xprime = Constant([cos(theta), sin(theta)])
+    yprime = Constant([-sin(theta), cos(theta)])
 
     r = -sin(theta) * x + cos(theta) * y
     gbar = get_gbar(r)
@@ -294,16 +294,16 @@ def test_filter_stokes():
     # not used; use DirichletBC
 
     # Define form
-    ubar1t = dot(ubar1, tangent) * tangent
-    vbar1t = dot(vbar1, tangent) * tangent
+    ubar1t = dot(ubar1, xprime) * xprime
+    vbar1t = dot(vbar1, xprime) * xprime
     # Unsymmetrised form
     # a0 = (nu * inner(grad(ubar), grad(vbar0)) - p * div(vbar0) - div(ubar) * q0) * dx
-    # a1 = (nu * inner(grad(ubar), grad(vbar1t)) - p * div(vbar1t) - div(ubar) * q1) * dx + dot(ubar, normal) * dot(vbar1, normal) * ds
+    # a1 = (nu * inner(grad(ubar), grad(vbar1t)) - p * div(vbar1t) - div(ubar) * q1) * dx + dot(ubar, yprime) * dot(vbar1, yprime) * ds
     # Symmetrised form
     #a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - (p0 + p1) * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
-    #a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - (p0 + p1) * div(vbar1t) - div(ubar0 + ubar1t) * q1) * dx + dot(ubar1, normal) * dot(vbar1, normal) * ds
+    #a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - (p0 + p1) * div(vbar1t) - div(ubar0 + ubar1t) * q1) * dx + dot(ubar1, yprime) * dot(vbar1, yprime) * ds
     a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - p0 * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
-    a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - p0 * div(vbar1t)) * dx + dot(ubar1, normal) * dot(vbar1, normal) * ds
+    a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - p0 * div(vbar1t)) * dx + dot(ubar1, yprime) * dot(vbar1, yprime) * ds
     a = a0 + a1
     L = inner(Constant((0, 0)), vbar0) * dx
     wh1 = Function(W)
@@ -501,13 +501,13 @@ def test_filter_stokes3():
                                             sin(theta_rot) * x + cos(theta_rot) * y]))
     mesh.coordinates.assign(f)
 
-    xprime = cos(theta_rot) * x + sin(theta_rot) * y
     r = -sin(theta_rot) * x + cos(theta_rot) * y
     gbar = get_gbar(r)
     value = as_vector([cos(theta_rot) * gbar, sin(theta_rot) * gbar])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
     
     # Define filters
+    xprime = cos(theta_rot) * x + sin(theta_rot) * y
     theta = pi / 2 * xprime / 1.5
     subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
