@@ -557,7 +557,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             coords = mm.coordinates
             jmesh = coords.function_space().mesh().topology
             jdim = jmesh._plex.getDimension()
-            m_ = op2.ComposedMap([get_map(coords), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+            m_ = op2.ComposedMap([get_map(coords), ] + jmesh.submesh_component_maps(m.topology, jdim))
             args.append(coords.dat(op2.READ, m_))
         if needs_orientations:
             o = m.cell_orientations()
@@ -583,7 +583,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     jmesh = c_.function_space().mesh().topology
                     jdim = jmesh._plex.getDimension()
                     if get_map(c_):
-                        m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_get_entity_map_list(m.topology, jdim))
+                        m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_component_maps(m.topology, jdim))
                     else:
                         # RealFunctionSpace has no map.
                         m_ = get_map(c_)

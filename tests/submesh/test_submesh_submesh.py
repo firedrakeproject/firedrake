@@ -13,8 +13,7 @@ import ufl
 
 
 @pytest.mark.parallel
-def test_submesh_submesh():
-
+def test_submesh_submesh_mark_subdomain():
     # manually mark facets 1, 2, 3, 4 and compare
     # with the default label
 
@@ -51,9 +50,21 @@ def test_submesh_submesh():
         assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
 
 
-def test_submesh_submesh_check_cell_closure_order():
+@pytest.mark.parallel
+@pytest.mark.parametrize("quadrilateral", [True, False])
+def test_submesh_submesh_cell_closure_order(quadrilateral):
+    # Check that the following diagram commutes:
+    # 
+    #                          cell_numbering
+    #            plex   c   ------------------->  c_      cell_closure[c_, :]
+    #                   ^                                      ^
+    #       subpointMap |                                      | subpointMap
+    #                   |     subcell_numbering                |
+    #          subplex subc -------------------> subc_ subcell_closure[subc_, :]
+    #
+    # Confirmed to work in parallel with comm size = 1,2,3,5,7,11,13,17.
 
-    msh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
+    msh = RectangleMesh(4, 2, 2., 1., quadrilateral=quadrilateral)
     msh.init()
 
     x0, y0 = SpatialCoordinate(msh)

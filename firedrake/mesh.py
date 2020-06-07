@@ -859,8 +859,9 @@ class MeshTopology(object):
 
           :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
         """
+self.interior_facets.set
         if self.submesh_parent is None:
-            raise RuntimeError("`submesh_sub_super_map` must not be called if submesh_parent is None")
+            raise RuntimeError("Must have a submesh_parent.")
         #TODO: generalize for facet_set etc..
         return op2.Map(self.cell_set, self.submesh_parent.cell_set, 1,
                        dmplex.submesh_create_sub_super_map(self, dim),
@@ -888,7 +889,8 @@ class MeshTopology(object):
                        super_sub_map,
                        "super_to_sub_map")
 
-    def submesh_get_entity_map_list(self, other, dim):
+    #@utils.cached_property
+    def submesh_component_maps(self, other, dim):
         """Return a list of :class:`pyop2.Map`s to map indices from submesh to mesh
 
           :arg other: The other mesh.
@@ -913,7 +915,7 @@ class MeshTopology(object):
             if len(self_parents) == 0 or len(other_parents) == 0:
                 break
         #if self.submesh_get_depth() < other.submesh_get_depth():
-        #    return self.submesh_get_entity_map_list(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
+        #    return self.submesh_component_maps(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
         #else:
         #    return []
         map_list = []

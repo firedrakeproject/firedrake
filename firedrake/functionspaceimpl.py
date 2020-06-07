@@ -286,7 +286,7 @@ def _sparsity_map(self, trial, i, j, domain_type):
         if test_map.split[i] is None:
             rm = None
         else:
-            #rm = op2.ComposedMap([test_map.split[i], ] + imesh.submesh_get_entity_map_list(jmesh, idim))
+            #rm = op2.ComposedMap([test_map.split[i], ] + imesh.submesh_component_maps(jmesh, idim))
             rm = op2.ComposedMap([test_map.split[i], ])
     if trial_map is None:
         cm = None
@@ -294,7 +294,7 @@ def _sparsity_map(self, trial, i, j, domain_type):
         if trial_map.split[j] is None:
             cm = None
         else:
-            cm = op2.ComposedMap([trial_map.split[j], ] + jmesh.submesh_get_entity_map_list(imesh, jdim))
+            cm = op2.ComposedMap([trial_map.split[j], ] + jmesh.submesh_component_maps(imesh, jdim))
 
     return self._sparsity_maps.setdefault((trial, i, j, domain_type), (rm, cm))
 
