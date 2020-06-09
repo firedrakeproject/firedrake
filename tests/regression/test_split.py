@@ -58,3 +58,20 @@ def test_split_function_derivative():
     expect = assemble(2*TestFunction(V)*TrialFunction(V)*dx)
 
     assert np.allclose(actual.M.values, expect.M.values)
+
+
+def test_assemble_split_mixed_derivative():
+    """Assemble the derivative of a form wrt part of mixed function."""
+    mesh = UnitSquareMesh(1, 1)
+    V1 = FunctionSpace(mesh, "P", 1)
+    W = V1 * V1
+
+    x = Function(W)
+    u, p = split(x)
+    v, q = TestFunctions(W)
+
+    I = inner(grad(u), grad(u))*dx
+    F = derivative(I, u, v)
+    J = derivative(F, u, TrialFunctions(W)[0])
+
+    assert assemble(F) and assemble(J)
