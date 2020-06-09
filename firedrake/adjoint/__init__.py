@@ -1,7 +1,3 @@
-from firedrake.utils import complex_mode
-if complex_mode:
-    raise NotImplementedError("Sorry, firedrake_adjoint doesn't work yet in complex mode "
-                              "please get in touch if you need this!")
 from firedrake.adjoint.function import *               # noqa: F401
 from firedrake.adjoint.assembly import *               # noqa: F401
 from firedrake.adjoint.projection import *             # noqa: F401
