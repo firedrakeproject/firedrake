@@ -1,3 +1,4 @@
+from functools import wraps
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
@@ -9,6 +10,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self, *args,
                                   block_class=kwargs.pop("block_class", None),
@@ -22,7 +24,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_project(project):
-
+        @wraps(project)
         def wrapper(self, b, *args, **kwargs):
 
             annotate = annotate_tape(kwargs)
@@ -44,7 +46,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_split(split):
-
+        @wraps(split)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             with stop_annotating():
@@ -65,7 +67,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_copy(copy):
-
+        @wraps(copy)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             func = copy(self, *args, **kwargs)
@@ -86,7 +88,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_assign(assign):
-
+        @wraps(assign)
         def wrapper(self, other, *args, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""

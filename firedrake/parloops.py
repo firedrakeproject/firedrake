@@ -14,6 +14,12 @@ import coffee.base as ast
 from firedrake.logging import warning
 from firedrake import constant
 from firedrake.utils import ScalarType_c
+try:
+    from cachetools import LRUCache
+    kernel_cache = LRUCache(maxsize=128)
+except ImportError:
+    warning("cachetools not available, firedrake.par_loop calls will be slowed down")
+    kernel_cache = None
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -103,11 +109,21 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
-    kargs.append(...)
-    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
-
-    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+    try:
+        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        if kernel_cache is not None:
+            return kernel_cache[key]
+        else:
+            raise KeyError("No cache")
+    except KeyError:
+        kargs.append(...)
+        knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
+                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
+        knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+        if kernel_cache is not None:
+            return kernel_cache.setdefault(key, knl)
+        else:
+            return knl
 
 
 def _form_string_kernel(body, measure, args, **kwargs):

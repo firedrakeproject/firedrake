@@ -59,7 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Coefficient.__init__(self, function_space.ufl_element())
+        ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -74,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             assert val.comm == self.comm
             self.dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
+            self.dat = function_space.make_dat(val, dtype, self.name())
 
     @utils.cached_property
     def topological(self):
@@ -282,7 +282,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        return getattr(self._data, name)
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Function, self).__dir__()
@@ -371,9 +373,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif (isinstance(expr, Function)
+              and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
             return self
 

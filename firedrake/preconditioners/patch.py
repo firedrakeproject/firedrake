@@ -5,6 +5,8 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+from firedrake.functionspace import FunctionSpace
+from firedrake.interpolation import interpolate
 
 from collections import namedtuple
 import operator
@@ -13,6 +15,7 @@ from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+import weakref
 
 import ctypes
 from pyop2 import op2
@@ -567,18 +570,45 @@ def select_entity(p, dm=None, exclude=None):
 
 class PlaneSmoother(object):
     @staticmethod
-    def coords(dm, p):
-        coordsSection = dm.getCoordinateSection()
-        coordsDM = dm.getCoordinateDM()
-        dim = coordsDM.getDimension()
-        coordsVec = dm.getCoordinatesLocal()
-        return dm.getVecClosure(coordsSection, coordsVec, p).reshape(-1, dim).mean(axis=0)
+    def coords(dm, p, coordinates):
+        coordinatesV = coordinates.function_space()
+        data = coordinates.dat.data_ro_with_halos
+        coordinatesDM = coordinatesV.dm
+        coordinatesSection = coordinatesDM.getDefaultSection()
+
+        closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordinatesSection.getDof(x) > 0]
+
+        gdim = data.shape[1]
+        bary = numpy.zeros(gdim)
+        for p_ in closure_of_p:
+            (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
+            bary += data[offset:offset+dof].reshape(gdim)
+        bary /= len(closure_of_p)
+        return bary
 
     def sort_entities(self, dm, axis, dir, ndiv):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+
+        mesh = dm.getAttr("__firedrake_mesh__")
+        ele = mesh.coordinates.function_space().ufl_element()
+        V = mesh.coordinates.function_space()
+        if V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs():
+            # We're using DG or DQ for our coordinates, so we got
+            # a periodic mesh. We need to interpolate to CGk
+            # with access descriptor MAX to define a consistent opinion
+            # about where the vertices are.
+            CGkele = ele.reconstruct(family="Lagrange")
+            # Need to supply the actual mesh to the FunctionSpace constructor,
+            # not its weakref proxy (the variable `mesh`)
+            # as interpolation fails because they are not hashable
+            CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
+            coordinates = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+        else:
+            coordinates = mesh.coordinates
+
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
-        entities = [(p, self.coords(dm, p)) for p in
+        entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
         minx = min(entities, key=lambda z: z[1][axis])[1][axis]
@@ -658,6 +688,11 @@ class PatchBase(PCSNESBase):
 
         mesh = J.ufl_domain()
         self.plex = mesh._plex
+        # We need to attach the mesh to the plex, so that
+        # PlaneSmoothers (and any other user-customised patch
+        # constructors) can use firedrake's opinion of what
+        # the coordinates are, rather than plex's.
+        self.plex.setAttr("__firedrake_mesh__", weakref.proxy(mesh))
         self.ctx = ctx
 
         if mesh.cell_set._extruded:
@@ -782,6 +817,14 @@ class PatchBase(PCSNESBase):
         patch.setFromOptions()
         patch.setUp()
         self.patch = patch
+
+    def destroy(self, obj):
+        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
+        d = self.plex.getDict()
+        try:
+            del d["__firedrake_mesh__"]
+        except KeyError:
+            pass
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()

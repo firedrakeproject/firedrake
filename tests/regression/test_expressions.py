@@ -161,20 +161,15 @@ scalar_tests = common_tests + [
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [
-    'exprtest(one[0] + one[1], (1, 1))',
-    'exprtest(one[1] + two[0], (2, 1))',
-    'exprtest(one[0] - one[1], (1, -1))',
-    'exprtest(one[1] - two[0], (-2, 1))',
-    'assigntest(f, one[0], (1, 0))',
-    'assigntest(f, one[1], (0, 1))',
-    'assigntest(two, one[0], (1, 0))',
-    'assigntest(two, one[1], (0, 1))',
-    'assigntest(two, one[0] + two[0], (3, 0))',
-    'assigntest(two, two[1] - one[1], (0, 1))',
-    'assigntest(f, one[0] + two[1], (1, 2))',
-    'iaddtest(one, one[0], (2, 1))',
-    'iaddtest(one, one[1], (1, 2))',
-    'assigntest(f, 2 * two[1] + 2 * minusthree[0], (-6, 4))']
+    'assigntest(f, one.sub(0), (1, 0))',
+    'assigntest(f, one.sub(1), (0, 1))',
+    'assigntest(two, one.sub(0), (1, 2))',
+    'assigntest(two, one.sub(1), (2, 1))',
+    'assigntest(two, one.sub(0) + two.sub(0), (3, 2))',
+    'assigntest(two, two.sub(1) - one.sub(1), (2, 1))',
+    'iaddtest(one, one.sub(0), (2, 1))',
+    'iaddtest(one, one.sub(1), (1, 2))',
+]
 
 indexed_fs_tests = [
     'assigntest(f, one, (1, 0))',
@@ -215,12 +210,36 @@ def test_mixed_expressions_indexed_fs(expr, msfunctions):
     assert eval(expr)
 
 
+def test_iadd_combination(sfs):
+    f = Function(sfs)
+    g = Function(sfs)
+    t = Constant(2)
+    g.assign(1)
+    f.assign(2)
+    f += t*g
+    assert np.allclose(f.dat.data_ro, 2 + 2)
+
+
 def test_different_fs_asign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
     f1, f2 = fs_combinations
     with pytest.raises(ValueError):
         f1.assign(f2)
+
+
+def test_assign_mfs_lincomp(mfs):
+    f = Function(mfs)
+    f.assign(1)
+    g = Function(mfs)
+    g.assign(2)
+    h = Function(mfs)
+    h.assign(3)
+    c = Constant(2)
+    d = Constant(4)
+    f.assign(f + c*g + d*h)
+    for f_ in f.dat.data_ro:
+        assert np.allclose(f_, 1 + 2*2 + 3 * 4)
 
 
 def test_asign_to_nonindexed_subspace_fails(mfs):
@@ -252,37 +271,6 @@ def test_assign_mixed_no_zero(mfs):
         assert np.allclose(v.dat.data_ro, 2.0)
 
 
-def test_assign_vector_const_to_mfs_scalar_vector(cg1, vcg1):
-    W = cg1*vcg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    s, v = w.split()
-
-    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
-    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:])
-
-
-def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
-    W = cg1*vcg1*vcg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    s, v, v2 = w.split()
-
-    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
-    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:3])
-    assert np.allclose(v2.dat.data_ro, c.dat.data_ro[3:])
-
-
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
@@ -299,19 +287,6 @@ def test_assign_scalar_const_to_vfs(vcg1):
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
-
-
-def test_assign_vector_const_to_mfs_scalars(cg1):
-    W = cg1*cg1*cg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    for i, w_ in enumerate(w.split()):
-        assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
 
 
 def test_assign_to_mfs_sub(cg1, vcg1):
@@ -405,22 +380,9 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
-@pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
+@pytest.mark.parametrize('value', [10, -10],
                          ids=lambda v: "(f = %d)" % v)
-@pytest.mark.parametrize('expr', ['f',
-                                  '2*f',
-                                  'tanh(f)',
-                                  '2 * tanh(f)',
-                                  'f + tanh(f)',
-                                  'cos(f) + sin(f)',
-                                  'cos(f)*cos(f) + sin(f)*sin(f)',
-                                  'tanh(f) + cos(f) + sin(f)',
-                                  '1.0/tanh(f) + 1.0/f',
-                                  'sqrt(f*f)',
-                                  'sin(cos(f))',
-                                  'sqrt(2 + cos(f))',
-                                  'sin(sqrt(abs(f)))',
-                                  '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'])
+@pytest.mark.parametrize('expr', ['f', '2*f', 'tanh(f)'])
 def test_math_functions(expr, value):
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, 'CG', 1)
