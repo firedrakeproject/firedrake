@@ -697,11 +697,7 @@ class MixedFunctionSpace(object):
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-<<<<<<< HEAD
-        return op2.compute_backend.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
-=======
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
->>>>>>> master
+        return op2.compute_backend.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
