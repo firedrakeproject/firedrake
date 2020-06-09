@@ -33,16 +33,6 @@ use Firedrake::
 
      source firedrake/bin/activate.csh
 
-Reporting installation bugs
----------------------------
-
-If ``firedrake-install`` fails to work, please report a bug so that we
-can fix it for you by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__.  Please
-include the log file ``firedrake-install.log`` in your bug report.
-Similarly if ``firedrake-update`` fails, it produces a
-``firedrake-update.log`` file which will help us to debug the problem.
-
 Testing the installation
 ------------------------
 
@@ -67,6 +57,29 @@ venv_ as above and then run::
   where ``LOCALHOSTNAME`` is the name returned by running the `hostname`
   command. Should the local host name change, this may require updating.
 
+Debugging install problems
+--------------------------
+
+If ``firedrake-install`` fails, the following flowchart describes some
+common build problems and how to solve them. If you understand the
+prognosis and feel comfortable making these fixes yourself then great!
+If not, feel free to ask for more help in our
+:doc:`Slack channel </contact>`.
+
+.. graphviz:: install-debug.dot
+
+If you don't see the issue you're experiencing in this chart, please
+report a bug by creating a new `github issue
+<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
+diagnose what's going wrong, please include the log file
+``firedrake-install.log`` in your bug report. Likewise, if it's
+``firedrake-update`` that fails, please include the file
+``firedrake-update.log``. If the installation is failing at building
+PETSc, find the ``src/petsc/`` directory inside the directory where the
+Firedrake virtual environment was created. The PETSc directory should
+contain a file ``configure.log`` and possibly also ``make.log`` if it
+got that far. Please send these along too as they contain valuable
+information about what went wrong with PETSc.
 
 System requirements
 -------------------
