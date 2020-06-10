@@ -1474,11 +1474,13 @@ values from f.)"""
         return spatialindex.from_regions(coords_min, coords_max)
 
     def locate_cell(self, x, tolerance=None):
-        """Locate cell containg given point.
+        """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell.
-        :returns: cell number (int), or None (if the point is not in the domain)
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: cell number (int), or None (if the point is not 
+            in the domain)
         """
 
         if self.variable_layers:
@@ -1488,6 +1490,8 @@ values from f.)"""
         if not np.allclose(x.imag, 0):
             raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
