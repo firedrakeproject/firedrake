@@ -420,11 +420,13 @@ class File(object):
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
             TensorFunctionSpace, Function, Projector, Interpolator
+        from tsfc.finatinterface import create_element as create_finat_element
 
         name = function.name()
         # Need to project/interpolate?
-        # If space is not the max element, we can do so.
-        if function.ufl_element == max_elem:
+        # If space is not the max element, we must do so.
+        finat_elem = function.function_space().finat_element
+        if finat_elem == create_finat_element(max_elem):
             return OFunction(array=get_array(function),
                              name=name, function=function)
         #  OK, let's go and do it.
