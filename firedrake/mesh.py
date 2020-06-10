@@ -1487,9 +1487,10 @@ values from f.)"""
         if not np.allclose(x.imag, 0):
             raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
-
+        X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
             return None
         else:
@@ -1507,10 +1508,14 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x)
+    int locator(struct Function *f, double *x, double *X)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        for(int i=0; i<%(geometric_dimension)d; i++) {
+            X[i] = reference_coords.X[i];
+        }
+        return cell;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -1523,6 +1528,7 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double)]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
