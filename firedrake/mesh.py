@@ -1487,6 +1487,8 @@ values from f.)"""
         if not np.allclose(x.imag, 0):
             raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
