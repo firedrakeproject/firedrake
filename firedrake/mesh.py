@@ -1473,11 +1473,13 @@ values from f.)"""
         return spatialindex.from_regions(coords_min, coords_max)
 
     def locate_cell(self, x, tolerance=None):
-        """Locate cell containg given point.
+        """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell.
-        :returns: cell number (int), or None (if the point is not in the domain)
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: cell number (int), or None (if the point is not 
+            in the domain)
         """
 
         if self.variable_layers:
