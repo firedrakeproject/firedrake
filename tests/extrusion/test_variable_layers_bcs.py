@@ -93,7 +93,7 @@ def test_variable_layers_bcs_application_interior(measure, subdomain):
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
-    layers[:] = selector.dat.data_ro
+    layers[:] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)

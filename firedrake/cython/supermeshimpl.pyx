@@ -138,8 +138,8 @@ def intersection_finder(mesh_A, mesh_B):
         if not compatible:
             assert ValueError("Whoever made mesh_B should explicitly mark mesh_A as having a compatible parallel layout.")
 
-    vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos, dtype=RealType)
-    vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos, dtype=RealType)
+    vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
+    vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(numpy.long)
     nnodes_A = mesh_A.coordinates.dof_dset.total_size
