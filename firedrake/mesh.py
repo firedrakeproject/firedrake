@@ -5,6 +5,7 @@ import sys
 import ufl
 import weakref
 from collections import OrderedDict, defaultdict
+from functools import partial
 from ufl.classes import ReferenceGrad
 import enum
 import numbers
@@ -1393,19 +1394,19 @@ def Mesh(meshfile, **kwargs):
         geometric_dim = tcell.topological_dimension()
     cell = tcell.reconstruct(geometric_dimension=geometric_dim)
 
-    element = ufl.VectorElement("Lagrange", cell, 1)
+    element = ufl.FiniteElement("Lagrange", cell, 1, variant="equispaced")
+    vector_element = ufl.VectorElement(element, dim=geometric_dim)
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, vector_element)
     mesh._topology = topology
 
-    def callback(self):
+    def callback(self, vector_element=None, geometric_dim=None):
         """Finish initialisation."""
         del self._callback
         # Finish the initialisation of mesh topology
         self.topology.init()
 
-        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                           dim=geometric_dim)
+        coordinates_fs = functionspace.FunctionSpace(self.topology, vector_element)
 
         coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
                                                    (self.num_vertices(), geometric_dim))
@@ -1416,7 +1417,7 @@ def Mesh(meshfile, **kwargs):
 
         self.__init__(coordinates)
 
-    mesh._callback = callback
+    mesh._callback = partial(callback, vector_element=vector_element, geometric_dim=geometric_dim)
     return mesh
 
 
