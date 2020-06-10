@@ -1501,6 +1501,30 @@ values from f.)"""
         else:
             return cell
 
+    def locate_reference_coordinate(self, x, tolerance=None):
+        """Get reference coordinates of a given point in its cell. Which
+        cell the point is in can be queried with the locate_cell method.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: reference coordinates within cell (numpy array) or
+            None (if the point is not in the domain)
+        """
+        if self.variable_layers:
+            raise NotImplementedError("Cell reference coordinates not implemented for variable layers")
+        x = np.asarray(x, dtype=utils.ScalarType)
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
+        X = np.empty_like(x)
+        cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+        if cell == -1:
+            return None
+        else:
+            return X
+
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
