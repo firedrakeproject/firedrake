@@ -70,8 +70,19 @@ def test_assemble_split_mixed_derivative():
     u, p = split(x)
     v, q = TestFunctions(W)
 
-    I = inner(grad(u), grad(u))*dx
+    I = 0.5*inner(grad(u), grad(u))*dx
     F = derivative(I, u, v)
     J = derivative(F, u, TrialFunctions(W)[0])
 
-    assert assemble(F) and assemble(J)
+    x.sub(0).interpolate(SpatialCoordinate(mesh)[0])
+
+    actual = assemble(F)
+    expect = assemble(inner(grad(u), grad(v))*dx)
+
+    assert np.allclose(actual.dat.data_ro, expect.dat.data_ro)
+
+    actual = assemble(J, mat_type="aij")
+    u_trial, _ = TrialFunctions(W)
+    expect = assemble(inner(grad(u_trial), grad(v))*dx, mat_type="aij")
+
+    assert np.allclose(actual.M.values, expect.M.values)
