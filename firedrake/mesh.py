@@ -1965,9 +1965,9 @@ def VertexOnlyMesh(mesh, vertexcoords):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
 
-    dmcommon.label_pic_parent_cell_nums(swarm, mesh)
+    dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
