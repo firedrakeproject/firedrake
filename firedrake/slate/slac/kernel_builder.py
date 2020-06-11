@@ -15,12 +15,12 @@ from tsfc import default_parameters
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
-from pyop2.codegen.rep2loopy import TARGET
 
 from functools import singledispatch, partial
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
+TARGET = loopy.target.c.CTarget()
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",

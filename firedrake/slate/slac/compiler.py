@@ -37,7 +37,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import TARGET, sol_fn_lookup, inv_fn_lookup
+from pyop2.codegen.rep2loopy import sol_fn_lookup, inv_fn_lookup
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -46,6 +46,7 @@ import gem
 from tsfc.loopy import generate as generate_loopy
 from tsfc.parameters import default_parameters
 
+TARGET = loopy.target.c.CTarget()
 SCALAR_TYPE = default_parameters()["scalar_type"]
 
 __all__ = ['compile_expression']

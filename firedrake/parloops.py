@@ -10,7 +10,6 @@ from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 import loopy
 import coffee.base as ast
-from pyop2.codegen.rep2loopy import TARGET
 
 from firedrake.logging import warning
 from firedrake import constant
@@ -21,6 +20,8 @@ try:
 except ImportError:
     warning("cachetools not available, firedrake.par_loop calls will be slowed down")
     kernel_cache = None
+
+TARGET = loopy.target.c.CTarget()
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
