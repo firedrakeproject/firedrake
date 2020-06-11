@@ -243,7 +243,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
-        for dual in to_element.fiat_equivalent.dual_basis():
+        for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
             pts, = dual.pt_dict.keys()
