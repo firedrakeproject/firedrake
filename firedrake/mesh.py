@@ -1997,6 +1997,10 @@ def VertexOnlyMesh(mesh, vertexcoords):
 
     vmesh.__init__(coordinates)
 
+    # Save vertex reference coordinate (within reference cell) in function
+    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
+    vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+
     return vmesh
 
 
