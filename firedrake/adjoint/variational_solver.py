@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
 
@@ -6,6 +7,7 @@ class NonlinearVariationalProblemMixin:
     @staticmethod
     def _ad_annotate_init(init):
         @no_annotations
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             init(self, *args, **kwargs)
             self._ad_F = self.F
@@ -20,6 +22,7 @@ class NonlinearVariationalSolverMixin:
     @staticmethod
     def _ad_annotate_init(init):
         @no_annotations
+        @wraps(init)
         def wrapper(self, problem, *args, **kwargs):
             init(self, problem, *args, **kwargs)
             self._ad_problem = problem
@@ -30,6 +33,7 @@ class NonlinearVariationalSolverMixin:
 
     @staticmethod
     def _ad_annotate_solve(solve):
+        @wraps(solve)
         def wrapper(self, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
