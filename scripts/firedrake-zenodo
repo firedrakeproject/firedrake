@@ -760,7 +760,7 @@ for component in (set(shas) & set(components)):
             name=descriptions[component],
             body=message.format(component=component),
             draft=False,
-            prerelease=True)
+            prerelease=False)
 
 meta_file = "firedrake-meta-release.json"
 with open(meta_file, "w") as f:
