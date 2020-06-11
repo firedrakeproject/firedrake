@@ -80,6 +80,23 @@ def test_vector():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_tensor():
+    mesh = UnitSquareMesh(2, 2)
+    x = SpatialCoordinate(mesh)
+    U = TensorFunctionSpace(mesh, 'P', 1)
+    V = TensorFunctionSpace(mesh, 'CG', 2)
+
+    c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
 def test_constant_expression():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)
@@ -103,6 +120,82 @@ def test_compound_expression():
 
     # g shall be equivalent to:
     h = interpolate(3.0 + sin(pi * x[0]), V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+def test_hdiv_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCF', 1)
+    V = FunctionSpace(mesh, 'RTCF', 2)
+    c = as_vector([x[1], -x[0], 0.0])
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+def test_hcurl_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCE', 1)
+    V = FunctionSpace(mesh, 'RTCE', 2)
+    c = as_vector([-x[1], x[0], 0.0])
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+def test_hdiv_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCF', 1)
+    V = FunctionSpace(mesh, 'RTCF', 2)
+    c = as_vector([x[1], -x[0], 0.0])
+
+    f = interpolate(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = interpolate(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+def test_hcurl_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCE', 1)
+    V = FunctionSpace(mesh, 'RTCE', 2)
+    c = as_vector([-x[1], x[0], 0.0])
+
+    f = interpolate(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = interpolate(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
