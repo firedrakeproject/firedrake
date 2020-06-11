@@ -13,6 +13,7 @@ from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
+from firedrake.utils import ScalarType_c
 import firedrake
 
 
@@ -285,9 +286,9 @@ class StandaloneInterpolationMatrix(object):
 {element_kernel}
 
 
-void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
+void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w)
 {{
-    double Afc[{dimf}*{dimc}] = {{0}};
+    {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
     expression_kernel(Afc);
     for (int32_t i = 0; i < {dimf}; i++)
        for (int32_t j = 0; j < {dimc}; j++)
