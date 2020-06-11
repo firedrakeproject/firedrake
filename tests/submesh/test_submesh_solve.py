@@ -96,7 +96,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
 
     solve(a - L == 0, u, bcs = [bc1], solver_parameters=parameters)
 
-    assert(sqrt(assemble(inner(u - g, u - g) * dx)) < 0.00016)
+    assert(sqrt(assemble(inner(u - g, u - g) * dx)) < 0.00018)
 
 
 #@pytest.mark.parallel

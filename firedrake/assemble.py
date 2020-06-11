@@ -279,6 +279,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             return
 
         test, trial = arguments
+        test_fs = test.function_space().topological
+        trial_fs = trial.function_space().topological
 
         map_pairs = []
         cell_domains = []
@@ -325,27 +327,27 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             map_pairs = tuple(map_pairs)
 
             # General implementation for mixed problems
-            nrow = len(test.function_space())
-            ncol = len(trial.function_space())
+            nrow = len(test_fs)
+            ncol = len(trial_fs)
             map_pairs_ij = [[[] for _ in range(ncol)] for _ in range(nrow)]
 
             #TODO: Think what (idim, jdim) pair should be used when mixed, for each integ_type.
             for i in range(nrow):
                 for j in range(ncol):
                     if cell_domains:
-                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'cell'))
+                        map_pairs_ij[i][j].append(test_fs.sparsity_map(trial_fs, i, j, 'cell'))
                     if exterior_facet_domains:
-                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'exterior_facet'))
+                        map_pairs_ij[i][j].append(test_fs.sparsity_map(trial_fs, i, j, 'exterior_facet'))
                     if interior_facet_domains:
-                        map_pairs_ij[i][j].append(test.sparsity_map(trial, i, j, 'interior_facet'))
+                        map_pairs_ij[i][j].append(test_fs.sparsity_map(trial_fs, i, j, 'interior_facet'))
 
             # Construct OP2 Mat to assemble into
-            fs_names = (test.function_space().name, trial.function_space().name)
+            fs_names = (test_fs.name, trial_fs.name)
 
             try:
                 #Check this for complex mesh hierarchy.
-                sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                         trial.function_space().dof_dset),
+                sparsity = op2.Sparsity((test_fs.dof_dset,
+                                         trial_fs.dof_dset),
                                          map_pairs,
                                          maps_ij=map_pairs_ij,
                                          iteration_regions=iteration_regions,
@@ -372,7 +374,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         def mat(test_domain, trial_domain, rowbc, colbc, i, j):
             # assume test_domain == trial_domain for now
-            maps = test.sparsity_map(trial, i, j, test_domain)
+            maps = test_fs.sparsity_map(trial_fs, i, j, test_domain)
             rlgmap, clgmap = tensor[i, j].local_to_global_maps
             V = test.function_space()[i]
             rlgmap = V.local_to_global_map(rowbc, lgmap=rlgmap)

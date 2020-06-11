@@ -859,7 +859,7 @@ class MeshTopology(object):
 
           :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
         """
-self.interior_facets.set
+        #self.interior_facets.set
         if self.submesh_parent is None:
             raise RuntimeError("Must have a submesh_parent.")
         #TODO: generalize for facet_set etc..
