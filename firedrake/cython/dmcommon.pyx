@@ -2709,3 +2709,46 @@ def label_pic_parent_cell_info(PETSc.DM swarm, parentmesh):
     swarm.restoreField("refcoord")
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def fill_reference_coordinates_function(reference_coordinates_f):
+    """
+    Fill the PyOP2 dat of an input vector valued function on a
+    VertexOnlyMesh `reference_coordinates_f` with the reference
+    coordinates of each vertex in their relevant reference cells.
+
+    :arg reference_coordinates_f: A vector valued function on a
+        VertexOnlyMesh (with vector dimension the topological dimension
+        of the parent mesh) which will have its dat modified.
+
+    :returns: The updated `reference_coordinates_f`.
+    """
+    cdef:
+        PetscInt num_vertices, i, gdim, parent_tdim
+        PETSc.DM swarm
+        np.ndarray[PetscReal, ndim=2, mode="c"] reference_coords
+
+    from firedrake.mesh import VertexOnlyMeshTopology
+    assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
+
+    gdim = reference_coordinates_f.function_space().mesh()._parent_mesh.geometric_dimension()
+    parent_tdim = reference_coordinates_f.function_space().mesh()._parent_mesh.topological_dimension()
+
+    swarm = reference_coordinates_f.function_space().mesh().topology_dm
+
+    num_vertices = swarm.getLocalSize()
+
+    assert reference_coordinates_f.dat.shape == (num_vertices, parent_tdim)
+
+    # get reference coord field - NOTE isn't copied so could have GC issues!
+    reference_coords = swarm.getField("refcoord").reshape((num_vertices, parent_tdim))
+
+    # store reference coord field in Function Dat.
+    reference_coordinates_f.dat.data[:] = reference_coords[:]
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("refcoord")
+
+    return reference_coordinates_f
