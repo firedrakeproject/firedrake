@@ -197,14 +197,10 @@ def get_matrix(form, mat_type, sub_mat_type, *, bcs=None,
     if tensor is not None:
         return tensor, (tensor.M.zero, ), lambda: tensor
 
-    if isinstance(form, slate.TensorBase):
-        # FIXME: inherit from slate form somehow.
-        integral_types = {"cell"}
-    else:
-        integral_types = set(i.integral_type() for i in form.integrals())
-        for bc in bcs:
-            integral_types.update(integral.integral_type()
-                                  for integral in bc.integrals())
+    integral_types = set(i.integral_type() for i in form.integrals())
+    for bc in bcs:
+        integral_types.update(integral.integral_type()
+                              for integral in bc.integrals())
     nest = mat_type == "nest"
     if nest:
         baij = sub_mat_type == "baij"
