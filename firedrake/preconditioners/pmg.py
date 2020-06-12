@@ -100,6 +100,7 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
+        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -201,6 +202,7 @@ class PMGPC(PCBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -226,7 +228,17 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        I = prolongation_matrix(fV, cV, fbcs, cbcs)
+        prefix = dmc.getOptionsPrefix()
+        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+
+        if mattype == "matfree":
+            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
+        elif mattype == "aij":
+            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
+        else:
+            raise ValueError("Unknown matrix type")
+
+        
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
@@ -237,7 +249,7 @@ class PMGPC(PCBase):
         self.ppc.view(viewer)
 
 
-def prolongation_transfer_kernel_full(Pk, P1):
+def prolongation_transfer_kernel_aij(Pk, P1):
     # Works for Pk, Pm; I just retain the notation
     # P1 to remind you that P1 is of lower degree
     # than Pk
@@ -628,7 +640,7 @@ class MixedInterpolationMatrix(object):
 
 
 
-def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
+def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -649,7 +661,7 @@ def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel_full(Pk.sub(i), P1.sub(i)), mesh.cell_set,
+            op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
     else:
@@ -660,7 +672,7 @@ def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel_full(Pk, P1), mesh.cell_set,
+        op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
                      matarg)
 
     mat.assemble()
@@ -681,4 +693,3 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
     return M_shll
 
 
-prolongation_matrix = prolongation_matrix_matfree
