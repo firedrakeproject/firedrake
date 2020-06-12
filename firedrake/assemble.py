@@ -107,14 +107,22 @@ def assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
 
 
 def get_mat_type(mat_type, sub_mat_type):
+    """Provide defaults and validate matrix-type selection.
+
+    :arg mat_type: PETSc matrix type for the assembled matrix.
+    :arg sub_mat_type: PETSc matrix type for blocks if mat_type is
+        nest.
+    :raises ValueError: On bad arguments.
+    :returns: 2-tuple of validated mat_type, sub_mat_type.
+    """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
     if mat_type not in ["matfree", "aij", "baij", "nest", "dense"]:
-        raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
+        raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
     if sub_mat_type not in ["aij", "baij"]:
-        raise ValueError("Invalid submatrix type, '%s' (not 'aij' or 'baij')", sub_mat_type)
+        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
     return mat_type, sub_mat_type
 
 
@@ -172,6 +180,21 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
 def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
                options_prefix=None, tensor=None, appctx=None,
                form_compiler_parameters=None):
+    """Get a matrix for the assembly of expr.
+
+    :arg mat_type, sub_mat_type: See :func:`get_mat_type`.
+    :arg bcs: Boundary conditions.
+    :arg options_prefix: Optional PETSc options prefix.
+    :arg tensor: An optional already allocated matrix for this expr.
+    :arg appctx: User application data.
+    :arg form_compiler_parameters: Any parameters for the form compiler.
+
+    :raises ValueError: In case of problems.
+    :returns: a 3-tuple ``(tensor, zeros, callable)``. zeros is a
+       (possibly empty) iterable of zero-argument functions to zero the returned
+       tensor, callable is a function of zero arguments that returns
+       the tensor.
+    """
     mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type)
     matfree = mat_type == "matfree"
     arguments = expr.arguments()
@@ -249,7 +272,21 @@ def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
     return tensor, (), lambda: tensor
 
 
-def collect_lgmaps(tensor, all_bcs, Vrow, Vcol, row, col):
+def collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
+    """Obtain local to global maps for matrix insertion in the
+    presence of boundary conditions.
+
+    :arg matrix: the matrix.
+    :arg all_bcs: all boundary conditions involved in the assembly of
+        the matrix.
+    :arg Vrow: function space for rows.
+    :arg Vcol: function space for columns.
+    :arg row: index into Vrow (by block).
+    :arg col: index into Vcol (by block).
+    :returns: 2-tuple ``(row_lgmap, col_lgmap), unroll``. unroll will
+       indicate to the codegeneration if the lgmaps need to be
+       unrolled from any blocking they contain.
+    """
     if len(Vrow) > 1:
         bcrow = tuple(bc for bc in all_bcs
                       if bc.function_space_index() == row)
@@ -262,7 +299,7 @@ def collect_lgmaps(tensor, all_bcs, Vrow, Vcol, row, col):
     else:
         bccol = tuple(bc for bc in all_bcs
                       if isinstance(bc, DirichletBC))
-    rlgmap, clgmap = tensor.M[row, col].local_to_global_maps
+    rlgmap, clgmap = matrix.M[row, col].local_to_global_maps
     rlgmap = Vrow[row].local_to_global_map(bcrow, lgmap=rlgmap)
     clgmap = Vcol[col].local_to_global_map(bccol, lgmap=clgmap)
     unroll = any(bc.function_space().component is not None
@@ -271,26 +308,52 @@ def collect_lgmaps(tensor, all_bcs, Vrow, Vcol, row, col):
 
 
 def matrix_arg(access, get_map, row, col, *,
-               all_bcs=(), tensor=None, Vrow=None, Vcol=None):
+               all_bcs=(), matrix=None, Vrow=None, Vcol=None):
+    """Obtain an op2.Arg for insertion into the given matrix.
+
+    :arg access: Access descriptor.
+    :arg get_map: callable of one argument that obtains Maps from
+        functionspaces.
+    :arg row, col: row (column) of block matrix we are assembling (may be None for
+        direct insertion into mixed matrices). Either both or neither
+        must be None.
+    :arg all_bcs: tuple of boundary conditions involved in assembly.
+    :arg matrix: the matrix to obtain the argument for.
+    :arg Vrow, Vcol: function spaces for the row and column space.
+    :raises AssertionError: on invalid arguments
+    :returns: an op2.Arg.
+    """
     if row is None and col is None:
         maprow = get_map(Vrow)
         mapcol = get_map(Vcol)
-        lgmaps, unroll = zip(*(collect_lgmaps(tensor, all_bcs,
+        lgmaps, unroll = zip(*(collect_lgmaps(matrix, all_bcs,
                                               Vrow, Vcol, i, j)
-                               for i, j in numpy.ndindex(tensor.block_shape)))
-        return tensor.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
+                               for i, j in numpy.ndindex(matrix.block_shape)))
+        return matrix.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
                         unroll_map=any(unroll))
     else:
         assert row is not None and col is not None
         maprow = get_map(Vrow[row])
         mapcol = get_map(Vcol[col])
-        lgmaps, unroll = collect_lgmaps(tensor, all_bcs,
+        lgmaps, unroll = collect_lgmaps(matrix, all_bcs,
                                         Vrow, Vcol, row, col)
-        return tensor.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
+        return matrix.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
                                   unroll_map=unroll)
 
 
 def get_vector(argument, *, tensor=None):
+    """Get a Function corresponding to argument.
+
+    :arg argument: The test function the assembly will produce a
+        function for.
+    :arg tensor: An optional already allocated Function.
+    :raises ValueError: if a tensor was provided with a non-matching
+        function space.
+    :returns: a 3-tuple ``(function, zeros, callable)``. zeros is a
+       (possibly empty) iterable of zero-argument functions to zero the returned
+       Function, callable is a function of zero arguments that returns
+       the Function.
+    """
     V = argument.function_space()
     if tensor is None:
         tensor = firedrake.Function(V)
@@ -302,17 +365,39 @@ def get_vector(argument, *, tensor=None):
     return tensor, zero, lambda: tensor
 
 
-def vector_arg(access, get_map, i, *, tensor=None, V=None):
+def vector_arg(access, get_map, i, *, function=None, V=None):
+    """Obtain an op2.Arg for insertion into given Function.
+
+    :arg access: access descriptor.
+    :arg get_map: callable of one argument that obtains Maps from
+        functionspaces.
+    :arg i: index of block (may be None).
+    :arg function: Function to insert into.
+    :arg V: functionspace corresponding to function.
+
+    :returns: An op2.Arg."""
     if i is None:
         map_ = get_map(V)
-        return tensor.dat(access, map_)
+        return function.dat(access, map_)
     else:
         map_ = get_map(V[i])
-        return tensor.dat[i](access, map_)
+        return function.dat[i](access, map_)
 
 
 def get_scalar(arguments, *, tensor=None):
-    assert arguments == ()
+    """Get a Global corresponding to arguments.
+
+    :arg arguments: An empty tuple.
+    :arg tensor: Optional tensor for output, must be None.
+
+    :raise ValueError: On bad arguments.
+    :returns: a 3-tuple ``(tensor, zeros, callable)``. zeros is a
+       (possibly empty) iterable of zero-argument functions to zero the returned
+       tensor, callable is a function of zero arguments that returns
+       the tensor.
+    """
+    if arguments != ():
+        raise ValueError("Can't assemble a 0-form with arguments")
     if tensor is not None:
         raise ValueError("Can't assemble 0-form into existing tensor")
 
@@ -320,21 +405,35 @@ def get_scalar(arguments, *, tensor=None):
     return tensor, (), lambda: tensor.data[0]
 
 
-def apply_bcs(expr, tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
+def apply_bcs(tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
               mat_type=None, sub_mat_type=None, appctx={}, diagonal=False,
               assemble_now=True):
+    """Apply boundary conditions to a tensor.
+
+    :arg tensor: The tensor.
+    :arg bcs; The boundary conditions.
+    :arg assembly_rank: are we doing a scalar, vector, or matrix.
+    :arg form_compiler_parameters: parameters for the form compiler
+        (used for EquationBCs).
+    :arg mat_type, sub_mat_type: matrix type arguments for EquationBCs
+       (see :func:`get_mat_type`).
+    :arg appctx: User application context (for EquationBCs).
+    :arg diagonal: Is this application of bcs to a vector really
+        applying bcs to the diagonal of a matrix?
+    :arg assemble_now: Will assembly happen right away?
+    :returns: generator of zero-argument callables for applying the bcs.
+    """
     dirichletbcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
     equationbcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
     if any(not isinstance(bc, (DirichletBC, EquationBCSplit)) for bc in bcs):
         raise NotImplementedError("Unhandled type of bc object")
 
-    arguments = expr.arguments()
     if assembly_rank == AssemblyRank.MATRIX:
         op2tensor = tensor.M
+        shape = tuple(len(a.function_space()) for a in tensor.a.arguments())
         for bc in dirichletbcs:
             V = bc.function_space()
             nodes = bc.nodes
-            shape = tuple(len(a.function_space()) for a in arguments)
             for i, j in numpy.ndindex(shape):
                 # Set diagonal entries on bc nodes to 1 if the current
                 # block is on the matrix diagonal and its index matches the
@@ -390,8 +489,19 @@ def apply_bcs(expr, tensor, bcs, *, assembly_rank=None, form_compiler_parameters
             raise ValueError("Not expecting boundary conditions for 0-forms")
 
 
-def create_parloops(expr, create_op2arg, bcs, *, assembly_rank=None, diagonal=False,
+def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                     form_compiler_parameters=None):
+    """Create parallel loops for assembly of expr.
+
+    :arg expr: The expression to assemble.
+    :arg create_op2arg: callable that creates the Arg corresponding to
+        the output tensor.
+    :arg assembly_rank: are we assembling a scalar, vector, or matrix?
+    :arg diagonal: For matrices are we actually assembling the
+        diagonal into a vector?
+    :arg form_compiler_parameters: parameters to pass to the form
+        compiler.
+    :returns: a generator of op2.ParLoop objects."""
     coefficients = expr.coefficients()
     domains = expr.ufl_domains()
 
@@ -593,7 +703,7 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
 
         create_op2arg = functools.partial(matrix_arg,
                                           all_bcs=tuple(chain(*bcs)),
-                                          tensor=tensor,
+                                          matrix=tensor,
                                           Vrow=test.function_space(),
                                           Vcol=trial.function_space())
     elif assembly_rank == AssemblyRank.VECTOR:
@@ -606,7 +716,7 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
             test, = expr.arguments()
         tensor, zeros, result = get_vector(test, tensor=tensor)
 
-        create_op2arg = functools.partial(vector_arg, tensor=tensor,
+        create_op2arg = functools.partial(vector_arg, function=tensor,
                                           V=test.function_space())
     else:
         tensor, zeros, result = get_scalar(expr.arguments(), tensor=tensor)
@@ -615,12 +725,12 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
     if zero_tensor:
         yield from zeros
 
-    yield from create_parloops(expr, create_op2arg, bcs,
+    yield from create_parloops(expr, create_op2arg,
                                assembly_rank=assembly_rank,
                                diagonal=diagonal,
                                form_compiler_parameters=form_compiler_parameters)
 
-    yield from apply_bcs(expr, tensor, bcs,
+    yield from apply_bcs(tensor, bcs,
                          assembly_rank=assembly_rank,
                          form_compiler_parameters=form_compiler_parameters,
                          mat_type=mat_type,
