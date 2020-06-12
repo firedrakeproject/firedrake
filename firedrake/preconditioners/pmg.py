@@ -598,6 +598,8 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
+
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
                          self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
@@ -620,6 +622,8 @@ class MixedInterpolationMatrix(object):
             op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
                          self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
+        
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
