@@ -89,6 +89,17 @@ class BlockIndexer(object):
         return block
 
 
+class MockCellIntegral(object):
+    def integral_type(self):
+        return "cell"
+
+    def __iter__(self):
+        yield self
+
+    def __call__(self):
+        return self
+
+
 class TensorBase(object, metaclass=ABCMeta):
     """An abstract Slate node class.
 
@@ -98,6 +109,10 @@ class TensorBase(object, metaclass=ABCMeta):
        node class; is not meant to be worked with directly. Only use
        the appropriate subclasses.
     """
+
+    integrals = MockCellIntegral()
+    """A mock object that provides enough compatibility with ufl.Form
+    that one can assemble a tensor."""
 
     _id = count()
 
@@ -350,6 +365,10 @@ class AssembledVector(TensorBase):
 
     :arg function: A firedrake function.
     """
+
+    @property
+    def integrals(self):
+        raise ValueError("AssembledVector has no integrals")
 
     operands = ()
 
