@@ -27,12 +27,12 @@ class AssemblyRank(IntEnum):
 
 
 @annotate_assemble
-def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
+def assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
              mat_type=None, sub_mat_type=None,
              appctx={}, options_prefix=None, **kwargs):
-    r"""Evaluate f.
+    r"""Evaluate expr.
 
-    :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
+    :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
             a :class:`~slate.TensorBase` expression.
     :arg tensor: an existing tensor object to place the result in
          (optional).
@@ -61,33 +61,28 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          matrix if an implicit matrix is requested (mat_type "matfree").
     :arg options_prefix: PETSc options prefix to apply to matrices.
 
-    If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
+    If expr is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
-    for 2-forms.
+    for 2-forms. Similarly if it is a Slate tensor expression.
 
-    If f is an expression other than a form, it will be evaluated
+    If expr is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
     :class:`.FunctionSpace`.
-
-    If f is a Slate tensor expression, then it will be compiled using Slate's
-    linear algebra compiler.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be
     returned.
 
-    If ``bcs`` is supplied and ``f`` is a 2-form, the rows and columns
+    If ``bcs`` is supplied and ``expr`` is a 2-form, the rows and columns
     of the resulting :class:`.Matrix` corresponding to boundary nodes
-    will be set to 0 and the diagonal entries to 1. If ``f`` is a
+    will be set to 0 and the diagonal entries to 1. If ``expr`` is a
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
     """
-
     if "nest" in kwargs:
         raise ValueError("Can't use 'nest', set 'mat_type' instead")
-
     if "collect_loops" in kwargs or "allocate_only" in kwargs:
         raise RuntimeError
 
@@ -95,8 +90,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    if isinstance(f, (ufl.form.Form, slate.TensorBase)):
-        loops = _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
+    if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+        loops = _assemble(expr, tensor=tensor, bcs=solving._extract_bcs(bcs),
                           form_compiler_parameters=form_compiler_parameters,
                           mat_type=mat_type,
                           sub_mat_type=sub_mat_type, appctx=appctx,
@@ -105,10 +100,10 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for l in loops:
             m = l()
         return m
-    elif isinstance(f, ufl.core.expr.Expr):
-        return assemble_expressions.assemble_expression(f)
+    elif isinstance(expr, ufl.core.expr.Expr):
+        return assemble_expressions.assemble_expression(expr)
     else:
-        raise TypeError("Unable to assemble: %r" % f)
+        raise TypeError(f"Unable to assemble: {expr}")
 
 
 def get_mat_type(mat_type, sub_mat_type):
@@ -123,16 +118,18 @@ def get_mat_type(mat_type, sub_mat_type):
     return mat_type, sub_mat_type
 
 
-def allocate_matrix(f, bcs=(), form_compiler_parameters=None,
+def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
                     mat_type=None, sub_mat_type=None, appctx={},
                     options_prefix=None):
-    r"""Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
+    r"""Allocate a matrix given an expression.
+
+    To be used with :func:`create_assembly_callable`.
 
     .. warning::
 
        Do not use this function unless you know what you're doing.
     """
-    _, _, result = get_matrix(f, mat_type, sub_mat_type,
+    _, _, result = get_matrix(expr, mat_type, sub_mat_type,
                               bcs=bcs,
                               options_prefix=options_prefix,
                               appctx=appctx,
@@ -140,10 +137,10 @@ def allocate_matrix(f, bcs=(), form_compiler_parameters=None,
     return result()
 
 
-def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
+def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
                              mat_type=None, sub_mat_type=None,
                              diagonal=False):
-    r"""Create a callable object than be used to assemble f into a tensor.
+    r"""Create a callable object than be used to assemble expr into a tensor.
 
     This is really only designed to be used inside residual and
     jacobian callbacks, since it always assembles back into the
@@ -157,7 +154,7 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops = _assemble(f, tensor=tensor, bcs=bcs,
+    loops = _assemble(expr, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
@@ -172,19 +169,19 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     return thunk
 
 
-def get_matrix(form, mat_type, sub_mat_type, *, bcs=None,
+def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
                options_prefix=None, tensor=None, appctx=None,
                form_compiler_parameters=None):
     mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type)
     matfree = mat_type == "matfree"
-    arguments = form.arguments()
+    arguments = expr.arguments()
     if bcs is None:
         bcs = ()
     if tensor is not None and tensor.a.arguments() != arguments:
         raise ValueError("Form's arguments do not match provided result tensor")
     if matfree:
         if tensor is None:
-            tensor = matrix.ImplicitMatrix(form, bcs,
+            tensor = matrix.ImplicitMatrix(expr, bcs,
                                            fc_params=form_compiler_parameters,
                                            appctx=appctx,
                                            options_prefix=options_prefix)
@@ -197,7 +194,7 @@ def get_matrix(form, mat_type, sub_mat_type, *, bcs=None,
     if tensor is not None:
         return tensor, (tensor.M.zero, ), lambda: tensor
 
-    integral_types = set(i.integral_type() for i in form.integrals())
+    integral_types = set(i.integral_type() for i in expr.integrals())
     for bc in bcs:
         integral_types.update(integral.integral_type()
                               for integral in bc.integrals())
@@ -247,7 +244,7 @@ def get_matrix(form, mat_type, sub_mat_type, *, bcs=None,
         raise ValueError("Monolithic matrix assembly not supported for systems "
                          "with R-space blocks")
 
-    tensor = matrix.Matrix(form, bcs, mat_type, sparsity, ScalarType,
+    tensor = matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
                            options_prefix=options_prefix)
     return tensor, (), lambda: tensor
 
@@ -323,7 +320,7 @@ def get_scalar(arguments, *, tensor=None):
     return tensor, (), lambda: tensor.data[0]
 
 
-def apply_bcs(f, tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
+def apply_bcs(expr, tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
               mat_type=None, sub_mat_type=None, appctx={}, diagonal=False,
               assemble_now=True):
     dirichletbcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
@@ -331,7 +328,7 @@ def apply_bcs(f, tensor, bcs, *, assembly_rank=None, form_compiler_parameters=No
     if any(not isinstance(bc, (DirichletBC, EquationBCSplit)) for bc in bcs):
         raise NotImplementedError("Unhandled type of bc object")
 
-    arguments = f.arguments()
+    arguments = expr.arguments()
     if assembly_rank == AssemblyRank.MATRIX:
         op2tensor = tensor.M
         for bc in dirichletbcs:
@@ -393,17 +390,17 @@ def apply_bcs(f, tensor, bcs, *, assembly_rank=None, form_compiler_parameters=No
             raise ValueError("Not expecting boundary conditions for 0-forms")
 
 
-def create_parloops(f, create_op2arg, bcs, *, assembly_rank=None, diagonal=False,
+def create_parloops(expr, create_op2arg, bcs, *, assembly_rank=None, diagonal=False,
                     form_compiler_parameters=None):
-    coefficients = f.coefficients()
-    domains = f.ufl_domains()
+    coefficients = expr.coefficients()
+    domains = expr.ufl_domains()
 
-    if isinstance(f, slate.TensorBase):
+    if isinstance(expr, slate.TensorBase):
         if diagonal:
             raise NotImplementedError("Diagonal + slate not supported")
-        kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
+        kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
     else:
-        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, diagonal=diagonal)
+        kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -426,7 +423,7 @@ def create_parloops(f, create_op2arg, bcs, *, assembly_rank=None, diagonal=False
         needs_cell_sizes = kinfo.needs_cell_sizes
 
         m = domains[domain_number]
-        subdomain_data = f.subdomain_data()[m]
+        subdomain_data = expr.subdomain_data()[m]
         # Find argument space indices
         if assembly_rank == AssemblyRank.MATRIX:
             i, j = indices
@@ -516,14 +513,14 @@ def create_parloops(f, create_op2arg, bcs, *, assembly_rank=None, diagonal=False
 
 
 @utils.known_pyop2_safe
-def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
+def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
               mat_type=None, sub_mat_type=None,
               appctx={},
               options_prefix=None,
               zero_tensor=True,
               diagonal=False,
               assemble_now=True):
-    r"""Assemble the form or Slate expression f and return a Firedrake object
+    r"""Assemble the form or Slate expression expr and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
     Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
@@ -550,10 +547,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
 
     try:
-        topology, = set(d.topology for d in f.ufl_domains())
+        topology, = set(d.topology for d in expr.ufl_domains())
     except ValueError:
         raise NotImplementedError("All integration domains must share a mesh topology")
-    for m in f.ufl_domains():
+    for m in expr.ufl_domains():
         # Ensure mesh is "initialised" (could have got here without
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
@@ -563,12 +560,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     else:
         bcs = tuple(bcs)
 
-    for o in chain(f.arguments(), f.coefficients()):
+    for o in chain(expr.arguments(), expr.coefficients()):
         domain = o.ufl_domain()
         if domain is not None and domain.topology != topology:
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
-    rank = len(f.arguments())
+    rank = len(expr.arguments())
     if diagonal:
         assert rank == 2
     if rank == 2 and not diagonal:
@@ -579,15 +576,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         assembly_rank = AssemblyRank.SCALAR
 
     if assembly_rank == AssemblyRank.MATRIX:
-        test, trial = f.arguments()
-        tensor, zeros, result = get_matrix(f, mat_type, sub_mat_type,
+        test, trial = expr.arguments()
+        tensor, zeros, result = get_matrix(expr, mat_type, sub_mat_type,
                                            bcs=bcs, options_prefix=options_prefix,
                                            tensor=tensor,
                                            appctx=appctx,
                                            form_compiler_parameters=form_compiler_parameters)
         # intercept matrix-free matrices here
         if mat_type == "matfree":
-            if tensor.a.arguments() != f.arguments():
+            if tensor.a.arguments() != expr.arguments():
                 raise ValueError("Form's arguments do not match provided result "
                                  "tensor")
             tensor.assemble()
@@ -602,26 +599,28 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     elif assembly_rank == AssemblyRank.VECTOR:
         if diagonal:
             # actually a 2-form but throw away the trial space
-            test, trial = f.arguments()
+            test, trial = expr.arguments()
+            if test.function_space() != trial.function_space():
+                raise ValueError("Can only assemble diagonal of 2-form if functionspaces match")
         else:
-            test, = f.arguments()
+            test, = expr.arguments()
         tensor, zeros, result = get_vector(test, tensor=tensor)
 
         create_op2arg = functools.partial(vector_arg, tensor=tensor,
                                           V=test.function_space())
     else:
-        tensor, zeros, result = get_scalar(f.arguments(), tensor=tensor)
+        tensor, zeros, result = get_scalar(expr.arguments(), tensor=tensor)
         create_op2arg = tensor
 
     if zero_tensor:
         yield from zeros
 
-    yield from create_parloops(f, create_op2arg, bcs,
+    yield from create_parloops(expr, create_op2arg, bcs,
                                assembly_rank=assembly_rank,
                                diagonal=diagonal,
                                form_compiler_parameters=form_compiler_parameters)
 
-    yield from apply_bcs(f, tensor, bcs,
+    yield from apply_bcs(expr, tensor, bcs,
                          assembly_rank=assembly_rank,
                          form_compiler_parameters=form_compiler_parameters,
                          mat_type=mat_type,
