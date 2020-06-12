@@ -100,7 +100,6 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
-        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -202,7 +201,6 @@ class PMGPC(PCBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
-        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -216,6 +214,9 @@ class PMGPC(PCBase):
         return cdm
 
     def create_interpolation(self, dmc, dmf):
+        # This should be generalised to work for arbitrary function
+        # spaces. Currently I think it only works for CG/DG on simplices.
+        # I used the same code as firedrake.P1PC.
         cctx = get_appctx(dmc)
         fctx = get_appctx(dmf)
 
@@ -225,16 +226,7 @@ class PMGPC(PCBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
-            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
-        elif mattype == "aij":
-            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
-        else:
-            raise ValueError("Unknown matrix type")
-
+        I = prolongation_matrix(fV, cV, fbcs, cbcs)
         R = PETSc.Mat().createTranspose(I)
         return R, None
 
@@ -245,7 +237,7 @@ class PMGPC(PCBase):
         self.ppc.view(viewer)
 
 
-def prolongation_transfer_kernel_aij(Pk, P1):
+def prolongation_transfer_kernel_full(Pk, P1):
     # Works for Pk, Pm; I just retain the notation
     # P1 to remind you that P1 is of lower degree
     # than Pk
@@ -261,6 +253,26 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     kernel = op2.Kernel(ast, ast.name)
     return kernel
 
+def isTensorProductSpace(V):
+    ele = V.ufl_element()
+    cell = ele.cell()
+    isquad = cell.cellname().find("quadrilateral")>=0
+    
+    if(isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement))):
+        subel = ele.sub_elements()
+        ele = subel[0]
+
+    N = ele.degree()
+    if(isinstance(ele, firedrake.TensorProductElement)):
+        subel = ele.sub_elements()
+        ele = subel[0]
+        N = N[0]
+    
+    family = ele.family()
+    tpfamily = set(["Q", "CG", "Lagrange", "DQ", "DG", "Discontinuous Lagrange"])
+    isquad = isquad and (family in tpfamily)
+    return isquad, N, family
+
 
 class StandaloneInterpolationMatrix(object):
     """
@@ -274,55 +286,223 @@ class StandaloneInterpolationMatrix(object):
 
         self.uc = firedrake.Function(Vc)
         self.uf = firedrake.Function(Vf)
-        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+        
+        self.mesh = Vf.mesh()
+        self.weight = self.multiplicity(Vf)
+        with self.weight.dat.vec as w:
+            w.reciprocal()
 
+        tf,_,_=isTensorProductSpace(Vf) 
+        tc,_,_=isTensorProductSpace(Vc) 
+        if(tf and tc):
+            self.make_blas_kernels(Vf,Vc)
+        else:
+            self.make_kernels(Vf,Vc)
+        return
+
+    def make_kernels(self,Vf,Vc):
+        """
+        The way we transpose the prolongation kernel is suboptimal, but works for general elements.
+        A local matrix has to be generated each time the kernel is executed.
+        We are waiting for structure-preserving tfsc kernels. 
+        As an alternative we provide blas kernels for tensor product elements.
+        """
+        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         dimc = Vc.finat_element.space_dimension() * Vc.value_size
         dimf = Vf.finat_element.space_dimension() * Vf.value_size
-        self.restrict_code = f"""
-{element_kernel}
+        restrict_code = f"""
+        {element_kernel}
+
+        void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
+        {{
+            double Afc[{dimf}*{dimc}] = {{0}};
+            expression_kernel(Afc);
+            for (int32_t i = 0; i < {dimf}; i++)
+               for (int32_t j = 0; j < {dimc}; j++)
+                   Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
+        }}
+        """
+        self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        return
+   
+
+    @staticmethod
+    def prolongation_transfer_kernel_action(Vf, expr):
+        from tsfc import compile_expression_dual_evaluation
+        from tsfc.fiatinterface import create_element
+        coords = Vf.ufl_domain().coordinates
+        to_element = create_element(Vf.ufl_element(), vector_is_mixed=False)
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
+        return op2.Kernel(ast, ast.name)
 
 
-void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
-{{
-    double Afc[{dimf}*{dimc}] = {{0}};
-    expression_kernel(Afc);
-    for (int32_t i = 0; i < {dimf}; i++)
-       for (int32_t j = 0; j < {dimc}; j++)
-           Rc[j] += Afc[i*{dimc} + j] * Rf[i] / w[i];
-}}
-"""
+    def make_blas_kernels(self,Vf,Vc):
+        ndim = Vf.ufl_domain().topological_dimension()
+        zf = self.get_nodes_1d(Vf)
+        zc = self.get_nodes_1d(Vc)
+        Jnp = self.barycentric(zc, zf)
+        (mx,nx) = Jnp.shape
+        (my,ny) = (mx,nx)
+        (mz,nz) = (mx,nx) if(ndim==3) else (1,1)
+        nscal = np.prod(Vf.shape,dtype=int)
+        mxyz = mx*my*mz 
+        nxyz = nx*ny*nz
+        lwork = nscal*mxyz
 
-        self.restrict_kernel = op2.Kernel(self.restrict_code, "restriction")
-        self.mesh = Vf.mesh()
+        Jhat = np.ascontiguousarray( Jnp.T )
+        JX = ', '.join(map(float.hex, np.matrix.flatten(Jhat)))
+        JZ = "JX" if(ndim==3) else "&one"
 
+        kronmxv_code = """
+        extern void dgemm_(char *TRANSA, char *TRANSB, int *m, int *n, int *k,
+              double *alpha, double *A, int *lda, double *B, int *ldb,
+              double *beta , double *C, int *ldc);
+
+        void kronmxv(int tflag, 
+            int mx, int my, int mz,
+            int nx, int ny, int nz, int nel,
+            double *A1, double *A2, double *A3, 
+            double *x , double *y){
+
+        int m,n,k,s,p,lda;
+        char TA1, TA2, TA3;
+        char tran='T', notr='N';
+        double zero=0.0E0, one=1.0E0;
+
+        if(tflag>0){
+           TA1 = tran;
+           TA2 = notr;
+        }else{
+           TA1 = notr;
+           TA2 = tran;
+        }
+        TA3 = TA2;
+
+        m = mx;  k = nx;  n = ny*nz*nel;
+        lda = (tflag>0)? nx : mx;
+        dgemm_(&TA1, &notr, &m,&n,&k, &one, A1,&lda, x,&k, &zero, y,&m);
+
+        p = 0;  s = 0;
+        m = mx;  k = ny;  n = my;
+        lda = (tflag>0)? ny : my;
+        for(int i=0; i<nz*nel; i++){
+           dgemm_(&notr, &TA2, &m,&n,&k, &one, y+p,&m, A2,&lda, &zero, x+s,&m);
+           p += m*k;
+           s += m*n;
+        }
+
+        p = 0;  s = 0;
+        m = mx*my;  k = nz;  n = mz;
+        lda = (tflag>0)? nz : mz;
+        for(int i=0; i<nel; i++){
+           dgemm_(&notr, &TA3, &m,&n,&k, &one, x+p,&m, A3,&lda, &zero, y+s,&m);
+           p += m*k;
+           s += m*n;
+        }
+        return;
+        }
+        """
+
+        prolong_code = f"""
+        {kronmxv_code}
+
+        void prolongation(double *restrict y, const double *restrict x){{
+            double JX[{mx}*{nx}] = {{ {JX} }};
+            double t0[{lwork}], t1[{lwork}];
+            double one=1.0E0;
+
+            for(int j=0; j<{nxyz}; j++)
+                for(int i=0; i<{nscal}; i++)
+                    t0[j + {nxyz}*i] = x[i + {nscal}*j];
+
+            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,JX,{JZ}, t0,t1);
+
+            for(int j=0; j<{mxyz}; j++)
+                for(int i=0; i<{nscal}; i++)
+                   y[i + {nscal}*j] = t1[j + {mxyz}*i];
+            return;
+        }}
+        """
+
+        restrict_code = f"""
+        {kronmxv_code}
+
+        void restriction(double *restrict y, const double *restrict x, 
+            const double *restrict w){{
+            double JX[{mx}*{nx}] = {{ {JX} }};
+            double t0[{lwork}], t1[{lwork}];
+            double one=1.0E0;
+
+            for(int j=0; j<{mxyz}; j++)
+                for(int i=0; i<{nscal}; i++)
+                    t0[j + {mxyz}*i] = x[i + {nscal}*j] * w[i + {nscal}*j];
+
+            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,JX,{JZ}, t0,t1);
+            
+            for(int j=0; j<{nxyz}; j++)
+                for(int i=0; i<{nscal}; i++)
+                    y[i + {nscal}*j] += t1[j + {nxyz}*i];
+            return;
+        }}
+        """
+        op2.configuration["ldflags"] = "-lblas"
+        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation")
+        self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        return
+    
+
+    @staticmethod
+    def get_nodes_1d(V):
+        from FIAT import quadrature
+        from FIAT.reference_element import DefaultLine
+        
+        isquad, N, family = isTensorProductSpace(V)
+        assert isquad
+        if(family=="Q" or family=="CG" or family=="Lagrange"):
+            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(),N+1)
+        elif(family=="DQ" or family=="DG" or family=="Discontinuous Lagrange"):
+            rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(),N+1)
+        else:
+            raise ValueError("Don't know how to get nodes for %r" % family)
+
+        return np.matrix.flatten( rule.get_points() )
+
+
+    @staticmethod
+    def barycentric(xsrc,xdst):
+        temp = np.subtract.outer(xsrc,xsrc)
+        np.fill_diagonal(temp, 1.0E0)
+        lam = 1.0E0 / np.prod(temp,axis=1)
+        J = np.subtract.outer(xdst, xsrc)
+        idx = np.argwhere(np.isclose(J,0.0E0,1E-14))
+        J[idx[:,0],idx[:,1]] = 1.0E0
+        J = lam/J
+        J[idx[:,0],:] = 0.0E0
+        J[idx[:,0],idx[:,1]] = 1.0E0
+        J *= (1/np.sum(J,axis=1))[:,None]
+        return J
+
+
+    @staticmethod
+    def multiplicity(V):
         # Lawrence's magic code for calculating dof multiplicities
-        shapes = (Vf.finat_element.space_dimension(),
-                  np.prod(Vf.shape))
+        shapes = (V.finat_element.space_dimension(),
+                  np.prod(V.shape))
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
             w[i,j] = w[i,j] + 1
         end
         """
-        self.weight = firedrake.Function(Vf)
-        firedrake.par_loop((domain, instructions), firedrake.dx, {"w": (self.weight, op2.INC)},
-                           is_loopy_kernel=True)
+        weight = firedrake.Function(V)
+        firedrake.par_loop((domain, instructions), firedrake.dx, {"w": (weight, op2.INC)},
+                 is_loopy_kernel=True)
+        return weight
 
-    @staticmethod
-    def prolongation_transfer_kernel_action(Vf, uc):
-        from tsfc import compile_expression_dual_evaluation
-        from tsfc.fiatinterface import create_element
 
-        expr = uc
-        coords = Vf.ufl_domain().coordinates
-        to_element = create_element(Vf.ufl_element(), vector_is_mixed=False)
-
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
-        kernel = op2.Kernel(ast, ast.name)
-        return kernel
 
     def mult(self, mat, resf, resc):
         """
@@ -379,7 +559,7 @@ void restriction(double *restrict Rc, const double *restrict Rf, const double *r
 
 class MixedInterpolationMatrix(object):
     """
-    Interpolation matrix for a single standalone space.
+    Interpolation matrix for a mixed finite element space.
     """
     def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf = Vf
@@ -406,8 +586,6 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
-
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
                          self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
@@ -431,8 +609,6 @@ class MixedInterpolationMatrix(object):
                          self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
-
         with self.uf.dat.vec_ro as xf_:
             if inc:
                 xf.axpy(1.0, xf_)
@@ -447,7 +623,12 @@ class MixedInterpolationMatrix(object):
             w.axpy(1.0, y)
 
 
-def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
+
+
+
+
+
+def prolongation_matrix_full(Pk, P1, Pk_bcs, P1_bcs):
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -468,7 +649,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
+            op2.par_loop(prolongation_transfer_kernel_full(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
     else:
@@ -479,7 +660,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
+        op2.par_loop(prolongation_transfer_kernel_full(Pk, P1), mesh.cell_set,
                      matarg)
 
     mat.assemble()
@@ -498,3 +679,6 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
     M_shll.setUp()
 
     return M_shll
+
+
+prolongation_matrix = prolongation_matrix_matfree
