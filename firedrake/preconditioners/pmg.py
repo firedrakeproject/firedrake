@@ -372,6 +372,23 @@ class StandaloneInterpolationMatrix(object):
             double *A1, double *A2, double *A3,
             double *x , double *y){
 
+        /* Kronecker matrix-vector product
+
+        y = op(A) * x,  A = kron(A3, kron(A2, A1))
+
+        where:
+        op(A) = transpose(A) if tflag>0 else A
+        op(A1) is mx-by-nx,
+        op(A2) is my-by-ny,
+        op(A3) is mz-by-nz,
+        x is (nx*ny*nz)-by-nel,
+        y is (mx*my*mz)-by-nel.
+
+        Important notes:
+        The input data in x is destroyed in the process.
+        Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
+         */
+
         int m,n,k,s,p,lda;
         char TA1, TA2, TA3;
         char tran='T', notr='N';
