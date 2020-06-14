@@ -76,11 +76,6 @@ def to_reference_coordinates_loopy(element, ufl_coordinate_element, parameters, 
                                  dtype=np.int8,
                                  shape=(),
                                  ),
-            lp.TemporaryVariable("x",
-                                 dtype=np.double,
-                                 shape=("geometric_dimension",),
-                                 initializer=None,
-                                 ),
             lp.TemporaryVariable("dX",
                                  dtype=np.double,
                                  shape=("topological_dimension",),
@@ -173,7 +168,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable("X", (dim,))
-    point_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=(dim,))
+    point_arg = lp.GlobalArg("X", dtype=parameters["scalar_type"], shape=lp.auto)
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -258,7 +253,6 @@ def construct_common_kernel(restrict=False):
 
     kernel = """
         cell = -1
-        error = 0
         bestcell = -1
         bestdist = 1e10
         <> stop = 0
@@ -301,8 +295,6 @@ def construct_common_kernel(restrict=False):
         if tmp2 == -1
             if bestdist < 10
                 cell = bestcell
-            else
-                error = 1
             end
         end
 
@@ -326,9 +318,6 @@ def common_kernel_args():
                              shape=()),
         lp.TemporaryVariable("bestcell",
                              dtype=np.int32,
-                             shape=()),
-        lp.TemporaryVariable("error",
-                             dtype=np.int8,
                              shape=()),
         lp.TemporaryVariable("bestdist",
                              dtype=np.double,
