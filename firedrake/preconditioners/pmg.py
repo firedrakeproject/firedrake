@@ -262,25 +262,33 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     return kernel
 
 
-def isTensorProductSpace(V):
+def tensor_product_space_query(V):
+    # Check if a function space V is a tensor product of
+    # either CG(N) or DG(N) on quads or hexes (same N along every direction).
+    # Additionally, return the degree N and a list of strings with the family.
     ele = V.ufl_element()
     cell = ele.cell()
-    isquad = cell.cellname().find("quadrilateral") >= 0
+    isquad = cell.cellname().find("quadrilateral") >= 0  # hex == "quadrilateral * interval"
 
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
         subel = ele.sub_elements()
         ele = subel[0]
 
     N = ele.degree()
-    if isinstance(ele, firedrake.TensorProductElement):
-        subel = ele.sub_elements()
-        ele = subel[0]
+    issupported = True
+    if(type(N) == tuple):
+        issupported = len(set(N)) == 1
         N = N[0]
 
-    family = ele.family()
-    tpfamily = set(["Q", "CG", "Lagrange", "DQ", "DG", "Discontinuous Lagrange"])
-    isquad = isquad and (family in tpfamily)
-    return isquad, N, family
+    if isinstance(ele, firedrake.TensorProductElement):
+        family = [K.family() for K in ele.sub_elements()]
+    else:
+        family = ele.family()
+
+    isCG = set(family).issubset(["Q", "CG", "Lagrange"])
+    isDG = set(family).issubset(["DQ", "DG", "Discontinuous Lagrange"])
+    issupported = issupported and isquad and (isCG or isDG)
+    return issupported, N, family
 
 
 class StandaloneInterpolationMatrix(object):
@@ -301,8 +309,8 @@ class StandaloneInterpolationMatrix(object):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        tf, _, _ = isTensorProductSpace(Vf)
-        tc, _, _ = isTensorProductSpace(Vc)
+        tf, _, _ = tensor_product_space_query(Vf)
+        tc, _, _ = tensor_product_space_query(Vc)
         if tf and tc:
             self.make_blas_kernels(Vf, Vc)
         else:
@@ -312,8 +320,8 @@ class StandaloneInterpolationMatrix(object):
     def make_kernels(self, Vf, Vc):
         # The way we transpose the prolongation kernel is suboptimal, but works for general elements.
         # A local matrix has to be generated each time the kernel is executed.
-        # We are waiting for structure-preserving tfsc kernels.
-        # As an alternative we provide blas kernels for tensor product elements.
+        # This is temporary while we wait for structure-preserving tfsc kernels.
+        # As an alternative, we provide blas kernels for tensor product elements.
         self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
@@ -345,22 +353,30 @@ class StandaloneInterpolationMatrix(object):
         return op2.Kernel(ast, ast.name)
 
     def make_blas_kernels(self, Vf, Vc):
+        # Interpolation and restriction kernels between CG/DG tensor product spaces on quads and hexes.
+        # Works by tabulating the coarse 1D Lagrange basis functions in the (Nf+1)-by-(Nc+1) matrix Jhat,
+        # and using the fact that the 2d/3d tabulation is the tensor product J = kron(Jhat, kron(Jhat, Jhat))
         ndim = Vf.ufl_domain().topological_dimension()
         zf = self.get_nodes_1d(Vf)
         zc = self.get_nodes_1d(Vc)
         Jnp = self.barycentric(zc, zf)
+        # Declare array shapes to be used as literals inside the kernels, I follow to the m-by-n convention.
         (mx, nx) = Jnp.shape
         (my, ny) = (mx, nx)
         (mz, nz) = (mx, nx) if ndim == 3 else (1, 1)
-        nscal = np.prod(Vf.shape, dtype=int)
-        mxyz = mx*my*mz
-        nxyz = nx*ny*nz
-        lwork = nscal*mxyz
+        nscal = np.prod(Vf.shape, dtype=int)  # number of components
+        mxyz = mx*my*mz  # dim of Vf scalar element
+        nxyz = nx*ny*nz  # dim of Vc scalar element
+        lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
-        Jhat = np.ascontiguousarray(Jnp.T)
+        Jhat = np.ascontiguousarray(Jnp.T)  # BLAS uses FORTRAN ordering
+        # Pass the 1D tabulation as hexadecimal string
         JX = ', '.join(map(float.hex, np.matrix.flatten(Jhat)))
+        # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
         JZ = "JX" if ndim == 3 else "&one"
 
+        # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
+        # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
         kronmxv_code = """
         extern void dgemm_(char *TRANSA, char *TRANSB, int *m, int *n, int *k,
               double *alpha, double *A, int *lda, double *B, int *ldb,
@@ -372,7 +388,8 @@ class StandaloneInterpolationMatrix(object):
             double *A1, double *A2, double *A3,
             double *x , double *y){
 
-        /* Kronecker matrix-vector product
+        /*
+        Kronecker matrix-vector product
 
         y = op(A) * x,  A = kron(A3, kron(A2, A1))
 
@@ -387,7 +404,7 @@ class StandaloneInterpolationMatrix(object):
         Important notes:
         The input data in x is destroyed in the process.
         Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
-         */
+        */
 
         int m,n,k,s,p,lda;
         char TA1, TA2, TA3;
@@ -427,6 +444,10 @@ class StandaloneInterpolationMatrix(object):
         return;
         }
         """
+
+        # UFL elements order the component DoFs related to the same node contiguously.
+        # We transpose before and after the multiplcation times J to have each component
+        # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
         prolong_code = f"""
         {kronmxv_code}
@@ -470,6 +491,7 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
+
         op2.configuration["ldflags"] = "-lblas"
         self.prolong_kernel = op2.Kernel(prolong_code, "prolongation")
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
@@ -480,11 +502,11 @@ class StandaloneInterpolationMatrix(object):
         # Return GLL nodes if V==CG or GL nodes if V==DG
         from FIAT import quadrature
         from FIAT.reference_element import DefaultLine
-        isquad, N, family = isTensorProductSpace(V)
-        assert isquad
-        if family == "Q" or family == "CG" or family == "Lagrange":
+        issupported, N, family = tensor_product_space_query(V)
+        assert issupported
+        if set(family).issubset(["Q", "CG", "Lagrange"]):
             rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
-        elif family == "DQ" or family == "DG" or family == "Discontinuous Lagrange":
+        elif set(family).issubset(["DQ", "DG", "Discontinuous Lagrange"]):
             rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
         else:
             raise ValueError("Don't know how to get nodes for %r" % family)
@@ -495,7 +517,7 @@ class StandaloneInterpolationMatrix(object):
     def barycentric(xsrc, xdst):
         # returns barycentric interpolation matrix from xsrc to xdst
         # J[i,j] = phi_j(xdst[i]), where phi_j(xsrc[i]) = delta_{ij}
-        # Lagrange polynomial on xsrc[j]
+        # and phi_j(x) are Lagrange polynomials defined on xsrc[j]
         # use the second form of the barycentric interpolation formula
         # see Trefethen ATAP eq. 5.11
         temp = np.subtract.outer(xsrc, xsrc)
