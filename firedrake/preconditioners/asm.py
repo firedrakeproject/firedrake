@@ -63,9 +63,11 @@ class ASMLinesmoothPC(ASMPatchPC):
     "horizontal" faces.  Then looping over all facet DOFs and
     collecting the DOFs on the "vertical" faces.
 
-    Set the codimension of the base mesh in PETSc options via 'pc_asm_codims'.
+    Set the codimension of the base mesh in PETSc options via 'pc_linesmooth_codims'.
     '''
 
+    _prefix = "pc_linesmooth_"
+    
     def get_patches(self, V):
         mesh = V._mesh
         assert mesh.cell_set._extruded

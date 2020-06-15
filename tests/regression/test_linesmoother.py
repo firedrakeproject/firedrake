@@ -91,7 +91,7 @@ def test_linesmoother(mesh, S1family, expected):
               'sub_0': {'sub_pc_type': 'jacobi'},
               'sub_1': {'pc_type': 'python',
                         'pc_python_type': 'firedrake.ASMLinesmoothPC',
-                        'pc_asm_codims': '0'}}
+                        'pc_linesmooth_codims': '0'}}
 
         wave_parameters['hybridization'].update(ls)
 
