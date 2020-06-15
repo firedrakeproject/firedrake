@@ -100,6 +100,5 @@ def test_linesmoother(mesh, expected):
         solver = LinearVariationalSolver(problem, solver_parameters=wave_parameters)
         solver.solve()
         ctx = solver.snes.ksp.pc.getPythonContext()
-        print(ctx.trace_ksp)
         nits.append(ctx.trace_ksp.getIterationNumber())
     assert (nits == expected)
