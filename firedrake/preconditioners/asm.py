@@ -68,6 +68,7 @@ class ASMLinesmoothPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
+        assert mesh.cell_set._extruded
         dm = mesh._plex
         section = V.dm.getDefaultSection()
         lgmap = V.dof_dset.lgmap
