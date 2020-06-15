@@ -43,6 +43,11 @@ class ASMPatchPC(PCBase):
     @abc.abstractmethod
     def get_patches(self, V):
         ''' Get the patches used for PETSc PSASM
+
+        :param function_space: the :class:`.FunctionSpace` or :class:`VectorFunctionSpace'
+        of the dm
+
+        returns a list of index sets defining the ASM patches.
         '''
         pass
 
