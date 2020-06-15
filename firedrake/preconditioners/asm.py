@@ -15,6 +15,7 @@ class ASMPatchPC(PCBase):
     - :meth:`get_patches`
     '''
 
+    @abc.abstractproperty
     _prefix = "pc_asm_"
 
     def initialize(self, pc):
