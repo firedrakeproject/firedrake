@@ -247,3 +247,16 @@ class MeshOutputBlock(Block):
         mesh = vector.function_space().mesh()
         mesh.coordinates.assign(vector, annotate=False)
         return mesh._ad_create_checkpoint()
+
+class InterpolateBlock(Block):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def evaluate_adj_component(self, *args, **kwargs):
+        pass
+
+    def evaluate_tlm_component(self, *args, **kwargs):
+        pass
+
+    def recompute_component(self, *args, **kwargs):
+        pass
