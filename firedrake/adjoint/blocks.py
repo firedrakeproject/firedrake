@@ -1,6 +1,8 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+import ufl
+import firedrake
 
 import firedrake.utils as utils
 
@@ -247,3 +249,55 @@ class MeshOutputBlock(Block):
         mesh = vector.function_space().mesh()
         mesh.coordinates.assign(vector, annotate=False)
         return mesh._ad_create_checkpoint()
+
+
+class InterpolateBlock(blocks.FunctionAssignBlock, Backend):
+    def __init__(self, expr):
+        func = None  # FIXME: not used in assign-block's init
+        super().__init__(func, expr)
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
+                               prepared=None):
+        if len(prepared) == 1:
+            adj_input_func = prepared
+        else:
+            expr, adj_input_func = prepared
+
+        if isinstance(block_variable.output, self.backend.Function):
+            V = block_variable.output.function_space()
+        elif isinstance(block_variable.output, self.backend.Constant):
+            mesh = adj_input_func.ufl_domain()
+            V = self.backend.FunctionSpace(mesh, "Real", 0)
+        else:
+            raise NotImplementedError("Unknown dependency type in adjoint for interpolate")
+
+        v = self.backend.TestFunction(V)
+
+        if len(prepared) == 1:
+            diff_expr = v
+        else:
+            diff_expr = ufl.derivative(expr, block_variable.saved_output, v)
+
+        intp = firedrake.Interpolator(diff_expr, adj_input_func.function_space())
+        adj_output = intp.interpolate(adj_input_func, transpose=True)
+        return adj_output.vector()
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
+                               prepared=None):
+        V = block_variable.output.function_space()
+        if prepared is None:
+            return firedrake.interpolate(tlm_inputs[0], V)
+
+        expr = prepared
+        dudm = self.backend.Function(V)
+        dudmi = self.backend.Function(V)
+        for dep in self.get_dependencies():
+            if dep.tlm_value:
+                dudmi.interpolate(ufl.derivative(expr, dep.saved_output, dep.tlm_value))
+                dudm += dudmi
+        return dudm
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        prepared = prepared or inputs[0]
+        V = block_variable.output.function_space()
+        return firedrake.interpolate(prepared, V)

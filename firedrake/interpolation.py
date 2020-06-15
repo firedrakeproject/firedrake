@@ -12,6 +12,7 @@ from tsfc import compile_expression_dual_evaluation
 
 import firedrake
 from firedrake import utils
+from firedrake.adjoint import InterpolatorMixin
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -36,7 +37,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
 
-class Interpolator(object):
+class Interpolator(InterpolatorMixin):
     """A reusable interpolation object.
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
@@ -54,6 +55,7 @@ class Interpolator(object):
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
     """
+    @InterpolatorMixin._ad_annotate_init
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
         self.callable, arguments = make_interpolator(expr, V, subset, access)
         self.arguments = arguments
@@ -61,6 +63,7 @@ class Interpolator(object):
         self.freeze_expr = freeze_expr
         self.V = V
 
+    @InterpolatorMixin._ad_annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
         :arg function: If the expression being interpolated contains an
