@@ -2,47 +2,48 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[1, 2, 3],
-                ids=["Extruded Interval", "Extruded Triangle Mesh", "Extruded Quadrilateral Mesh"])
-def mesh(request):
-    layers = 5
-    layer_height = 1/layers
-    if request.param == 1:
-        m = IntervalMesh(10, 100)
-        S1family = "CG"
-        S2family = "DG"
-        cell = interval
-    if request.param == 2:
-        m = RectangleMesh(10, 10, 100, 100)
-        S1family = "BDM"
-        S2family = "DG"
-        cell = triangle
-    if request.param == 3:
-        m = RectangleMesh(10, 10, 100, 100, quadrilateral=True)
-        S1family = "RTCF"
-        S2family = "DG"
-        cell = quadrilateral
-    mex = ExtrudedMesh(m, layers, layer_height)
-    return {'mesh': mex, 'layers': layers, 'S1family': S1family, 'S2family': S2family,
-            'cell': cell}
+@pytest.fixture(params=["Interval", "Triangle", "Quad"])
+def mesh_type(request):
+    return request.param
+
+
+@pytest.fixture
+def mesh(mesh_type):
+    if mesh_type == "Interval":
+        return ExtrudedMesh(IntervalMesh(10, 100), 5, 1/5)
+    elif mesh_type == "Triangle":
+        return ExtrudedMesh(RectangleMesh(10, 10, 100, 100), 5, 1/5)
+    elif mesh_type == "Quad"
+        return ExtrudedMesh(RectangleMesh(10, 10, 100, 100
+                                          quadrilateral=True), 5, 1/5)
+
+
+@pytest.fixture
+def S1family(mesh_type):
+    if mesh_type == "Interval":
+        return "CG"
+    elif mesh_type == "Triangle":
+        return "BDM"
+    elif mesh_type == "Quad"
+        return "RTCF"
 
 
 @pytest.fixture
 def expected(mesh):
-    if mesh["S1family"] == "CG":
+    if mesh_type == "Interval":
         return [8, 13]
-    elif mesh["S1family"] == "BDM":
+    elif mesh_type == "Triangle":
         return [10, 26]
-    elif mesh["S1family"] == "RTCF":
+    elif mesh_type == "Quad"
         return [9, 20]
 
 
-def test_linesmoother(mesh, expected):
+def test_linesmoother(mesh, S1family, expected):
 
     nits = []
     for degree in range(2):
-        S1 = FiniteElement(mesh["S1family"], mesh.ufl_cell().sub_cells()[0], degree+1)
-        S2 = FiniteElement(mesh["S2family"], mesh.ufl_cell().sub_cells()[0], degree)
+        S1 = FiniteElement(S1family, mesh._base_mesh.ufl_cell(), degree+1)
+        S2 = FiniteElement("DG", mesh._base_mesh.ufl_cells(), degree)
         T0 = FiniteElement("CG", interval, degree+1)
         T1 = FiniteElement("DG", interval, degree)
 
