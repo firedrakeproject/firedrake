@@ -98,7 +98,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(f)
-                indices = range(off, off+dof)
+                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof))
                 # Map local indices into global indices and create the IS for PCASM
                 global_index = lgmap.apply(indices)
                 iset = PETSc.IS().createGeneral(global_index, comm=COMM_SELF)
