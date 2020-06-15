@@ -11,23 +11,20 @@ def mesh(request):
         m = IntervalMesh(10, 100)
         S1family = "CG"
         S2family = "DG"
-        degree_shift = 1
         cell = interval
     if request.param == 2:
         m = RectangleMesh(10, 10, 100, 100)
         S1family = "BDM"
         S2family = "DG"
-        degree_shift = 1
         cell = triangle
     if request.param == 3:
         m = RectangleMesh(10, 10, 100, 100, quadrilateral=True)
         S1family = "RTCF"
         S2family = "DG"
-        degree_shift = 1
         cell = quadrilateral
     mex = ExtrudedMesh(m, layers, layer_height)
     return {'mesh': mex, 'layers': layers, 'S1family': S1family, 'S2family': S2family,
-            'degree_shift': degree_shift, 'cell': cell}
+            'cell': cell}
 
 
 @pytest.fixture
@@ -44,8 +41,8 @@ def test_linesmoother(mesh, expected):
 
     nits = []
     for degree in range(2):
-        S1 = FiniteElement(mesh["S1family"], mesh["cell"], degree+mesh["degree_shift"])
-        S2 = FiniteElement(mesh["S2family"], mesh["cell"], degree)
+        S1 = FiniteElement(mesh["S1family"], mesh.ufl_cell().sub_cells()[0], degree+1)
+        S2 = FiniteElement(mesh["S2family"], mesh.ufl_cell().sub_cells()[0], degree)
         T0 = FiniteElement("CG", interval, degree+1)
         T1 = FiniteElement("DG", interval, degree)
 
@@ -101,4 +98,4 @@ def test_linesmoother(mesh, expected):
         solver.solve()
         ctx = solver.snes.ksp.pc.getPythonContext()
         nits.append(ctx.trace_ksp.getIterationNumber())
-    assert (nits == expected)
+    assert nits == expected
