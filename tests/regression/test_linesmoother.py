@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-
+PETSc.Sys.popErrorHandler()
 
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
 def mesh_type(request):
@@ -29,7 +29,7 @@ def S1family(mesh_type):
 
 
 @pytest.fixture
-def expected(mesh):
+def expected(mesh_type):
     if mesh_type == "Interval":
         return [8, 13]
     elif mesh_type == "Triangle":
@@ -83,7 +83,7 @@ def test_linesmoother(mesh, S1family, expected):
                            'pc_type': 'python',
                            'pc_python_type': 'firedrake.HybridizationPC',
                            'hybridization': {'ksp_type': 'cg',
-                                             'ksp_max_it': expected,
+                                             'ksp_max_it': expected[degree],
                                              'ksp_monitor': None}}
         ls = {'pc_type': 'composite',
               'pc_composite_pcs': 'bjacobi,python',

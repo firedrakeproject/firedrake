@@ -55,7 +55,7 @@ class ASMPatchPC(PCBase):
 
     def view(self, pc):
         self.ampc.view()
-    
+
     def update(self, pc):
         self.asmpc.setUp()
 
@@ -101,6 +101,7 @@ class ASMLinesmoothPC(ASMPatchPC):
         # Build index sets for the patches
         ises = []
         for codim in codim_list:
+            print(codim, 'codim')
             for p in range(*dm.getHeightStratum(codim)):
                 # Only want to build patches over owned faces
                 if dm.getLabelValue("pyop2_ghost", p) != -1:
@@ -109,7 +110,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof))
+                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype='int32')
                 # Map local indices into global indices and create the IS for PCASM
                 global_indices = lgmap.apply(indices)
                 iset = PETSc.IS().createGeneral(global_indices, comm=COMM_SELF)
