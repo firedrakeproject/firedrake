@@ -4,6 +4,7 @@ from pyop2.mpi import COMM_SELF
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
+import numpy
 
 __all__ = ("ASMPatchPC", "ASMLinesmoothPC")
 
