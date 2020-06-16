@@ -9,3 +9,4 @@ randomgen==1.16.4
 vtk==8.1.2
 pkgconfig
 cached_property
+requests

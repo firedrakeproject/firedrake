@@ -105,7 +105,7 @@ parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrak
 parser.add_argument("--title", "-t", action="store", nargs=1,
                     help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
 parser.add_argument("--info-file", action="store", nargs=1,
-                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code).  Will be uploaded to Zenodo using the provided name.""")
+                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
 parser.add_argument("--new-version-of", action="store", nargs=1,
                     help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
 parser.add_argument("--honour-petsc-dir", action="store_true",
