@@ -263,32 +263,42 @@ def prolongation_transfer_kernel_aij(Pk, P1):
 
 
 def tensor_product_space_query(V):
-    # Check if a function space V is a tensor product of
-    # either CG(N) or DG(N) on quads or hexes (same N along every direction).
-    # Additionally, return the degree N and a list of strings with the family.
-    ele = V.ufl_element()
-    cell = ele.cell()
-    isquad = cell.cellname().find("quadrilateral") >= 0  # hex == "quadrilateral * interval"
+    """
+    Checks whether the custom transfer kernels support the FunctionSpace V.
 
+    V must be either CG(N) or DG(N) on quads or hexes (same N along every direction).
+
+    :arg V: FunctionSpace
+    :returns: 3-tuple of (use_tensorproduct, degree, family)
+    """
+    from FIAT import reference_element
+    iscube = reference_element.is_hypercube(V.finat_element.cell)
+
+    ele = V.ufl_element()
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
         subel = ele.sub_elements()
         ele = subel[0]
 
     N = ele.degree()
-    issupported = True
-    if(type(N) == tuple):
-        issupported = len(set(N)) == 1
-        N = N[0]
+    use_tensorproduct = True
+    try:
+        N, = set(N)
+    except ValueError:
+        # Tuple with different extents
+        use_tensorproduct = False
+    except TypeError:
+        # Just a single int
+        pass
 
     if isinstance(ele, firedrake.TensorProductElement):
-        family = [K.family() for K in ele.sub_elements()]
+        family = set(e.family() for e in ele.sub_elements())
     else:
-        family = ele.family()
+        family = {ele.family()}
 
-    isCG = set(family).issubset(["Q", "CG", "Lagrange"])
-    isDG = set(family).issubset(["DQ", "DG", "Discontinuous Lagrange"])
-    issupported = issupported and isquad and (isCG or isDG)
-    return issupported, N, family
+    isCG = family <= {"Q", "Lagrange"}
+    isDG = family <= {"DQ", "Discontinuous Lagrange"}
+    use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG)
+    return use_tensorproduct, N, family
 
 
 class StandaloneInterpolationMatrix(object):
@@ -318,12 +328,15 @@ class StandaloneInterpolationMatrix(object):
         return
 
     def make_kernels(self, Vf, Vc):
-        # The way we transpose the prolongation kernel is suboptimal, but works for general elements.
-        # A local matrix has to be generated each time the kernel is executed.
-        # This is temporary while we wait for structure-preserving tfsc kernels.
-        # As an alternative, we provide blas kernels for tensor product elements.
+        """
+        Interpolation and restriction kernels between arbitrary elements.
+
+        This is temporary while we wait for structure-preserving tfsc kernels.
+        """
         self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        # The way we transpose the prolongation kernel is suboptimal.
+        # A local matrix is generated each time the kernel is executed.
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         dimc = Vc.finat_element.space_dimension() * Vc.value_size
@@ -341,7 +354,6 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
-        return
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
@@ -353,9 +365,15 @@ class StandaloneInterpolationMatrix(object):
         return op2.Kernel(ast, ast.name)
 
     def make_blas_kernels(self, Vf, Vc):
-        # Interpolation and restriction kernels between CG/DG tensor product spaces on quads and hexes.
-        # Works by tabulating the coarse 1D Lagrange basis functions in the (Nf+1)-by-(Nc+1) matrix Jhat,
-        # and using the fact that the 2d/3d tabulation is the tensor product J = kron(Jhat, kron(Jhat, Jhat))
+        """
+        Interpolation and restriction kernels between CG/DG
+        tensor product spaces on quads and hexes.
+
+        Works by tabulating the coarse 1D Lagrange basis
+        functions in the (Nf+1)-by-(Nc+1) matrix Jhat,
+        and using the fact that the 2d/3d tabulation is the
+        tensor product J = kron(Jhat, kron(Jhat, Jhat))
+        """
         ndim = Vf.ufl_domain().topological_dimension()
         zf = self.get_nodes_1d(Vf)
         zc = self.get_nodes_1d(Vc)
@@ -364,14 +382,14 @@ class StandaloneInterpolationMatrix(object):
         (mx, nx) = Jnp.shape
         (my, ny) = (mx, nx)
         (mz, nz) = (mx, nx) if ndim == 3 else (1, 1)
-        nscal = np.prod(Vf.shape, dtype=int)  # number of components
+        nscal = Vf.value_size  # number of components
         mxyz = mx*my*mz  # dim of Vf scalar element
         nxyz = nx*ny*nz  # dim of Vc scalar element
         lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
         Jhat = np.ascontiguousarray(Jnp.T)  # BLAS uses FORTRAN ordering
         # Pass the 1D tabulation as hexadecimal string
-        JX = ', '.join(map(float.hex, np.matrix.flatten(Jhat)))
+        JX = ', '.join(map(float.hex, np.asarray(Jhat).flatten()))
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
         JZ = "JX" if ndim == 3 else "&one"
 
@@ -495,23 +513,22 @@ class StandaloneInterpolationMatrix(object):
         op2.configuration["ldflags"] = "-lblas"
         self.prolong_kernel = op2.Kernel(prolong_code, "prolongation")
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
-        return
 
     @staticmethod
     def get_nodes_1d(V):
         # Return GLL nodes if V==CG or GL nodes if V==DG
         from FIAT import quadrature
         from FIAT.reference_element import DefaultLine
-        issupported, N, family = tensor_product_space_query(V)
-        assert issupported
-        if set(family).issubset(["Q", "CG", "Lagrange"]):
+        use_tensorproduct, N, family = tensor_product_space_query(V)
+        assert use_tensorproduct
+        if family <= {"Q", "Lagrange"}:
             rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
-        elif set(family).issubset(["DQ", "DG", "Discontinuous Lagrange"]):
+        elif family <= {"DQ", "Discontinuous Lagrange"}:
             rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
         else:
             raise ValueError("Don't know how to get nodes for %r" % family)
 
-        return np.matrix.flatten(rule.get_points())
+        return np.asarray(rule.get_points()).flatten()
 
     @staticmethod
     def barycentric(xsrc, xdst):
