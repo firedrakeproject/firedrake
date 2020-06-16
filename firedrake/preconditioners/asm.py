@@ -53,7 +53,7 @@ class ASMPatchPC(PCBase):
         pass
 
     def update(self, pc):
-        pass
+        self.asmpc.setUp()
 
     def apply(self, pc, x, y):
         self.asmpc.apply(x, y)
