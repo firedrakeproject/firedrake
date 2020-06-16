@@ -83,7 +83,7 @@ def test_linesmoother(mesh, S1family, expected):
                            'pc_type': 'python',
                            'pc_python_type': 'firedrake.HybridizationPC',
                            'hybridization': {'ksp_type': 'cg',
-                                             'ksp_max_it': expected[degree],
+                                             'ksp_max_it': expected,
                                              'ksp_monitor': None}}
         ls = {'pc_type': 'composite',
               'pc_composite_pcs': 'bjacobi,python',
