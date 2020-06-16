@@ -86,7 +86,7 @@ class ASMLinesmoothPC(ASMPatchPC):
     '''
 
     _prefix = "pc_linesmooth_"
-    
+
     def get_patches(self, V):
         mesh = V._mesh
         assert mesh.cell_set._extruded
@@ -111,8 +111,8 @@ class ASMLinesmoothPC(ASMPatchPC):
                 off = section.getOffset(p)
                 indices = numpy.arange(off*V.value_size, V.value_size * (off + dof))
                 # Map local indices into global indices and create the IS for PCASM
-                global_index = lgmap.apply(indices)
-                iset = PETSc.IS().createGeneral(global_index, comm=COMM_SELF)
+                global_indices = lgmap.apply(indices)
+                iset = PETSc.IS().createGeneral(global_indices, comm=COMM_SELF)
                 ises.append(iset)
 
         return ises
