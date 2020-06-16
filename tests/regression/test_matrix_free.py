@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -171,7 +172,10 @@ def test_fieldsplitting(mesh, preassembled, parameters):
     Q = VectorFunctionSpace(mesh, "DG", 1)
     W = V*P*Q
 
-    expect = Constant((1, 2, 3, 4))
+    expect = Function(W)
+    expect.sub(0).assign(1)
+    expect.sub(1).assign(2)
+    expect.sub(2).assign(Constant((3, 4)))
 
     u = TrialFunction(W)
     v = TestFunction(W)
@@ -251,7 +255,7 @@ def test_get_info(a, bcs, infotype):
               + (trial.function_space().dof_dset.total_size
                  * trial.function_space().value_size))
 
-    expect *= np.float64().itemsize
+    expect *= ScalarType.itemsize
 
     if infotype == "sum":
         expect = A.comm.allreduce(expect, op=MPI.SUM)
