@@ -509,10 +509,8 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-
-        op2.configuration["ldflags"] = "-lblas"
-        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation")
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", ldargs=["-lblas"])
+        self.restrict_kernel = op2.Kernel(restrict_code, "restriction", ldargs=["-lblas"])
 
     @staticmethod
     def get_nodes_1d(V):
