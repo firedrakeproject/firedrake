@@ -467,6 +467,9 @@ class StandaloneInterpolationMatrix(object):
         # We transpose before and after the multiplcation times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
+        # We could benefit from loop tiling for the transpose, but that makes the code
+        # more complicated.
+
         prolong_code = f"""
         {kronmxv_code}
 
