@@ -104,7 +104,6 @@ class ASMLinesmoothPC(ASMPatchPC):
                 # Only want to build patches over owned faces
                 if dm.getLabelValue("pyop2_ghost", p) != -1:
                     continue
-                # Collect all dofs that plex thinks live on the face or edge
                 dof = section.getDof(p)
                 if dof <= 0:
                     continue
