@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-PETSc.Sys.popErrorHandler()
 
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
 def mesh_type(request):
