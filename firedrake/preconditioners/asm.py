@@ -52,6 +52,9 @@ class ASMPatchPC(PCBase):
         '''
         pass
 
+    def view(self, pc):
+        self.ampc.view()
+    
     def update(self, pc):
         self.asmpc.setUp()
 
