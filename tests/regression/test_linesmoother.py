@@ -53,8 +53,8 @@ def test_linesmoother(mesh, S1family, expected):
         V3_elt = TensorProductElement(S2, T1)
         V2_elt = V2h_elt + V2v_elt
 
-        V = FunctionSpace(mesh["mesh"], V2_elt)
-        Q = FunctionSpace(mesh["mesh"], V3_elt)
+        V = FunctionSpace(mesh, V2_elt)
+        Q = FunctionSpace(mesh, V3_elt)
 
         W = MixedFunctionSpace((V, Q))
 
@@ -66,7 +66,7 @@ def test_linesmoother(mesh, S1family, expected):
                DirichletBC(W.sub(0), 0, "top"),
                DirichletBC(W.sub(0), 0, "bottom")]
 
-        x = SpatialCoordinate(mesh["mesh"])
+        x = SpatialCoordinate(mesh)
         if len(x) == 2:
             rsq = (x[0]-50)**2/20**2 + (x[1]-0.5)**2/0.2**2
         else:
