@@ -66,14 +66,22 @@ class ASMPatchPC(PCBase):
 
 
 class ASMLinesmoothPC(ASMPatchPC):
-    '''Linesmoother PC for extruded meshes implemented as an ASMPatchPC.
+    '''Linesmoother PC for extruded meshes implemented as an
+    :class:`ASMPatchPC`.
 
-    These patches are made by looping over base mesh entities of a
-    particular codimension, and collecting all the DOFs on the
-    "horizontal" faces.  Then looping over all facet DOFs and
-    collecting the DOFs on the "vertical" faces.
+    ASMLinesmoothPC is an additive Schwarz preconditioner where each
+    patch consists of all dofs associated with a vertical column (and
+    hence extruded meshes are necessary). Three types of columns are
+    possible: columns of horizontal faces (each column built over a
+    face of the base mesh), columns of vertical faces (each column
+    built over an edge of the base mesh), and columns of vertical
+    edges (each column built over a vertex of the base mesh).
 
-    Set the codimension of the base mesh in PETSc options via 'pc_linesmooth_codims'.
+    To select the column type or types for the patches, use
+    'pc_linesmooth_codims' to set integers giving the codimension of
+    the base mesh entities for the columns. For example,
+    'pc_linesmooth_codims 0,1' creates patches for each cell and each
+    facet of the base mesh.
     '''
 
     _prefix = "pc_linesmooth_"
