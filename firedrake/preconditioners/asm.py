@@ -99,16 +99,16 @@ class ASMLinesmoothPC(ASMPatchPC):
 
         # Build index sets for the patches
         ises = []
-         for codim in codim_list:
-            for f in range(*dm.getHeightStratum(codim)):
+        for codim in codim_list:
+            for p in range(*dm.getHeightStratum(codim)):
                 # Only want to build patches over owned faces
-                if dm.getLabelValue("pyop2_ghost", f) != -1:
+                if dm.getLabelValue("pyop2_ghost", p) != -1:
                     continue
                 # Collect all dofs that plex thinks live on the face or edge
-                dof = section.getDof(f)
+                dof = section.getDof(p)
                 if dof <= 0:
                     continue
-                off = section.getOffset(f)
+                off = section.getOffset(p)
                 indices = numpy.arange(off*V.value_size, V.value_size * (off + dof))
                 # Map local indices into global indices and create the IS for PCASM
                 global_index = lgmap.apply(indices)
