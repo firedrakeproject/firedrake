@@ -15,8 +15,10 @@ class ASMPatchPC(PCBase):
     - :meth:`get_patches`
     '''
 
-    @abc.abstractproperty
-    _prefix = "pc_asm_"
+    @property
+    @abc.abstractmethod
+    def _prefix(self):
+        "Options prefix for the solver"
 
     def initialize(self, pc):
         # Get context from pc
