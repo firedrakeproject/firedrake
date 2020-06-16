@@ -13,8 +13,8 @@ def mesh(mesh_type):
         return ExtrudedMesh(IntervalMesh(10, 100), 5, 1/5)
     elif mesh_type == "Triangle":
         return ExtrudedMesh(RectangleMesh(10, 10, 100, 100), 5, 1/5)
-    elif mesh_type == "Quad"
-        return ExtrudedMesh(RectangleMesh(10, 10, 100, 100
+    elif mesh_type == "Quad":
+        return ExtrudedMesh(RectangleMesh(10, 10, 100, 100,
                                           quadrilateral=True), 5, 1/5)
 
 
@@ -24,7 +24,7 @@ def S1family(mesh_type):
         return "CG"
     elif mesh_type == "Triangle":
         return "BDM"
-    elif mesh_type == "Quad"
+    elif mesh_type == "Quad":
         return "RTCF"
 
 
@@ -34,7 +34,7 @@ def expected(mesh):
         return [8, 13]
     elif mesh_type == "Triangle":
         return [10, 26]
-    elif mesh_type == "Quad"
+    elif mesh_type == "Quad":
         return [9, 20]
 
 
