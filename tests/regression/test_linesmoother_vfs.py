@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 PETSc.Sys.popErrorHandler()
 
@@ -11,7 +10,6 @@ def test_linesmoother_vfs():
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    
     a = (inner(v, u) + inner(grad(v), grad(u)))*dx
     x, y = SpatialCoordinate(mesh)
     f = exp(-(x-0.5)**2-(y-0.5)**2)

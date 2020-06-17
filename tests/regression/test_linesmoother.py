@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 
+
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
 def mesh_type(request):
     return request.param
