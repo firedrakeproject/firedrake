@@ -101,7 +101,6 @@ class ASMLinesmoothPC(ASMPatchPC):
         # Build index sets for the patches
         ises = []
         for codim in codim_list:
-            print(codim, 'codim')
             for p in range(*dm.getHeightStratum(codim)):
                 # Only want to build patches over owned faces
                 if dm.getLabelValue("pyop2_ghost", p) != -1:
