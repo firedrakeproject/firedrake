@@ -417,9 +417,29 @@ class File(object):
         self._output_functions = weakref.WeakKeyDictionary()
         self._mappers = weakref.WeakKeyDictionary()
 
-    def _prepare_output(self, function, max_elem):
+    def _get_output_functionspace(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function, Projector, Interpolator
+            TensorFunctionSpace
+        # Build appropriate space for output function.
+        shape = function.ufl_shape
+        if len(shape) == 0:
+            V = FunctionSpace(function.ufl_domain(), max_elem)
+        elif len(shape) == 1:
+            if numpy.prod(shape) > 3:
+                raise ValueError("Can't write vectors with more than 3 components")
+            V = VectorFunctionSpace(function.ufl_domain(), max_elem,
+                                    dim=shape[0])
+        elif len(shape) == 2:
+            if numpy.prod(shape) > 9:
+                raise ValueError("Can't write tensors with more than 9 components")
+            V = TensorFunctionSpace(function.ufl_domain(), max_elem,
+                                    shape=shape)
+        else:
+            raise ValueError("Unsupported shape %s" % (shape, ))
+        return V
+
+    def _prepare_output(self, function, max_elem):
+        from firedrake import Function, Projector, Interpolator
         from tsfc.finatinterface import create_element as create_finat_element
 
         name = function.name()
@@ -430,25 +450,9 @@ class File(object):
             return OFunction(array=get_array(function),
                              name=name, function=function)
         #  OK, let's go and do it.
-        shape = function.ufl_shape
         output = self._output_functions.get(function)
         if output is None:
-            # Build appropriate space for output function.
-            shape = function.ufl_shape
-            if len(shape) == 0:
-                V = FunctionSpace(function.ufl_domain(), max_elem)
-            elif len(shape) == 1:
-                if numpy.prod(shape) > 3:
-                    raise ValueError("Can't write vectors with more than 3 components")
-                V = VectorFunctionSpace(function.ufl_domain(), max_elem,
-                                        dim=shape[0])
-            elif len(shape) == 2:
-                if numpy.prod(shape) > 9:
-                    raise ValueError("Can't write tensors with more than 9 components")
-                V = TensorFunctionSpace(function.ufl_domain(), max_elem,
-                                        shape=shape)
-            else:
-                raise ValueError("Unsupported shape %s" % (shape, ))
+            V = self._get_output_functionspace(function, max_elem)
             output = Function(V)
             self._output_functions[function] = output
         if self.project:
@@ -464,6 +468,37 @@ class File(object):
                 self._mappers[function] = interpolator
             interpolator.interpolate()
 
+        return OFunction(array=get_array(output), name=name, function=output)
+
+    def _prepare_coordinates(self, mesh, max_elem):
+        from firedrake import Function, Interpolator
+        from tsfc.finatinterface import create_element as create_finat_element
+
+        function = mesh.coordinates
+        name = function.name()
+        # Need to project/interpolate?
+        # If space is not the max element, we must do so.
+        finat_elem = function.function_space().finat_element
+        if finat_elem == create_finat_element(max_elem):
+            return OFunction(array=get_array(function),
+                             name=name, function=function)
+        #  OK, let's go and do it.
+        output = self._output_functions.get(function)
+        if output is None:
+            V = self._get_output_functionspace(function, max_elem)
+            output, interpolator = mesh.aux_coordinate_functions.get(V, (None, None))
+            if output is None:
+                # allocate a new coordinate function
+                print(f'Allocating coords for V={V}')
+                output = Function(V)
+                interpolator = Interpolator(function, output)
+                # store weak reference in the mesh
+                # need to store the interpolator object too
+                mesh.aux_coordinate_functions[V] = (weakref.proxy(output), weakref.proxy(interpolator))
+                interpolator.interpolate()
+            self._output_functions[function] = output
+            # FIXME interpolator is not used in File but we need to keep a strong reference in the File object?
+            self._mappers[function] = interpolator
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _write_vtu(self, *functions):
@@ -505,7 +540,7 @@ class File(object):
                                                 for f in functions),
                                    continuous=continuous,
                                    max_degree=self.target_degree)
-        coordinates = self._prepare_output(mesh.coordinates, max_elem)
+        coordinates = self._prepare_coordinates(mesh, max_elem)
 
         functions = tuple(self._prepare_output(f, max_elem)
                           for f in functions)
