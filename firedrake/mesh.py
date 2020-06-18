@@ -446,7 +446,9 @@ class MeshTopology(object):
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        element = ufl.FiniteElement("Lagrange", cell, 1, variant="equispaced")
+        vector_element = ufl.VectorElement(element, dim=cell.topological_dimension())
+        self._ufl_mesh = ufl.Mesh(vector_element)
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -858,7 +860,9 @@ class ExtrudedMeshTopology(MeshTopology):
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
         cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        element = ufl.FiniteElement("Lagrange", cell, 1, variant="equispaced")
+        vector_element = ufl.VectorElement(element, dim=cell.topological_dimension())
+        self._ufl_mesh = ufl.Mesh(vector_element)
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self._topology_dm,
