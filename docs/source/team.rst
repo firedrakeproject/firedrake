@@ -9,7 +9,8 @@ Engineering <http://www.imperial.ac.uk/ese/>`_ at `Imperial College
 London <http://www.imperial.ac.uk>`_, the `Department of Computer
 Science <https://www.dur.ac.uk/computer.science/>`_ at `Durham
 University <https://www.dur.ac.uk>`_, and the `Department of
-Mathematics <https://www.baylor.edu/math>`_ at `Baylor University <https://www.baylor.edu>`_.
+Mathematics <https://www.baylor.edu/math>`_ at `Baylor University
+<https://www.baylor.edu>`_.
 
 Active team members
 -------------------
@@ -21,7 +22,7 @@ Former team members
 
 .. include:: teaminactive.rst
 
-             
+
 Other contributors
 ------------------
 
@@ -38,4 +39,3 @@ Joshua Coutinho
 `Oliver Meister <https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>`_
 
 Kaho Sato
-
