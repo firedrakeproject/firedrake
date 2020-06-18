@@ -60,6 +60,9 @@ class Configuration(dict):
          to a node-local filesystem too.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+    :param use_safe_cflags: Apply cflags turning off some compiler
+        optimisations that are known to be buggy on particular
+        versions? See :attr:`~.Compiler.workaround_cflags` for details.
     :param dump_gencode: Should PyOP2 write the generated code
          somewhere for inspection?
     :param print_cache_size: Should PyOP2 print the size of caches at
@@ -80,6 +83,7 @@ class Configuration(dict):
         "cflags": ("PYOP2_CFLAGS", str, ""),
         "ldflags": ("PYOP2_LDFLAGS", str, ""),
         "compute_kernel_flops": ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
+        "use_safe_cflags": ("PYOP2_USE_SAFE_CFLAGS", bool, True),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
