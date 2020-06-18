@@ -909,7 +909,9 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     coords *= scale
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
-        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        element = ufl.FiniteElement("Lagrange", m.ufl_cell(), degree, variant="equispaced")
+        vector_element = ufl.VectorElement(element)
+        new_coords = function.Function(functionspace.FunctionSpace(m, vector_element))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
@@ -998,7 +1000,10 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
         # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+        element = ufl.FiniteElement("Lagrange", m.ufl_cell(), degree, variant="equispaced")
+        vector_element = ufl.VectorElement(element)
+        fs_coords = functionspace.FunctionSpace(m, vector_element)
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), fs_coords))
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -1030,7 +1035,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                                                                y*scale,
                                                                znew]),
                                Vc)
-    Vlow = VectorFunctionSpace(m, "CG", 1)
+    element = ufl.FiniteElement("Lagrange", m.ufl_cell(), 1, variant="equispaced")
+    vector_element = ufl.VectorElement(element)
+    Vlow = functionspace.FunctionSpace(m, vector_element)
     Xlow = interpolate(Xlatitudinal, Vlow)
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
     Xradial = Constant(radius)*Xlow/r
@@ -1224,7 +1231,9 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
 
     if degree > 1:
-        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
+        element = ufl.FiniteElement("Lagrange", m.ufl_cell(), degree, variant="equispaced")
+        vector_element = ufl.VectorElement(element)
+        new_coords = function.Function(functionspace.FunctionSpace(m, vector_element))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
