@@ -1095,6 +1095,38 @@ values from f.)"""
 
         raise AttributeError(message)
 
+    def get_aux_coordinates(self, ufl_element):
+        """
+        Returns cached coordinate function in a different function space.
+
+        :arg ufl_element: UFL Element defining the target function space
+        :returns: (coordinate function, interpolator) tuple
+        """
+        from firedrake import function, functionspace, interpolation
+        if isinstance(ufl_element, ufl.VectorElement):
+            ufl_element = ufl_element.sub_elements()[0]
+        # check if ufl_element matches the mesh coordinates
+        coordinates_fs = self.coordinates.function_space()
+        coord_elem = coordinates_fs.ufl_element().sub_elements()[0]
+        if ufl_element == coord_elem:
+            # mesh coordinates are compatible, no need for caching
+            return self.coordinates, None
+        # look in cache
+        interpolator = self.aux_coord_interpolators.get(ufl_element)
+        if interpolator is None:
+            # allocate new function and interpolator
+            gdim = self.ufl_cell().geometric_dimension()
+            V = functionspace.VectorFunctionSpace(self, ufl_element, dim=gdim)
+            print(f'Creating coords for V={V}')
+            name = self.coordinates.name()
+            aux_coordinates = function.Function(V, name=name)
+            interpolator = interpolation.Interpolator(self.coordinates,
+                                                      aux_coordinates)
+            interpolator.interpolate()
+            self.aux_coord_interpolators[ufl_element] = interpolator
+        aux_coordinates = interpolator.V
+        return aux_coordinates, interpolator
+
     def update_aux_coordinates(self):
         """
         Updates all cached aux-coordinate functions.
