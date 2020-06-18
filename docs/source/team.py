@@ -62,7 +62,7 @@ names = []
 
 def imagename(name):
     puny = name.split()[0].lower().encode("punycode").decode()
-    return puny[:-1] if puny[-1]=="-" else puny 
+    return puny[:-1] if puny[-1]=="-" else puny
 
 # Write substitution rules for member images.
 for member, url in team.items():
