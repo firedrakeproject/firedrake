@@ -486,16 +486,18 @@ class File(object):
         output = self._output_functions.get(function)
         if output is None:
             V = self._get_output_functionspace(function, max_elem)
-            output, interpolator = mesh.aux_coordinate_functions.get(V, (None, None))
-            if output is None:
+            ufl_elem = V.ufl_element().sub_elements()[0]
+            interpolator = mesh.aux_coord_interpolators.get(ufl_elem)
+            if interpolator is None:
                 # allocate a new coordinate function
                 print(f'Allocating coords for V={V}')
                 output = Function(V)
                 interpolator = Interpolator(function, output)
                 # store weak reference in the mesh
                 # need to store the interpolator object too
-                mesh.aux_coordinate_functions[V] = (weakref.proxy(output), weakref.proxy(interpolator))
+                mesh.aux_coord_interpolators[ufl_elem] = interpolator
                 interpolator.interpolate()
+            output = interpolator.V  # HACK I know that V is the output function, not the space ...
             self._output_functions[function] = output
             # FIXME interpolator is not used in File but we need to keep a strong reference in the File object?
             self._mappers[function] = interpolator
