@@ -1041,6 +1041,10 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self._coordinates = coordinates
 
+        # Cached coordinate functions in different function spaces
+        # dict: FunctionSpace -> (coordinate Function, interpolator)
+        self.aux_coordinate_functions = {}
+
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
         this is carried out automatically, however, in some cases (for
@@ -1089,6 +1093,15 @@ object whose coordinates are f's values.  (This will not copy the
 values from f.)"""
 
         raise AttributeError(message)
+
+    def update_aux_coordinates(self):
+        """
+        Updates all cached aux-coordinate functions.
+
+        Mesh coordinates are re-interpolated on aux functions.
+        """
+        for _, interpolator in self.aux_coordinate_functions.values():
+            interpolator.interpolate()
 
     @utils.cached_property
     def cell_sizes(self):
