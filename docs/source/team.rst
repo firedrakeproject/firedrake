@@ -8,9 +8,11 @@ Firedrake is brought to you by the departments of `Mathematics
 Engineering <http://www.imperial.ac.uk/ese/>`_ at `Imperial College
 London <http://www.imperial.ac.uk>`_, the `Department of Computer
 Science <https://www.dur.ac.uk/computer.science/>`_ at `Durham
-University <https://www.dur.ac.uk>`_, and the `Department of
+University <https://www.dur.ac.uk>`_, the `Department of
 Mathematics <https://www.baylor.edu/math>`_ at `Baylor University
-<https://www.baylor.edu>`_.
+<https://www.baylor.edu>`_, and the `Applied Physics Laboratory
+<http://www.apl.washington.edu/>`_ at the `University of Washington
+<http://www.washington.edu/>`_.
 
 Active team members
 -------------------
