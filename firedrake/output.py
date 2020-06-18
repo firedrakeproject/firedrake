@@ -471,7 +471,6 @@ class File(object):
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _prepare_coordinates(self, mesh, max_elem):
-        from firedrake import Function, Interpolator
         from tsfc.finatinterface import create_element as create_finat_element
 
         function = mesh.coordinates
@@ -487,20 +486,9 @@ class File(object):
         if output is None:
             V = self._get_output_functionspace(function, max_elem)
             ufl_elem = V.ufl_element().sub_elements()[0]
-            interpolator = mesh.aux_coord_interpolators.get(ufl_elem)
-            if interpolator is None:
-                # allocate a new coordinate function
-                print(f'Allocating coords for V={V}')
-                output = Function(V)
-                interpolator = Interpolator(function, output)
-                # store weak reference in the mesh
-                # need to store the interpolator object too
-                mesh.aux_coord_interpolators[ufl_elem] = interpolator
-                interpolator.interpolate()
-            output = interpolator.V  # HACK I know that V is the output function, not the space ...
+            output, interpolator = mesh.get_aux_coordinates(ufl_elem)
+            self.coord_interpolator = interpolator  # store reference
             self._output_functions[function] = output
-            # FIXME interpolator is not used in File but we need to keep a strong reference in the File object?
-            self._mappers[function] = interpolator
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _write_vtu(self, *functions):
