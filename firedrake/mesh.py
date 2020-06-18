@@ -1042,8 +1042,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._coordinates = coordinates
 
         # Cached coordinate functions in different function spaces
-        # dict: FunctionSpace -> (coordinate Function, interpolator)
-        self.aux_coordinate_functions = {}
+        # In practice we store the interpolator object which contains the func
+        # dict: UFL element -> coordinate interpolator
+        self.aux_coord_interpolators = weakref.WeakValueDictionary()
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -1100,7 +1101,7 @@ values from f.)"""
 
         Mesh coordinates are re-interpolated on aux functions.
         """
-        for _, interpolator in self.aux_coordinate_functions.values():
+        for interpolator in self.aux_coord_interpolators.values():
             interpolator.interpolate()
 
     @utils.cached_property
