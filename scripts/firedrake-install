@@ -980,12 +980,13 @@ def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
     slepc_dir, slepc_arch = get_slepc_dir()
     assert petsc_arch == slepc_arch
+
+    slepc_changed = False
     if args.honour_petsc_dir:
         log.info("Using installed SLEPc from %s/%s", slepc_dir, petsc_arch)
     else:
         log.info("Installing SLEPc.")
         url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
-        slepc_changed = False
         if os.path.exists("slepc"):
             slepc_changed |= git_update("slepc")
         else:
