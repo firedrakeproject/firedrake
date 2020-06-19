@@ -61,7 +61,8 @@ def test_linesmoother(mesh, S1family, expected):
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
 
-        a = (inner(v, u) - div(v)*p + p*q + div(u)*q)*dx
+        a = (inner(u, v) - inner(p, div(v)) +
+             inner(p, q) + inner(div(u), q))*dx
         bcs = [DirichletBC(W.sub(0), 0, "on_boundary"),
                DirichletBC(W.sub(0), 0, "top"),
                DirichletBC(W.sub(0), 0, "bottom")]
@@ -73,7 +74,7 @@ def test_linesmoother(mesh, S1family, expected):
             rsq = (x[0]-50)**2/20**2 + (x[1] - 50)**2/20**2 + (x[2]-0.5)**2/0.2**2
         f = exp(-rsq)
 
-        L = q*f*dx
+        L = inner(f, q)*dx
 
         w0 = Function(W)
         problem = LinearVariationalProblem(a, L, w0, bcs=bcs)
@@ -83,7 +84,6 @@ def test_linesmoother(mesh, S1family, expected):
                            'pc_type': 'python',
                            'pc_python_type': 'firedrake.HybridizationPC',
                            'hybridization': {'ksp_type': 'cg',
-                                             'ksp_max_it': expected[degree],
                                              'ksp_monitor': None}}
         ls = {'pc_type': 'composite',
               'pc_composite_pcs': 'bjacobi,python',

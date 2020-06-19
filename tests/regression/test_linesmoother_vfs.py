@@ -10,10 +10,10 @@ def test_linesmoother_vfs():
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = (inner(v, u) + inner(grad(v), grad(u)))*dx
+    a = (inner(u, v) + inner(grad(u), grad(v)))*dx
     x, y = SpatialCoordinate(mesh)
     f = exp(-(x-0.5)**2-(y-0.5)**2)
-    L = v[0]*f*dx
+    L = inner(f, v[0])*dx
 
     w = Function(V)
     problem = LinearVariationalProblem(a, L, w)
