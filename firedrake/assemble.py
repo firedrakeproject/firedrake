@@ -613,6 +613,10 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         if needs_cell_facets:
             assert integral_type == "cell"
             extra_args.append(m.cell_to_facets(op2.READ))
+        if pass_layer_arg:
+            c = op2.Global(1, itspace.layers-2, dtype=numpy.dtype(numpy.int32))
+            o = c(op2.READ)
+            extra_args.append(o)
 
         args.extend(extra_args)
         kwargs["pass_layer_arg"] = pass_layer_arg
