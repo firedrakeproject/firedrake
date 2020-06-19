@@ -33,7 +33,7 @@ def expected(mesh_type):
     if mesh_type == "Interval":
         return [8, 13]
     elif mesh_type == "Triangle":
-        return [10, 26]
+        return [11, 26]
     elif mesh_type == "Quad":
         return [9, 20]
 
