@@ -61,8 +61,8 @@ def test_linesmoother(mesh, S1family, expected):
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
 
-        a = (inner(u, v) - inner(p, div(v)) +
-             inner(p, q) + inner(div(u), q))*dx
+        a = (inner(u, v) - inner(p, div(v))
+             + inner(p, q) + inner(div(u), q))*dx
         bcs = [DirichletBC(W.sub(0), 0, "on_boundary"),
                DirichletBC(W.sub(0), 0, "top"),
                DirichletBC(W.sub(0), 0, "bottom")]
