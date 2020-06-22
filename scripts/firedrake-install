@@ -109,9 +109,9 @@ log = logging.getLogger()
 log.info("Running %s" % " ".join(sys.argv))
 
 
-if sys.version_info < (3, 5):
+if sys.version_info < (3, 6):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -1237,10 +1237,10 @@ if mode == "install" or not args.update_script:
                 installed_packages["python3"] = installed_packages["python"]
             for package in required_packages:
                 if package in installed_packages:
-                    log.info(f"Required package '{package}' is already installed via Homebrew.")
+                    log.info("Required package '{0}' is already installed via Homebrew.".format(package))
                     log.debug(pprint.pformat(installed_packages[package]))
                 else:
-                    log.info(f"Installing required package '{package}' via Homebrew.")
+                    log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
