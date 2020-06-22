@@ -488,7 +488,6 @@ if not options["minimal_petsc"]:
     # File formats
     petsc_options.add("--download-netcdf")
     petsc_options.add("--download-pnetcdf")
-    petsc_options.add("--download-exodusii")
     # Sparse direct solvers
     petsc_options.add("--download-suitesparse")
     petsc_options.add("--download-pastix")
