@@ -142,8 +142,9 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
 def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
-    with pytest.raises(NotImplementedError):
-        assemble(f.sub(0)*dx)
+    f.assign(Constant([2, 1]))
+    assert np.allclose(assemble(f.sub(0)*dx),
+                       assemble(Constant(2)*dx(domain=f.ufl_domain())))
 
 
 @pytest.mark.parametrize("cmpt",
