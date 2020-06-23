@@ -45,7 +45,7 @@ Kaho Sato
 
 `Stephan Kramer <https://www.imperial.ac.uk/people/s.kramer>`_
 
-Florian Wechsung
+`Florian Wechsung <https://florianwechsung.github.io>`_
 
 `Alberto Paganini <https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>`_
 
