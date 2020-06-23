@@ -2,22 +2,103 @@
 
 This is the final stage of code generation in TSFC."""
 
-from math import isnan
-
 import numpy
-from functools import singledispatch
+from functools import singledispatch, partial
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.node import Memoizer
 
 import islpy as isl
 import loopy as lp
 
 import pymbolic.primitives as p
+from loopy.symbolic import SubArrayRef
 
 from pytools import UniqueNameGenerator
 
 from tsfc.parameters import is_complex
+
+from contextlib import contextmanager
+
+
+maxtype = partial(numpy.find_common_type, [])
+
+
+@singledispatch
+def _assign_dtype(expression, self):
+    return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.Terminal)
+def _assign_dtype_terminal(expression, self):
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.Zero)
+@_assign_dtype.register(gem.Identity)
+@_assign_dtype.register(gem.Delta)
+def _assign_dtype_real(expression, self):
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Literal)
+def _assign_dtype_identity(expression, self):
+    return expression.array.dtype
+
+
+@_assign_dtype.register(gem.Power)
+def _assign_dtype_power(expression, self):
+    # Conservative
+    return self.scalar_type
+
+
+@_assign_dtype.register(gem.MathFunction)
+def _assign_dtype_mathfunction(expression, self):
+    if expression.name in {"abs", "real", "imag"}:
+        return self.real_type
+    elif expression.name == "sqrt":
+        return self.scalar_type
+    else:
+        return maxtype(map(self, expression.children))
+
+
+@_assign_dtype.register(gem.MinValue)
+@_assign_dtype.register(gem.MaxValue)
+def _assign_dtype_minmax(expression, self):
+    # UFL did correctness checking
+    return self.real_type
+
+
+@_assign_dtype.register(gem.Conditional)
+def _assign_dtype_conditional(expression, self):
+    return maxtype(map(self, expression.children[1:]))
+
+
+@_assign_dtype.register(gem.Comparison)
+@_assign_dtype.register(gem.LogicalNot)
+@_assign_dtype.register(gem.LogicalAnd)
+@_assign_dtype.register(gem.LogicalOr)
+def _assign_dtype_logical(expression, self):
+    return numpy.int8
+
+
+def assign_dtypes(expressions, scalar_type):
+    """Assign numpy data types to expressions.
+
+    Used for declaring temporaries when converting from Impero to lower level code.
+
+    :arg expressions: List of GEM expressions.
+    :arg scalar_type: Default scalar type.
+
+    :returns: list of tuples (expression, dtype)."""
+    mapper = Memoizer(_assign_dtype)
+    mapper.scalar_type = scalar_type
+    if scalar_type.kind == "c":
+        mapper.real_type = numpy.finfo(scalar_type).dtype
+    else:
+        mapper.real_type = scalar_type
+    return [(e, mapper(e)) for e in expressions]
 
 
 class LoopyContext(object):
@@ -28,7 +109,7 @@ class LoopyContext(object):
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
 
-    def pym_multiindex(self, multiindex):
+    def fetch_multiindex(self, multiindex):
         indices = []
         for index in multiindex:
             if isinstance(index, gem.Index):
@@ -40,54 +121,99 @@ class LoopyContext(object):
                 indices.append(index)
         return tuple(indices)
 
+    # Generate index from gem multiindex
+    def gem_to_pym_multiindex(self, multiindex):
+        indices = []
+        for index in multiindex:
+            assert index.extent
+            if not index.name:
+                name = self.name_gen(self.index_names[index])
+            else:
+                name = index.name
+            self.index_extent[name] = index.extent
+            indices.append(p.Variable(name))
+        return tuple(indices)
+
+    # Generate index from shape
+    def pymbolic_multiindex(self, shape):
+        indices = []
+        for extent in shape:
+            name = self.name_gen(self.index_names[extent])
+            self.index_extent[name] = extent
+            indices.append(p.Variable(name))
+        return tuple(indices)
+
+    # Generate pym variable from gem
+    def pymbolic_variable_and_destruct(self, node):
+        pym = self.pymbolic_variable(node)
+        if isinstance(pym, p.Subscript):
+            return pym.aggregate, pym.index_tuple
+        else:
+            return pym, ()
+
+    # Generate pym variable or subscript
     def pymbolic_variable(self, node):
+        pym = self._gem_to_pym_var(node)
+        if node in self.indices:
+            indices = self.fetch_multiindex(self.indices[node])
+            if indices:
+                return p.Subscript(pym, indices)
+        return pym
+
+    def _gem_to_pym_var(self, node):
         try:
             pym = self.gem_to_pymbolic[node]
         except KeyError:
             name = self.name_gen(node.name)
             pym = p.Variable(name)
             self.gem_to_pymbolic[node] = pym
-        if node in self.indices:
-            indices = self.pym_multiindex(self.indices[node])
-            if indices:
-                return p.Subscript(pym, indices)
-            else:
-                return pym
-        else:
-            return pym
+        return pym
 
     def active_inames(self):
         # Return all active indices
         return frozenset([i.name for i in self.active_indices.values()])
 
 
-def generate(impero_c, args, precision, scalar_type, kernel_name="loopy_kernel", index_names=[]):
+@contextmanager
+def active_indices(mapping, ctx):
+    """Push active indices onto context.
+   :arg mapping: dict mapping gem indices to pymbolic index expressions
+   :arg ctx: code generation context.
+   :returns: new code generation context."""
+    ctx.active_indices.update(mapping)
+    yield ctx
+    for key in mapping:
+        ctx.active_indices.pop(key)
+
+
+def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_names=[],
+             return_increments=True):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg args: list of loopy.GlobalArgs
-    :arg precision: floating-point precision for printing
     :arg scalar_type: type of scalars as C typename string
     :arg kernel_name: function name of the kernel
     :arg index_names: pre-assigned index names
+    :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
     :returns: loopy kernel
     """
     ctx = LoopyContext()
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
-    ctx.precision = precision
+    ctx.epsilon = numpy.finfo(scalar_type).resolution
     ctx.scalar_type = scalar_type
-    ctx.epsilon = 10.0 ** (-precision)
+    ctx.return_increments = return_increments
 
     # Create arguments
     data = list(args)
-    for i, temp in enumerate(impero_c.temporaries):
+    for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
-            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=temp.array.dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
+            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
             shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
-            data.append(lp.TemporaryVariable(name, shape=shape, dtype=numpy.float64, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
@@ -141,13 +267,9 @@ def statement_for(tree, ctx):
     extent = tree.index.extent
     assert extent
     idx = ctx.name_gen(ctx.index_names[tree.index])
-    ctx.active_indices[tree.index] = p.Variable(idx)
     ctx.index_extent[idx] = extent
-
-    statements = statement(tree.children[0], ctx)
-
-    ctx.active_indices.pop(tree.index)
-    return statements
+    with active_indices({tree.index: p.Variable(idx)}, ctx) as ctx_active:
+        return statement(tree.children[0], ctx_active)
 
 
 @statement.register(imp.Initialise)
@@ -165,7 +287,9 @@ def statement_accumulate(leaf, ctx):
 @statement.register(imp.Return)
 def statement_return(leaf, ctx):
     lhs = expression(leaf.variable, ctx)
-    rhs = lhs + expression(leaf.expression, ctx)
+    rhs = expression(leaf.expression, ctx)
+    if ctx.return_increments:
+        rhs = lhs + rhs
     return [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
 
 
@@ -181,15 +305,42 @@ def statement_evaluate(leaf, ctx):
     expr = leaf.expression
     if isinstance(expr, gem.ListTensor):
         ops = []
-        var = ctx.pymbolic_variable(expr)
-        index = ()
-        if isinstance(var, p.Subscript):
-            var, index = var.aggregate, var.index_tuple
+        var, index = ctx.pymbolic_variable_and_destruct(expr)
         for multiindex, value in numpy.ndenumerate(expr.array):
             ops.append(lp.Assignment(p.Subscript(var, index + multiindex), expression(value, ctx), within_inames=ctx.active_inames()))
         return ops
     elif isinstance(expr, gem.Constant):
         return []
+    elif isinstance(expr, gem.ComponentTensor):
+        idx = ctx.gem_to_pym_multiindex(expr.multiindex)
+        var, sub_idx = ctx.pymbolic_variable_and_destruct(expr)
+        lhs = p.Subscript(var, idx + sub_idx)
+        with active_indices(dict(zip(expr.multiindex, idx)), ctx) as ctx_active:
+            return [lp.Assignment(lhs, expression(expr.children[0], ctx_active), within_inames=ctx_active.active_inames())]
+    elif isinstance(expr, gem.Inverse):
+        idx = ctx.pymbolic_multiindex(expr.shape)
+        var = ctx.pymbolic_variable(expr)
+        lhs = (SubArrayRef(idx, p.Subscript(var, idx)),)
+
+        idx_reads = ctx.pymbolic_multiindex(expr.children[0].shape)
+        var_reads = ctx.pymbolic_variable(expr.children[0])
+        reads = (SubArrayRef(idx_reads, p.Subscript(var_reads, idx_reads)),)
+        rhs = p.Call(p.Variable("inv"), reads)
+
+        return [lp.CallInstruction(lhs, rhs, within_inames=ctx.active_inames())]
+    elif isinstance(expr, gem.Solve):
+        idx = ctx.pymbolic_multiindex(expr.shape)
+        var = ctx.pymbolic_variable(expr)
+        lhs = (SubArrayRef(idx, p.Subscript(var, idx)),)
+
+        reads = []
+        for child in expr.children:
+            idx_reads = ctx.pymbolic_multiindex(child.shape)
+            var_reads = ctx.pymbolic_variable(child)
+            reads.append(SubArrayRef(idx_reads, p.Subscript(var_reads, idx_reads)))
+        rhs = p.Call(p.Variable("solve"), tuple(reads))
+
+        return [lp.CallInstruction(lhs, rhs, within_inames=ctx.active_inames())]
     else:
         return [lp.Assignment(ctx.pymbolic_variable(expr), expression(expr, ctx, top=True), within_inames=ctx.active_inames())]
 
@@ -209,12 +360,12 @@ def expression(expr, ctx, top=False):
 
 
 @singledispatch
-def _expression(expr, parameters):
+def _expression(expr, ctx):
     raise AssertionError("cannot generate expression from %s" % type(expr))
 
 
 @_expression.register(gem.Failure)
-def _expression_failure(expr, parameters):
+def _expression_failure(expr, ctx):
     raise expr.exception
 
 
@@ -240,53 +391,39 @@ def _expression_power(expr, ctx):
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, ctx):
-
-    from tsfc.coffee import math_table
-
-    math_table = math_table.copy()
-    math_table['abs'] = ('abs', 'cabs')
-
-    complex_mode = int(is_complex(ctx.scalar_type))
-
-    # Bessel functions
     if expr.name.startswith('cyl_bessel_'):
-        if complex_mode:
-            msg = "Bessel functions for complex numbers: missing implementation"
-            raise NotImplementedError(msg)
+        # Bessel functions
+        if is_complex(ctx.scalar_type):
+            raise NotImplementedError("Bessel functions for complex numbers: "
+                                      "missing implementation")
         nu, arg = expr.children
-        nu_thunk = lambda: expression(nu, ctx)
-        arg_loopy = expression(arg, ctx)
-        if expr.name == 'cyl_bessel_j':
-            if nu == gem.Zero():
-                return p.Variable("j0")(arg_loopy)
-            elif nu == gem.one:
-                return p.Variable("j1")(arg_loopy)
-            else:
-                return p.Variable("jn")(nu_thunk(), arg_loopy)
-        if expr.name == 'cyl_bessel_y':
-            if nu == gem.Zero():
-                return p.Variable("y0")(arg_loopy)
-            elif nu == gem.one:
-                return p.Variable("y1")(arg_loopy)
-            else:
-                return p.Variable("yn")(nu_thunk(), arg_loopy)
-
+        nu_ = expression(nu, ctx)
+        arg_ = expression(arg, ctx)
         # Modified Bessel functions (C++ only)
         #
         # These mappings work for FEniCS only, and fail with Firedrake
         # since no Boost available.
-        if expr.name in ['cyl_bessel_i', 'cyl_bessel_k']:
+        if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
             name = 'boost::math::' + expr.name
-            return p.Variable(name)(nu_thunk(), arg_loopy)
-
-        assert False, "Unknown Bessel function: {}".format(expr.name)
-
-    # Other math functions
-    name = math_table[expr.name][complex_mode]
-    if name is None:
-        raise RuntimeError("{} not supported in complex mode".format(expr.name))
-
-    return p.Variable(name)(*[expression(c, ctx) for c in expr.children])
+            return p.Variable(name)(nu_, arg_)
+        else:
+            # cyl_bessel_{jy} -> {jy}
+            name = expr.name[-1:]
+            if nu == gem.Zero():
+                return p.Variable(f"{name}0")(arg_)
+            elif nu == gem.one:
+                return p.Variable(f"{name}1")(arg_)
+            else:
+                return p.Variable(f"{name}n")(nu_, arg_)
+    else:
+        if expr.name == "ln":
+            name = "log"
+        else:
+            name = expr.name
+        # Not all mathfunctions apply to complex numbers, but this
+        # will be picked up in loopy. This way we allow erf(real(...))
+        # in complex mode (say).
+        return p.Variable(name)(*(expression(c, ctx) for c in expr.children))
 
 
 @_expression.register(gem.MinValue)
@@ -326,13 +463,13 @@ def _expression_conditional(expr, ctx):
 
 
 @_expression.register(gem.Constant)
-def _expression_scalar(expr, parameters):
+def _expression_scalar(expr, ctx):
     assert not expr.shape
     v = expr.value
-    if isnan(v):
+    if numpy.isnan(v):
         return p.Variable("NAN")
-    r = round(v, 1)
-    if r and abs(v - r) < parameters.epsilon:
+    r = numpy.round(v, 1)
+    if r and numpy.abs(v - r) < ctx.epsilon:
         return r
     return v
 
@@ -344,7 +481,7 @@ def _expression_variable(expr, ctx):
 
 @_expression.register(gem.Indexed)
 def _expression_indexed(expr, ctx):
-    rank = ctx.pym_multiindex(expr.multiindex)
+    rank = ctx.fetch_multiindex(expr.multiindex)
     var = expression(expr.children[0], ctx)
     if isinstance(var, p.Subscript):
         rank = var.index + rank
