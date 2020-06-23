@@ -1,5 +1,4 @@
 from firedrake import *
-PETSc.Sys.popErrorHandler()
 
 
 def test_linesmoother_vfs():
