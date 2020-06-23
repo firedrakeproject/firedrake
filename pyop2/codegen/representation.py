@@ -20,6 +20,10 @@ class UnpackInst(InstructionLabel):
     pass
 
 
+class PreUnpackInst(InstructionLabel):
+    pass
+
+
 class KernelInst(InstructionLabel):
     pass
 
