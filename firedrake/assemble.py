@@ -162,7 +162,7 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops = _assemble(expr, tensor=tensor, bcs=bcs,
+    loops = _assemble(expr, tensor=tensor, bcs=solving._extract_bcs(bcs),
                       form_compiler_parameters=form_compiler_parameters,
                       mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
@@ -474,10 +474,7 @@ def apply_bcs(tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
                     yield functools.partial(bc.apply, tensor)
             else:
                 yield functools.partial(bc.zero, tensor)
-
-        extracted_bcs = (bc.extract_form("F") for bc in bcs
-                         if isinstance(bc, EquationBC))
-        for bc in chain(equationbcs, extracted_bcs):
+        for bc in equationbcs:
             if diagonal:
                 raise NotImplementedError("diagonal assembly and EquationBC not supported")
             yield functools.partial(bc.zero, tensor)
@@ -669,11 +666,6 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
 
-    if bcs is None:
-        bcs = ()
-    else:
-        bcs = tuple(bcs)
-
     for o in chain(expr.arguments(), expr.coefficients()):
         domain = o.ufl_domain()
         if domain is not None and domain.topology != topology:
@@ -688,6 +680,16 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         assembly_rank = AssemblyRank.VECTOR
     else:
         assembly_rank = AssemblyRank.SCALAR
+
+    if not isinstance(bcs, (tuple, list)):
+        raise RuntimeError("Expecting bcs to be a tuple or a list by this stage.")
+    if assembly_rank == AssemblyRank.MATRIX:
+        # Checks will take place in get_matrix.
+        pass
+    elif assembly_rank == AssemblyRank.VECTOR:
+        # Might have gotten here without `EquationBC` objects preprocessed.
+        if any(isinstance(bc, EquationBC) for bc in bcs):
+            bcs = tuple(bc.extract_form('F') for bc in bcs)
 
     if assembly_rank == AssemblyRank.MATRIX:
         test, trial = expr.arguments()
