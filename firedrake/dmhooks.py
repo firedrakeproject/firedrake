@@ -272,28 +272,31 @@ def get_transfer_manager(dm):
     return transfer
 
 
-push_ctx_coarsener = partial(push_attr, "__ctx_coarsener__")
-pop_ctx_coarsener = partial(pop_attr, "__ctx_coarsener__")
+push_ctx_transfer = partial(push_attr, "__ctx_transfer__")
+pop_ctx_transfer = partial(pop_attr, "__ctx_transfer__")
 
 
-def get_ctx_coarsener(dm):
-    from firedrake.mg.ufl_utils import coarsen
-    return get_attr("__ctx_coarsener__", dm, default=coarsen)
+def get_ctx_transfer(dm):
+    from firedrake.mg.ufl_utils import coarsen, refine
+    return get_attr("__ctx_transfer__", dm, default=(coarsen, refine))
 
 
-class ctx_coarsener(object):
-    def __init__(self, V, coarsen=None):
-        from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+class ctx_transfer(object):
+    def __init__(self, V, coarsen=None, refine=None):
+        from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen, refine as symbolic_refine
         self.V = V
         if coarsen is None:
             coarsen = symbolic_coarsen
+        if refine is None:
+            refine = symbolic_refine
         self.coarsen = coarsen
+        self.refine = refine
 
     def __enter__(self):
-        push_ctx_coarsener(self.V.dm, self.coarsen)
+        push_ctx_transfer(self.V.dm, (self.coarsen, self.refine))
 
     def __exit__(self, typ, value, traceback):
-        pop_ctx_coarsener(self.V.dm, self.coarsen)
+        pop_ctx_transfer(self.V.dm, (self.coarsen, self.refine))
 
 
 def create_matrix(dm):
@@ -334,7 +337,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     names = [s.name for s in W]
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
-    coarsen = get_ctx_coarsener(dm)
+    transfer = get_ctx_transfer(dm)
     parent = get_parent(dm)
     for d in dms:
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
@@ -344,7 +347,7 @@ def create_field_decomposition(dm, *args, **kwargs):
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
+            add_hook(parent, setup=partial(push_ctx_transfer, d, transfer), teardown=partial(pop_ctx_transfer, d, transfer),
                      call_setup=True)
     return names, W._ises, dms
 
@@ -357,7 +360,7 @@ def create_subdm(dm, fields, *args, **kwargs):
     """
     W = get_function_space(dm)
     ctx = get_appctx(dm)
-    coarsen = get_ctx_coarsener(dm)
+    transfer = get_ctx_transfer(dm)
     parent = get_parent(dm)
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
@@ -371,7 +374,7 @@ def create_subdm(dm, fields, *args, **kwargs):
             ctx, = ctx.split([(idx, )])
             add_hook(parent, setup=partial(push_appctx, subdm, ctx), teardown=partial(pop_appctx, subdm, ctx),
                      call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
+            add_hook(parent, setup=partial(push_ctx_transfer, subdm, transfer), teardown=partial(pop_ctx_transfer, subdm, transfer),
                      call_setup=True)
         return iset, subdm
     else:
@@ -389,8 +392,8 @@ def create_subdm(dm, fields, *args, **kwargs):
             add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),
                      teardown=partial(pop_appctx, subspace.dm, ctx),
                      call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subspace.dm, coarsen),
-                     teardown=partial(pop_ctx_coarsener, subspace.dm, coarsen),
+            add_hook(parent, setup=partial(push_ctx_transfer, subspace.dm, transfer),
+                     teardown=partial(pop_ctx_transfer, subspace.dm, transfer),
                      call_setup=True)
         return iset, subspace.dm
 
@@ -409,7 +412,7 @@ def coarsen(dm, comm):
     hierarchy, level = get_level(V.mesh())
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")
-    coarsen = get_ctx_coarsener(dm)
+    coarsen, refine = get_ctx_transfer(dm)
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
     parent = get_parent(dm)
@@ -419,8 +422,8 @@ def coarsen(dm, comm):
         for V_, Vc_ in zip(V, Vc):
             add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
                      call_setup=True)
-    add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
-             teardown=partial(pop_ctx_coarsener, cdm, coarsen),
+    add_hook(parent, setup=partial(push_ctx_transfer, cdm, (coarsen, refine)),
+             teardown=partial(pop_ctx_transfer, cdm, (coarsen, refine)),
              call_setup=True)
     ctx = get_appctx(dm)
     if ctx is not None:
