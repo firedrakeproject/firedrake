@@ -368,14 +368,14 @@ class MeshTopology(object):
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
-                dmplex.set_adjacency_callback(self._plex)
-                self._plex.distributeOverlap(overlap)
-                dmplex.clear_adjacency_callback(self._plex)
+                dmplex.set_adjacency_callback(self._topology_dm)
+                self._topology_dm.distributeOverlap(overlap)
+                dmplex.clear_adjacency_callback(self._topology_dm)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
                 # Default is FEM (vertex star) adjacency.
-                self._plex.distributeOverlap(overlap)
+                self._topology_dm.distributeOverlap(overlap)
                 self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -384,7 +384,7 @@ class MeshTopology(object):
         plex.setFromOptions()
         utils._init()
 
-        self._plex = plex
+        self._topology_dm = plex
         self.name = name
         self.comm = dup_comm(plex.comm.tompi4py())
 
@@ -460,7 +460,7 @@ class MeshTopology(object):
 
             if reorder:
                 with timed_region("Mesh: reorder"):
-                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    old_to_new = self._topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
             else:
@@ -470,9 +470,9 @@ class MeshTopology(object):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
-                self._plex_renumbering = dmplex.plex_renumbering(self._plex,
+                dmplex.mark_entity_classes(self._topology_dm)
+                self._entity_classes = dmplex.get_entity_classes(self._topology_dm).astype(int)
+                self._plex_renumbering = dmplex.plex_renumbering(self._topology_dm,
                                                                  self._entity_classes,
                                                                  reordering)
 
@@ -488,7 +488,7 @@ class MeshTopology(object):
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
+                self._facet_ordering = dmplex.get_facet_ordering(self._topology_dm, facet_numbering)
         self._callback = callback
 
     layers = None
@@ -551,7 +551,7 @@ class MeshTopology(object):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self._plex
+        plex = self._topology_dm
         tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
@@ -598,7 +598,7 @@ class MeshTopology(object):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
 
-        dm = self._plex
+        dm = self._topology_dm
         facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
                                                      self._facet_ordering)
         label = dmplex.FACE_SETS_LABEL
@@ -651,7 +651,7 @@ class MeshTopology(object):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._plex,
+        cell_facets = dmplex.cell_facet_labeling(self._topology_dm,
                                                  self._cell_numbering,
                                                  self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
@@ -711,27 +711,27 @@ class MeshTopology(object):
         return self._cell_orientations
 
     def num_cells(self):
-        cStart, cEnd = self._plex.getHeightStratum(0)
+        cStart, cEnd = self._topology_dm.getHeightStratum(0)
         return cEnd - cStart
 
     def num_facets(self):
-        fStart, fEnd = self._plex.getHeightStratum(1)
+        fStart, fEnd = self._topology_dm.getHeightStratum(1)
         return fEnd - fStart
 
     def num_faces(self):
-        fStart, fEnd = self._plex.getDepthStratum(2)
+        fStart, fEnd = self._topology_dm.getDepthStratum(2)
         return fEnd - fStart
 
     def num_edges(self):
-        eStart, eEnd = self._plex.getDepthStratum(1)
+        eStart, eEnd = self._topology_dm.getDepthStratum(1)
         return eEnd - eStart
 
     def num_vertices(self):
-        vStart, vEnd = self._plex.getDepthStratum(0)
+        vStart, vEnd = self._topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
     def num_entities(self, d):
-        eStart, eEnd = self._plex.getDepthStratum(d)
+        eStart, eEnd = self._topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
     def size(self, d):
@@ -780,7 +780,7 @@ class MeshTopology(object):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmplex.get_cell_markers(self._plex,
+                ids = tuple(dmplex.get_cell_markers(self._topology_dm,
                                                     self._cell_numbering,
                                                     sid)
                             for sid in all_integer_subdomain_ids)
@@ -788,7 +788,7 @@ class MeshTopology(object):
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmplex.get_cell_markers(self._plex,
+                indices = dmplex.get_cell_markers(self._topology_dm,
                                                   self._cell_numbering,
                                                   subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
@@ -851,7 +851,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self._plex = mesh._plex
+        self._topology_dm = mesh._topology_dm
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
@@ -860,7 +860,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
-            extents = extnum.layer_extents(self._plex,
+            extents = extnum.layer_extents(self._topology_dm,
                                            self._cell_numbering,
                                            layers)
             if np.any(extents[:, 3] - extents[:, 2] <= 0):
