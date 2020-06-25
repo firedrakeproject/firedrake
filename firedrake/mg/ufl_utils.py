@@ -1,4 +1,3 @@
-from enum import IntEnum
 import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -12,6 +11,8 @@ from . import utils
 
 
 __all__ = ("coarsen", "refine")
+
+TransferDirection = firedrake.dmhooks.TransferDirection
 
 
 class TransferError(Exception):
@@ -52,11 +53,6 @@ class TransferIntegrand(MultiFunction):
     def facet_normal(self, o):
         mesh = self.transfer(o.ufl_domain(), self.transfer)
         return firedrake.FacetNormal(mesh)
-
-
-class TransferDirection(IntEnum):
-    COARSEN = 0
-    REFINE = 1
 
 
 @singledispatch

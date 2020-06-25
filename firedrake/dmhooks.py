@@ -37,12 +37,18 @@ fieldsplit preconditioning, without having to set everything up in
 advance.
 """
 
+from enum import IntEnum
 import weakref
 import numpy
 from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
+
+
+class TransferDirection(IntEnum):
+    COARSEN = 0
+    REFINE = 1
 
 
 def get_function_space(dm):
@@ -398,65 +404,50 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
-def coarsen(dm, comm):
-    """Callback to coarsen a DM.
+def transfer(dm, comm, direction=None):
+    """Callback to transfer a DM to a new level.
 
-    :arg DM: The DM to coarsen.
+    :arg DM: The DM to transfer.
+    :arg direction: Whether to coarsen or refine.
     :arg comm: The communicator for the new DM (ignored)
 
-    This transfers a coarse application context over to the coarsened
+    This transfers the application context over to the new
     DM (if found on the input DM).
     """
-    from firedrake.mg.utils import get_level
-    V = get_function_space(dm)
-    hierarchy, level = get_level(V.mesh())
-    if level < 1:
-        raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen, refine = get_ctx_transfer(dm)
-    Vc = coarsen(V, coarsen)
-    cdm = Vc.dm
+    if direction == TransferDirection.COARSEN:
+        transfer = coarsen
+    elif direction == TransferDirection.REFINE:
+        transfer = refine
+    else:
+        raise RuntimeError(f"Unhandled transfer direction {direction}")
+    V = get_function_space(dm)
+    newV = transfer(V, transfer)
+    newdm = newV.dm
     parent = get_parent(dm)
-    add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+    add_hook(parent, setup=partial(push_parent, newdm, parent), teardown=partial(pop_parent, newdm, parent),
              call_setup=True)
     if len(V) > 1:
-        for V_, Vc_ in zip(V, Vc):
-            add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
+        for V_, newV_ in zip(V, newV):
+            add_hook(parent, setup=partial(push_parent, newV_.dm, parent), teardown=partial(pop_parent, newV_.dm, parent),
                      call_setup=True)
-    add_hook(parent, setup=partial(push_ctx_transfer, cdm, (coarsen, refine)),
-             teardown=partial(pop_ctx_transfer, cdm, (coarsen, refine)),
+    add_hook(parent, setup=partial(push_ctx_transfer, newdm, (coarsen, refine)),
+             teardown=partial(pop_ctx_transfer, newdm, (coarsen, refine)),
              call_setup=True)
     ctx = get_appctx(dm)
     if ctx is not None:
-        cctx = coarsen(ctx, coarsen)
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx),
-                 teardown=partial(pop_appctx, cdm, cctx),
+        cctx = transfer(ctx, transfer)
+        add_hook(parent, setup=partial(push_appctx, newdm, cctx),
+                 teardown=partial(pop_appctx, newdm, cctx),
                  call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
         dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-        cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-    return cdm
+        newdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+    return newdm
 
 
-def refine(dm, comm):
-    """Callback to refine a DM.
-
-    :arg DM: The DM to refine.
-    :arg comm: The communicator for the new DM (ignored)
-    """
-    from firedrake.mg.utils import get_level
-    V = get_function_space(dm)
-    if V is None:
-        raise RuntimeError("No functionspace found on DM")
-    hierarchy, level = get_level(V.mesh())
-    if level >= len(hierarchy) - 1:
-        raise RuntimeError("Cannot refine finest DM")
-    if hasattr(V, "_fine"):
-        fdm = V._fine.dm
-    else:
-        V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
-        fdm = V._fine.dm
-    V._fine._coarse = V
-    return fdm
+coarsen = partial(transfer, direction=TransferDirection.COARSEN)
+refine = partial(transfer, direction=TransferDirection.REFINE)
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
