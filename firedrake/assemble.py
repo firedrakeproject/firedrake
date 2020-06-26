@@ -10,7 +10,7 @@ import ufl
 from firedrake import (assemble_expressions, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
-from firedrake.bcs import DirichletBC, EquationBCSplit
+from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from pyop2 import op2
@@ -162,7 +162,7 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops = _assemble(expr, tensor=tensor, bcs=bcs,
+    loops = _assemble(expr, tensor=tensor, bcs=solving._extract_bcs(bcs),
                       form_compiler_parameters=form_compiler_parameters,
                       mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
@@ -200,6 +200,10 @@ def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
     arguments = expr.arguments()
     if bcs is None:
         bcs = ()
+    else:
+        if any(isinstance(bc, EquationBC) for bc in bcs):
+            raise TypeError("EquationBC objects not expected here. "
+                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
     if tensor is not None and tensor.a.arguments() != arguments:
         raise ValueError("Form's arguments do not match provided result tensor")
     if matfree:
@@ -425,9 +429,6 @@ def apply_bcs(tensor, bcs, *, assembly_rank=None, form_compiler_parameters=None,
     """
     dirichletbcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
     equationbcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
-    if any(not isinstance(bc, (DirichletBC, EquationBCSplit)) for bc in bcs):
-        raise NotImplementedError("Unhandled type of bc object")
-
     if assembly_rank == AssemblyRank.MATRIX:
         op2tensor = tensor.M
         shape = tuple(len(a.function_space()) for a in tensor.a.arguments())
@@ -669,11 +670,6 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
 
-    if bcs is None:
-        bcs = ()
-    else:
-        bcs = tuple(bcs)
-
     for o in chain(expr.arguments(), expr.coefficients()):
         domain = o.ufl_domain()
         if domain is not None and domain.topology != topology:
@@ -688,6 +684,16 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         assembly_rank = AssemblyRank.VECTOR
     else:
         assembly_rank = AssemblyRank.SCALAR
+
+    if not isinstance(bcs, (tuple, list)):
+        raise RuntimeError("Expecting bcs to be a tuple or a list by this stage.")
+    if assembly_rank == AssemblyRank.MATRIX:
+        # Checks will take place in get_matrix.
+        pass
+    elif assembly_rank == AssemblyRank.VECTOR:
+        # Might have gotten here without `EquationBC` objects preprocessed.
+        if any(isinstance(bc, EquationBC) for bc in bcs):
+            bcs = tuple(bc.extract_form('F') for bc in bcs)
 
     if assembly_rank == AssemblyRank.MATRIX:
         test, trial = expr.arguments()
