@@ -269,7 +269,7 @@ def tensor_product_space_query(V):
     V must be either CG(N) or DG(N) on quads or hexes (same N along every direction).
 
     :arg V: FunctionSpace
-    :returns: 3-tuple of (use_tensorproduct, degree, family)
+    :returns: 4-tuple of (use_tensorproduct, degree, family, variant)
     """
     from FIAT import reference_element
     ndim = V.ufl_domain().topological_dimension()
