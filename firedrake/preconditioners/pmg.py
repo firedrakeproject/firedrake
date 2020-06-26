@@ -272,7 +272,8 @@ def tensor_product_space_query(V):
     :returns: 3-tuple of (use_tensorproduct, degree, family)
     """
     from FIAT import reference_element
-    iscube = V.finat_element.cell.get_dimension() > 1 and reference_element.is_hypercube(V.finat_element.cell)
+    ndim = V.ufl_domain().topological_dimension()
+    iscube = ndim == 2 or ndim == 3 and reference_element.is_hypercube(V.finat_element.cell)
 
     ele = V.ufl_element()
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
@@ -380,8 +381,8 @@ class StandaloneInterpolationMatrix(object):
         Jnp = self.barycentric(zc, zf)
         # Declare array shapes to be used as literals inside the kernels, I follow to the m-by-n convention.
         (mx, nx) = Jnp.shape
-        (my, ny) = (mx, nx)
-        (mz, nz) = (mx, nx) if ndim == 3 else (1, 1)
+        (my, ny) = (mx, nx) if ndim >= 2 else (1, 1)
+        (mz, nz) = (mx, nx) if ndim >= 3 else (1, 1)
         nscal = Vf.value_size  # number of components
         mxyz = mx*my*mz  # dim of Vf scalar element
         nxyz = nx*ny*nz  # dim of Vc scalar element
@@ -391,7 +392,8 @@ class StandaloneInterpolationMatrix(object):
         # Pass the 1D tabulation as hexadecimal string
         JX = ', '.join(map(float.hex, np.asarray(Jhat).flatten()))
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
-        JZ = "JX" if ndim == 3 else "&one"
+        JY = "JX" if ndim >= 2 else "&one"
+        JZ = "JX" if ndim >= 3 else "&one"
 
         # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
         # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
@@ -400,7 +402,7 @@ class StandaloneInterpolationMatrix(object):
               double *alpha, double *A, int *lda, double *B, int *ldb,
               double *beta , double *C, int *ldc);
 
-        void kronmxv(int tflag,
+        static void kronmxv(int tflag,
             int mx, int my, int mz,
             int nx, int ny, int nz, int nel,
             double *A1, double *A2, double *A3,
@@ -482,7 +484,7 @@ class StandaloneInterpolationMatrix(object):
                 for(int i=0; i<{nscal}; i++)
                     t0[j + {nxyz}*i] = x[i + {nscal}*j];
 
-            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,JX,{JZ}, t0,t1);
+            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
             for(int j=0; j<{mxyz}; j++)
                 for(int i=0; i<{nscal}; i++)
@@ -504,7 +506,7 @@ class StandaloneInterpolationMatrix(object):
                 for(int i=0; i<{nscal}; i++)
                     t0[j + {mxyz}*i] = x[i + {nscal}*j] * w[i + {nscal}*j];
 
-            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,JX,{JZ}, t0,t1);
+            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
             for(int j=0; j<{nxyz}; j++)
                 for(int i=0; i<{nscal}; i++)
