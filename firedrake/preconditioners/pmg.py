@@ -272,7 +272,7 @@ def tensor_product_space_query(V):
     :returns: 3-tuple of (use_tensorproduct, degree, family)
     """
     from FIAT import reference_element
-    iscube = reference_element.is_hypercube(V.finat_element.cell)
+    iscube = V.finat_element.cell.get_dimension() > 1 and reference_element.is_hypercube(V.finat_element.cell)
 
     ele = V.ufl_element()
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
