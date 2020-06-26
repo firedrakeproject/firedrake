@@ -294,7 +294,7 @@ def tensor_product_space_query(V):
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
-            variant, = set(e.variant() for e in ele.sub_elements())
+            variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
         except ValueError:
             # Mixed variants
             variant = "mixed"
