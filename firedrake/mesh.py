@@ -31,7 +31,7 @@ from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
+__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType']
 
 
@@ -846,6 +846,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
+        if isinstance(mesh.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
+
         mesh.init()
         self._base_mesh = mesh
         self.comm = mesh.comm
@@ -1120,7 +1123,10 @@ class VertexOnlyMeshTopology(MeshTopology):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return dmswarm.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
+        if real_tensorproduct:
+            raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
+
+        return dmswarm.create_section(self, nodes_per_entity)
 
     def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
@@ -1281,7 +1287,7 @@ values from f.)"""
         coords_max.dat.data.fill(-np.inf)
 
         cell_node_list = self.coordinates.function_space().cell_node_list
-        nodes_per_cell = len(cell_node_list[0])
+        _, nodes_per_cell = cell_node_list.shape
 
         domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
         instructions = """
@@ -1424,6 +1430,8 @@ def make_mesh_from_coordinates(coordinates):
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh.__init__(coordinates)
+    # Mark mesh as being made from coordinates
+    mesh._made_from_coordinates = True
     return mesh
 
 
@@ -1679,6 +1687,97 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                                     layer_height, extrusion_type="radial", kernel=kernel)
 
     return self
+
+
+def VertexOnlyMesh(mesh, vertexcoords):
+    """
+    Create a vertex only mesh, immersed in a given mesh, with vertices
+    defined by a list of coordinates.
+
+    :arg mesh: The unstructured mesh in which to immerse the vertex only
+        mesh.
+    :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+
+    .. note::
+
+        The vertex only mesh uses the same communicator as the input `mesh`.
+
+    .. note::
+
+        Meshes created from a coordinates `firedrake.Function` and immersed
+        manifold meshes are not yet supported.
+    """
+
+    import firedrake.functionspace as functionspace
+    import firedrake.function as function
+
+    mesh.init()
+
+    vertexcoords = np.asarray(vertexcoords, dtype=np.double)
+    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension()
+    _, pdim = vertexcoords.shape
+
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Extruded meshes are not supported")
+
+    if gdim != tdim:
+        raise NotImplementedError("Immersed manifold meshes are not supported")
+
+    # TODO Some better method of matching points to cells will need to
+    # be used for bendy meshes since our PETSc DMPlex implementation
+    # only supports straight-edged mesh topologies and meshes made from
+    # coordinate fields.
+    # We can hopefully update the coordinates field correctly so that
+    # the DMSwarm PIC can immerse itself in the DMPlex.
+    # We can also hopefully provide a callback for PETSc to use to find
+    # the parent cell id. We would add `DMLocatePoints` as an `op` to
+    # `DMShell` types and do `DMSwarmSetCellDM(yourdmshell)` which has
+    # `DMLocatePoints_Shell` implemented.
+    # Whether one or both of these is needed is unclear.
+
+    if mesh.coordinates.function_space().ufl_element().degree() > 1:
+        raise NotImplementedError("Only straight edged meshes are supported")
+
+    if hasattr(mesh, "_made_from_coordinates") and mesh._made_from_coordinates:
+        raise NotImplementedError("Meshes made from coordinate fields are not yet supported")
+
+    if pdim != gdim:
+        raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
+
+    swarm = _pic_swarm_in_plex(mesh.topology._topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+
+    dmswarm.label_pic_parent_cell_nums(swarm, mesh)
+
+    # Topology
+    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
+
+    # Geometry
+    tcell = topology.ufl_cell()
+    cell = tcell.reconstruct(geometric_dimension=gdim)
+    element = ufl.VectorElement("DG", cell, 0)
+    # Create mesh object
+    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh._topology = topology
+    vmesh._parent_mesh = mesh
+
+    # Finish the initialisation of mesh topology
+    vmesh.topology.init()
+
+    # Initialise mesh geometry
+    coordinates_fs = functionspace.VectorFunctionSpace(vmesh.topology, "DG", 0,
+                                                       dim=gdim)
+
+    coordinates_data = dmswarm.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
+                                                (vmesh.num_vertices(), gdim))
+
+    coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                  val=coordinates_data,
+                                                  name="Coordinates")
+
+    vmesh.__init__(coordinates)
+
+    return vmesh
 
 
 def _pic_swarm_in_plex(plex, coords, fields=[]):

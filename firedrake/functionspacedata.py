@@ -150,10 +150,14 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
     class magic(dict):
         def __missing__(self, key):
-            return self.setdefault(key,
-                                   {mesh.cell_set: lambda: cell_node_list,
-                                    mesh.interior_facets.set: interior_facet_node_list,
-                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+            if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list}[key]())
+            else:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list,
+                                        mesh.interior_facets.set: interior_facet_node_list,
+                                        mesh.exterior_facets.set: exterior_facet_node_list}[key]())
 
     return magic()
 
@@ -168,10 +172,13 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    return {mesh.cell_set: None,
-            mesh.interior_facets.set: None,
-            mesh.exterior_facets.set: None,
-            "boundary_node": None}
+    if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+        return {mesh.cell_set: None}
+    else:
+        return {mesh.cell_set: None,
+                mesh.interior_facets.set: None,
+                mesh.exterior_facets.set: None,
+                "boundary_node": None}
 
 
 @cached

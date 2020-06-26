@@ -85,7 +85,7 @@ _contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=Tru
 class Halo(op2.Halo):
     """Build a Halo for a function space.
 
-    :arg dm:  The DMPlex describing the topology.
+    :arg dm: The DM describing the topology.
     :arg section: The data layout.
 
     The halo is implemented using a PETSc SF (star forest) object and
