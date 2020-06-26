@@ -50,6 +50,9 @@ cdef extern from "petscdmlabel.h" nogil:
 cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
 
+cdef extern from "petscdmswarm.h" nogil:
+    int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
+
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)

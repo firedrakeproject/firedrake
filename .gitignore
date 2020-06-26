@@ -28,6 +28,7 @@ __pycache__/
 /docs/source/teaminactive.rst
 /docs/source/demos
 /firedrake/cython/dmplex.c
+/firedrake/cython/dmswarm.c
 /firedrake/cython/extrusion_numbering.c
 /firedrake/cython/hdf5interface.c
 /firedrake/cython/mgimpl.c

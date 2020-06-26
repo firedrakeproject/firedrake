@@ -37,6 +37,7 @@ if "clean" in sys.argv[1:]:
                 os.remove(os.path.join(dirname, f))
 
 cythonfiles = [("dmplex", ["petsc"]),
+               ("dmswarm", ["petsc"]),
                ("extrusion_numbering", ["petsc"]),
                ("hdf5interface", ["petsc"]),
                ("mgimpl", ["petsc"]),
