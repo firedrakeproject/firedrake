@@ -267,6 +267,8 @@ class InterpolateBlock(blocks.FunctionAssignBlock, Backend):
             V = block_variable.output.function_space()
         elif isinstance(block_variable.output, self.backend.Constant):
             mesh = adj_input_func.ufl_domain()
+            if block_variable.output.ufl_shape != ():
+                raise ValueError("Vector-valued Constant not supported in adjoint")
             V = self.backend.FunctionSpace(mesh, "Real", 0)
         else:
             raise NotImplementedError("Unknown dependency type in adjoint for interpolate")
@@ -280,7 +282,12 @@ class InterpolateBlock(blocks.FunctionAssignBlock, Backend):
 
         intp = firedrake.Interpolator(diff_expr, adj_input_func.function_space())
         adj_output = intp.interpolate(adj_input_func, transpose=True)
-        return adj_output.vector()
+        if isinstance(block_variable.output, self.backend.Constant):
+            # convert back to Constant (scalar only at the moment)
+            return float(adj_output.dat.data[0])
+        else:
+            # convert to vector:
+            return self.compat.assemble_adjoint_value(adj_output)
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
