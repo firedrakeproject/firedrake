@@ -293,13 +293,20 @@ def tensor_product_space_query(V):
 
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
+        try:
+            variant, = set(e.variant() for e in ele.sub_elements())
+        except ValueError:
+            # Mixed variants
+            variant = "mixed"
+            use_tensorproduct = False
     else:
         family = {ele.family()}
+        variant = ele.variant()
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
     use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG)
-    return use_tensorproduct, N, family
+    return use_tensorproduct, N, family, variant
 
 
 class StandaloneInterpolationMatrix(object):
@@ -320,8 +327,8 @@ class StandaloneInterpolationMatrix(object):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        tf, _, _ = tensor_product_space_query(Vf)
-        tc, _, _ = tensor_product_space_query(Vc)
+        tf, _, _, _ = tensor_product_space_query(Vf)
+        tc, _, _, _ = tensor_product_space_query(Vc)
         if tf and tc:
             self.make_blas_kernels(Vf, Vc)
         else:
@@ -522,16 +529,24 @@ class StandaloneInterpolationMatrix(object):
         # Return GLL nodes if V==CG or GL nodes if V==DG
         from FIAT import quadrature
         from FIAT.reference_element import DefaultLine
-        use_tensorproduct, N, family = tensor_product_space_query(V)
+        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
         assert use_tensorproduct
         if family <= {"Q", "Lagrange"}:
-            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
+            if variant == "equispaced":
+                nodes = np.linspace(-1.0E0, 1.0E0, N+1)
+            else:
+                rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
+                nodes = np.asarray(rule.get_points()).flatten()
         elif family <= {"DQ", "Discontinuous Lagrange"}:
-            rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
+            if variant == "equispaced":
+                nodes = np.arange(1, N+2)*(2.0E0/(N+2))-1.0E0
+            else:
+                rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
+                nodes = np.asarray(rule.get_points()).flatten()
         else:
             raise ValueError("Don't know how to get nodes for %r" % family)
 
-        return np.asarray(rule.get_points()).flatten()
+        return nodes
 
     @staticmethod
     def barycentric(xsrc, xdst):
