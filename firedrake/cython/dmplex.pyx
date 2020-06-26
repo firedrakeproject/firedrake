@@ -847,7 +847,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.
 
-    Shape is a tuple of (plex.numVertices(), geometric_dim)."""
+    Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
