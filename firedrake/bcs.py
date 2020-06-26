@@ -81,8 +81,6 @@ class BCBase(object):
                 break
         # Used for indexing functions passed in.
         self._indices = tuple(reversed(indices))
-        # Used for finding local to global maps with boundary conditions applied
-        self._cache_key = (self.domain_args, (self.method, tuple(indexing), tuple(components)))
         # init bcs
         self.bcs = []
         # Remember the depth of the bc
