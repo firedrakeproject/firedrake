@@ -305,7 +305,7 @@ def tensor_product_space_query(V):
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG)
+    use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG) and variant == "spectral"
     return use_tensorproduct, N, family, variant
 
 
