@@ -346,13 +346,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
-    def interpolate(self, expression, subset=None):
+    def interpolate(self, expression, subset=None, annotate=True):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset)
+        return interpolation.interpolate(expression, self, subset=subset, annotate=annotate)
 
     @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe

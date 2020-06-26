@@ -17,7 +17,7 @@ from firedrake.adjoint import InterpolatorMixin
 __all__ = ("interpolate", "Interpolator")
 
 
-def interpolate(expr, V, subset=None, access=op2.WRITE):
+def interpolate(expr, V, subset=None, access=op2.WRITE, annotate=True):
     """Interpolate an expression onto a new function in V.
     :arg expr: an :class:`.Expression`.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
@@ -27,6 +27,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     :kwarg access: The access descriptor for combining updates to shared dofs.
     Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
     it was a Function).
+    :kwarg annotate: whether to annotate this operation in firedrake_adjoint
 
     .. note::
 
@@ -34,7 +35,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
        (for example in a time loop) you may find you get better
        performance by using an :class:`Interpolator` instead.
     """
-    return Interpolator(expr, V, subset=subset, access=access).interpolate()
+    return Interpolator(expr, V, subset=subset, access=access).interpolate(annotate=annotate)
 
 
 class Interpolator(InterpolatorMixin):
