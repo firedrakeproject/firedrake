@@ -1,6 +1,7 @@
 *.[ao]
 *.dat
 .deps/
+.vscode/
 *.l[ao]
 *.log
 *.pyc
