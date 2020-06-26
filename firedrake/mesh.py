@@ -1011,6 +1011,149 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
+class VertexOnlyMeshTopology(MeshTopology):
+    """
+    Representation of a vertex-only mesh topology immersed within
+    another mesh.
+    """
+
+    def __init__(self, swarm, parentmesh, name, reorder):
+        """
+        Half-initialise a mesh topology.
+
+        :arg swarm: Particle In Cell (PIC) :class:`DMSwarm` representing
+            vertices immersed within a :class:`DMPlex` stored in the
+            `parentmesh`
+        :arg parentmesh: the mesh within which the vertex-only mesh
+            topology is immersed.
+        :arg name: name of the mesh
+        :arg reorder: whether to reorder the mesh (bool)
+        """
+
+        # TODO: As a performance optimisation, we should renumber the
+        # swarm to in parent-cell order so that we traverse efficiently.
+        if reorder:
+            raise NotImplementedError("Mesh reordering not implemented for vertex only meshes yet.")
+
+        swarm.setFromOptions()
+
+        utils._init()
+
+        self._parent_mesh = parentmesh
+        self._topology_dm = swarm
+        self.name = name
+        self.comm = dup_comm(swarm.comm.tompi4py())
+
+        # A cache of shared function space data on this mesh
+        self._shared_data_cache = defaultdict(dict)
+
+        # Cell subsets for integration over subregions
+        self._subsets = {}
+
+        tdim = 0
+
+        cell = ufl.Cell("vertex")
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+
+        def callback(self):
+            """Finish initialisation."""
+            del self._callback
+
+            # Mark OP2 entities and derive the resulting Swarm numbering
+            with timed_region("Mesh: numbering"):
+                dmswarm.mark_entity_classes(self._topology_dm)
+                self._entity_classes = dmswarm.get_entity_classes(self._topology_dm).astype(int)
+
+                # Derive a cell numbering from the Swarm numbering
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
+                entity_dofs[-1] = 1
+
+                self._cell_numbering = self.create_section(entity_dofs)
+                entity_dofs[:] = 0
+                entity_dofs[0] = 1
+                self._vertex_numbering = self.create_section(entity_dofs)
+
+        self._callback = callback
+
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        swarm = self._topology_dm
+        tdim = 0
+
+        # Cell numbering and global vertex numbering
+        cell_numbering = self._cell_numbering
+        vertex_numbering = self._vertex_numbering.createGlobalSection(swarm.getPointSF())
+
+        cell = self.ufl_cell()
+        assert tdim == cell.topological_dimension()
+        assert cell.is_simplex()
+
+        import FIAT
+        topology = FIAT.ufc_cell(cell).get_topology()
+        entity_per_cell = np.zeros(len(topology), dtype=IntType)
+        for d, ents in topology.items():
+            entity_per_cell[d] = len(ents)
+
+        return dmswarm.closure_ordering(swarm, vertex_numbering,
+                                        cell_numbering, entity_per_cell)
+
+    def _facets(self, kind):
+        """Raises an AttributeError since cells in a
+        `VertexOnlyMeshTopology` have no facets.
+        """
+        raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
+
+    @utils.cached_property
+    def cell_to_facets(self):
+        """Raises an AttributeError since cells in a
+        `VertexOnlyMeshTopology` have no facets.
+        """
+        raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
+
+    def create_section(self, nodes_per_entity, real_tensorproduct=False):
+        """Create a PETSc Section describing a function space.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: a new PETSc Section.
+        """
+        return dmswarm.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
+
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg entity_dofs: FInAT element entity DoFs
+        :arg offsets: layer offsets for each entity dof (may be None).
+        """
+        return dmswarm.get_cell_nodes(self, global_numbering,
+                                      entity_dofs, offsets)
+
+    def num_cells(self):
+        return self.num_vertices()
+
+    def num_facets(self):
+        return 0
+
+    def num_faces(self):
+        return 0
+
+    def num_edges(self):
+        return 0
+
+    def num_vertices(self):
+        return self._topology_dm.getLocalSize()
+
+    def num_entities(self, d):
+        if d > 0:
+            return 0
+        else:
+            return self.num_vertices()
+
+
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
