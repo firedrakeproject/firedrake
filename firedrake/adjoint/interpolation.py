@@ -2,6 +2,19 @@ from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import InterpolateBlock
 
+def add_annotate_kwarg(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        annotate = annotate_tape(kwargs)
+        if annotate:
+            return func(*args, **kwargs)
+        else:
+            with stop_annotating():
+                out = func(*args, **kwargs)
+            return out
+
+    return wrapper
+
 
 class InterpolatorMixin:
     @staticmethod

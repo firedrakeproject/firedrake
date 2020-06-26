@@ -12,7 +12,7 @@ from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
-from firedrake.adjoint import FunctionMixin
+from firedrake.adjoint import FunctionMixin, add_annotate_kwarg
 try:
     import cachetools
 except ImportError:
@@ -346,13 +346,14 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
-    def interpolate(self, expression, subset=None, annotate=True):
+    @add_annotate_kwarg
+    def interpolate(self, expression, subset=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset, annotate=annotate)
+        return interpolation.interpolate(expression, self, subset=subset)
 
     @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
