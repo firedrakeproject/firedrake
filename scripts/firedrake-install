@@ -109,9 +109,9 @@ log = logging.getLogger()
 log.info("Running %s" % " ".join(sys.argv))
 
 
-if sys.version_info < (3, 5):
+if sys.version_info < (3, 6):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -488,7 +488,6 @@ if not options["minimal_petsc"]:
     # File formats
     petsc_options.add("--download-netcdf")
     petsc_options.add("--download-pnetcdf")
-    petsc_options.add("--download-exodusii")
     # Sparse direct solvers
     petsc_options.add("--download-suitesparse")
     petsc_options.add("--download-pastix")
@@ -980,12 +979,13 @@ def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
     slepc_dir, slepc_arch = get_slepc_dir()
     assert petsc_arch == slepc_arch
+
+    slepc_changed = False
     if args.honour_petsc_dir:
         log.info("Using installed SLEPc from %s/%s", slepc_dir, petsc_arch)
     else:
         log.info("Installing SLEPc.")
         url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
-        slepc_changed = False
         if os.path.exists("slepc"):
             slepc_changed |= git_update("slepc")
         else:
@@ -1236,10 +1236,10 @@ if mode == "install" or not args.update_script:
                 installed_packages["python3"] = installed_packages["python"]
             for package in required_packages:
                 if package in installed_packages:
-                    log.info(f"Required package '{package}' is already installed via Homebrew.")
+                    log.info("Required package '{0}' is already installed via Homebrew.".format(package))
                     log.debug(pprint.pformat(installed_packages[package]))
                 else:
-                    log.info(f"Installing required package '{package}' via Homebrew.")
+                    log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
