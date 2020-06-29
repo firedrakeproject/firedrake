@@ -495,8 +495,8 @@ def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
-    if not isinstance(mesh, mesh_mod.MeshTopology):
-        raise ValueError("%s is not a MeshTopology" % mesh)
+    if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
+        raise ValueError("%s is not an AbstractMeshTopology" % mesh)
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))

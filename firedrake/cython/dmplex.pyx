@@ -17,10 +17,8 @@ np.import_array()
 
 include "petschdr.pxi"
 
-
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
-
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -43,6 +41,9 @@ def facet_numbering(PETSc.DM plex, kind,
         const PetscInt *cells = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_local_num
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = facets.shape[0]
@@ -96,15 +97,16 @@ def facet_numbering(PETSc.DM plex, kind,
                 facet_local_num[f,1] = -1
     return facet_local_num, facet_cells
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def closure_ordering(PETSc.DM plex,
+def closure_ordering(PETSc.DM dm,
                      PETSc.Section vertex_numbering,
                      PETSc.Section cell_numbering,
                      np.ndarray[PetscInt, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
-    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg dm: The DM object encapsulating the mesh topology
     :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_numbering: Section describing the global cell numbering
     :arg entity_per_cell: List of the number of entity points in each dimension
@@ -117,7 +119,7 @@ def closure_ordering(PETSc.DM plex,
     cdef:
         PetscInt c, cStart, cEnd, v, vStart, vEnd
         PetscInt f, fStart, fEnd, e, eStart, eEnd
-        PetscInt dim, vi, ci, fi, v_per_cell, cell
+        PetscInt dim, vi, ci, fi, v_per_cell, f_per_cell, cell
         PetscInt offset, cell_offset, nfaces, nfacets
         PetscInt nclosure, nfacet_closure, nface_vertices
         PetscInt *vertices = NULL
@@ -130,26 +132,55 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *facet_vertices = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
-    dim = plex.getDimension()
-    cStart, cEnd = plex.getHeightStratum(0)
-    fStart, fEnd = plex.getHeightStratum(1)
-    eStart, eEnd = plex.getDepthStratum(1)
-    vStart, vEnd = plex.getDepthStratum(0)
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
+    if type(dm) is PETSc.DMPlex:
+        dim = dm.getDimension()
+        cStart, cEnd = dm.getHeightStratum(0)
+        fStart, fEnd = dm.getHeightStratum(1)
+        eStart, eEnd = dm.getDepthStratum(1)
+        vStart, vEnd = dm.getDepthStratum(0)
+    else:
+        # DMSwarm dimension is not correct topological dimension so set manually
+        dim = 0
+        cStart, cEnd = 0, dm.getLocalSize()
+        fStart, fEnd = 0, 0
+        # Since a DMSwarm is only vertices, there is only one depth
+        # stratum which runs from  0 to the number of vertices on
+        # the process
+        eStart, eEnd = 0, 0
+        vStart, vEnd = 0, cEnd
+
     v_per_cell = entity_per_cell[0]
+    if len(entity_per_cell) > 1:
+        f_per_cell = entity_per_cell[1]
+    else:
+        f_per_cell = 0
+
     cell_offset = sum(entity_per_cell) - 1
 
     CHKERR(PetscMalloc1(v_per_cell, &vertices))
     CHKERR(PetscMalloc1(v_per_cell, &v_global))
     CHKERR(PetscMalloc1(v_per_cell, &facets))
-    CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
-    CHKERR(PetscMalloc1(entity_per_cell[1], &faces))
-    CHKERR(PetscMalloc1(entity_per_cell[1], &face_indices))
+    if v_per_cell > 0:
+        CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
+    if len(entity_per_cell) > 1:
+        CHKERR(PetscMalloc1(f_per_cell, &faces))
+        CHKERR(PetscMalloc1(f_per_cell, &face_indices))
     cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
 
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE,
-                                          &nclosure,&closure))
+        if type(dm) is PETSc.DMPlex:
+            CHKERR(DMPlexGetTransitiveClosure(dm.dm, c, PETSC_TRUE,
+                                              &nclosure,&closure))
+        else:
+            # DMSwarm represents disconnected vertex only meshes so
+            # transitive closure of a cell (swarm PIC) is always itself
+            nclosure = 1
+            CHKERR(PetscMalloc1(nclosure, &closure))
+            closure[0] = c
 
         # Find vertices and translate universal numbers
         vi = 0
@@ -175,16 +206,17 @@ def closure_ordering(PETSc.DM plex,
                 cell_closure[cell, vi] = vertices[vi]
         offset = v_per_cell
 
-        # Find all edges (dim=1)
+        # Find all edges (dim=1) (only relevant for `DMPlex`)
         if dim > 2:
+            assert type(dm) is PETSc.DMPlex
             nfaces = 0
             for ci in range(nclosure):
                 if eStart <= closure[2*ci] < eEnd:
                     faces[nfaces] = closure[2*ci]
 
-                    CHKERR(DMPlexGetConeSize(plex.dm, closure[2*ci],
+                    CHKERR(DMPlexGetConeSize(dm.dm, closure[2*ci],
                                              &nface_vertices))
-                    CHKERR(DMPlexGetCone(plex.dm, closure[2*ci],
+                    CHKERR(DMPlexGetCone(dm.dm, closure[2*ci],
                                          &face_vertices))
 
                     # Edges in 3D are tricky because we need a
@@ -206,7 +238,7 @@ def closure_ordering(PETSc.DM plex,
                     nfaces += 1
 
             # Sort by local numbers of non-incident vertices
-            CHKERR(PetscSortIntWithArray(entity_per_cell[1],
+            CHKERR(PetscSortIntWithArray(f_per_cell,
                                          face_indices, faces))
             for fi in range(nfaces):
                 cell_closure[cell, offset+fi] = faces[fi]
@@ -226,11 +258,11 @@ def closure_ordering(PETSc.DM plex,
         # The cell itself is always the first entry in the Plex closure
         cell_closure[cell, cell_offset] = closure[0]
 
-        # Now we can deal with facets
+        # Now we can deal with facets (only relevant for `DMPlex`)
         if dim > 1:
             for f in range(nfacets):
                 # Derive facet vertices from facet_closure
-                CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                CHKERR(DMPlexGetTransitiveClosure(dm.dm, facets[f],
                                                   PETSC_TRUE,
                                                   &nfacet_closure,
                                                   &closure))
@@ -256,8 +288,12 @@ def closure_ordering(PETSc.DM plex,
             offset += nfacets
 
     if closure != NULL:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
-                                              NULL, &closure))
+        if type(dm) is PETSc.DMPlex:
+            CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, 0, PETSC_TRUE,
+                                                  NULL, &closure))
+        else:
+            CHKERR(PetscFree(closure))
+
     CHKERR(PetscFree(vertices))
     CHKERR(PetscFree(v_global))
     CHKERR(PetscFree(facets))
@@ -266,6 +302,7 @@ def closure_ordering(PETSc.DM plex,
     CHKERR(PetscFree(face_indices))
 
     return cell_closure
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -296,6 +333,9 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt facets[4]
         int reverse
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
@@ -441,6 +481,14 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         bint variable, extruded, on_base_
 
+    dm = mesh._topology_dm
+
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
+    if type(dm) is PETSc.DMSwarm and on_base:
+        raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
+
     variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
     on_base_ = on_base
@@ -453,18 +501,34 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         else:
             nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
-    dm = mesh._topology_dm
-    renumbering = mesh._plex_renumbering
     section = PETSc.Section().create(comm=mesh.comm)
-    pStart, pEnd = dm.getChart()
-    section.setChart(pStart, pEnd)
-    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
-    dimension = dm.getDimension()
+
+    if type(dm) is PETSc.DMPlex:
+        pStart, pEnd = dm.getChart()
+        section.setChart(pStart, pEnd)
+        renumbering = mesh._plex_renumbering
+        CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+        dimension = dm.getDimension()
+    else:
+        # DMSwarm represents disconnected vertex only meshes
+        pStart, pEnd = 0, dm.getLocalSize()
+        section.setChart(pStart, pEnd)
+        # Renumbering not implemented for DMSwarm
+        # DMSwarm dimension is not correct topological dimension so set manually
+        dimension = 0
 
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
 
     for i in range(dimension + 1):
-        pStart, pEnd = dm.getDepthStratum(i)
+        if type(dm) is PETSc.DMPlex:
+            pStart, pEnd = dm.getDepthStratum(i)
+        else:
+            # Since a DMSwarm is only vertices, there is only one depth
+            # stratum which runs from  0 to the number of vertices on
+            # the process
+            assert i == 0
+            pStart = 0
+            CHKERR(DMSwarmGetLocalSize(dm.dm, &pEnd))
         if not variable:
             ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
@@ -511,6 +575,9 @@ def get_cell_nodes(mesh,
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
         bint variable
 
+    if type(mesh._topology_dm) is not PETSc.DMPlex and type(mesh._topology_dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
     variable = mesh.variable_layers
     cell_closures = mesh.cell_closure
     if variable:
@@ -544,9 +611,14 @@ def get_cell_nodes(mesh,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cStart, cEnd = mesh._topology_dm.getHeightStratum(0)
+    if type(mesh._topology_dm) is PETSc.DMPlex:
+        cStart, cEnd = mesh._topology_dm.getHeightStratum(0)
+    else:
+        # DMSwarm represents disconnected vertex only meshes
+        cStart, cEnd = 0, mesh._topology_dm.getLocalSize()
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
     cell_numbering = mesh._cell_numbering
+
     for c in range(cStart, cEnd):
         k = 0
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -600,6 +672,9 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
     dm = mesh._topology_dm
     variable = mesh.variable_layers
+
+    if type(dm) is not PETSc.DMPlex:
+        raise ValueError("mesh._topology_dm must be a DMPlex")
 
     if variable and offset is None:
         raise ValueError("Offset cannot be None with variable layer extents")
@@ -762,6 +837,9 @@ def label_facets(PETSc.DM plex, label_boundary=True):
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     fStart, fEnd = plex.getHeightStratum(1)
     plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
@@ -808,6 +886,9 @@ def cell_facet_labeling(PETSc.DM plex,
         DMLabel exterior = NULL, subdomain = NULL
         np.ndarray[np.int8_t, ndim=3, mode="c"] cell_facets
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
     nclosure = cell_closures.shape[1]
     cstart, cend = plex.getHeightStratum(0)
@@ -841,40 +922,56 @@ def cell_facet_labeling(PETSc.DM plex,
     CHKERR(DMLabelDestroyIndex(exterior))
     return cell_facets
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
-    """Return coordinates for the plex, reordered according to the
+def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
+    """Return coordinates for the dm, reordered according to the
     global numbering permutation for the coordinate function space.
 
     Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[PetscReal, ndim=2, mode="c"] plex_coords, coords
+        np.ndarray[PetscReal, ndim=2, mode="c"] dm_coords, coords
 
-    plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
-    coords = np.empty_like(plex_coords)
-    vStart, vEnd = plex.getDepthStratum(0)
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
+    if type(dm) is PETSc.DMPlex:
+        dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
+        coords = np.empty_like(dm_coords)
+        vStart, vEnd = dm.getDepthStratum(0)
+    else:
+        # NOTE DMSwarm coords field isn't copied so make sure
+        # dm.restoreField is called too!
+        dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape)
+        coords = np.empty_like(dm_coords)
+        vStart, vEnd = 0, dm.getLocalSize()
 
     for v in range(vStart, vEnd):
         CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
         for i in range(dim):
-            coords[offset, i] = plex_coords[v - vStart, i]
+            coords[offset, i] = dm_coords[v - vStart, i]
+
+    if type(dm) is PETSc.DMSwarm:
+        dm.restoreField("DMSwarmPIC_coor")
 
     return coords
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def mark_entity_classes(PETSc.DM plex):
-    """Mark all points in a given Plex according to the PyOP2 entity
+def mark_entity_classes(PETSc.DM dm):
+    """Mark all points in a given DM according to the PyOP2 entity
     classes:
 
     core   : owned and not in send halo
     owned  : owned and in send halo
     ghost  : in halo
 
-    :arg plex: The DMPlex object encapsulating the mesh topology
+    by inspecting the `pointSF` graph.
+
+    :arg dm: The DM object encapsulating the mesh topology
     """
     cdef:
         PetscInt pStart, pEnd, cStart, cEnd
@@ -889,20 +986,28 @@ def mark_entity_classes(PETSc.DM plex):
         PetscBool is_ghost, is_owned
         DMLabel lbl_core, lbl_owned, lbl_ghost
 
-    pStart, pEnd = plex.getChart()
-    cStart, cEnd = plex.getHeightStratum(0)
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
 
-    plex.createLabel("pyop2_core")
-    plex.createLabel("pyop2_owned")
-    plex.createLabel("pyop2_ghost")
+    if type(dm) is PETSc.DMPlex:
+        pStart, pEnd = dm.getChart()
+        cStart, cEnd = dm.getHeightStratum(0)
+    else:
+        # DMSwarm represents disconnected vertex only meshes
+        pStart, pEnd = 0, dm.getLocalSize()
+        cStart, cEnd = pStart, pEnd
 
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &lbl_core))
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
+    dm.createLabel("pyop2_core")
+    dm.createLabel("pyop2_owned")
+    dm.createLabel("pyop2_ghost")
 
-    if plex.comm.size > 1:
+    CHKERR(DMGetLabel(dm.dm, b"pyop2_core", &lbl_core))
+    CHKERR(DMGetLabel(dm.dm, b"pyop2_owned", &lbl_owned))
+    CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &lbl_ghost))
+
+    if dm.comm.size > 1:
         # Mark ghosts from point overlap SF
-        point_sf = plex.getPointSF()
+        point_sf = dm.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
@@ -917,10 +1022,17 @@ def mark_entity_classes(PETSc.DM plex):
     # entities in closure(cell) that are not in the halo are owned,
     # but not core.
     for c in range(cStart, cEnd):
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, c,
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+        if type(dm) is PETSc.DMPlex:
+            CHKERR(DMPlexGetTransitiveClosure(dm.dm, c,
+                                              PETSC_TRUE,
+                                              &nclosure,
+                                              &closure))
+        else:
+            # DMSwarm represents disconnected vertex only meshes so
+            # transitive closure of a cell (swarm PIC) is always itself
+            nclosure = 1
+            CHKERR(PetscMalloc1(nclosure, &closure))
+            closure[0] = c
         is_owned = PETSC_FALSE
         for ci in range(nclosure):
             p = closure[2*ci]
@@ -935,8 +1047,11 @@ def mark_entity_classes(PETSc.DM plex):
                 if not is_ghost:
                     CHKERR(DMLabelSetValue(lbl_owned, p, 1))
     if closure != NULL:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
-                                              NULL, &closure))
+        if type(dm) is PETSc.DMPlex:
+            CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, 0, PETSC_TRUE,
+                                                  NULL, &closure))
+        else:
+            CHKERR(PetscFree(closure))
     # Mark all remaining points as core
     CHKERR(DMLabelCreateIndex(lbl_owned, pStart, pEnd))
     for p in range(pStart, pEnd):
@@ -950,10 +1065,10 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_classes(PETSc.DM plex):
+def get_entity_classes(PETSc.DM dm):
     """Builds PyOP2 entity class offsets for all entity levels.
 
-    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg dm: The DM object encapsulating the mesh topology
     """
     cdef:
         np.ndarray[PetscInt, ndim=2, mode="c"] entity_class_sizes
@@ -962,20 +1077,35 @@ def get_entity_classes(PETSc.DM plex):
         const PetscInt *indices = NULL
         PETSc.IS class_is
 
-    depth = plex.getDimension() + 1
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
+    if type(dm) is PETSc.DMPlex:
+        depth = dm.getDimension() + 1
+    else:
+        depth = 1 # by definition since DMSwarms only have vertices
+
     entity_class_sizes = np.zeros((depth, 3), dtype=IntType)
     eStart = np.zeros(depth, dtype=IntType)
     eEnd = np.zeros(depth, dtype=IntType)
     for d in range(depth):
-        CHKERR(DMPlexGetDepthStratum(plex.dm, d, &start, &end))
+        if type(dm) is PETSc.DMPlex:
+            CHKERR(DMPlexGetDepthStratum(dm.dm, d, &start, &end))
+        else:
+            # Since a DMSwarm is only vertices, there is only one depth
+            # stratum which runs from  0 to the number of vertices on
+            # the process
+            assert d == 0
+            start = 0
+            CHKERR(DMSwarmGetLocalSize(dm.dm, &end))
         eStart[d] = start
         eEnd[d] = end
 
     for i, op2class in enumerate([b"pyop2_core",
                                   b"pyop2_owned",
                                   b"pyop2_ghost"]):
-        class_is = plex.getStratumIS(op2class, 1)
-        class_size = plex.getStratumSize(op2class, 1)
+        class_is = dm.getStratumIS(op2class, 1)
+        class_size = dm.getStratumSize(op2class, 1)
         if class_size > 0:
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(class_size):
@@ -994,12 +1124,12 @@ def get_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
+def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
                      subdomain_id):
     """Get the cells marked by a given subdomain_id.
 
-    :arg plex: The DM for the mesh topology
-    :arg cell_numbering: Section mapping plex cell points to firedrake cell indices.
+    :arg dm: The DM for the mesh topology
+    :arg cell_numbering: Section mapping dm cell points to firedrake cell indices.
     :arg subdomain_id: The subdomain_id to look for.
 
     :raises ValueError: if the subdomain_id is not valid.
@@ -1010,10 +1140,14 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
-    if not plex.hasLabel(CELL_SETS_LABEL):
+    if type(dm) is not PETSc.DMPlex and type(dm) is not PETSc.DMSwarm:
+        raise ValueError("Only DMPlex and DMSwarm are supported.")
+
+
+    if not dm.hasLabel(CELL_SETS_LABEL):
         return np.empty(0, dtype=IntType)
-    vals = plex.getLabelIdIS(CELL_SETS_LABEL).indices
-    comm = plex.comm.tompi4py()
+    vals = dm.getLabelIdIS(CELL_SETS_LABEL).indices
+    comm = dm.comm.tompi4py()
 
     def merge_ids(x, y, datatype):
         return x.union(y)
@@ -1029,7 +1163,7 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
     if subdomain_id not in vals:
         return np.empty(0, dtype=IntType)
 
-    indices = plex.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
+    indices = dm.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
     cells = np.empty(indices.shape[0], dtype=IntType)
     cEnd = indices.shape[0]
     for i in range(cEnd):
@@ -1050,6 +1184,9 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     cdef:
         PetscInt fi, fStart, fEnd, offset
         np.ndarray[PetscInt, ndim=1, mode="c"] facets
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     size = facet_numbering.getStorageSize()
     facets = np.empty(size, dtype=IntType)
@@ -1075,6 +1212,8 @@ def get_facet_markers(PETSc.DM dm, np.ndarray[PetscInt, ndim=1, mode="c"] facets
         np.ndarray[PetscInt, ndim=1, mode="c"] ids
         DMLabel label = NULL
         PetscBool all_default = PETSC_TRUE
+    if type(dm) is not PETSc.DMPlex:
+        raise ValueError("dm must be a DMPlex")
     ids = np.empty_like(facets)
     nfacet = facets.shape[0]
     CHKERR(DMGetLabel(dm.dm, FACE_SETS_LABEL.encode(), &label))
@@ -1108,6 +1247,9 @@ def get_facets_by_class(PETSc.DM plex, label,
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
         np.ndarray[PetscInt, ndim=1, mode="c"] facets
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
@@ -1151,6 +1293,9 @@ def validate_mesh(PETSc.DM plex):
         PetscInt *closure = NULL
         PetscBT   seen = NULL
         PetscBool flag
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     from mpi4py import MPI
 
@@ -1219,6 +1364,9 @@ def plex_renumbering(PETSc.DM plex,
         PetscBool has_point
         DMLabel labels[3]
         bint reorder = reordering is not None
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
@@ -1293,6 +1441,9 @@ def get_cell_remote_ranks(PETSc.DM plex):
         const PetscSFNode *iremote = NULL
         np.ndarray[PetscInt, ndim=1, mode="c"] result
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     cStart, cEnd = plex.getHeightStratum(0)
     ncells = cEnd - cStart
 
@@ -1333,6 +1484,9 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
         PetscInt nvertices, ndofs
         const PetscInt *vs = NULL
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     CHKERR(DMPlexGetConeSize(plex.dm, facet, &nvertices))
     assert nvertices == 2
 
@@ -1360,6 +1514,8 @@ cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
     :arg facet: The edge
     """
     cdef PetscInt v[2]
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
     get_edge_global_vertices(plex, vertex_numbering, facet, v)
     return v[0] > v[1]
 
@@ -1427,6 +1583,9 @@ cdef inline void get_communication_lists(
         PetscInt *nfacets_per_rank = NULL
 
         CommFacet *cfacets = NULL
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
@@ -1556,6 +1715,9 @@ cdef inline void plex_get_restricted_support(PETSc.DM plex,
         const PetscInt *support = NULL
         PetscInt i, k
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     CHKERR(DMPlexGetHeightStratum(plex.dm, 0, &cStart, &cEnd))
 
     CHKERR(DMPlexGetSupportSize(plex.dm, f, &support_size))
@@ -1613,6 +1775,9 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
         const PetscInt *cone_orient = NULL
         PetscInt support[2]
         PetscInt i, ncells_adj
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     CHKERR(DMPlexGetHeightStratum(plex.dm, 1, &fStart, &fEnd))
 
@@ -1707,6 +1872,9 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
         np.int8_t twist
         PetscInt i, j
         np.ndarray[PetscInt, ndim=1, mode="c"] result
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = fEnd - fStart
@@ -1851,6 +2019,9 @@ def quadrilateral_facet_orientations(
 
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     # Get communication lists
     get_communication_lists(plex, vertex_numbering, cell_ranks,
                             &nranks, &ranks, &offsets, &facets, &facet2index)
@@ -1990,6 +2161,9 @@ def orientations_facet2cell(
         PetscInt facet, v, V
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations
 
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
+
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
     ncells = cEnd - cStart
@@ -2091,6 +2265,9 @@ def exchange_cell_orientations(
         PETSc.Section new_section
         PetscInt *new_values = NULL
         PetscInt i, c, cStart, cEnd, l, r
+
+    if type(plex) is not PETSc.DMPlex:
+        raise ValueError("plex must be a DMPlex")
 
     try:
         try:
@@ -2337,6 +2514,10 @@ def set_adjacency_callback(PETSc.DM dm not None):
         PETSc.SF sf
         PetscInt nleaves
         const PetscInt *ilocal
+
+    if type(dm) is not PETSc.DMPlex:
+        raise ValueError("dm must be a DMPlex")
+
     if False:
         # In theory we can grow halos asymmetrically, but in practice
         # the implementation of parallel quad orientation relies on
@@ -2360,6 +2541,10 @@ def clear_adjacency_callback(PETSc.DM dm not None):
     :arg dm: The DMPlex object"""
     cdef:
         DMLabel label = NULL
+
+    if type(dm) is not PETSc.DMPlex:
+        raise ValueError("dm must be a DMPlex")
+
     if False:
         CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
         CHKERR(DMLabelDestroyIndex(label))

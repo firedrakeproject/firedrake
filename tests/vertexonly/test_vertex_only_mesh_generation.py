@@ -108,7 +108,9 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     # Correct generic cell properties
     assert vm.cell_closure.shape == (len(inputvertexcoords[in_bounds]), 1)
     with pytest.raises(AttributeError):
-        vm._facets("")
+        vm.exterior_facets()
+    with pytest.raises(AttributeError):
+        vm.interior_facets()
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     assert vm.num_cells() == len(inputvertexcoords[in_bounds]) == vm.cell_set.size
