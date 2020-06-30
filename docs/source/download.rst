@@ -69,17 +69,19 @@ If not, feel free to ask for more help in our
 .. graphviz:: install-debug.dot
 
 If you don't see the issue you're experiencing in this chart, please
-report a bug by creating a new `github issue
+ask us on Slack or report a bug by creating a new `github issue
 <https://github.com/firedrakeproject/firedrake/issues>`__. To help us
-diagnose what's going wrong, please include the log file
-``firedrake-install.log`` in your bug report. Likewise, if it's
-``firedrake-update`` that fails, please include the file
-``firedrake-update.log``. If the installation is failing at building
-PETSc, find the ``src/petsc/`` directory inside the directory where the
-Firedrake virtual environment was created. The PETSc directory should
-contain a file ``configure.log`` and possibly also ``make.log`` if it
-got that far. Please send these along too as they contain valuable
-information about what went wrong with PETSc.
+diagnose what's going wrong, **please include the following log files**:
+
+* ``firedrake-install.log`` from Firedrake, which you can find in the
+  directory where you invoked ``firedrake-install`` from
+* ``configure.log`` and ``make.log`` from PETSc, which you can find in
+  ``src/petsc/`` inside the directory where Firedrake virtual
+  environment was created
+
+Likewise, if it's ``firedrake-update`` that fails, please include the
+file ``firedrake-update.log``. You can find this in the Firedrake
+virtual environment.
 
 System requirements
 -------------------
