@@ -399,6 +399,7 @@ class LocalLoopyKernelBuilder(object):
     cell_facets_arg = "cell_facets"
     local_facet_array_arg = "facet_array"
     layer_arg = "layer"
+    layer_count = "layer_count"
     cell_size_arg = "cell_sizes"
     result_arg = "result"
     cell_orientations_arg = "cell_orientations"
@@ -742,6 +743,8 @@ class LocalLoopyKernelBuilder(object):
                                         target=TARGET))
 
         if self.needs_mesh_layers:
+            args.append(loopy.GlobalArg(self.layer_count, shape=(),
+                        dtype=np.int32, target=TARGET))
             args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
                         dtype=np.int32, target=TARGET, address_space=loopy.AddressSpace.GLOBAL))
 
