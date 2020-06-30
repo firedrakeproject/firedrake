@@ -574,10 +574,10 @@ class LocalLoopyKernelBuilder(object):
         layer = pym.Variable(self.layer_arg)
 
         # TODO: Variable layers
-        nlayer = tensor.ufl_domain().layers-1
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer-1),
+        nlayer = pym.Variable(self.layer_count)
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer),
                  "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer-1),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer),
                  "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
 
         return [which]
