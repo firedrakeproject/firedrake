@@ -37,7 +37,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import sol_fn_lookup, inv_fn_lookup
+from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -155,7 +155,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = merge_loopy(slate_loopy, builder, var2terminal)
 
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
-    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, sol_fn_lookup)
+    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
     # Version with inline attempt:
     # loopykernel = op2.Kernel(loopy_merged, loopy_merged.name, ldargs=["-llapack"])
