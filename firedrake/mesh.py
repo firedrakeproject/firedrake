@@ -1859,6 +1859,13 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     # Remove PICs which have been placed into ghost cells of a distributed DMPlex
     dmswarm.remove_ghosts_pic(swarm, plex)
 
+    # Set the `SF` graph to advertises no shared points (since the halo
+    # is now empty) by setting the leaves to an empty list
+    sf = swarm.getPointSF()
+    nroots = swarm.getLocalSize()
+    sf.setGraph(nroots, None, [])
+    swarm.setPointSF(sf)
+
     return swarm
 
 
