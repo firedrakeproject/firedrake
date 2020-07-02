@@ -9,7 +9,8 @@ from pyop2.codegen.node import Node as NodeBase
 
 
 class InstructionLabel(object):
-    pass
+    def __init__(self, within_inames=()):
+        self.within_inames = tuple(w for w in within_inames if isinstance(w, Node))
 
 
 class PackInst(InstructionLabel):
