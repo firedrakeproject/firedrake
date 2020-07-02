@@ -19,7 +19,6 @@ from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
-import firedrake.cython.dmswarm as dmswarm
 import firedrake.expression as expression
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
@@ -1845,7 +1844,7 @@ def VertexOnlyMesh(mesh, vertexcoords):
 
     swarm = _pic_swarm_in_plex(mesh.topology._topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
 
-    dmswarm.label_pic_parent_cell_nums(swarm, mesh)
+    dmcommon.label_pic_parent_cell_nums(swarm, mesh)
 
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
@@ -1955,7 +1954,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     swarm.setPointCoordinates(coords, redundant=False, mode=PETSc.InsertMode.INSERT_VALUES)
 
     # Remove PICs which have been placed into ghost cells of a distributed DMPlex
-    dmswarm.remove_ghosts_pic(swarm, plex)
+    dmcommon.remove_ghosts_pic(swarm, plex)
 
     # Set the `SF` graph to advertises no shared points (since the halo
     # is now empty) by setting the leaves to an empty list
