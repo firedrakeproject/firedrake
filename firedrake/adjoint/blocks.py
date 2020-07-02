@@ -4,6 +4,7 @@ from pyadjoint.block import Block
 from ufl.algorithms.analysis import extract_coefficients, extract_arguments
 from ufl import replace
 
+import firedrake
 import firedrake.utils as utils
 
 class Backend:
@@ -255,7 +256,10 @@ class InterpolateBlock(Block, Backend):
         super().__init__()
 
         self.expr = interpolator.expr
-        self.V = interpolator.V
+        if isinstance(interpolator.V, firedrake.Function):
+            self.V = interpolator.V.function_space()
+        else:
+            self.V = interpolator.V
 
         for coefficient in extract_coefficients(interpolator.expr):
             self.add_dependency(coefficient)
