@@ -386,7 +386,7 @@ class Variable(Terminal):
 
 
 class DummyInstruction(Node):
-    __slots__ = ("children",)
+    __slots__ = ("children", "label")
     __front__ = ("label",)
 
     def __init__(self, label, *children):
@@ -395,16 +395,12 @@ class DummyInstruction(Node):
 
 
 class Accumulate(Node):
-    __slots__ = ("children",)
+    __slots__ = ("children", "label")
     __front__ = ("label",)
 
     def __init__(self, label, lvalue, rvalue):
         self.children = (lvalue, rvalue)
         self.label = label
-
-    def reconstruct(self, *args):
-        new = type(self)(*self._cons_args(args))
-        return new
 
 
 class FunctionCall(Node):
@@ -421,7 +417,7 @@ class FunctionCall(Node):
 
 
 class Conditional(Scalar):
-    __slots__ = ("children")
+    __slots__ = ("children", )
 
     def __init__(self, condition, then, else_):
         assert not condition.shape
