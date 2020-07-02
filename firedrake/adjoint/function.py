@@ -223,10 +223,6 @@ class FunctionMixin(FloatingType):
         return checkpoint
 
     @no_annotations
-    def adj_update_value(self, value):
-        self.original_block_variable.checkpoint = value._ad_create_checkpoint()
-
-    @no_annotations
     def _ad_mul(self, other):
         from firedrake import Function
 
