@@ -145,9 +145,10 @@ class Pack(metaclass=ABCMeta):
 
 class GlobalPack(Pack):
 
-    def __init__(self, outer, access):
+    def __init__(self, outer, access, init_with_zero=False):
         self.outer = outer
         self.access = access
+        self.init_with_zero = init_with_zero
 
     def kernel_arg(self, loop_indices=None):
         pack = self.pack(loop_indices)
@@ -169,11 +170,15 @@ class GlobalPack(Pack):
         # vectorisation loop transformations privatise these reduction
         # variables. The extra memory movement cost is minimal.
         loop_indices = self.pick_loop_indices(*loop_indices)
-        if self.access in {INC, WRITE}:
+        if self.init_with_zero:
+            also_zero = {MIN, MAX}
+        else:
+            also_zero = set()
+        if self.access in {INC, WRITE} | also_zero:
             val = Zero((), self.outer.dtype)
             multiindex = MultiIndex(*(Index(e) for e in shape))
             self._pack = Materialise(PackInst(loop_indices), val, multiindex)
-        elif self.access in {READ, RW, MIN, MAX}:
+        elif self.access in {READ, RW, MIN, MAX} - also_zero:
             multiindex = MultiIndex(*(Index(e) for e in shape))
             expr = Indexed(self.outer, multiindex)
             self._pack = Materialise(PackInst(loop_indices), expr, multiindex)
@@ -203,13 +208,15 @@ class GlobalPack(Pack):
 
 class DatPack(Pack):
     def __init__(self, outer, access, map_=None, interior_horizontal=False,
-                 view_index=None, layer_bounds=None):
+                 view_index=None, layer_bounds=None,
+                 init_with_zero=False):
         self.outer = outer
         self.map_ = map_
         self.access = access
         self.interior_horizontal = interior_horizontal
         self.view_index = view_index
         self.layer_bounds = layer_bounds
+        self.init_with_zero = init_with_zero
 
     def _mask(self, map_):
         """Override this if the map_ needs a masking condition."""
@@ -245,11 +252,15 @@ class DatPack(Pack):
         if self.view_index is None:
             shape = shape + self.outer.shape[1:]
 
-        if self.access in {INC, WRITE}:
+        if self.init_with_zero:
+            also_zero = {MIN, MAX}
+        else:
+            also_zero = set()
+        if self.access in {INC, WRITE} | also_zero:
             val = Zero((), self.outer.dtype)
             multiindex = MultiIndex(*(Index(e) for e in shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        elif self.access in {READ, RW, MIN, MAX}:
+        elif self.access in {READ, RW, MIN, MAX} - also_zero:
             multiindex = MultiIndex(*(Index(e) for e in shape))
             expr, mask = self._rvalue(multiindex, loop_indices=loop_indices)
             if mask is not None:
@@ -577,8 +588,9 @@ class MixedMatPack(Pack):
 
 class WrapperBuilder(object):
 
-    def __init__(self, *, iterset, iteration_region=None, single_cell=False,
+    def __init__(self, *, kernel, iterset, iteration_region=None, single_cell=False,
                  pass_layer_to_kernel=False, forward_arg_types=()):
+        self.kernel = kernel
         self.arguments = []
         self.argument_accesses = []
         self.packed_args = []
@@ -594,6 +606,10 @@ class WrapperBuilder(object):
         self.forward_arguments = tuple(Argument((), fa, pfx="farg") for fa in forward_arg_types)
 
     @property
+    def requires_zeroed_output_arguments(self):
+        return self.kernel.requires_zeroed_output_arguments
+
+    @property
     def subset(self):
         return isinstance(self.iterset, Subset)
 
@@ -604,9 +620,6 @@ class WrapperBuilder(object):
     @property
     def constant_layers(self):
         return self.extruded and self.iterset.constant_layers
-
-    def set_kernel(self, kernel):
-        self.kernel = kernel
 
     @cached_property
     def loop_extents(self):
@@ -722,7 +735,8 @@ class WrapperBuilder(object):
                     shape = (None, *a.data.shape[1:])
                     argument = Argument(shape, a.data.dtype, pfx="mdat")
                     packs.append(a.data.pack(argument, arg.access, self.map_(a.map, unroll=a.unroll_map),
-                                             interior_horizontal=interior_horizontal))
+                                             interior_horizontal=interior_horizontal,
+                                             init_with_zero=self.requires_zeroed_output_arguments))
                     self.arguments.append(argument)
                 pack = MixedDatPack(packs, arg.access, arg.dtype, interior_horizontal=interior_horizontal)
                 self.packed_args.append(pack)
@@ -740,7 +754,8 @@ class WrapperBuilder(object):
                                     pfx="dat")
                 pack = arg.data.pack(argument, arg.access, self.map_(arg.map, unroll=arg.unroll_map),
                                      interior_horizontal=interior_horizontal,
-                                     view_index=view_index)
+                                     view_index=view_index,
+                                     init_with_zero=self.requires_zeroed_output_arguments)
                 self.arguments.append(argument)
                 self.packed_args.append(pack)
                 self.argument_accesses.append(arg.access)
@@ -748,7 +763,8 @@ class WrapperBuilder(object):
             argument = Argument(arg.data.dim,
                                 arg.data.dtype,
                                 pfx="glob")
-            pack = GlobalPack(argument, arg.access)
+            pack = GlobalPack(argument, arg.access,
+                              init_with_zero=self.requires_zeroed_output_arguments)
             self.arguments.append(argument)
             self.packed_args.append(pack)
             self.argument_accesses.append(arg.access)
