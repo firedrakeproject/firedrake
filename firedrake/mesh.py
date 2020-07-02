@@ -18,7 +18,7 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.cython.dmplex as dmplex
+import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.dmswarm as dmswarm
 import firedrake.expression as expression
 import firedrake.cython.extrusion_numbering as extnum
@@ -302,7 +302,7 @@ def _from_triangle(filename, dim, comm):
                 bid = facet[-1]
                 vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], bid)
 
     return plex
 
@@ -468,7 +468,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return dmplex.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
@@ -485,8 +485,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg entity_dofs: FInAT element entity DoFs
         :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmplex.get_cell_nodes(self, global_numbering,
-                                     entity_dofs, offsets)
+        return dmcommon.get_cell_nodes(self, global_numbering,
+                                       entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -581,17 +581,17 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmplex.get_cell_markers(self._topology_dm,
-                                                    self._cell_numbering,
-                                                    sid)
+                ids = tuple(dmcommon.get_cell_markers(self._topology_dm,
+                                                      self._cell_numbering,
+                                                      sid)
                             for sid in all_integer_subdomain_ids)
                 to_remove = np.unique(np.concatenate(ids))
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmplex.get_cell_markers(self._topology_dm,
-                                                  self._cell_numbering,
-                                                  subdomain_id)
+                indices = dmcommon.get_cell_markers(self._topology_dm,
+                                                    self._cell_numbering,
+                                                    subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
     def measure_set(self, integral_type, subdomain_id,
@@ -664,9 +664,9 @@ class MeshTopology(AbstractMeshTopology):
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
-                dmplex.set_adjacency_callback(self._topology_dm)
+                dmcommon.set_adjacency_callback(self._topology_dm)
                 self._topology_dm.distributeOverlap(overlap)
-                dmplex.clear_adjacency_callback(self._topology_dm)
+                dmcommon.clear_adjacency_callback(self._topology_dm)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
@@ -676,7 +676,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
-        dmplex.validate_mesh(plex)
+        dmcommon.validate_mesh(plex)
         plex.setFromOptions()
 
         self._topology_dm = plex
@@ -687,7 +687,7 @@ class MeshTopology(AbstractMeshTopology):
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
         label_boundary = (self.comm.size == 1) or distribute
-        dmplex.label_facets(plex, label_boundary=label_boundary)
+        dmcommon.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
         if self.comm.size > 1 and distribute:
@@ -753,11 +753,11 @@ class MeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmplex.get_entity_classes(self._topology_dm).astype(int)
-                self._plex_renumbering = dmplex.plex_renumbering(self._topology_dm,
-                                                                 self._entity_classes,
-                                                                 reordering)
+                dmcommon.mark_entity_classes(self._topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
+                self._plex_renumbering = dmcommon.plex_renumbering(self._topology_dm,
+                                                                   self._entity_classes,
+                                                                   reordering)
 
                 # Derive a cell numbering from the Plex renumbering
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
@@ -771,7 +771,7 @@ class MeshTopology(AbstractMeshTopology):
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmplex.get_facet_ordering(self._topology_dm, facet_numbering)
+                self._facet_ordering = dmcommon.get_facet_ordering(self._topology_dm, facet_numbering)
         self._callback = callback
 
     @property
@@ -800,28 +800,28 @@ class MeshTopology(AbstractMeshTopology):
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
 
-            return dmplex.closure_ordering(plex, vertex_numbering,
-                                           cell_numbering, entity_per_cell)
+            return dmcommon.closure_ordering(plex, vertex_numbering,
+                                             cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
-            cell_ranks = dmplex.get_cell_remote_ranks(plex)
+            cell_ranks = dmcommon.get_cell_remote_ranks(plex)
 
-            facet_orientations = dmplex.quadrilateral_facet_orientations(
+            facet_orientations = dmcommon.quadrilateral_facet_orientations(
                 plex, vertex_numbering, cell_ranks)
 
-            cell_orientations = dmplex.orientations_facet2cell(
+            cell_orientations = dmcommon.orientations_facet2cell(
                 plex, vertex_numbering, cell_ranks,
                 facet_orientations, cell_numbering)
 
-            dmplex.exchange_cell_orientations(plex,
-                                              cell_numbering,
-                                              cell_orientations)
+            dmcommon.exchange_cell_orientations(plex,
+                                                cell_numbering,
+                                                cell_orientations)
 
-            return dmplex.quadrilateral_closure_ordering(
+            return dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
 
         else:
@@ -832,12 +832,12 @@ class MeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
 
         dm = self._topology_dm
-        facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
-                                                     self._facet_ordering)
-        label = dmplex.FACE_SETS_LABEL
+        facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets").encode(),
+                                                       self._facet_ordering)
+        label = dmcommon.FACE_SETS_LABEL
         if dm.hasLabel(label):
             from mpi4py import MPI
-            markers = dmplex.get_facet_markers(dm, facets)
+            markers = dmcommon.get_facet_markers(dm, facets)
             local_markers = set(dm.getLabelIdIS(label).indices)
 
             def merge_ids(x, y, datatype):
@@ -853,9 +853,9 @@ class MeshTopology(AbstractMeshTopology):
             unique_markers = None
 
         local_facet_number, facet_cell = \
-            dmplex.facet_numbering(dm, kind, facets,
-                                   self._cell_numbering,
-                                   self.cell_closure)
+            dmcommon.facet_numbering(dm, kind, facets,
+                                     self._cell_numbering,
+                                     self.cell_closure)
 
         point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
@@ -884,9 +884,9 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._topology_dm,
-                                                 self._cell_numbering,
-                                                 self.cell_closure)
+        cell_facets = dmcommon.cell_facet_labeling(self._topology_dm,
+                                                   self._cell_numbering,
+                                                   self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
             dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
@@ -1164,8 +1164,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Swarm numbering
             with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmplex.get_entity_classes(self._topology_dm).astype(int)
+                dmcommon.mark_entity_classes(self._topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
 
                 # Derive a cell numbering from the Swarm numbering
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
@@ -1205,8 +1205,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         for d, ents in topology.items():
             entity_per_cell[d] = len(ents)
 
-        return dmplex.closure_ordering(swarm, vertex_numbering,
-                                       cell_numbering, entity_per_cell)
+        return dmcommon.closure_ordering(swarm, vertex_numbering,
+                                         cell_numbering, entity_per_cell)
 
     def _facets(self, kind):
         """Raises an AttributeError since cells in a
@@ -1657,8 +1657,8 @@ def Mesh(meshfile, **kwargs):
         coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
                                                            dim=geometric_dim)
 
-        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
-                                                   (self.num_vertices(), geometric_dim))
+        coordinates_data = dmcommon.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
+                                                     (self.num_vertices(), geometric_dim))
 
         coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                       val=coordinates_data,
@@ -1866,8 +1866,8 @@ def VertexOnlyMesh(mesh, vertexcoords):
     coordinates_fs = functionspace.VectorFunctionSpace(vmesh.topology, "DG", 0,
                                                        dim=gdim)
 
-    coordinates_data = dmplex.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
-                                               (vmesh.num_vertices(), gdim))
+    coordinates_data = dmcommon.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
+                                                 (vmesh.num_vertices(), gdim))
 
     coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                   val=coordinates_data,

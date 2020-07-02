@@ -24,7 +24,7 @@ from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -125,7 +125,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._topology_dm.getStratumSize(kind, 1) > 0:
-        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
+        return dmcommon.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
@@ -322,7 +322,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 @cached
 def get_boundary_nodes(mesh, key, V):
     _, sub_domain, method = key
-    indices = dmplex.boundary_nodes(V, sub_domain, method)
+    indices = dmcommon.boundary_nodes(V, sub_domain, method)
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)

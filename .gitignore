@@ -27,7 +27,7 @@ __pycache__/
 /docs/source/teamgrid.rst
 /docs/source/teaminactive.rst
 /docs/source/demos
-/firedrake/cython/dmplex.c
+/firedrake/cython/dmcommon.c
 /firedrake/cython/dmswarm.c
 /firedrake/cython/extrusion_numbering.c
 /firedrake/cython/hdf5interface.c
