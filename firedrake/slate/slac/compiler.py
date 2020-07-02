@@ -137,10 +137,6 @@ def get_temp_info(loopy_kernel):
 
 def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed mats
-    if slate_expr.is_mixed:
-        raise NotImplementedError("Compiling mixed slate expressions")
-
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
@@ -176,7 +172,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                        needs_cell_sizes=builder.needs_cell_sizes)
 
     # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
     logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
