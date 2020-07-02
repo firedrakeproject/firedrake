@@ -327,3 +327,21 @@ def test_adjoint_dg():
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
+
+
+@pytest.mark.parametrize("access", [MIN, MAX])
+def test_interpolate_minmax(access):
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 0)
+    x, y = SpatialCoordinate(mesh)
+    g = interpolate(x*y, V)
+    f = interpolate(x**2 - y**4, V)
+    actual = Function(g)
+    actual = interpolate(f, actual, access=access).dat.data_ro
+
+    if access is MIN:
+        expect = np.where(f.dat.data_ro < g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
+    else:
+        expect = np.where(f.dat.data_ro > g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
+
+    assert np.allclose(actual, expect)
