@@ -150,22 +150,55 @@ class GlobalPack(Pack):
         self.access = access
 
     def kernel_arg(self, loop_indices=None):
-        return Indexed(self.outer, (Index(e) for e in self.outer.shape))
+        pack = self.pack(loop_indices)
+        return Indexed(pack, (Index(e) for e in pack.shape))
 
     def emit_pack_instruction(self, *, loop_indices=None):
-        shape = self.outer.shape
-        if self.access is WRITE:
-            zero = Zero((), self.outer.dtype)
-            multiindex = MultiIndex(*(Index(e) for e in shape))
-            yield Accumulate(PackInst(), Indexed(self.outer, multiindex), zero)
-        else:
-            return ()
+        return ()
 
     def pack(self, loop_indices=None):
-        return None
+        if hasattr(self, "_pack"):
+            return self._pack
+
+        shape = self.outer.shape
+        if self.access is READ:
+            # No packing required
+            return self.outer
+        # We don't need to pack for memory layout, however packing
+        # globals that are written is required such that subsequent
+        # vectorisation loop transformations privatise these reduction
+        # variables. The extra memory movement cost is minimal.
+        loop_indices = self.pick_loop_indices(*loop_indices)
+        if self.access in {INC, WRITE}:
+            val = Zero((), self.outer.dtype)
+            multiindex = MultiIndex(*(Index(e) for e in shape))
+            self._pack = Materialise(PackInst(loop_indices), val, multiindex)
+        elif self.access in {READ, RW, MIN, MAX}:
+            multiindex = MultiIndex(*(Index(e) for e in shape))
+            expr = Indexed(self.outer, multiindex)
+            self._pack = Materialise(PackInst(loop_indices), expr, multiindex)
+        else:
+            raise ValueError("Don't know how to initialise pack for '%s' access" % self.access)
+        return self._pack
 
     def emit_unpack_instruction(self, *, loop_indices=None):
-        return ()
+        pack = self.pack(loop_indices)
+        loop_indices = self.pick_loop_indices(*loop_indices)
+        if pack is None:
+            return ()
+        elif self.access is READ:
+            return ()
+        elif self.access in {INC, MIN, MAX}:
+            op = {INC: Sum,
+                  MIN: Min,
+                  MAX: Max}[self.access]
+            multiindex = tuple(Index(e) for e in pack.shape)
+            rvalue = Indexed(self.outer, multiindex)
+            yield Accumulate(UnpackInst(loop_indices), rvalue, op(rvalue, Indexed(pack, multiindex)))
+        else:
+            multiindex = tuple(Index(e) for e in pack.shape)
+            rvalue = Indexed(self.outer, multiindex)
+            yield Accumulate(UnpackInst(loop_indices), rvalue, Indexed(pack, multiindex))
 
 
 class DatPack(Pack):
