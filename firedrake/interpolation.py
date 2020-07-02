@@ -60,6 +60,7 @@ class Interpolator(object):
         self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
+        self.expr = expr
         self.V = V
 
     @annotate_interpolate

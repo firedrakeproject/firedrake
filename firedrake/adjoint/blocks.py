@@ -19,7 +19,6 @@ class Backend:
 
 
 class DirichletBCBlock(blocks.DirichletBCBlock, Backend):
-
     pass
 
 
