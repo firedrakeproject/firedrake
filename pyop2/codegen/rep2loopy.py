@@ -230,7 +230,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
             if isinstance(insn.children[1], (Zero, Literal)):
                 nesting[insn] = outer_inames
             else:
-                nesting[insn] = runtime_indices([insn])
+                nesting[insn] = runtime_indices([insn]) | runtime_indices(insn.label.within_inames)
         else:
             assert isinstance(insn, FunctionCall)
             if insn.name in (petsc_functions | {kernel_name}):
