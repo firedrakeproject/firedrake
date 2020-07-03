@@ -1,10 +1,12 @@
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake_adjoint import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
+
 def test_constant():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+
     mesh = UnitSquareMesh(10, 10)
     c = Constant(1.0, domain=mesh)
     V = FunctionSpace(mesh, "CG", 2)

@@ -7,6 +7,7 @@ from ufl import replace
 import firedrake
 import firedrake.utils as utils
 
+
 class Backend:
     @utils.cached_property
     def backend(self):
