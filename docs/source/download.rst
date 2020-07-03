@@ -36,12 +36,19 @@ use Firedrake::
 Testing the installation
 ------------------------
 
-It is recommended to run the test suite after installation to check
-that the Firedrake installation is fully functional.  Activate the
-venv_ as above and then run::
+We recommend that you run the test suite after installation to check
+that Firedrake is fully functional. Activate the venv_ as above and
+then run::
 
-  cd firedrake/src/firedrake
-  make alltest
+  cd $VIRTUAL_ENV/src/firedrake
+  python3 -m pytest tests/regression/ -k "poisson_strong | stokes_mini | dg_advection"
+
+This command will run a few of the unit tests, which exercise a good
+chunk of the functionality of the library. These tests should take a
+minute or less. If they fail to run for any reason, please see the
+section below on how to diagnose and debug a failed installation. If
+you want to run the entire test suite you can to ``make alltest``
+instead, but this takes several hours.
 
 .. note::
 
