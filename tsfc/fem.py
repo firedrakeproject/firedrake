@@ -147,12 +147,7 @@ class CoordinateMapping(PhysicalGeometry):
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
-# <<<<<<< HEAD
-#         expr = preprocess_expression(expr)
-#         config = {"point_set": ps}
-# =======
         config = {"point_set": PointSingleton(point)}
-# >>>>>>> origin/master
         config.update(self.config)
         context = PointSetContext(**config)
         expr = preprocess_expression(expr, complex_mode=context.complex_mode)
