@@ -57,6 +57,26 @@ venv_ as above and then run::
   where ``LOCALHOSTNAME`` is the name returned by running the `hostname`
   command. Should the local host name change, this may require updating.
 
+Upgrade
+-------
+
+The install script will install an upgrade script in
+`firedrake/bin/firedrake-update`. Running this script will update
+Firedrake and all its dependencies.
+
+.. note::
+
+   You should activate the venv_ before running
+   `firedrake-update`.
+
+Just like the ``firedrake-install`` script, running::
+
+    firedrake-update --help
+
+gives a full list of update options. For instance additional Firedrake
+packages can be installed into an existing Firedrake installation using
+``firedrake-update``.
+
 Debugging install problems
 --------------------------
 
@@ -82,6 +102,23 @@ diagnose what's going wrong, **please include the following log files**:
 Likewise, if it's ``firedrake-update`` that fails, please include the
 file ``firedrake-update.log``. You can find this in the Firedrake
 virtual environment.
+
+Recovering from a broken installation script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you find yourself in the unfortunate position that
+``firedrake-update`` won't run because of a bug, and the bug has been
+fixed in Firedrake master, then the following procedure will rebuild
+``firedrake-update`` using the latest version.
+
+From the top directory of your Firedrake install,
+type::
+
+  cd src/firedrake
+  git pull
+  ./scripts/firedrake-install --rebuild-script
+
+You should now be able to run ``firedrake-update``.
 
 System requirements
 -------------------
@@ -164,44 +201,6 @@ MacPorts installed, you should ensure that ``/opt/local/bin`` and
 ``/opt/local/sbin`` are removed from your ``PATH`` when installing or
 using Firedrake. This should ensure that no MacPorts installed tools
 are found.
-
-Upgrade
--------
-
-The install script will install an upgrade script in
-`firedrake/bin/firedrake-update`. Running this script will update
-Firedrake and all its dependencies.
-
-.. note::
-
-   You should activate the venv_ before running
-   `firedrake-update`.
-
-Just like the ``firedrake-install`` script, running::
-
-    firedrake-update --help
-
-gives a full list of update options. For instance additional Firedrake
-packages can be installed into an existing Firedrake installation using
-``firedrake-update``.
-
-
-Recovering from a broken installation script
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you find yourself in the unfortunate position that
-``firedrake-update`` won't run because of a bug, and the bug has been
-fixed in Firedrake master, then the following procedure will rebuild
-``firedrake-update`` using the latest version.
-
-From the top directory of your Firedrake install,
-type::
-
-  cd src/firedrake
-  git pull
-  ./scripts/firedrake-install --rebuild-script
-
-You should now be able to run ``firedrake-update``.
 
 
 Visualisation software
