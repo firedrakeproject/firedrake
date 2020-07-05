@@ -41,7 +41,6 @@ class HybridizationPC(SCBase):
                                DirichletBC)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
-        from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -201,8 +200,9 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
+        R_b = AssembledVector(self.broken_residual)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
+            K * Atilde.inv * R_b,
             tensor=self.schur_rhs,
             form_compiler_parameters=self.ctx.fc_params)
 
@@ -264,58 +264,12 @@ class HybridizationPC(SCBase):
                                save=False):
             trace_ksp.setFromOptions()
 
-        split_mixed_op = dict(split_form(Atilde.form))
-        split_trace_op = dict(split_form(K.form))
-
         # Generate reconstruction calls
-        self._reconstruction_calls(split_mixed_op, split_trace_op)
-
-    def _reconstruction_calls(self, split_mixed_op, split_trace_op):
-        """This generates the reconstruction calls for the unknowns using the
-        Lagrange multipliers.
-
-        :arg split_mixed_op: a ``dict`` of split forms that make up the broken
-                             mixed operator from the original problem.
-        :arg split_trace_op: a ``dict`` of split forms that make up the trace
-                             contribution in the hybridized mixed system.
-        """
-        from firedrake.assemble import create_assembly_callable
-
-        # We always eliminate the velocity block first
-        id0, id1 = (self.vidx, self.pidx)
-
-        # TODO: When PyOP2 is able to write into mixed dats,
-        # the reconstruction expressions can simplify into
-        # one clean expression.
-        A = Tensor(split_mixed_op[(id0, id0)])
-        B = Tensor(split_mixed_op[(id0, id1)])
-        C = Tensor(split_mixed_op[(id1, id0)])
-        D = Tensor(split_mixed_op[(id1, id1)])
-        K_0 = Tensor(split_trace_op[(0, id0)])
-        K_1 = Tensor(split_trace_op[(0, id1)])
-
-        # Split functions and reconstruct each bit separately
-        split_residual = self.broken_residual.split()
-        split_sol = self.broken_solution.split()
-        g = AssembledVector(split_residual[id0])
-        f = AssembledVector(split_residual[id1])
-        sigma = split_sol[id0]
-        u = split_sol[id1]
-        lambdar = AssembledVector(self.trace_solution)
-
-        M = D - C * A.inv * B
-        R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
-                        decomposition="PartialPivLU")
-        self._sub_unknown = create_assembly_callable(u_rec,
-                                                     tensor=u,
+        Lambda = AssembledVector(self.trace_solution)
+        reconstruct = Atilde.inv * (R_b - K.T * Lambda)
+        self._reconstruct = create_assembly_callable(reconstruct,
+                                                     tensor=self.broken_solution,
                                                      form_compiler_parameters=self.ctx.fc_params)
-
-        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU")
-        self._elim_unknown = create_assembly_callable(sigma_rec,
-                                                      tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
 
     @timed_function("HybridUpdate")
     def update(self, pc):
@@ -390,11 +344,8 @@ class HybridizationPC(SCBase):
         :arg y: a PETSc vector for placing the resulting fields.
         """
 
-        # We assemble the unknown which is an expression
-        # of the first eliminated variable.
-        self._sub_unknown()
-        # Recover the eliminated unknown
-        self._elim_unknown()
+        # Recover the eliminated unknowns
+        self._reconstruct()
 
         with timed_region("HybridProject"):
             # Project the broken solution into non-broken spaces
