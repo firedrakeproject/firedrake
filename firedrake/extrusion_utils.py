@@ -127,10 +127,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         # normal is
         # v0 x v1
         #
-        #    /\\
-        # v0/  \\
-        #  /    \\
-        # /------\\
+        #    /\
+        # v0/  \
+        #  /    \
+        # /------\
         #    v1
         domains = []
         dd = _get_arity_axis_inames('d')
