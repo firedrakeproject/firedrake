@@ -32,9 +32,9 @@ def run_test(degree):
         n = FacetNormal(mesh)
         un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-        a_mass = inner(D, phi)*dx
-        a_int = inner(-u*D, grad(phi))*dx
-        a_flux = inner(jump(un*D), jump(phi))*dS
+        a_mass = phi*D*dx
+        a_int = dot(grad(phi), -u*D)*dx
+        a_flux = dot(jump(phi), jump(un*D))*dS
 
         dD1 = Function(V)
         D1 = Function(V)
@@ -48,22 +48,26 @@ def run_test(degree):
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
         rhs = Function(V)
 
-        mass = assemble(a_mass)
+        # Since DG mass-matrix is block diagonal, just assemble the
+        # inverse and then "solve" is a matvec.
+        mass_inv = assemble(Tensor(a_mass).inv)
+        mass_inv = mass_inv.petscmat
 
-        def _solve(mass, arhs, rhs, update):
-            b = assemble(arhs, tensor=rhs)
-            solve(mass, update, b)
+        def solve(mass_inv, arhs, rhs, update):
+            with assemble(arhs, tensor=rhs).dat.vec_ro as x:
+                with update.dat.vec as y:
+                    mass_inv.mult(x, y)
 
         for _ in range(nstep):
             # SSPRK3
             D1.assign(D)
-            _solve(mass, arhs, rhs, dD1)
+            solve(mass_inv, arhs, rhs, dD1)
 
             D1.assign(dD1)
-            _solve(mass, arhs, rhs, dD1)
+            solve(mass_inv, arhs, rhs, dD1)
 
             D1.assign(0.75*D + 0.25*dD1)
-            _solve(mass, arhs, rhs, dD1)
+            solve(mass_inv, arhs, rhs, dD1)
             D.assign((1.0/3.0)*D + (2.0/3.0)*dD1)
 
         D1.assign(D)

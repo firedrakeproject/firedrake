@@ -72,9 +72,9 @@ def test_poisson_in_components(V):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = inner(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v))*dx
 
-    L = inner(f, v) * dx
+    L = dot(f, v)*dx
 
     solve(a == L, g, bcs=bcs)
 
@@ -117,13 +117,13 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
     u, p, r = TrialFunctions(W)
     v, q, s = TestFunctions(W)
 
-    a = inner(grad(u), grad(v)) * dx + \
-        inner(grad(r), grad(s)) * dx + \
-        inner(grad(p), grad(q)) * dx
+    a = inner(grad(u), grad(v))*dx + \
+        inner(grad(r), grad(s))*dx + \
+        dot(grad(p), grad(q))*dx
 
-    L = inner(Constant((0, 0)), v) * dx + \
-        inner(Constant(0), q) * dx + \
-        inner(Constant((0, 0)), s) * dx
+    L = dot(Constant((0, 0)), v)*dx + \
+        Constant(0)*q*dx + \
+        dot(Constant((0, 0)), s)*dx
 
     solve(a == L, g, bcs=bcs, solver_parameters={'mat_type': mat_type})
 
@@ -142,8 +142,9 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
 def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
-    with pytest.raises(NotImplementedError):
-        assemble(f.sub(0) * dx)
+    f.assign(Constant([2, 1]))
+    assert np.allclose(assemble(f.sub(0)*dx),
+                       assemble(Constant(2)*dx(domain=f.ufl_domain())))
 
 
 @pytest.mark.parametrize("cmpt",
@@ -175,8 +176,8 @@ def test_stokes_component_all():
     (u, p) = TrialFunctions(W)
     (v, q) = TestFunctions(W)
     f = Constant((0.0, 0.0))
-    a = inner(grad(u), grad(v)) * dx + inner(p, div(v)) * dx + inner(div(u), q) * dx
-    L = inner(f, v) * dx
+    a = inner(grad(u), grad(v))*dx + div(v)*p*dx + q*div(u)*dx
+    L = inner(f, v)*dx
 
     Uall = Function(W)
     solve(a == L, Uall, bcs=bcs_all, solver_parameters={"mat_type": "aij",
@@ -209,7 +210,7 @@ def test_component_full_bcs(V):
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v))*dx
 
     def asarray(A):
         return A.M.handle[:, :]

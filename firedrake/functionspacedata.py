@@ -87,7 +87,7 @@ def get_node_set(mesh, key):
     nodes_per_entity, real_tensorproduct = key
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
-    halo = halo_mod.Halo(mesh._plex, global_numbering)
+    halo = halo_mod.Halo(mesh._topology_dm, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 
@@ -124,7 +124,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
-    if mesh._plex.getStratumSize(kind, 1) > 0:
+    if mesh._topology_dm.getStratumSize(kind, 1) > 0:
         return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
@@ -452,71 +452,6 @@ class FunctionSpaceData(object):
                 sdkey = as_tuple(sub_domain)
             key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
             return get_boundary_nodes(V.mesh(), key, V)
-
-    def lgmap(self, V, bcs, lgmap=None):
-        assert len(V) == 1, "lgmap should not be called on MixedFunctionSpace"
-        V = V.topological
-        if bcs is None or len(bcs) == 0:
-            return lgmap or V.dof_dset.lgmap
-
-        # Boundary condition list *must* be collectively ordered already.
-        # Key is a sorted list of bc subdomain, bc method, bc component.
-        bc_key = []
-        for bc in bcs:
-            fs = bc.function_space()
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != V:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-            bc_key.append(bc._cache_key)
-
-        def key(a):
-            tpl, *rest = a
-            if len(tpl) == 1 and isinstance(tpl[0], str):
-                # tpl = ("some_string", )
-                return (True, tpl[0], (), tuple(rest))
-            else:
-                # Ex:
-                # tpl = ((facet_dim, ((1,), (2,), (3,))),
-                #        (edge_dim, ((1, 3), (1, 4))),
-                #        (vert_dim, ((1, 3, 4), )))
-                return (False, "", tpl, tuple(rest))
-
-        bc_key = tuple(sorted(bc_key, key=key))
-        node_set = V.node_set
-        key = (node_set, V.value_size, lgmap is None, bc_key)
-        try:
-            return self.map_cache[key]
-        except KeyError:
-            pass
-        unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if lgmap is None:
-            lgmap = V.dof_dset.lgmap
-            if unblocked:
-                indices = lgmap.indices.copy()
-                bsize = 1
-            else:
-                indices = lgmap.block_indices.copy()
-                bsize = lgmap.getBlockSize()
-                assert bsize == V.value_size
-        else:
-            # MatBlock case, LGMap is already unrolled.
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-            unblocked = True
-        nodes = []
-        for bc in bcs:
-            if bc.function_space().component is not None:
-                nodes.append(bc.nodes * V.value_size + bc.function_space().component)
-            elif unblocked:
-                tmp = bc.nodes * V.value_size
-                for i in range(V.value_size):
-                    nodes.append(tmp + i)
-            else:
-                nodes.append(bc.nodes)
-        nodes = numpy.unique(numpy.concatenate(nodes))
-        indices[nodes] = -1
-        return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
 
     def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to

@@ -14,9 +14,9 @@ import ufl
 from pyop2 import op2
 from tsfc.finatinterface import create_element
 
+from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data
-from firedrake import utils
-from firedrake import dmhooks
+from firedrake.petsc import PETSc
 
 
 class WithGeometry(ufl.FunctionSpace):
@@ -369,7 +369,7 @@ class FunctionSpace(object):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
+                             sf=self.mesh()._topology_dm.getPointSF(),
                              section=self._shared_data.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
@@ -517,7 +517,48 @@ class FunctionSpace(object):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
-        return self._shared_data.lgmap(self, bcs, lgmap=lgmap)
+        # Caching these things is too complicated, since it depends
+        # not just on the bcs, but also the parent space, and anything
+        # this space has been recursively split out from [e.g. inside
+        # fieldsplit]
+        if bcs is None or len(bcs) == 0:
+            return lgmap or self.dof_dset.lgmap
+        for bc in bcs:
+            fs = bc.function_space()
+            while fs.component is not None and fs.parent is not None:
+                fs = fs.parent
+            if fs.topological != self.topological:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+        unblocked = any(bc.function_space().component is not None
+                        for bc in bcs)
+        if lgmap is None:
+            lgmap = self.dof_dset.lgmap
+            if unblocked:
+                indices = lgmap.indices.copy()
+                bsize = 1
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                assert bsize == self.value_size
+        else:
+            # MatBlock case, LGMap is already unrolled.
+            indices = lgmap.block_indices.copy()
+            bsize = lgmap.getBlockSize()
+            unblocked = True
+        nodes = []
+        for bc in bcs:
+            if bc.function_space().component is not None:
+                nodes.append(bc.nodes * self.value_size
+                             + bc.function_space().component)
+            elif unblocked:
+                tmp = bc.nodes * self.value_size
+                for i in range(self.value_size):
+                    nodes.append(tmp + i)
+            else:
+                nodes.append(bc.nodes)
+        nodes = numpy.unique(numpy.concatenate(nodes))
+        indices[nodes] = -1
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
         from firedrake import FunctionSpace
@@ -859,7 +900,7 @@ class RealFunctionSpace(FunctionSpace):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
+                             sf=self.mesh()._topology_dm.getPointSF(),
                              section=None)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)

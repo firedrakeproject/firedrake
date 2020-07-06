@@ -207,12 +207,8 @@ def test_EquationBC_poisson_matrix(eq_type, mat_type, porder, with_bbc):
     # aij
 
     solver_parameters = {'mat_type': mat_type,
-                         'ksp_type': 'gmres',
-                         'ksp_atol': 1e-10,
-                         'ksp_rtol': 1e-10,
-                         'ksp_max_it': 200000,
-                         'ksp_divtol': 1e8,
-                         'pc_type': 'asm'}
+                         'ksp_type': 'preonly',
+                         'pc_type': 'lu'}
     err = []
 
     if with_bbc:
@@ -279,11 +275,9 @@ def test_EquationBC_mixedpoisson_matrix(eq_type, mat_type, porder):
     # aij
 
     solver_parameters = {"mat_type": mat_type,
-                         "ksp_type": "gmres",
-                         "ksp_rtol": 1.e-10,
-                         "ksp_atol": 1.e-10,
-                         "ksp_max_it": 200000,
-                         "pc_type": "asm"}
+                         "ksp_type": "preonly",
+                         "pc_type": "lu",
+                         "pc_factor_mat_solver_type": "mumps"}
     err = []
 
     if eq_type == "linear":
@@ -305,18 +299,16 @@ def test_EquationBC_mixedpoisson_matrix_fieldsplit(eq_type, mat_type, porder):
     # aij with fieldsplit pc
 
     solver_parameters = {"mat_type": mat_type,
-                         "ksp_type": "gmres",
-                         "ksp_rtol": 1.e-10,
-                         "ksp_atol": 1.e-10,
-                         "ksp_max_it": 500000,
+                         "ksp_type": "fgmres",
+                         "ksp_rtol": 1.e-11,
+                         "ksp_max_it": 200,
                          "pc_type": "fieldsplit",
                          "pc_fieldsplit_type": "schur",
                          "pc_fieldsplit_schur_fact_type": "full",
-                         "fieldsplit_0_ksp_type": "gmres",
-                         "fieldsplit_0_pc_type": "asm",
-                         "fieldsplit_0_ksp_rtol": 1.e-12,
-                         "fieldsplit_1_ksp_type": "gmres",
-                         "fieldsplit_1_ksp_rtol": 1.e-12,
+                         "fieldsplit_0_ksp_type": "preonly",
+                         "fieldsplit_0_pc_type": "lu",
+                         "fieldsplit_1_ksp_type": "cg",
+                         "fieldsplit_1_ksp_max_it": 20,
                          "fieldsplit_1_pc_type": "none"}
     err = []
 
@@ -339,21 +331,18 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit(eq_type, mat_type, porder):
     # matfree with fieldsplit pc
 
     solver_parameters = {'mat_type': mat_type,
-                         'ksp_type': 'gmres',
-                         'ksp_atol': 1e-09,
-                         'ksp_rtol': 1e-09,
-                         'ksp_max_it': 200000,
-                         'ksp_divtol': 1e8,
+                         'ksp_type': 'fgmres',
+                         'ksp_atol': 1e-11,
+                         'ksp_max_it': 200,
                          'pc_type': 'fieldsplit',
                          'pc_fieldsplit_type': 'schur',
                          'pc_fieldsplit_schur_fact_type': 'full',
-                         'fieldsplit_0_ksp_type': 'gmres',
-                         'fieldsplit_0_ksp_rtol': 1.e-12,
+                         'fieldsplit_0_ksp_type': 'cg',
                          'fieldsplit_0_pc_type': 'python',
                          'fieldsplit_0_pc_python_type': 'firedrake.AssembledPC',
-                         'fieldsplit_0_assembled_pc_type': 'asm',
-                         'fieldsplit_1_ksp_type': 'gmres',
-                         'fieldsplit_1_ksp_rtol': 1.e-12,
+                         'fieldsplit_0_assembled_pc_type': 'lu',
+                         'fieldsplit_1_ksp_type': 'cg',
+                         'fieldsplit_1_ksp_max_it': 20,
                          'fieldsplit_1_pc_type': 'none'}
     err = []
 

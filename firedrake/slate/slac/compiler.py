@@ -110,9 +110,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
-    if slate_expr.is_mixed:
-        raise NotImplementedError("Compiling mixed slate expressions")
 
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
@@ -146,7 +143,8 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
     # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
     logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
@@ -223,8 +221,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
                              qualifiers=["const"]))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
-    # added as the final argument to the kernel.
+    # added as the final argument to the kernel
+    # and the amount of layers before that.
     if builder.needs_mesh_layers:
+        args.append(ast.Decl("int", builder.mesh_layer_count_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
         args.append(ast.Decl("int", builder.mesh_layer_sym))
 
     # Cell size information
@@ -489,13 +491,14 @@ def tensor_assembly_calls(builder):
 
         # FIXME: No variable layers assumption
         statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
-        num_layers = builder.expression.ufl_domain().topological.layers - 1
+        num_layers = ast.Symbol(builder.mesh_layer_count_sym,
+                                rank=(0,))
         int_top = assembly_calls["interior_facet_horiz_top"]
         int_btm = assembly_calls["interior_facet_horiz_bottom"]
         ext_top = assembly_calls["exterior_facet_top"]
         ext_btm = assembly_calls["exterior_facet_bottom"]
 
-        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers - 1)
+        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers)
         bottom = ast.Block(int_top + ext_btm, open_scope=True)
         top = ast.Block(int_btm + ext_top, open_scope=True)
         rest = ast.Block(int_btm + int_top, open_scope=True)
