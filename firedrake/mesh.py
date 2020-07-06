@@ -1140,6 +1140,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             raise NotImplementedError("Mesh reordering not implemented for vertex only meshes yet.")
 
+        dmcommon.validate_mesh(swarm)
         swarm.setFromOptions()
 
         self._parent_mesh = parentmesh

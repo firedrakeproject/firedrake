@@ -1373,10 +1373,10 @@ def get_facets_by_class(PETSc.DM plex, label,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def validate_mesh(PETSc.DM plex):
+def validate_mesh(PETSc.DM dm):
     """Perform some validation of the input mesh.
 
-    :arg plex: The DMPlex object encapsulating the mesh topology."""
+    :arg dm: The DM object encapsulating the mesh topology."""
     cdef:
         PetscInt  pStart, pEnd, cStart, cEnd, p, c, ci
         PetscInt  nclosure, nseen
@@ -1386,15 +1386,15 @@ def validate_mesh(PETSc.DM plex):
 
     from mpi4py import MPI
 
-    get_chart(plex.dm, &pStart, &pEnd)
-    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    get_chart(dm.dm, &pStart, &pEnd)
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
     nseen = 0
     # Walk the cells, counting the number of points we can traverse in
     # the closure.
     for c in range(cStart, cEnd):
-        get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
         for ci in range(nclosure):
             p = closure[2*ci]
             if not PetscBTLookup(seen, p):
@@ -1402,12 +1402,11 @@ def validate_mesh(PETSc.DM plex):
                 PetscBTSet(seen, p)
 
     if closure != NULL:
-        restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
     CHKERR(PetscBTDestroy(&seen))
 
     # Check validity on all processes
-    valid = plex.comm.tompi4py().allreduce(nseen == pEnd - pStart,
-                                           op=MPI.LAND)
+    valid = dm.comm.tompi4py().allreduce(nseen == pEnd - pStart, op=MPI.LAND)
     if not valid:
         raise ValueError("Provided mesh has some entities not reachable by traversing cells (maybe rogue vertices?)")
 
