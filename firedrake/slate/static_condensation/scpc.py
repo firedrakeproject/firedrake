@@ -1,6 +1,7 @@
 import firedrake.dmhooks as dmhooks
 
 from firedrake.slate.static_condensation.sc_base import SCBase
+from firedrake.slate.static_condensation.la_utils import generate_static_condensation_expressions
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
@@ -86,9 +87,14 @@ class SCPC(SCBase):
         self.residual = Function(W)
         self.solution = Function(W)
 
-        # Get expressions for the condensed linear system
+        # Get expressions for the condensed linear system and local recovery
         A_tensor = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
+        slate_contexts = generate_static_condensation_expressions(A_tensor,
+                                                                  self.residual,
+                                                                  self.solution,
+                                                                  elim_fields)
+        reduced_sys, backsolve = slate_contexts
+
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -184,55 +190,15 @@ class SCPC(SCBase):
                                save=False):
             c_ksp.setFromOptions()
 
-        # Set up local solvers for backwards substitution
-        self.local_solvers = self.local_solver_calls(A_tensor,
-                                                     self.residual,
-                                                     self.solution,
-                                                     elim_fields)
-
-    def condensed_system(self, A, rhs, elim_fields):
-        """Forms the condensed linear system by eliminating
-        specified unknowns.
-
-        :arg A: A Slate Tensor containing the mixed bilinear form.
-        :arg rhs: A firedrake function for the right-hand side.
-        :arg elim_fields: An iterable of field indices to eliminate.
-        """
-
-        from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
-
-        return condense_and_forward_eliminate(A, rhs, elim_fields)
-
-    def local_solver_calls(self, A, rhs, x, elim_fields):
-        """Provides solver callbacks for inverting local operators
-        and reconstructing eliminated fields.
-
-        :arg A: A Slate Tensor containing the mixed bilinear form.
-        :arg rhs: A firedrake function for the right-hand side.
-        :arg x: A firedrake function for the solution.
-        :arg elim_fields: An iterable of eliminated field indices
-                          to recover.
-        """
-
-        from firedrake.slate.static_condensation.la_utils import backward_solve
-        from firedrake.assemble import create_assembly_callable
-
-        fields = x.split()
-        systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
-
-        local_solvers = []
-        for local_system in systems:
-            Ae = local_system.lhs
-            be = local_system.rhs
-            i, = local_system.field_idx
-            local_solve = Ae.solve(be, decomposition="PartialPivLU")
-            solve_call = create_assembly_callable(
-                local_solve,
-                tensor=fields[i],
-                form_compiler_parameters=self.cxt.fc_params)
-            local_solvers.append(solve_call)
-
-        return local_solvers
+        # Set up local solver for backwards substitution
+        Ae = backsolve.lhs
+        be = backsolve.rhs
+        local_solve = Ae.solve(be, decomposition="PartialPivLU")
+        # FIXME: Should use a temporary function here?
+        self._local_solve = create_assembly_callable(
+            local_solve,
+            tensor=self.solution,
+            form_compiler_parameters=self.cxt.fc_params)
 
     @timed_function("SCPCUpdate")
     def update(self, pc):
@@ -289,8 +255,7 @@ class SCPC(SCBase):
         """
 
         # Recover eliminated unknowns
-        for local_solver_call in self.local_solvers:
-            local_solver_call()
+        self._local_solve()
 
         with self.solution.dat.vec_ro as w:
             w.copy(y)
