@@ -197,7 +197,7 @@ def tricontourf(function, *args, complex_component="real", **kwargs):
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
@@ -212,7 +212,7 @@ def tricontour(function, *args, complex_component="real", **kwargs):
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
@@ -227,7 +227,7 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg function: the function to plot
     :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
@@ -264,7 +264,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`Poly3DCollection <mpl_toolkits.mplot3d.art3d.Poly3DCollection>` object
     """
@@ -302,7 +302,7 @@ def quiver(function, *, complex_component="real", **kwargs):
 
     :arg function: the vector field to plot
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
     :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
     """
@@ -343,7 +343,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
     :arg loc_tolerance: tolerance for point location
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = function.ufl_domain()
@@ -411,10 +411,6 @@ class Streamplotter(object):
 
         This class is a utility for the :func:`~firedrake.plot.streamplot`
         function.
-
-        :kwarg complex_component: If plotting complex data, which
-            component? (real or imag).
-
         """
         self.function = function
         self.resolution = resolution
@@ -563,7 +559,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     :arg tolerance: dimensionless tolerance for adaptive ODE integration
     :arg loc_tolerance: point location tolerance for :meth:`~firedrake.functions.Function.at`
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`
     """
     import randomgen
@@ -651,7 +647,7 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
     :arg num_sample_points: number of sample points for high-degree functions
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
@@ -824,7 +820,7 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     :arg function: 1D :class:`~.Function` to plot
     :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: additional key work arguments to plot
     :return: matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     """
@@ -862,7 +858,7 @@ def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
     :arg num_cells: Number of cells containing the points
     :arg axes: Axes to be plotted on
     :kwarg complex_component: If plotting complex data, which
-        component? (real or imag).
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: Addition key word argument for plotting
     """
     pts = pts.T.reshape(num_cells, -1, 2)
