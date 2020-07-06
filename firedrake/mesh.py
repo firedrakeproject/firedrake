@@ -1137,7 +1137,6 @@ values from f.)"""
         coords_max.dat.data.fill(-np.inf)
 
         if utils.complex_mode:
-            import firedrake.function as function
             if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
             coords = function.Function(self.coordinates.function_space(),
