@@ -6,7 +6,8 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType, IntType, as_ctypes
+
+from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.logging import warning
