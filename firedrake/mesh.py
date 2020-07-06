@@ -1114,6 +1114,8 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
+# TODO: Could this be merged with MeshTopology given that dmcommon.pyx
+# now covers DMSwarms and DMPlexes?
 class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
     Representation of a vertex-only mesh topology immersed within
