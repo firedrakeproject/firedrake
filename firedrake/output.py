@@ -244,7 +244,7 @@ def prepare_ofunction(ofunction, real):
             names = (name, )
         else:
             arrays = (array.real, array.imag)
-            names = (name + "(real part)", name + "(imaginary part)")
+            names = (name + " (real part)", name + " (imaginary part)")
     else:
         arrays = (array, )
         names = (name,)
