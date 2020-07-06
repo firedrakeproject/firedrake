@@ -179,8 +179,9 @@ def closure_ordering(PETSc.DM dm,
             # DMSwarm represents disconnected vertex only meshes so
             # transitive closure of a cell (swarm PIC) is always itself
             nclosure = 1
-            CHKERR(PetscMalloc1(nclosure, &closure))
+            CHKERR(PetscMalloc1(2*nclosure, &closure))
             closure[0] = c
+            closure[1] = 0
 
         # Find vertices and translate universal numbers
         vi = 0
@@ -1031,8 +1032,9 @@ def mark_entity_classes(PETSc.DM dm):
             # DMSwarm represents disconnected vertex only meshes so
             # transitive closure of a cell (swarm PIC) is always itself
             nclosure = 1
-            CHKERR(PetscMalloc1(nclosure, &closure))
+            CHKERR(PetscMalloc1(2*nclosure, &closure))
             closure[0] = c
+            closure[1] = 0
         is_owned = PETSC_FALSE
         for ci in range(nclosure):
             p = closure[2*ci]
