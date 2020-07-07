@@ -74,7 +74,7 @@ def test_poisson_in_components(V):
 
     a = inner(grad(u), grad(v))*dx
 
-    L = dot(f, v)*dx
+    L = inner(f, v)*dx
 
     solve(a == L, g, bcs=bcs)
 
@@ -119,11 +119,11 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
     a = inner(grad(u), grad(v))*dx + \
         inner(grad(r), grad(s))*dx + \
-        dot(grad(p), grad(q))*dx
+        inner(grad(p), grad(q))*dx
 
-    L = dot(Constant((0, 0)), v)*dx + \
-        Constant(0)*q*dx + \
-        dot(Constant((0, 0)), s)*dx
+    L = inner(Constant((0, 0)), v) * dx + \
+        inner(Constant(0), q) * dx + \
+        inner(Constant((0, 0)), s) * dx
 
     solve(a == L, g, bcs=bcs, solver_parameters={'mat_type': mat_type})
 
@@ -176,7 +176,7 @@ def test_stokes_component_all():
     (u, p) = TrialFunctions(W)
     (v, q) = TestFunctions(W)
     f = Constant((0.0, 0.0))
-    a = inner(grad(u), grad(v))*dx + div(v)*p*dx + q*div(u)*dx
+    a = inner(grad(u), grad(v))*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(f, v)*dx
 
     Uall = Function(W)

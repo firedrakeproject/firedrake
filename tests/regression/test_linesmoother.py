@@ -38,6 +38,7 @@ def expected(mesh_type):
         return [9, 20]
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
 def test_linesmoother(mesh, S1family, expected):
 
     nits = []
