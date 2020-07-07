@@ -371,11 +371,11 @@ class ImplicitMatrixContext(object):
         submat.setUp()
 
         return submat
-    
+ 
     def duplicate(self, mat, copy):
 
-        if copy == 0:
-            raise NotImplementedError("We do now know how to duplicate a matrix-free MAT with copy = False")
+        if copy is False:
+            raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy is False")
         newmat_ctx = ImplicitMatrixContext(self.a,
                                            row_bcs=self.bcs,
                                            col_bcs=self.bcs_col,
