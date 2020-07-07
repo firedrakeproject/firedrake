@@ -287,7 +287,8 @@ def test_duplicate(a, bcs):
         rhs = assemble(rhs_form)
 
     # matrix-free duplicate creates a matrix-free copy of Af
-    B_petsc = Af.petscmat.duplicate()
+    # we have not implemented the default copy = False
+    B_petsc = Af.petscmat.duplicate(copy = True)
 
     ksp = PETSc.KSP().create()
     ksp.setOperators(Af.petscmat)
