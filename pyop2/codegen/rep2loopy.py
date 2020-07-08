@@ -392,7 +392,7 @@ def generate(builder, wrapper_name=None):
     context.instruction_dependencies = deps
 
     statements = list(statement(insn, context) for insn in instructions)
-    # remote the dummy instructions (they were only used to ensure
+    # remove the dummy instructions (they were only used to ensure
     # that the kernel knows about the outer inames).
     statements = list(s for s in statements if not isinstance(s, DummyInstruction))
 
