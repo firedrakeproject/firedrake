@@ -1769,11 +1769,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         name = "neg"
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-        lvalue = p.Variable("neg")
+        lvalue = p.Variable("other")
         rvalue = p.Variable("self")
         i = p.Variable("i")
         insn = loopy.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("neg", dtype=self.dtype, shape=(self.cdim,)),
+        data = [loopy.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         knl = loopy.make_function([domain], [insn], data, name=name)
         return _make_object('Kernel', knl, name)
