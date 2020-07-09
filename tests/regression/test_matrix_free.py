@@ -270,24 +270,26 @@ def test_get_info(a, bcs, infotype):
         info = ctx.getInfo(A.petscmat, info=itype)
         assert info["memory"] == 2*expect
 
+
 def test_duplicate(a, bcs):
 
     test, trial = a.arguments()
-    
+
     if test.function_space().shape == ():
         rhs_form = inner(Constant(1), test)*dx
     elif test.function_space().shape == (2, ):
-        rhs_form = inner(Constant((1,1)), test)*dx
-    
+        rhs_form = inner(Constant((1, 1)), test)*dx
+
     if bcs is not None:
         Af = assemble(a, mat_type="matfree", bcs=bcs)
-        rhs= assemble(rhs_form, bcs=bcs)
+        rhs = assemble(rhs_form, bcs=bcs)
     else:
         Af = assemble(a, mat_type="matfree")
         rhs = assemble(rhs_form)
 
     # matrix-free duplicate creates a matrix-free copy of Af
-    B_petsc = Af.petscmat.duplicate()
+    # we have not implemented the default copy = False
+    B_petsc = Af.petscmat.duplicate(copy=True)
 
     ksp = PETSc.KSP().create()
     ksp.setOperators(Af.petscmat)
@@ -298,10 +300,10 @@ def test_duplicate(a, bcs):
 
     # Solve system with original matrix A
     with rhs.dat.vec_ro as b, solution1.dat.vec as x:
-            ksp.solve(b, x)
+        ksp.solve(b, x)
 
     # Multiply with copied matrix B
     with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
-            B_petsc.mult(x, y)
+        B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
-    assert np.allclose(rhs.vector().array(), solution2.vector().array()) 
+    assert np.allclose(rhs.vector().array(), solution2.vector().array())
