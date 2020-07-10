@@ -23,7 +23,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
 
 
 from FIAT.reference_element import make_affine_mapping
-from FIAT import ufc_simplex
+from FIAT.reference_element import UFCSimplex
 
 import gem
 from gem.node import traversal
@@ -154,13 +154,13 @@ class CoordinateMapping(PhysicalGeometry):
         return map_expr_dag(context.translator, expr)
 
     def reference_normals(self):
-        if not (isinstance(self.interface.fiat_cell, ufc_simplex) and
+        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
                 self.interface.fiat_cell.get_spatial_dimension() == 2):
             raise NotImplementedError("Only works for triangles for now")
         return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
 
     def physical_tangents(self):
-        if not (isinstance(self.interface.fiat_cell, ufc_simplex) and
+        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
                 self.interface.fiat_cell.get_spatial_dimension() == 2):
             raise NotImplementedError("Only works for triangles for now")
 
