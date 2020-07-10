@@ -123,14 +123,14 @@ def get_temp_info(loopy_kernel):
     mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
     mem_total = sum(mems)
     num_temps = len(loopy_kernel.temporary_variables)
-    
+
     # Get number of temporaries of different shapes
     shapes = {}
     for temp in loopy_kernel.temporary_variables.values():
         shape = temp.shape
         if temp.storage_shape is not None:
             shape = temp.storage_shape
-        
+
         shapes[len(shape)] = shapes.get(len(shape), 0) + 1
     return mem_total, num_temps, mems, shapes
 
