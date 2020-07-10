@@ -906,8 +906,28 @@ def build_and_install_libsupermesh():
         changed = True
     if changed:
         with directory("libsupermesh"):
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
             check_call(["git", "reset", "--hard"])
             check_call(["git", "clean", "-f", "-x", "-d"])
+            if git_sha.strip() == "832d3fb1cf3f117b4efb838f443bbb48a16e4f26":
+                log.info("Patching CMakeLists for gfortran 10 workaround")
+                with open("tmp.patch", "w") as f:
+                    f.write(r"""diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 972f71f..865370c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -77,6 +77,9 @@ option(LIBSUPERMESH_AUTO_COMPILER_FLAGS "Choose compiler flags automatically. Th
+ if(LIBSUPERMESH_AUTO_COMPILER_FLAGS)
+   if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
+     set(CMAKE_Fortran_FLAGS "-ffree-line-length-none -pipe -std=f2008")
++    if(CMAKE_Fortran_COMPILER_VERSION VERSION_GREATER_EQUAL "10")
++      set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fallow-argument-mismatch")
++    endif()
+     if(BUILD_SHARED_LIBS)
+       set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fPIC")
+     endif()
+""")
+                check_call(["git", "apply", "tmp.patch"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
                 check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
