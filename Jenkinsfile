@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch loopy fix-literals --package-branch PyOP2 inverse-solve-callables|| (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager --package-branch loopy fix-literals|| (cat firedrake-install.log && /bin/false)'
           }
         }
       }
