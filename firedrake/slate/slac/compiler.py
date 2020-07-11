@@ -44,10 +44,6 @@ import numpy as np
 import loopy
 import gem
 from tsfc.loopy import generate as generate_loopy
-from tsfc.parameters import default_parameters
-
-TARGET = loopy.target.c.CTarget()
-SCALAR_TYPE = default_parameters()["scalar_type"]
 
 __all__ = ['compile_expression']
 
