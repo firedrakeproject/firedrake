@@ -30,6 +30,7 @@ from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
+from gem import impero_utils
 
 from itertools import chain
 
@@ -579,6 +580,30 @@ def parenthesize(arg, prec=None, parent=None):
     if prec is None or parent is None or prec >= parent:
         return arg
     return "(%s)" % arg
+
+
+def gem_to_loopy(gem_expr):
+    """ Method encapsulating stage 2.
+    Converts the gem expression dag into imperoc first, and then further into loopy.
+    :return slate_loopy: loopy kernel for slate operations.
+    """
+    # Creation of return variables for outer loopy
+    shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
+    idx = make_indices(len(shape))
+    indexed_gem_expr = gem.Indexed(gem_expr, idx)
+    arg = [loopy.GlobalArg("output", shape=shape)]
+    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
+
+    preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
+
+    # glue assignments to return variable
+    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+
+    # Part A: slate to impero_c
+    impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
+
+    # Part B: impero_c to loopy
+    return generate_loopy(impero_c, arg, parameters["form_compiler"]["scalar_type"], "slate_loopy", [])
 
 
 def slate_to_cpp(expr, temps, prec=None):
