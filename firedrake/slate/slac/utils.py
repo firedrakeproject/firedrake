@@ -192,11 +192,7 @@ def _slate2gem_block(expr, self):
     extent = tuple(sum(shape) for shape in expr.shapes.values())
 
     # generate a FlexiblyIndexed (sliced view)
-    slices = []
-    for idx, extent in list(zip(offset, extent)):
-        slices.append(slice(idx, idx+extent))
-    v = view(child, *slices)
-    return v
+    return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offset, extent)))
 
 
 @_slate2gem.register(sl.Inverse)
