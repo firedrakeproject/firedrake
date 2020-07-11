@@ -43,8 +43,6 @@ Context information for creating coefficient temporaries.
 :param local_temp: The local temporary for the coefficient vector.
 """
 
-SCALAR_TYPE = default_parameters()["scalar_type"]
-
 
 class LocalKernelBuilder(object):
     """The primary helper class for constructing cell-local linear
