@@ -43,6 +43,7 @@ import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
+from gem import indices as make_indices
 from tsfc.loopy import generate as generate_loopy
 
 __all__ = ['compile_expression']
