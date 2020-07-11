@@ -246,10 +246,10 @@ def _slate2gem_factorization(expr, self):
     return A
 
 
-def slate2gem(expressions):
+def slate2gem(expression):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
-    return mapper(expressions), mapper.var2terminal
+    return mapper(expression), mapper.var2terminal
 
 
 def eigen_tensor(expr, temporary, index):
