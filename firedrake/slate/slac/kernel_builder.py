@@ -20,6 +20,8 @@ from functools import singledispatch, partial
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
+from firedrake.parameters import parameters
+
 TARGET = loopy.target.c.CTarget()
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -663,9 +665,7 @@ class LocalLoopyKernelBuilder(object):
         for gem_tensor, slate_tensor in var2terminal.items():
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    shape=gem_tensor.shape,
-                                                   dtype=SCALAR_TYPE,
-                                                   address_space=loopy.AddressSpace.LOCAL,
-                                                   target=TARGET)
+                                                   address_space=loopy.AddressSpace.LOCAL)
             tensor2temp[slate_tensor] = loopy_tensor
 
             if isinstance(slate_tensor, slate.Tensor):
@@ -707,7 +707,7 @@ class LocalLoopyKernelBuilder(object):
 
     def generate_wrapper_kernel_args(self, tensor2temp):
         args = [loopy.GlobalArg(self.coordinates_arg, shape=self.coords_extent,
-                                dtype=SCALAR_TYPE, target=TARGET)]
+                                dtype=parameters["form_compiler"]["scalar_type"])]
 
         for loopy_inner in self.templated_subkernels:
             for arg in loopy_inner.args[1:]:
@@ -720,18 +720,18 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
-                                          dtype=SCALAR_TYPE, target=TARGET)
+                                          dtype=parameters["form_compiler"]["scalar_type"])
                     args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
-                                      dtype=SCALAR_TYPE, target=TARGET)
+                                      dtype=parameters["form_compiler"]["scalar_type"])
                 args.append(arg)
 
         if self.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
             args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
-                                        dtype=np.int8, target=TARGET))
+                                        dtype=np.int8))
 
             args.append(
                 loopy.TemporaryVariable(self.local_facet_array_arg,

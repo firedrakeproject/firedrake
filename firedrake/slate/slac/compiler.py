@@ -628,8 +628,7 @@ def gem_to_loopy(gem_expr):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    slate_loopy = generate_loopy(impero_c, arg, SCALAR_TYPE, "slate_loopy", [])
-    return slate_loopy
+    return generate_loopy(impero_c, arg, parameters["form_compiler"]["scalar_type"], "slate_loopy", [])
 
 
 def slate_to_cpp(expr, temps, prec=None):
