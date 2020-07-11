@@ -74,7 +74,8 @@ class SlateKernel(TSFCKernel):
     @classmethod
     def _cache_key(cls, expr, tsfc_parameters, coffee):
         return md5((expr.expression_hash
-                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(sorted(tsfc_parameters.items()))
+                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, tsfc_parameters, coffee=False):
         if self._initialized:
