@@ -613,13 +613,13 @@ def gem_to_loopy(gem_expr):
     :return slate_loopy: loopy kernel for slate operations.
     """
     # Creation of return variables for outer loopy
-    shape = gem_expr[0].children[0].shape
-    shape = shape if len(shape) != 0 else (1,)
-    arg = [loopy.GlobalArg("output", shape=shape, dtype=SCALAR_TYPE, target=TARGET)]
-    idx = gem_expr[0].multiindex
+    shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
+    idx = make_indices(len(shape))
+    indexed_gem_expr = gem.Indexed(gem_expr, idx)
+    arg = [loopy.GlobalArg("output", shape=shape)]
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
-    preprocessed_gem_expr = impero_utils.preprocess_gem(gem_expr)
+    preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
     # glue assignments to return variable
     assignments = list(zip(ret_vars, preprocessed_gem_expr))

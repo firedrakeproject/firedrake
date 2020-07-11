@@ -155,10 +155,7 @@ class Transformer(Visitor):
 def slate_to_gem(expression):
     """ Method encapsulating stage 1 of tsslac. """
     mapper, var2terminal = slate2gem(expression)
-    if not (type(mapper) == Indexed or type(mapper) == FlexiblyIndexed):
-        shape = mapper.shape if len(mapper.shape) != 0 else (1,)
-        mapper = Indexed(mapper, make_indices(len(shape)))
-    return list([mapper]), var2terminal
+    return mapper, var2terminal
 
 
 @singledispatch
