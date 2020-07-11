@@ -153,7 +153,13 @@ class Transformer(Visitor):
 
 
 def slate_to_gem(expression):
-    """ Method encapsulating stage 1 of tsslac. """
+    """Convert a slate expression to gem.
+
+        :arg expression: A slate expression.
+        :returns: A singleton list of gem expressions and
+        a mapping from gem variables to UFL "terminal" forms.
+    """
+
     mapper, var2terminal = slate2gem(expression)
     return mapper, var2terminal
 
