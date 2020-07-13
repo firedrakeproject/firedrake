@@ -5,8 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor, VectorElement
-from ufl.algorithms.analysis import has_type
+from ufl import as_ufl, UFLException, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
@@ -17,7 +16,6 @@ from pyop2.utils import as_tuple
 import firedrake.expression as expression
 import firedrake.function as function
 import firedrake.matrix as matrix
-import firedrake.projection as projection
 import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
@@ -333,29 +331,36 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, function.Function) and g.function_space() != self._function_space:
-            raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
-        if not isinstance(g, expression.Expression):
+        if isinstance(g, function.Function):
+            if g.function_space() != self.function_space():
+                raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
+            self._function_arg = g
+        elif isinstance(g, expression.Expression):
+            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+                raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
+            self._expression_state = g._state
+            self._function_arg = function.Function(self.function_space()).interpolate(g)
+        elif isinstance(g, ufl.classes.Zero):
+            # Special case. Scalar zero for direct Function.assign.
+            self._function_arg = ufl.zero()
+        elif isinstance(g, ufl.classes.Expr):
+            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+                raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                # Bare constant?
-                as_ufl(g)
+                self._function_arg = function.Function(self.function_space()).interpolate(g)
+            except (NotImplementedError, AttributeError):
+                # Element doesn't implement interpolation
+                self._function_arg = function.Function(self.function_space()).project(g)
+        else:
+            try:
+                g = as_ufl(g)
             except UFLException:
                 try:
-                    # List of bare constants? Convert to UFL expression
-                    g = as_ufl(as_tensor(g))
-                    if g.ufl_shape != self._function_space.shape:
-                        raise ValueError("%r doesn't match the shape of the function space." % (g,))
+                    # Recurse to handle this through interpolation.
+                    self.function_arg = as_ufl(as_tensor(g))
                 except UFLException:
-                    raise ValueError("%r is not a valid DirichletBC expression" % (g,))
-        if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
-            if isinstance(g, expression.Expression):
-                self._expression_state = g._state
-            try:
-                g = function.Function(self._function_space).interpolate(g)
-            # Not a point evaluation space, need to project onto V
-            except NotImplementedError:
-                g = projection.project(g, self._function_space)
-        self._function_arg = g
+                    raise ValueError(f"{g} is not a valid DirichletBC expression")
+            self._function_arg = g
         self._currently_zeroed = False
 
     def homogenize(self):
