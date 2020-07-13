@@ -338,7 +338,7 @@ def simplify_abs(expression, complex_mode):
     return mapper(expression, False)
 
 
-def apply_mapping(expression, mapping):
+def apply_mapping(expression, mapping, domain):
     """
     This applies the appropriate transformation to the
     given expression for interpolation to a specific
@@ -387,6 +387,10 @@ def apply_mapping(expression, mapping):
     """
 
     mesh = expression.ufl_domain()
+    if mesh is None:
+        mesh = domain
+    if domain is not None and mesh != domain:
+        raise NotImplementedError("Multiple domains not supported")
     rank = len(expression.ufl_shape)
     if mapping == "affine":
         return expression
@@ -396,18 +400,15 @@ def apply_mapping(expression, mapping):
         expression = Indexed(expression, MultiIndex((*i, k)))
         return as_tensor(J.T[j, k] * expression, (*i, j))
     elif mapping == "contravariant piola":
-        mesh = expression.ufl_domain()
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
         *i, j, k = indices(len(expression.ufl_shape) + 1)
         expression = Indexed(expression, MultiIndex((*i, k)))
         return as_tensor(detJ * K[j, k] * expression, (*i, j))
     elif mapping == "double covariant piola" and rank == 2:
-        mesh = expression.ufl_domain()
         J = Jacobian(mesh)
         return J.T * expression * J
     elif mapping == "double contravariant piola" and rank == 2:
-        mesh = expression.ufl_domain()
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
         return (detJ)**2 * K * expression * K.T

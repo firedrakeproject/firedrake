@@ -267,7 +267,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
 
-def compile_expression_dual_evaluation(expression, to_element, coordinates, interface=None,
+def compile_expression_dual_evaluation(expression, to_element, coordinates, *,
+                                       domain=None, interface=None,
                                        parameters=None, coffee=False):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
@@ -276,6 +277,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
     :arg expression: UFL expression
     :arg to_element: A FIAT FiniteElement for the target space
     :arg coordinates: the coordinate function
+    :arg domain: optional UFL domain the expression is defined on (useful when expression contains no domain).
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
     :arg coffee: compile coffee kernel instead of loopy kernel
@@ -300,7 +302,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, inte
         mapping, = set(to_element.mapping())
     except ValueError:
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
-    expression = apply_mapping(expression, mapping)
+    expression = apply_mapping(expression, mapping, domain)
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
