@@ -5,7 +5,6 @@ import os
 import pytest
 
 from subprocess import check_call
-from mpi4py import MPI
 from pyadjoint.tape import get_working_tape
 
 
@@ -14,6 +13,7 @@ def disable_gc_on_parallel(request):
     """ Disables garbage collection on parallel tests,
     but only when run on Jenkins CI
     """
+    from mpi4py import MPI
     if (MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):
         gc.disable()
         assert not gc.isenabled()
@@ -32,6 +32,7 @@ def parallel(item):
 
     :arg item: The test item to run.
     """
+    from mpi4py import MPI
     if MPI.COMM_WORLD.size > 1:
         raise RuntimeError("parallel test can't be run within parallel environment")
     marker = item.get_closest_marker("parallel")
@@ -58,6 +59,7 @@ def pytest_configure(config):
 
 def pytest_runtest_setup(item):
     if item.get_closest_marker("parallel"):
+        from mpi4py import MPI
         if MPI.COMM_WORLD.size > 1:
             # Turn on source hash checking
             from firedrake import parameters
@@ -78,6 +80,7 @@ def pytest_runtest_setup(item):
 
 
 def pytest_runtest_call(item):
+    from mpi4py import MPI
     if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
