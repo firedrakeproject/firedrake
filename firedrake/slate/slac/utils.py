@@ -5,6 +5,19 @@ from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
 
+from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
+                 Solve, Inverse, Variable, view)
+from gem import indices as make_indices
+from gem.node import Memoizer
+from gem.node import pre_traversal as traverse_dags
+
+from functools import singledispatch
+import firedrake.slate.slate as sl
+import loopy as lp
+from loopy.program import make_program
+from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
+import itertools
+
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -134,6 +147,100 @@ class Transformer(Visitor):
             return o
 
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
+
+
+def slate_to_gem(expression):
+    """Convert a slate expression to gem.
+
+        :arg expression: A slate expression.
+        :returns: A singleton list of gem expressions and
+        a mapping from gem variables to UFL "terminal" forms.
+    """
+
+    mapper, var2terminal = slate2gem(expression)
+    return mapper, var2terminal
+
+
+@singledispatch
+def _slate2gem(expr, self):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_slate2gem.register(sl.Tensor)
+@_slate2gem.register(sl.AssembledVector)
+def _slate2gem_tensor(expr, self):
+    shape = expr.shape if not len(expr.shape) == 0 else (1, )
+    name = f"T{len(self.var2terminal)}"
+    assert expr not in self.var2terminal.values()
+    var = Variable(name, shape)
+    self.var2terminal[var] = expr
+    return var
+
+
+@_slate2gem.register(sl.Block)
+def _slate2gem_block(expr, self):
+    child, = map(self, expr.children)
+    child_shapes = expr.children[0].shapes
+    offsets = tuple(sum(shape[:idx]) for shape, (idx, *_)
+                    in zip(child_shapes.values(), expr._indices))
+    return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offsets, expr.shape)))
+
+
+@_slate2gem.register(sl.Inverse)
+def _slate2gem_inverse(expr, self):
+    return Inverse(*map(self, expr.children))
+
+
+@_slate2gem.register(sl.Solve)
+def _slate2gem_solve(expr, self):
+    return Solve(*map(self, expr.children))
+
+
+@_slate2gem.register(sl.Transpose)
+def _slate2gem_transpose(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
+
+
+@_slate2gem.register(sl.Negative)
+def _slate2gem_negative(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Product(Literal(-1),
+                           Indexed(child, indices)),
+                           indices)
+
+
+@_slate2gem.register(sl.Add)
+def _slate2gem_add(expr, self):
+    A, B = map(self, expr.children)
+    indices = tuple(make_indices(len(A.shape)))
+    return ComponentTensor(Sum(Indexed(A, indices),
+                           Indexed(B, indices)),
+                           indices)
+
+
+@_slate2gem.register(sl.Mul)
+def _slate2gem_mul(expr, self):
+    A, B = map(self, expr.children)
+    *i, k = tuple(make_indices(len(A.shape)))
+    _, *j = tuple(make_indices(len(B.shape)))
+    ABikj = Product(Indexed(A, tuple(i + [k])),
+                    Indexed(B, tuple([k] + j)))
+    return ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+
+
+@_slate2gem.register(sl.Factorization)
+def _slate2gem_factorization(expr, self):
+    A, = map(self, expr.children)
+    return A
+
+
+def slate2gem(expression):
+    mapper = Memoizer(_slate2gem)
+    mapper.var2terminal = OrderedDict()
+    return mapper(expression), mapper.var2terminal
 
 
 def eigen_tensor(expr, temporary, index):
