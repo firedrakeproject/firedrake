@@ -183,22 +183,10 @@ def _slate2gem_tensor(expr, self):
 @_slate2gem.register(sl.Block)
 def _slate2gem_block(expr, self):
     child, = map(self, expr.children)
-
-    # get index of first block in a range of blocks
-    first_ind = ()
-    is_range = lambda index: (type(index) == range)
-    for index in expr._indices:
-        first_ind += (index.start,) if is_range(index) else (index,)
-
-    # get offset of the first index
-    offset = ()
-    for i, idx in enumerate([idx for idx in first_ind]):
-        offset += ((sum(expr.children[0].shapes[i][:idx])), )
-
-    extent = tuple(sum(shape) for shape in expr.shapes.values())
-
-    # generate a FlexiblyIndexed (sliced view)
-    return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offset, extent)))
+    child_shapes = expr.children[0].shapes
+    offsets = tuple(sum(shape[:idx]) for shape, (idx, *_)
+                    in zip(child_shapes.values(), expr._indices))
+    return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offsets, expr.shape)))
 
 
 @_slate2gem.register(sl.Inverse)
