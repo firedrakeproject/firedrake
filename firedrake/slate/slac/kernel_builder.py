@@ -21,6 +21,7 @@ import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 from firedrake.parameters import parameters
+from tsfc.loopy import create_domains
 
 from pytools import UniqueNameGenerator
 
