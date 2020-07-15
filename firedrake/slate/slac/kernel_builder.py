@@ -2,7 +2,6 @@ import numpy as np
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
-import itertools
 
 from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
 from firedrake.utils import cached_property
@@ -11,12 +10,11 @@ from tsfc.finatinterface import create_element
 from ufl import MixedElement
 import loopy
 from numbers import Integral
-from tsfc import default_parameters
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
 
-from functools import singledispatch, partial
+from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
@@ -448,7 +446,7 @@ class LocalLoopyKernelBuilder(object):
         """
 
         return compile_terminal_form(terminal, prefix="subkernel%s_" % terminal._output_string,
-                                          tsfc_parameters=self.tsfc_parameters, coffee=False)
+                                     tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
         """ A helper method to retrieve tensor shape information.
@@ -741,10 +739,11 @@ class LocalLoopyKernelBuilder(object):
             key = self.bag.call_name_generator(integral_type)
             call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
             insn = loopy.CallInstruction((output,), call,
-                                            within_inames=frozenset(inames_dep),
-                                            predicates=predicates, id=key)
+                                         within_inames=frozenset(inames_dep),
+                                         predicates=predicates, id=key)
 
             yield insn, kinfo.kernel.code
+
 
 class SlateWrapperBag(object):
 
@@ -766,7 +765,7 @@ class IndexCreator(object):
     def __call__(self, extents):
         """Create new indices with specified extents.
 
-        :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors 
+        :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors
             and :class:`int` for extents non-mixed tensor
         :returns: tuple of pymbolic Variable objects representing indices, contains tuples
             of Variables for mixed tensors

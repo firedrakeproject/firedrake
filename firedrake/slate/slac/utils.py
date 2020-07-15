@@ -5,7 +5,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 FlexiblyIndexed, Solve, Inverse, Variable, view)
+                 Solve, Inverse, Variable, view)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -15,9 +15,6 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
 from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
-
-from tsfc.parameters import default_parameters
-from tsfc.loopy import create_domains
 
 import firedrake.slate.slate as slate
 import itertools
@@ -332,8 +329,9 @@ def merge_loopy(slate_loopy, builder, var2terminal):
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
     terminal_tensors = list(filter(lambda x: isinstance(x, slate.Tensor), var2terminal.values()))
-    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable((builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
-                                                                               for terminal in terminal_tensors)))
+    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
+                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
+                                    for terminal in terminal_tensors)))
 
     # Construct args
     args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
