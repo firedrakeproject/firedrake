@@ -590,12 +590,12 @@ class LocalLoopyKernelBuilder(object):
                 mixed = OrderedDict()
                 for j, c_ in enumerate(c.split()):
                     name = "w_{}_{}".format(i, j)
-                    info = (name, self.index_extent(c_))
+                    info = (name, self.extent(c_))
                     mixed.update({c_: info})
                 coeff_dict[c] = mixed
             else:
                 name = "w_{}".format(i)
-                coeff_dict[c] = (name, self.index_extent(c))
+                coeff_dict[c] = (name, self.extent(c))
         return coeff_dict
 
     def initialise_terminals(self, var2terminal, coefficients):
