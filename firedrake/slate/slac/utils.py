@@ -344,7 +344,7 @@ def merge_loopy(slate_loopy, builder, var2terminal):
     insns += builder.slate_call(slate_loopy)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
-    domains = create_domains(builder.bag.inames.items())
+    domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",

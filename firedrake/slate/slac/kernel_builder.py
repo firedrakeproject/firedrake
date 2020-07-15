@@ -466,21 +466,11 @@ class LocalLoopyKernelBuilder(object):
         else:
             return create_element(element).space_dimension()
 
-    def save_index(self, loopy_multiindex, extent):
-        """ A helper method to keep track of names and extents of loopy indices.
-            The saved indicies are coming from subarrayereffing kernel arguments
-            or from initilizations of Tensors and coefficients.
-        """
-        for index, ext in zip(loopy_multiindex, extent):
-            if isinstance(ext, tuple) and len(ext) == 1:
-                ext = ext[0]
-            self.bag.inames[index.name] = int(ext)
-
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
             which contains the TSFC assembly of the tensor.
         """
-        idx = self.create_index(self.shape(tensor))
+        idx = self.bag.index_creator(self.shape(tensor))
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
@@ -521,8 +511,8 @@ class LocalLoopyKernelBuilder(object):
         """
         arguments = []
         for c, name in kernel_data:
-            extent = self.index_extent(c)
-            idx = self.create_index(extent)
+            extent = self.extent(c)
+            idx = self.bag.index_creator(extent)
             arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
         return arguments
 
@@ -548,12 +538,12 @@ class LocalLoopyKernelBuilder(object):
             self.num_facets = mesh.ufl_cell().num_facets()
 
         # Index for loop over cell faces of reference cell
-        fidx = self.create_index((self.num_facets,))
+        fidx = self.bag.index_creator((self.num_facets,))
 
         # Cell is interior or exterior
         select = 1 if integral_type.startswith("interior_facet") else 0
 
-        i = self.create_index((1,))
+        i = self.bag.index_creator((1,))
         predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select)]
 
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
@@ -625,7 +615,7 @@ class LocalLoopyKernelBuilder(object):
 
             if isinstance(slate_tensor, slate.Tensor):
                 extent = self.shape(slate_tensor)
-                indices = self.create_index(extent)
+                indices = self.bag.index_creator(extent)
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
@@ -640,7 +630,7 @@ class LocalLoopyKernelBuilder(object):
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
-                    indices = self.create_index((shp,))
+                    indices = self.bag.index_creator((shp,))
                     inames = {var.name for var in indices}
                     offset_index = (pym.Sum((offset, indices[0])),)
                     name = names[i] if ismixed else names
@@ -758,7 +748,7 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, coords_extent):
+    def __init__(self, coeffs):
         self.coefficients = coeffs
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
@@ -766,3 +756,55 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
+        self.index_creator = IndexCreator()
+
+
+class IndexCreator(object):
+    inames = OrderedDict()  # pym variable -> extent
+    namer = UniqueNameGenerator(forced_prefix="i_")
+
+    def __call__(self, extents):
+        """Create new indices with specified extents.
+
+        :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors 
+            and :class:`int` for extents non-mixed tensor
+        :returns: tuple of pymbolic Variable objects representing indices, contains tuples
+            of Variables for mixed tensors
+            and Variables for non-mixed tensors, where each Variable represents one extent."""
+        # For non mixed tensors int values are allowed as extent
+        extents = (extents, ) if isinstance(extents, Integral) else extents
+
+        # Indices for scalar tensors
+        extents += (1, ) if len(extents) == 0 else ()
+
+        # Stacked tuple = mixed tensor
+        # -> loop over ext to generate idxs per block
+        indices = []
+        if isinstance(extents[0], tuple):
+            for ext_per_block in extents:
+                idxs = self._create_indices(ext_per_block)
+                indices.append(idxs)
+            return tuple(indices)
+        # Non-mixed tensors
+        else:
+            return self._create_indices(extents)
+
+    def _create_indices(self, extents):
+        """Create new indices with specified extents.
+
+        :arg extents. :class:`tuple` or :class:`int` for extent of each index
+        :returns: tuple of pymbolic Variable objects representing
+            indices, one for each extent."""
+        indices = []
+        for ext in extents:
+            name = self.namer()
+            indices.append(pym.Variable(name))
+            if isinstance(ext, tuple) and len(ext) == 1:
+                ext = ext[0]
+            self.inames[name] = int(ext)
+        return tuple(indices)
+
+    @property
+    def domains(self):
+        """ISL domains for the currently known indices."""
+        return create_domains(self.inames.items())
