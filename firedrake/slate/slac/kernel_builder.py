@@ -458,43 +458,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return tensor.shape
 
-    def create_index(self, extent, namer):
-        """Loopy multiindex creator.
-
-        :arg extent: a :class:`tuple` or :class:`int` for index extent
-        :arg namer: a function to create names automatically
-        """
-
-        # For non mixed tensors int values are allowed as extent
-        extent = (extent, ) if isinstance(extent, Integral) else extent
-
-        # Indices for scalar tensors
-        extent += (1, ) if len(extent) == 0 else ()
-
-        # Stacked tuple = mixed tensor
-        # -> loop over ext to generate idxs per block
-        per_dim_per_block = []
-        if isinstance(extent[0], tuple):
-            for ext_per_block in extent:
-                idxs = self._create_index(ext_per_block, namer)
-                per_dim_per_block.append(idxs)
-
-        # Non-mixed tensors
-        else:
-            for index in self._create_index(extent, namer):
-                per_dim_per_block.append(index)
-        per_dim_per_block = tuple(per_dim_per_block)
-
-        return per_dim_per_block
-
-    def _create_index(self, ext_per_var, namer):
-        """ Creation of loopy multiindex."""
-        names = tuple(next(namer) for ext_per_dim in ext_per_var)
-        idx_per_dim = tuple(pym.Variable(name) for name in names)
-        self.save_index(idx_per_dim, ext_per_var)
-        return idx_per_dim
-
-    def index_extent(self, coefficient):
+    def extent(self, coefficient):
         """ Calculation of the range of a coefficient."""
         element = coefficient.ufl_element()
         if element.family() == "Real":
@@ -697,7 +661,8 @@ class LocalLoopyKernelBuilder(object):
         return [insn]
 
     def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
-        args = [loopy.GlobalArg(self.coordinates_arg, shape=self.bag.coords_extent,
+        coords_extent = self.extent(self.expression.ufl_domain().coordinates)
+        args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=parameters["form_compiler"]["scalar_type"])]
 
         for loopy_inner in templated_subkernels:
@@ -800,5 +765,4 @@ class SlateWrapperBag(object):
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
-        self.coords_extent = coords_extent
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
