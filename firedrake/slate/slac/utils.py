@@ -22,9 +22,6 @@ from tsfc.loopy import create_domains
 import firedrake.slate.slate as slate
 import itertools
 
-#TODO remove
-SCALAR_TYPE = default_parameters()["scalar_type"]
-
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the

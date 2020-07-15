@@ -24,7 +24,6 @@ from firedrake.parameters import parameters
 
 from pytools import UniqueNameGenerator
 
-TARGET = loopy.target.c.CTarget()
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
