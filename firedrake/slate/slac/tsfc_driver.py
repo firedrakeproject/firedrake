@@ -65,11 +65,13 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None, coffee=True
                                subkernel_prefix,
                                parameters=tsfc_parameters,
                                coffee=coffee, split=False)
-        cxt_k = ContextKernel(tensor=tensor,
-                              coefficients=form.coefficients(),
-                              original_integral_type=orig_it_type,
-                              tsfc_kernels=kernels)
-        cxt_kernels.append(cxt_k)
+        assert len(kernels) <= 1, "Kernels should not be split."
+        if kernels:
+            cxt_k = ContextKernel(tensor=tensor,
+                                coefficients=form.coefficients(),
+                                original_integral_type=orig_it_type,
+                                tsfc_kernels=kernels)
+            cxt_kernels.append(cxt_k)
 
     cxt_kernels = tuple(cxt_kernels)
 
