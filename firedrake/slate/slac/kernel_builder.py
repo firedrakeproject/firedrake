@@ -685,14 +685,13 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=np.uint32,
                                         address_space=loopy.AddressSpace.LOCAL,
                                         read_only=True,
-                                        initializer=np.arange(self.num_facets, dtype=np.uint32),
-                                        target=TARGET))
+                                        initializer=np.arange(self.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(),
-                        dtype=np.int32, target=TARGET))
+                        dtype=np.int32))
             args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
-                        dtype=np.int32, target=TARGET, address_space=loopy.AddressSpace.GLOBAL))
+                        dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
 
         for tensor_temp in tensor2temp.values():
             args.append(tensor_temp)
