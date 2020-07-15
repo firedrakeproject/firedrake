@@ -437,9 +437,6 @@ class LocalLoopyKernelBuilder(object):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        # TODO make IndexCreator
-        self.create_index = partial(self.create_index,
-                                    namer=map("i{}".format, itertools.count()))
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.bag = None
