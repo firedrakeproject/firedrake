@@ -461,9 +461,9 @@ class LocalLoopyKernelBuilder(object):
         """ Calculation of the range of a coefficient."""
         element = coefficient.ufl_element()
         if element.family() == "Real":
-            return coefficient.dat.cdim
+            return (coefficient.dat.cdim, )
         else:
-            return create_element(element).space_dimension()
+            return (create_element(element).space_dimension(), )
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -613,8 +613,7 @@ class LocalLoopyKernelBuilder(object):
             tensor2temp[slate_tensor] = loopy_tensor
 
             if isinstance(slate_tensor, slate.Tensor):
-                extent = self.shape(slate_tensor)
-                indices = self.bag.index_creator(extent)
+                indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
@@ -770,8 +769,6 @@ class IndexCreator(object):
         :returns: tuple of pymbolic Variable objects representing indices, contains tuples
             of Variables for mixed tensors
             and Variables for non-mixed tensors, where each Variable represents one extent."""
-        # For non mixed tensors int values are allowed as extent
-        extents = (extents, ) if isinstance(extents, Integral) else extents
 
         # Indices for scalar tensors
         extents += (1, ) if len(extents) == 0 else ()
@@ -798,8 +795,6 @@ class IndexCreator(object):
         for ext in extents:
             name = self.namer()
             indices.append(pym.Variable(name))
-            if isinstance(ext, tuple) and len(ext) == 1:
-                ext = ext[0]
             self.inames[name] = int(ext)
         return tuple(indices)
 
