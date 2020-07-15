@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from firedrake import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
