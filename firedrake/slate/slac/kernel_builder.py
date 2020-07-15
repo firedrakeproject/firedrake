@@ -797,12 +797,12 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, builder):
-        self.coefficients = builder.collect_coefficients() #read-only
+    def __init__(self, coeffs, coords_extent):
+        self.coefficients = coeffs
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
-        self.coords_extent = builder.index_extent(builder.expression.ufl_domain().coordinates)
+        self.coords_extent = coords_extent
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")

@@ -328,7 +328,9 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, builder, var2terminal):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-    builder.bag = SlateWrapperBag(builder)#TODO maybe better be owned by builder
+    coeffs = builder.collect_coefficients()
+    coords_extent = builder.index_extent(builder.expression.ufl_domain().coordinates)
+    builder.bag = SlateWrapperBag(coeffs, coords_extent)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
@@ -342,8 +344,7 @@ def merge_loopy(slate_loopy, builder, var2terminal):
 
     # Munge instructions
     insns = inits
-    for call in tsfc_calls:
-        insns += (call,)
+    insns.extend(tsfc_calls)
     insns += builder.slate_call(slate_loopy)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
