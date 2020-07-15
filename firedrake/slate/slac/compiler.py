@@ -159,13 +159,13 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=builder.needs_cell_orientations,
+                       oriented=builder.bag.needs_cell_orientations,
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),
-                       needs_cell_facets=builder.needs_cell_facets,
-                       pass_layer_arg=builder.needs_mesh_layers,
-                       needs_cell_sizes=builder.needs_cell_sizes)
+                       needs_cell_facets=builder.bag.needs_cell_facets,
+                       pass_layer_arg=builder.bag.needs_mesh_layers,
+                       needs_cell_sizes=builder.bag.needs_cell_sizes)
 
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.

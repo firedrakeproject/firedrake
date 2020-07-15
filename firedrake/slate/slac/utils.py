@@ -19,6 +19,10 @@ from loopy.transform.callable import inline_callable_kernel, register_callable_k
 from tsfc.parameters import default_parameters
 from tsfc.loopy import create_domains
 
+import firedrake.slate.slate as slate
+import itertools
+
+#TODO remove
 SCALAR_TYPE = default_parameters()["scalar_type"]
 
 
@@ -323,31 +327,35 @@ def topological_sort(exprs):
 
 def merge_loopy(slate_loopy, builder, var2terminal):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
+    from firedrake.slate.slac.kernel_builder import SlateWrapperBag
+    builder.bag = SlateWrapperBag(builder)#TODO maybe better be owned by builder
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
-    inits, tensor2temp = builder.initialise_terminals(var2terminal)
-    builder.generate_tsfc_calls(var2terminal, tensor2temp)
+    inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
+    terminal_tensors = list(filter(lambda x: isinstance(x, slate.Tensor), var2terminal.values()))
+    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable((builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
+                                                                               for terminal in terminal_tensors)))
 
     # Construct args
-    args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp)
+    args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
 
     # Munge instructions
     insns = inits
-    for integral_type in builder.assembly_calls:
-        insns += builder.assembly_calls[integral_type]
+    for call in tsfc_calls:
+        insns += (call,)
     insns += builder.slate_call(slate_loopy)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
-    domains = create_domains(builder.inames.items())
+    domains = create_domains(builder.bag.inames.items())
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
-                                     seq_dependencies=True, target=lp.CTarget(),)
+                                     seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register and inline kernels
     prg = make_program(slate_wrapper)
-    for tsfc_loopy in builder.templated_subkernels:
+    for tsfc_loopy in tsfc_kernels:
         prg = register_callable_kernel(prg, tsfc_loopy)
         prg = inline_callable_kernel(prg, tsfc_loopy.name)
     prg = register_callable_kernel(prg, slate_loopy)

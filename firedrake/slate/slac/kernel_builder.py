@@ -22,6 +22,8 @@ from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 from firedrake.parameters import parameters
 
+from pytools import UniqueNameGenerator
+
 TARGET = loopy.target.c.CTarget()
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -436,25 +438,20 @@ class LocalLoopyKernelBuilder(object):
         if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in Slate.")
 
-        # Creation of gem and loopy indices with automatic naming
+        # TODO make IndexCreator
         self.create_index = partial(self.create_index,
                                     namer=map("i{}".format, itertools.count()))
-        self.inames = OrderedDict()
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.coefficients = self.collect_coefficients()
-        self.coords_extent = self.index_extent(expression.ufl_domain().coordinates)
+        self.bag = None
 
-    def context_kernels(self, terminals):
+    def tsfc_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
 
-        ctx_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+        return compile_terminal_form(terminal, prefix="subkernel%s_" % terminal._output_string,
                                           tsfc_parameters=self.tsfc_parameters, coffee=False)
-                    for i, expr in enumerate(terminals)]
-
-        return tuple(itertools.chain.from_iterable(ctx_list))
 
     def shape(self, tensor):
         """ A helper method to retrieve tensor shape information.
@@ -517,7 +514,7 @@ class LocalLoopyKernelBuilder(object):
         for index, ext in zip(loopy_multiindex, extent):
             if isinstance(ext, tuple) and len(ext) == 1:
                 ext = ext[0]
-            self.inames[index.name] = int(ext)
+            self.bag.inames[index.name] = int(ext)
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -527,7 +524,7 @@ class LocalLoopyKernelBuilder(object):
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
-    def collect_tsfc_kernel_data(self, mesh, coefficients, kinfo):
+    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, wrapper_coefficients, kinfo):
         """ Collect the kernel data aka the parameters fed into the subkernel,
             that are coordinates, orientations, cell sizes and cofficients.
         """
@@ -546,8 +543,8 @@ class LocalLoopyKernelBuilder(object):
                                 self.cell_size_arg))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [coefficients[i] for i in kinfo.coefficient_map]
-        for c, cinfo in self.coefficients.items():
+        tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):
                     kernel_data.extend([(c, cinfo[0])])
@@ -651,7 +648,7 @@ class LocalLoopyKernelBuilder(object):
                 coeff_dict[c] = (name, self.index_extent(c))
         return coeff_dict
 
-    def initialise_terminals(self, var2terminal):
+    def initialise_terminals(self, var2terminal, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
@@ -676,7 +673,7 @@ class LocalLoopyKernelBuilder(object):
 
             elif isinstance(slate_tensor, slate.AssembledVector):
                 f = slate_tensor._function
-                coeff = self.coefficients[f]
+                coeff = coefficients[f]
                 offset = 0
                 ismixed = (type(f.ufl_element()) == MixedElement)
                 names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
@@ -703,18 +700,18 @@ class LocalLoopyKernelBuilder(object):
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return [insn]
 
-    def generate_wrapper_kernel_args(self, tensor2temp):
-        args = [loopy.GlobalArg(self.coordinates_arg, shape=self.coords_extent,
+    def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
+        args = [loopy.GlobalArg(self.coordinates_arg, shape=self.bag.coords_extent,
                                 dtype=parameters["form_compiler"]["scalar_type"])]
 
-        for loopy_inner in self.templated_subkernels:
+        for loopy_inner in templated_subkernels:
             for arg in loopy_inner.args[1:]:
                 if arg.name == self.cell_orientations_arg or\
                    arg.name == self.cell_size_arg:
                     if arg not in args:
                         args.append(arg)
 
-        for coeff in self.coefficients.values():
+        for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
@@ -726,7 +723,7 @@ class LocalLoopyKernelBuilder(object):
                                       dtype=parameters["form_compiler"]["scalar_type"])
                 args.append(arg)
 
-        if self.needs_cell_facets:
+        if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
             args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
                                         dtype=np.int8))
@@ -740,7 +737,7 @@ class LocalLoopyKernelBuilder(object):
                                         initializer=np.arange(self.num_facets, dtype=np.uint32),
                                         target=TARGET))
 
-        if self.needs_mesh_layers:
+        if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(),
                         dtype=np.int32, target=TARGET))
             args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
@@ -751,67 +748,61 @@ class LocalLoopyKernelBuilder(object):
 
         return args
 
-    def generate_tsfc_calls(self, var2terminal, tensor2temp):
+    def generate_tsfc_calls(self, terminal, loopy_tensor):
         """A setup method to initialize all the local assembly
         kernels generated by TSFC. This function also collects any
         information regarding orientations and extra include directories.
         """
-        templated_subkernels = []
-        assembly_calls = OrderedDict([(it, []) for it in self.supported_integral_types])
+        cxt_kernels = self.tsfc_kernels(terminal)
 
-        self.needs_cell_orientations = False
-        self.needs_cell_sizes = False
-        self.needs_cell_facets = False
-        self.needs_mesh_layers = False
-
-        # TSFC calls only for terminal tensors
-        terminal_tensors = [tensor for tensor in var2terminal.values() if isinstance(tensor, slate.Tensor)]
-        tsfc_kernels = self.context_kernels(terminal_tensors)
-
-        # For all terminal tensors provided by TSFC
-        for pos, cxt_kernel in enumerate(tsfc_kernels):
+        for cxt_kernel in cxt_kernels:
             integral_type = cxt_kernel.original_integral_type
-            tensor = cxt_kernel.tensor
-            loopy_tensor = tensor2temp[tensor]
-            mesh = tensor.ufl_domain()
+            slate_tensor = cxt_kernel.tensor
+            mesh = slate_tensor.ufl_domain()
+            tsfc_kernel = cxt_kernel.tsfc_kernels[0]  # kernels are not split
+            kinfo = tsfc_kernel.kinfo
+            reads = []
+            inames_dep = []
 
             if integral_type not in self.supported_integral_types:
                 raise ValueError("Integral type '%s' not recognized" % integral_type)
 
-            for tsfc_kernel in cxt_kernel.tsfc_kernels:
-                kinfo = tsfc_kernel.kinfo
-                reads = []
-                inames_dep = []
+            # Prepare lhs and args for call to tsfc kernel
+            output = self.generate_lhs(slate_tensor, pym.Variable(loopy_tensor.name))
+            kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
+            reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
-                # Populate subkernel call to tsfc
-                templated_subkernels.append(kinfo.kernel.code)
+            # Generate predicates for different integral types
+            if self.is_integral_type(integral_type, "cell_integral"):
+                predicates = None
+                if kinfo.subdomain_id != "otherwise":
+                    raise NotImplementedError("No subdomain markers for cells yet")
+            elif self.is_integral_type(integral_type, "facet_integral"):
+                predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo)
+                reads.append(facet_arg)
+                inames_dep.append(fidx[0].name)
+            elif self.is_integral_type(integral_type, "layer_integral"):
+                predicates = self.layer_integral_predicates(slate_tensor, integral_type)
+            else:
+                raise ValueError("Unhandled integral type {}".format(integral_type))
 
-                # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_lhs(tensor, pym.Variable(loopy_tensor.name))
-                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
-                reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
+            # TSFC kernel call
+            key = self.bag.call_name_generator(integral_type)
+            call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
+            insn = loopy.CallInstruction((output,), call,
+                                            within_inames=frozenset(inames_dep),
+                                            predicates=predicates, id=key)
 
-                # Generate predicates for different integral types
-                if self.is_integral_type(integral_type, "cell_integral"):
-                    predicates = None
-                    if kinfo.subdomain_id != "otherwise":
-                        raise NotImplementedError("No subdomain markers for cells yet")
-                elif self.is_integral_type(integral_type, "facet_integral"):
-                    predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo)
-                    reads.append(facet_arg)
-                    inames_dep.append(fidx[0].name)
-                elif self.is_integral_type(integral_type, "layer_integral"):
-                    predicates = self.layer_integral_predicates(tensor, integral_type)
-                else:
-                    raise ValueError("Unhandled integral type {}".format(integral_type))
+            yield insn, kinfo.kernel.code
 
-                # TSFC kernel call
-                key = integral_type+"_tsfc_kernel_call%d" % len(assembly_calls[integral_type])
-                call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
-                insn = loopy.CallInstruction((output,), call,
-                                             within_inames=frozenset(inames_dep),
-                                             predicates=predicates, id=key)
-                assembly_calls[integral_type].append(insn)
+class SlateWrapperBag(object):
 
-        self.assembly_calls = assembly_calls
-        self.templated_subkernels = templated_subkernels
+    def __init__(self, builder):
+        self.coefficients = builder.collect_coefficients() #read-only
+        self.inames = OrderedDict()
+        self.needs_cell_orientations = False
+        self.needs_cell_sizes = False
+        self.needs_cell_facets = False
+        self.needs_mesh_layers = False
+        self.coords_extent = builder.index_extent(builder.expression.ufl_domain().coordinates)
+        self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
