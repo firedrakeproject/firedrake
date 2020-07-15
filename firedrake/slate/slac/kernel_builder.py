@@ -482,12 +482,12 @@ class LocalLoopyKernelBuilder(object):
                         self.coordinates_arg)]
 
         if kinfo.oriented:
-            self.needs_cell_orientations = True
+            self.bag.needs_cell_orientations = True
             kernel_data.append((mesh.cell_orientations(),
                                 self.cell_orientations_arg))
 
         if kinfo.needs_cell_sizes:
-            self.needs_cell_sizes = True
+            self.bag.needs_cell_sizes = True
             kernel_data.append((mesh.cell_sizes,
                                 self.cell_size_arg))
 
@@ -516,7 +516,7 @@ class LocalLoopyKernelBuilder(object):
         return arguments
 
     def layer_integral_predicates(self, tensor, integral_type):
-        self.needs_mesh_layers = True
+        self.bag.needs_mesh_layers = True
         layer = pym.Variable(self.layer_arg)
 
         # TODO: Variable layers
@@ -529,7 +529,7 @@ class LocalLoopyKernelBuilder(object):
         return [which]
 
     def facet_integral_predicates(self, mesh, integral_type, kinfo):
-        self.needs_cell_facets = True
+        self.bag.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
             self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
