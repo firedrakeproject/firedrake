@@ -1,7 +1,7 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
-from ufl.algorithms.analysis import extract_coefficients, extract_arguments
+from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
 
 import firedrake
@@ -257,12 +257,14 @@ class InterpolateBlock(Block, Backend):
         super().__init__()
 
         self.expr = interpolator.expr
+        self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
+
         if isinstance(interpolator.V, firedrake.Function):
             self.V = interpolator.V.function_space()
         else:
             self.V = interpolator.V
 
-        for coefficient in extract_coefficients(interpolator.expr):
+        for coefficient in self.coefficients:
             self.add_dependency(coefficient)
 
         for function in functions:
@@ -274,10 +276,10 @@ class InterpolateBlock(Block, Backend):
         args = 0
         for block_variable in self.get_dependencies():
             output = block_variable.output
-            if output in extract_coefficients(self.expr):
+            if output in self.coefficients:
                 replace_map[output] = block_variable.saved_output
             else:
-                replace_map[extract_arguments(self.expr)[args]] = block_variable.saved_output
+                replace_map[self.arguments[args]] = block_variable.saved_output
                 args += 1
         return replace_map
 

@@ -1,12 +1,12 @@
 from firedrake.adjoint.blocks import InterpolateBlock
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
+from functools import wraps
 
 
 def annotate_interpolate(interpolate):
+    @wraps(interpolate)
     def wrapper(interpolator, *function, **kwargs):
         annotate = annotate_tape(kwargs)
-        with stop_annotating():
-            output = interpolate(interpolator, *function, **kwargs)
 
         if annotate:
             sb_kwargs = InterpolateBlock.pop_kwargs(kwargs)
@@ -14,7 +14,12 @@ def annotate_interpolate(interpolate):
             block = InterpolateBlock(interpolator, *function, **sb_kwargs)
             tape = get_working_tape()
             tape.add_block(block)
-            block.add_output(output.block_variable)
+
+        with stop_annotating():
+            output = interpolate(interpolator, *function, **kwargs)
+
+        if annotate:
+            block.add_output(output.create_block_variable())
 
         return output
 
