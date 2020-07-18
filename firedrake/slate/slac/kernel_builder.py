@@ -54,6 +54,7 @@ class LocalKernelBuilder(object):
     cell_facet_sym = ast.Symbol("cell_facets")
     it_sym = ast.Symbol("i0")
     mesh_layer_sym = ast.Symbol("layer")
+    mesh_layer_count_sym = ast.Symbol("layer_count")
     cell_size_sym = ast.Symbol("cell_sizes")
 
     # Supported integral types

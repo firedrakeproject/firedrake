@@ -29,7 +29,7 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
-from firedrake.utils import ScalarType_c
+from firedrake.utils import ScalarType_c, complex_mode
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -102,7 +102,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         _.update(parameters)
         parameters = _
 
-    expression = tsfc.ufl_utils.preprocess_expression(expression)
+    expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
 
     # # Collect required coefficients
 
@@ -137,14 +137,14 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  precision=parameters["precision"],
                   point_indices=(),
                   point_expr=point,
-                  argument_multiindices=argument_multiindices)
+                  argument_multiindices=argument_multiindices,
+                  scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression)
+    expression = tsfc.ufl_utils.simplify_abs(expression, complex_mode)
 
     # Translate UFL -> GEM
     if coefficient:
@@ -191,7 +191,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, {}, ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
@@ -513,16 +513,17 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     precision=parameters["precision"],
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
-                     quadrature_rule=macro_quadrature_rule)
+                     quadrature_rule=macro_quadrature_rule,
+                     scalar_type=parameters["scalar_type"])
 
     fexpr, = fem.compile_ufl(f, **macro_cfg)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, **macro_cfg)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())))
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
+                                           complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
 
     Vce = create_element(Vc.ufl_element())
@@ -539,14 +540,15 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
-                      quadrature_rule=quadrature_rule)
+                      quadrature_rule=quadrature_rule,
+                      scalar_type=parameters["scalar_type"])
 
     X = ufl.SpatialCoordinate(Vc.mesh())
-    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()))
+    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
+                                        complex_mode=complex_mode)
     C_0, = fem.compile_ufl(X, **coarse_cfg)
     K, = fem.compile_ufl(K, **coarse_cfg)
 
@@ -609,7 +611,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, index_names, ScalarType_c)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor

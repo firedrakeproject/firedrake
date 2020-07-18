@@ -82,7 +82,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
         :arg index_values: ignored.
         """
         if component in ((), None):
-            if self.ufl_shape is ():
+            if self.ufl_shape == ():
                 return self.dat.data_ro[0]
             return self.dat.data_ro
         return self.dat.data_ro[component]

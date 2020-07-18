@@ -453,7 +453,7 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         else:
             nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
-    dm = mesh._plex
+    dm = mesh._topology_dm
     renumbering = mesh._plex_renumbering
     section = PETSc.Section().create(comm=mesh.comm)
     pStart, pEnd = dm.getChart()
@@ -544,7 +544,7 @@ def get_cell_nodes(mesh,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    cStart, cEnd = mesh._topology_dm.getHeightStratum(0)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
     cell_numbering = mesh._cell_numbering
     for c in range(cStart, cEnd):
@@ -598,7 +598,7 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
     if label not in {"interior_facets", "exterior_facets"}:
         raise ValueError("Unsupported facet label '%s'", label)
 
-    dm = mesh._plex
+    dm = mesh._topology_dm
     variable = mesh.variable_layers
 
     if variable and offset is None:
@@ -692,7 +692,7 @@ def boundary_nodes(V, sub_domain, method):
 
     local_nodes = np.empty((len(boundary_dofs),
                             len(boundary_dofs[0])),
-                           dtype=IntType)
+                           dtype=np.int32)
     for k, v in boundary_dofs.items():
         local_nodes[k, :] = v
 

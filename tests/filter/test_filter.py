@@ -272,7 +272,8 @@ def test_filter_stokes():
     # Define filters
     subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
-    fltr0.assign(Constant([1., 1., 1]))
+    #fltr0.assign(Constant([1., 1., 1]))
+    fltr0.assign(Constant(1.))
     fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
     fltr1 = Function(W)
     fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
@@ -390,7 +391,7 @@ def test_filter_stokes2():
     theta = theta_rot
     subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
-    fltr0.assign(Constant([1., 1., 1]))
+    fltr0.assign(Constant(1.))
     fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
     fltr1 = Function(W)
     fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
@@ -511,7 +512,7 @@ def test_filter_stokes3():
     theta = pi / 2 * xprime / 1.5
     subset_34 = V.boundary_node_subset((3, 4))
     fltr0 = Function(W)
-    fltr0.assign(Constant([1., 1., 1]))
+    fltr0.assign(Constant(1.))
     fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
     fltr1 = Function(W)
     fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)

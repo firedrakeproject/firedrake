@@ -32,7 +32,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu'}}
-    bcs = [DirichletBC(W[0], Constant((0., 0.)), "on_boundary")]
+    bcs = [DirichletBC(W[0], zero(), "on_boundary")]
 
     solve(a == L, w, solver_parameters=params, bcs=bcs)
     sigma_h, u_h = w.split()
@@ -84,8 +84,8 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu'}}
-    bcs = [DirichletBC(W[0], Constant((0., 0.)), "top"),
-           DirichletBC(W[0], Constant((0., 0.)), "bottom")]
+    bcs = [DirichletBC(W[0], zero(), "top"),
+           DirichletBC(W[0], zero(), "bottom")]
     solve(a == L, w, solver_parameters=params, bcs=bcs)
     sigma_h, u_h = w.split()
 

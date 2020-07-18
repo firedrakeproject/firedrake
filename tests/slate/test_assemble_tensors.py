@@ -187,8 +187,10 @@ def test_mixed_argument_tensor(mesh):
     sigma, _ = TrialFunctions(W)
     tau, _ = TestFunctions(W)
     T = Tensor(sigma * tau * dx)
-    with pytest.raises(NotImplementedError):
-        assemble(T)
+    As = assemble(T)
+    A = assemble(sigma * tau * dx)
+    for ms, m in zip(As.M, A.M):
+        assert np.allclose(ms.values, m.values)
 
 
 def test_vector_subblocks(mesh):

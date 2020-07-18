@@ -137,10 +137,10 @@ def test_constant_assign_to_mixed():
 
     W = V*V
 
-    f = Function(W)
     c = Constant([10, 11])
-
-    f.assign(c)
+    f = Function(W)
+    f.sub(0).assign(c)
+    f.sub(1).assign(c)
 
     for d in f.dat.data_ro:
         assert np.allclose(d[:, 0], 10)

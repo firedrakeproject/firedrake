@@ -85,8 +85,8 @@ def test_nonlinear_stokes_hdiv():
     # parabolic profile on edge 1
     bcfunc = Function(V1).project(as_vector([y*(1 - y), 0]))
     bcs = [DirichletBC(W.sub(0), bcfunc, 1),
-           DirichletBC(W.sub(0), zero(2), 3),
-           DirichletBC(W.sub(0), zero(2), 4)]
+           DirichletBC(W.sub(0), zero(), 3),
+           DirichletBC(W.sub(0), zero(), 4)]
 
     solve(F == 0, w, bcs=bcs, solver_parameters=params)
 
