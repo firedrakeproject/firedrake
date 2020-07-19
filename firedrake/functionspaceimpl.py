@@ -298,6 +298,7 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
+        self._mesh = mesh
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
