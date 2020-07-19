@@ -19,7 +19,7 @@ def annotate_interpolate(interpolate):
             output = interpolate(interpolator, *function, **kwargs)
 
         if annotate:
-            block.add_output(output.create_block_variable())
+            block.add_output(output.block_variable)
 
         return output
 

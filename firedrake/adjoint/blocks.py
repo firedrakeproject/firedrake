@@ -299,9 +299,9 @@ class InterpolateBlock(Block, Backend):
         for i, input in enumerate(inputs):
             if tlm_inputs[i] is None:
                 continue
-            dJdm += self.backend.derivative(prepared, input)
+            dJdm += self.backend.derivative(prepared, input, tlm_inputs[i])
 
-        return self.backend.Interpolator(dJdm, self.V).interpolate(tlm_inputs)
+        return self.backend.Interpolator(dJdm, self.V).interpolate()
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())

@@ -1,30 +1,56 @@
-import numpy as np
 from numpy.random import rand
 from numpy.testing import assert_allclose
-
+import pytest
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation
+from pyadjoint.tape import get_working_tape, pause_annotation, continue_annotation, annotate_tape
+from functools import wraps 
+from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
-def test_constant():
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
-    mesh = UnitSquareMesh(10, 10)
-    c = Constant(1.0, domain=mesh)
-    V = FunctionSpace(mesh, "CG", 2)
-
-    f = interpolate(c, V)
-    J = assemble(f ** 2 * dx)
-    Jhat = ReducedFunctional(J, Control(c))
-    min_convergence_rate = taylor_test(Jhat, c, Constant(0.1, domain=mesh))
-
-    # We need to clear the tape after each module
+@pytest.fixture(autouse=True)
+def run_around_tests():
+    annotate = annotate_tape()
+    if not annotate:
+        continue_annotation()
+    yield
+    # Since importing firedrake_adjoint modifies a global variable, we need to
+    # clear the tape and pause annotations at the end of every test
     tape = get_working_tape()
     tape.clear_tape()
+    pause_annotation()
 
-    assert np.isclose(min_convergence_rate, 2)
+def test_constant():
+    mesh = UnitSquareMesh(10, 10)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    c = Constant(1.0, domain=mesh)
+    u = interpolate(c, V1)
+
+    J = assemble(u ** 2 * dx)
+    rf = ReducedFunctional(J, Control(c))
+
+    h = Constant(0.1, domain=mesh)
+    assert taylor_test(rf, c, h) > 1.9
+
+def test_interpolate_with_arguments():
+    mesh = UnitSquareMesh(10, 10)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    
+    x, y = SpatialCoordinate(mesh)
+    expr = x + y
+    f = interpolate(expr, V1)
+    interpolator = Interpolator(TestFunction(V1), V2)
+    u = interpolator.interpolate(f)
+
+    J = assemble(u ** 2 * dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    h = Function(V1)
+    h.vector()[:] = rand(V1.dim())
+    assert taylor_test(rf, f, h) > 1.9
 
 def test_interpolate_scalar_valued():
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
@@ -34,7 +60,6 @@ def test_interpolate_scalar_valued():
     f = interpolate(x, V1)
     g = interpolate(sin(x), V2)
     u = Function(V3)
-
     u.interpolate(3*f**2 + Constant(4.0)*g)
 
     J = assemble(u**2*dx)
@@ -49,13 +74,7 @@ def test_interpolate_scalar_valued():
     h.vector()[:] = rand(V2.dim())
     assert taylor_test(rf, g, h) > 1.9
 
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
 def test_interpolate_vector_valued():
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
     V2 = VectorFunctionSpace(mesh, "DG", 0)
@@ -65,7 +84,6 @@ def test_interpolate_vector_valued():
     f = interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1)
     g = interpolate(as_vector((sin(x[1])+x[0], cos(x[0])*x[1])), V2)
     u = Function(V3)
-
     u.interpolate(f*dot(f,g) - 0.5*g)
 
     J = assemble(inner(f, g)*u**2*dx)
@@ -75,12 +93,7 @@ def test_interpolate_vector_valued():
     h.vector()[:] = 1
     assert taylor_test(rf, f, h) > 1.9
 
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
-
 def test_interpolate_tlm():
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
     V2 = VectorFunctionSpace(mesh, "DG", 0)
@@ -92,7 +105,6 @@ def test_interpolate_tlm():
     u = Function(V3)
 
     u.interpolate(f - 0.5*g + f/(1+dot(f,g)))
-
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
@@ -106,22 +118,15 @@ def test_interpolate_tlm():
     assert J.tlm_value is not None
     assert taylor_test(rf, f, h, dJdm=J.tlm_value) > 1.9
 
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
-
 def test_interpolate_tlm_wit_constant():
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 2)
     V2 = FunctionSpace(mesh, "DG", 1)
-
 
     x = SpatialCoordinate(mesh)
     f = interpolate(x[0], V1)
     g = interpolate(sin(x[0]), V1)
     c = Constant(5.0)
-
     u = Function(V2)
     u.interpolate(c * f ** 2)
 
@@ -144,60 +149,52 @@ def test_interpolate_tlm_wit_constant():
     tape.evaluate_tlm()
     assert abs(J.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
 
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
-
 def test_interpolate_bump_function():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
+
     x, y = SpatialCoordinate(mesh)
-    #c = Constant((0.5, 0.5))
     cx = Constant(0.5)
     cy = Constant(0.5)
     f = interpolate(exp(-1/(1-(x-cx)**2)-1/(1-(y-cy)**2)), V)
+
     J = assemble(f*y**3*dx)
     rf = ReducedFunctional(J, [Control(cx), Control(cy)])
+
     h = [Constant(0.1), Constant(0.1)]
     assert taylor_test(rf, [cx, cy], h) > 1.9
-
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
 
 def test_self_interpolate():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1,1)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
+
     c = Constant(1.)
     u.interpolate(u+c)
+
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
+
     h = Constant(0.1)
     assert taylor_test(rf, Constant(2.), h)
-
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
 
 def test_self_interpolate_function():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1,1)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
+
     c = Constant(1.)
     interpolate(u+c, u)
     interpolate(u+c*u**2, u)
+
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
+
     h = Constant(0.1)
     assert taylor_test(rf, Constant(3.), h)
-    
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
 
 def test_interpolate_to_function_space():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
@@ -205,17 +202,13 @@ def test_interpolate_to_function_space():
     V = FunctionSpace(mesh, "CG", 1)
     W = FunctionSpace(mesh, "DG", 1)
     u = Function(V)
+
     x = SpatialCoordinate(mesh)
     u.interpolate(x[0])
     c = Constant(1.)
     w = interpolate((u+c)*u, W)
+
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
     h = Constant(0.1)
     assert taylor_test(rf, Constant(1.), h)
-
-    # We need to clear the tape after each module
-    tape = get_working_tape()
-    tape.clear_tape()
-
-    pause_annotation()
