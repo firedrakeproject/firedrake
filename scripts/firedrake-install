@@ -13,6 +13,8 @@ import atexit
 import json
 import pprint
 import shlex
+from glob import iglob
+from itertools import chain 
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -841,12 +843,14 @@ def build_and_install_petsc():
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
-        if args.remove_build_files:
+        if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
             check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch, "externalpackages")])
             check_call(["rm", "-rf", os.path.join(petsc_dir, "src", "docs")])
-            check_call(["rm", os.path.join(petsc_dir, "src", "**", "tutorials", "output", "*")])
-            check_call(["rm", os.path.join(petsc_dir, "src", "**", "tests", "output", "*")])
+            tutorial_output = os.path.join(petsc_dir, "src", "**", "tutorials", "output", "*")
+            test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
+            for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
+                check_call(["rm", "-f", deletefile])
             
 
 
