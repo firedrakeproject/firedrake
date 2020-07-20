@@ -21,7 +21,7 @@ def handle_exit_annotation():
         pause_annotation()
 
 
-def test_constant():
+def test_interpolate_constant():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)

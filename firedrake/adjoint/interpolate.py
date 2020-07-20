@@ -6,6 +6,9 @@ from functools import wraps
 def annotate_interpolate(interpolate):
     @wraps(interpolate)
     def wrapper(interpolator, *function, **kwargs):
+        """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+        Firedrake interpolate call."""
+
         annotate = annotate_tape(kwargs)
 
         if annotate:
