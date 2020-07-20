@@ -193,7 +193,7 @@ def test_self_interpolate():
     rf = ReducedFunctional(J, Control(c))
 
     h = Constant(0.1)
-    assert taylor_test(rf, Constant(2.), h)
+    assert taylor_test(rf, c, h) > 1.9
 
 
 def test_self_interpolate_function():
@@ -210,7 +210,7 @@ def test_self_interpolate_function():
     rf = ReducedFunctional(J, Control(c))
 
     h = Constant(0.1)
-    assert taylor_test(rf, Constant(3.), h)
+    assert taylor_test(rf, Constant(3.), h) > 1.9
 
 
 def test_interpolate_to_function_space():
@@ -228,4 +228,4 @@ def test_interpolate_to_function_space():
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
     h = Constant(0.1)
-    assert taylor_test(rf, Constant(1.), h)
+    assert taylor_test(rf, Constant(1.), h) > 1.9

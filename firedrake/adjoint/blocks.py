@@ -265,10 +265,10 @@ class InterpolateBlock(Block, Backend):
             self.V = interpolator.V
 
         for coefficient in self.coefficients:
-            self.add_dependency(coefficient)
+            self.add_dependency(coefficient, no_duplicates=True)
 
         for function in functions:
-            self.add_dependency(function)
+            self.add_dependency(function, no_duplicates=True)
 
     def _replace_map(self):
         # Replace the dependencies with checkpointed values
