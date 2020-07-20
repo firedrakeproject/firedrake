@@ -14,7 +14,7 @@ import json
 import pprint
 import shlex
 from glob import iglob
-from itertools import chain 
+from itertools import chain
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -851,7 +851,6 @@ def build_and_install_petsc():
             test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
             for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
                 check_call(["rm", "-f", deletefile])
-            
 
 
 def build_and_install_h5py():
