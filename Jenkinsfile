@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --clean-build-files || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -122,6 +122,8 @@ make lint
       }
       steps {
         sh '''
+. ./firedrake/bin/activate
+firedrake-clean
 sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
 sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
 sudo docker push firedrakeproject/firedrake-env:latest
