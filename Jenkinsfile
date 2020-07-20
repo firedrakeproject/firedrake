@@ -121,6 +121,7 @@ make lint
         branch 'master'
       }
       steps {
+        dir('tmp') {
         sh '''
 . ./firedrake/bin/activate
 firedrake-clean
@@ -134,6 +135,7 @@ sudo docker push firedrakeproject/firedrake:latest
 sudo docker build --no-cache -t firedrakeproject/firedrake-notebooks:latest -f docker/Dockerfile.jupyter .
 sudo docker push firedrakeproject/firedrake-notebooks:latest
 '''
+        }
       }
     }
   }
