@@ -504,7 +504,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         compiler.
     :returns: a generator of op2.ParLoop objects."""
     coefficients = expr.coefficients()
-    topological_coefficients = expr.topological_coefficients()
+    subspaces = expr.subspaces()
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
@@ -529,8 +529,8 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
-        topo_coeff_map = kinfo.topological_coefficient_map
-        topo_coeff_parts = kinfo.topological_coefficient_parts
+        topo_coeff_map = kinfo.subspace_map
+        topo_coeff_parts = kinfo.subspace_parts
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -615,7 +615,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
         for i, n in enumerate(topo_coeff_map):
-            c = topological_coefficients[n]
+            c = subspaces[n]
             enabled_parts = topo_coeff_parts[i]
             if enabled_parts:
                 _split = tuple(c.split()[part] for part in enabled_parts)

@@ -183,8 +183,8 @@ class TensorBase(object, metaclass=ABCMeta):
         """Returns a tuple of coefficients associated with the tensor."""
 
     @abstractmethod
-    def topological_coefficients(self):
-        """Returns a tuple of topological_coefficients associated with the tensor."""
+    def subspaces(self):
+        """Returns a tuple of subspaces associated with the tensor."""
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -410,8 +410,8 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
-    def topological_coefficients(self):
-        """Returns a tuple of topological_coefficients associated with the tensor."""
+    def subspaces(self):
+        """Returns a tuple of subspaces associated with the tensor."""
         return ()
 
     def ufl_domains(self):
@@ -556,10 +556,10 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
-    def topological_coefficients(self):
-        """Returns a tuple of topological_coefficients associated with the tensor."""
+    def subspaces(self):
+        """Returns a tuple of subspaces associated with the tensor."""
         tensor, = self.operands
-        return tensor.topological_coefficients()
+        return tensor.subspaces()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -647,10 +647,10 @@ class Factorization(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
-    def topological_coefficients(self):
-        """Returns a tuple of topological_coefficients associated with the tensor."""
+    def subspaces(self):
+        """Returns a tuple of subspaces associated with the tensor."""
         tensor, = self.operands
-        return tensor.topological_coefficients()
+        return tensor.subspaces()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -741,9 +741,9 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
-    def topological_coefficients(self):
-        """Returns a tuple of topological_coefficients associated with the tensor."""
-        return self.form.topological_coefficients()
+    def subspaces(self):
+        """Returns a tuple of subspaces associated with the tensor."""
+        return self.form.subspaces()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -789,9 +789,9 @@ class TensorOp(TensorBase):
         coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
-    def topological_coefficients(self):
-        """Returns the expected topological_coefficients of the resulting tensor."""
-        fltrs = [op.topological_coefficients() for op in self.operands]
+    def subspaces(self):
+        """Returns the expected subspaces of the resulting tensor."""
+        fltrs = [op.subspaces() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*fltrs)))
 
     def ufl_domains(self):

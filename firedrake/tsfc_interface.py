@@ -39,8 +39,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subdomain_id",
                                      "domain_number",
                                      "coefficient_map",
-                                     "topological_coefficient_map",
-                                     "topological_coefficient_parts",
+                                     "subspace_map",
+                                     "subspace_parts",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -100,7 +100,7 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, topological_coefficient_number_map, interface, coffee=False, diagonal=False):
+    def _cache_key(cls, form, name, parameters, number_map, subspace_number_map, interface, coffee=False, diagonal=False):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -108,19 +108,19 @@ class TSFCKernel(Cached):
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
-                    + str(topological_coefficient_number_map)
+                    + str(subspace_number_map)
                     + str(type(interface))
                     + str(coffee)
                     + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, topological_coefficient_number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, subspace_number_map, interface, coffee=False, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
-        :arg topological_coefficient_number_map: a map from local topological coefficient numbers to global ones (useful for split forms).
+        :arg subspace_number_map: a map from local topological coefficient numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
@@ -133,16 +133,16 @@ class TSFCKernel(Cached):
             ast = kernel.ast
             # Unwind coefficient/topological coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            topological_coefficient_numbers = tuple(topological_coefficient_number_map[c] for c in kernel.topological_coefficient_numbers)
-            topological_coefficient_parts = kernel.topological_coefficient_parts
+            subspace_numbers = tuple(subspace_number_map[c] for c in kernel.subspace_numbers)
+            subspace_parts = kernel.subspace_parts
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
                                       coefficient_map=numbers,
-                                      topological_coefficient_map=topological_coefficient_numbers,
-                                      topological_coefficient_parts=topological_coefficient_parts,
+                                      subspace_map=subspace_numbers,
+                                      subspace_parts=subspace_parts,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))
@@ -204,9 +204,9 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         pass
 
     kernels = []
-    # A map from all form coefficients/topological_coefficients to their number.
+    # A map from all form coefficients/subspaces to their number.
     coefficient_numbers = dict((c, n) for (n, c) in enumerate(form.coefficients()))
-    topological_coefficient_numbers = dict((f, n) for (n, f) in enumerate(form.topological_coefficients()))
+    subspace_numbers = dict((f, n) for (n, f) in enumerate(form.subspaces()))
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -221,8 +221,8 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         # compiler) to the global coefficient/topological coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
-        topo_coeff_number_map = dict((n, topological_coefficient_numbers[f])
-                                     for (n, f) in enumerate(f.topological_coefficients()))
+        topo_coeff_number_map = dict((n, subspace_numbers[f])
+                                     for (n, f) in enumerate(f.subspaces()))
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
                             number_map, topo_coeff_number_map, interface, coffee, diagonal).kernels

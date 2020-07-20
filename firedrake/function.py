@@ -36,7 +36,7 @@ class _CFunction(ctypes.Structure):
                 ("sidx", c_void_p)]
 
 
-class CoordinatelessFunction(ufl.TopologicalCoefficient):
+class CoordinatelessFunction(ufl.Subspace):
     r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
@@ -59,7 +59,7 @@ class CoordinatelessFunction(ufl.TopologicalCoefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.TopologicalCoefficient.__init__(self, function_space)
+        ufl.Subspace.__init__(self, function_space)
 
         self.comm = function_space.comm
         self._function_space = function_space
