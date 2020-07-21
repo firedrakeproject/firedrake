@@ -137,7 +137,10 @@ def convert_finiteelement(element, vector_is_mixed):
             lmbda = FIAT.GaussLobattoLegendre
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
-    elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
+    elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
+                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
+        lmbda = partial(lmbda, variant=element.variant())
+    elif element.family() in {"Discontinuous Lagrange", "Discontinuous Lagrange L2"}:
         if kind == 'equispaced':
             lmbda = FIAT.DiscontinuousLagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
