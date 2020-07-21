@@ -371,3 +371,20 @@ class ImplicitMatrixContext(object):
         submat.setUp()
 
         return submat
+
+    def duplicate(self, mat, copy):
+
+        if copy == 0:
+            raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy=0")
+        newmat_ctx = ImplicitMatrixContext(self.a,
+                                           row_bcs=self.bcs,
+                                           col_bcs=self.bcs_col,
+                                           fc_params=self.fc_params,
+                                           appctx=self.appctx)
+        newmat = PETSc.Mat().create(comm=mat.comm)
+        newmat.setType("python")
+        newmat.setSizes((newmat_ctx.row_sizes, newmat_ctx.col_sizes),
+                        bsize=newmat_ctx.block_size)
+        newmat.setPythonContext(newmat_ctx)
+        newmat.setUp()
+        return newmat

@@ -707,7 +707,7 @@ def UnitTetrahedronMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -716,6 +716,9 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
     :arg Lz: The extent in the z direction
+    :arg diagonal: Two ways of cutting hexadra, should be cut into 6
+        tetrahedra (``"default"``), or 5 tetrahedra thus less biased
+        (``"crossed"``)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -741,22 +744,42 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
                           np.arange(ny, dtype=np.int32),
                           np.arange(nz, dtype=np.int32))
-    v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
-    v1 = v0 + 1
-    v2 = v0 + (nx + 1)
-    v3 = v1 + (nx + 1)
-    v4 = v0 + (nx + 1)*(ny + 1)
-    v5 = v1 + (nx + 1)*(ny + 1)
-    v6 = v2 + (nx + 1)*(ny + 1)
-    v7 = v3 + (nx + 1)*(ny + 1)
+    if diagonal == "default":
+        v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1)*(ny + 1)
+        v5 = v1 + (nx + 1)*(ny + 1)
+        v6 = v2 + (nx + 1)*(ny + 1)
+        v7 = v3 + (nx + 1)*(ny + 1)
 
-    cells = [v0, v1, v3, v7,
-             v0, v1, v7, v5,
-             v0, v5, v7, v4,
-             v0, v3, v2, v7,
-             v0, v6, v4, v7,
-             v0, v2, v6, v7]
-    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        cells = [v0, v1, v3, v7,
+                 v0, v1, v7, v5,
+                 v0, v5, v7, v4,
+                 v0, v3, v2, v7,
+                 v0, v6, v4, v7,
+                 v0, v2, v6, v7]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    elif diagonal == "crossed":
+        v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1)*(ny + 1)
+        v5 = v1 + (nx + 1)*(ny + 1)
+        v6 = v2 + (nx + 1)*(ny + 1)
+        v7 = v3 + (nx + 1)*(ny + 1)
+
+        # There are only five tetrahedra in this cutting of hexahedra
+        cells = [v0, v1, v2, v4,
+                 v1, v7, v5, v4,
+                 v1, v2, v3, v7,
+                 v2, v4, v6, v7,
+                 v1, v2, v7, v4]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    else:
+        raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
 
     plex = mesh._from_cell_list(3, cells, coords, comm)
 
