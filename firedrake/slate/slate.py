@@ -77,6 +77,8 @@ class BlockIndexer(object):
         blocks = tuple(as_tuple(range(k.stop)[k] if isinstance(k, slice) else k)
                        for k, n in zip(key, block_shape))
 
+        if blocks == tuple(tuple(range(n)) for n in block_shape):
+             return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]
@@ -493,7 +495,7 @@ class Block(TensorBase):
             raise ValueError("Length of indices must be equal to the tensor rank.")
 
         if not all(0 <= i < len(arg.function_space())
-                   for arg, idx in zip(tensor.arguments(), indices) for i in idx):
+                   for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
             raise ValueError("Indices out of range.")
 
         if not tensor.is_mixed:
