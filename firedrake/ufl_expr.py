@@ -6,7 +6,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
 from firedrake import utils
-from firedrake.function import CoordinatelessFunction, Function
+from firedrake.function import CoordinatelessFunction, Function, Subspace
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -261,14 +261,16 @@ class Masked(ufl.Masked):
 
     :arg form_argument: the :class:`~.Argument` or :class:`~.Function`
        to apply filter to.
-    :arg fltr: the :class:`~.CoordinatelessFunction` (or possibly
-       :class:`~.Function`) that specifies dofs filters or scales.
+    :arg subspace: the :class:`~.Subspace`
+       (or :class:`~.CoordinatelessFunction` or :class:`~.Function`)
+       object that encodes the subspace of interest.
     """
-    def __init__(self, form_argument, fltr):
-        if isinstance(fltr, Function):
-            fltr = fltr.topological
+    def __init__(self, form_argument, subspace):
+        if isinstance(subspace, Function):
+            f = subspace
+            subspace = Subspace(f.function_space(), val=f)
         #if not isinstance(fltr, CoordinatelessFunction):
         #    raise TypeError("Must provide `Masked` with \
         #                    `CoordinatelessFunction` or `Function`, \
         #                     not %s" % fltr.__class__.__name__)
-        super().__init__(form_argument, fltr)
+        super().__init__(form_argument, subspace)

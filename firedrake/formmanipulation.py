@@ -12,7 +12,7 @@ from firedrake.ufl_expr import Argument, Masked
 from firedrake.function import Function
 
 
-class ExtractSubBlockTransformed(MultiFunction):
+class ExtractSubBlockMasked(MultiFunction):
     def __init__(self, transform_operator, indices):
         MultiFunction.__init__(self)
         self._transform_operator = transform_operator
@@ -62,7 +62,7 @@ class ExtractSubBlockTransformed(MultiFunction):
             a = Masked(a, f)
             a = (a, )
         else:
-            # Topological coeffs. are treated like coeffs. in tsfc, so
+            # Subspaces are treated like coeffs. in tsfc, so
             # mixed topological coeffs. are not directly treated (they
             # are split and treated separately).
             # To use topological coeffs. as transformation operator, one
@@ -161,7 +161,7 @@ class ExtractSubBlock(MultiFunction):
             return o
         if o in self._arg_cache:
             return self._arg_cache[o]
-        rules = ExtractSubBlockTransformed(o.ufl_operands[1], self.blocks[t.number()])
+        rules = ExtractSubBlockMasked(o.ufl_operands[1], self.blocks[t.number()])
         return self._arg_cache.setdefault(o, map_expr_dag(rules, o.ufl_operands[0]))
 
     def coefficient_derivative(self, o, expr, coefficients, arguments, cds):

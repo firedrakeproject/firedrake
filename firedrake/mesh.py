@@ -337,7 +337,7 @@ def _from_cell_list(dim, cells, coords, comm):
     return plex
 
 
-class MeshTopology(ufl.TopologicalMesh):
+class MeshTopology(object):
     """A representation of mesh topology."""
 
     @timed_function("CreateMesh")
@@ -438,7 +438,7 @@ class MeshTopology(ufl.TopologicalMesh):
 
         self._grown_halos = False
 
-        super().__init__(ufl.Cell(_cells[tdim][nfacets]))
+        #super().__init__(ufl.Cell(_cells[tdim][nfacets]))
         #super().__init__(ufl.Cell(_cells[tdim][nfacets], geometric_dimension=gdim))
 
         # Note that the geometric dimension of the cell is not set here
@@ -861,7 +861,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
         #self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-        ufl.TopologicalMesh.__init__(self, ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval))
+        #ufl.TopologicalMesh.__init__(self, ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval))
         cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:

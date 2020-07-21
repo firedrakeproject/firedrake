@@ -20,7 +20,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'CoordinatelessFunction', 'PointNotInDomainError']
+__all__ = ['Function', 'Subspace', 'PointNotInDomainError']
 
 
 class _CFunction(ctypes.Structure):
@@ -36,7 +36,7 @@ class _CFunction(ctypes.Structure):
                 ("sidx", c_void_p)]
 
 
-class CoordinatelessFunction(ufl.Subspace):
+class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
@@ -59,7 +59,8 @@ class CoordinatelessFunction(ufl.Subspace):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Subspace.__init__(self, function_space)
+        ufl.Coefficient.__init__(self, function_space.ufl_function_space())
+        #ufl.Subspace.__init__(self, function_space)
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -177,35 +178,6 @@ class CoordinatelessFunction(ufl.Subspace):
         :class:`.MixedFunctionSpace` on which this :class:`Function`
         is defined."""
         return self._function_space
-
-    @utils.known_pyop2_safe
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
-
-        Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-        both Functions on the same :class:`.FunctionSpace` then::
-
-          f += 2 * g
-
-        will add twice `g` to `f`.
-
-        If present, subset must be an :class:`pyop2.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
-        """
-
-        if isinstance(expr, (CoordinatelessFunction, Function)) and \
-           expr.function_space().topological == self.function_space().topological:
-            expr.dat.copy(self.dat, subset=subset)
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr), subset)
-        return self
 
     def name(self):
         r"""Return the name of this :class:`Function`"""
@@ -700,3 +672,38 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
                             + ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)
+
+
+class Subspace(ufl.Subspace):
+    r"""Wrapper for `ufl.Subspace`.
+
+    :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`
+    """
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+        V = function_space
+        if isinstance(V, Function):
+            V = V.function_space()
+        elif not isinstance(V, functionspaceimpl.WithGeometry):
+            raise NotImplementedError("Can't make a Subspace defined on a "
+                                      + str(type(function_space)))
+        if isinstance(val, (Function, CoordinatelessFunction)):
+            val = val.topological
+            if val.function_space() != V.topological:
+                raise ValueError("Function values have wrong function space.")
+            self._data = val
+        else:
+            self._data = CoordinatelessFunction(V.topological,
+                                                val=val, name=name, dtype=dtype)
+        self._function_space = V
+        super().__init__(V)
+
+    def __getattr__(self, name):
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
+
+    def function_space(self):
+        r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
+            on which this :class:`Function` is defined.
+        """
+        return self._function_space

@@ -241,7 +241,7 @@ class WithGeometry(ufl.FunctionSpace):
         return type(self)(self.topological.collapse(), self.mesh())
 
 
-class FunctionSpace(ufl.TopologicalFunctionSpace):
+class FunctionSpace(object):
     r"""A representation of a function space.
 
     A :class:`FunctionSpace` associates degrees of freedom with
@@ -273,7 +273,7 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
 
     """
     def __init__(self, mesh, element, name=None, real_tensorproduct=False):
-        super(FunctionSpace, self).__init__(mesh, element)
+        super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
         finat_element = create_element(element)
@@ -391,10 +391,10 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
         r"""Function space on a mesh topology."""
         return self
 
-    mesh = ufl.TopologicalFunctionSpace.ufl_domain
+    #mesh = ufl.TopologicalFunctionSpace.ufl_domain
 
-    #def mesh(self):
-    #    return self._mesh
+    def mesh(self):
+        return self._mesh
 
     def ufl_element(self):
         r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
@@ -638,7 +638,7 @@ class FunctionSpace(ufl.TopologicalFunctionSpace):
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
-class MixedFunctionSpace(ufl.TopologicalFunctionSpace):
+class MixedFunctionSpace(object):
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -654,17 +654,16 @@ class MixedFunctionSpace(ufl.TopologicalFunctionSpace):
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None):
+        super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
-        element = ufl.MixedElement(*[s.ufl_element() for s in spaces])
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
+                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
-                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.comm = self.node_set.comm
-        super(MixedFunctionSpace, self).__init__(mesh, element)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -672,7 +671,10 @@ class MixedFunctionSpace(ufl.TopologicalFunctionSpace):
     parent = None
     rank = 1
 
-    mesh = ufl.TopologicalFunctionSpace.ufl_domain
+    #mesh = ufl.TopologicalFunctionSpace.ufl_domain
+
+    def mesh(self):
+        return self._mesh
 
     @property
     def topological(self):
@@ -948,10 +950,11 @@ class RealFunctionSpace(FunctionSpace):
     value_size = 1
 
     def __init__(self, mesh, element, name):
-        ufl.TopologicalFunctionSpace.__init__(self, mesh, element)
+        #ufl.TopologicalFunctionSpace.__init__(self, mesh, element)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
+        self._mesh = mesh
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
         self.node_set = self.dof_dset.set
 
