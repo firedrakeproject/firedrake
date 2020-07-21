@@ -242,6 +242,20 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         self._ctx.transfer_manager = manager
 
+    def replace_forms(self, F, u, bcs, J):
+        self._problem.J = J
+        self._ctx.J = J
+
+        self._problem.u = u
+        self._ctx._x = u
+
+        self._problem.F = F
+        self._ctx.F = F
+
+        Jp_eq_J = self._problem.Jp is None and all(bc.Jp_eq_J for bc in bcs)
+        if (self._ctx.mat_type != self._ctx.pmat_type or not Jp_eq_J) and self._problem.Jp is None:
+            self._ctx.Jp = self._ctx.J
+
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.

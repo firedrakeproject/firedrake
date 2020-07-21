@@ -28,6 +28,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_problem = problem
             self._ad_args = args
             self._ad_kwargs = kwargs
+            self._ad_nlvs = None
 
         return wrapper
 
@@ -46,12 +47,22 @@ class NonlinearVariationalSolverMixin:
                 problem = self._ad_problem
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
+
+                if not self._ad_nlvs:
+                    from firedrake import NonlinearVariationalProblem, NonlinearVariationalSolver
+                    problem_clone = NonlinearVariationalProblem(self._ad_problem.F,
+                                                                self._ad_problem.u,
+                                                                self._ad_problem.bcs,
+                                                                self._ad_problem.J)
+                    self._ad_nlvs = NonlinearVariationalSolver(problem_clone, **self._ad_kwargs)
+
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
+                                                       _ad_nlvs = self._ad_nlvs,
                                                        **sb_kwargs)
                 tape.add_block(block)
 

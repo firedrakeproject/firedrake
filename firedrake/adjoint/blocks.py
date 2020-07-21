@@ -96,15 +96,14 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
-        lhs = equation.lhs
-        rhs = equation.rhs
-
+    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, _ad_nlvs, **kwargs):
+        self.equation = equation
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
+        self._ad_nlvs = _ad_nlvs
 
-        super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
+        super().__init__(self.equation.lhs, self.equation.rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
             for coeff in self.problem_J.coefficients():
@@ -118,8 +117,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         J = self.problem_J
         if J is not None:
             J = self._replace_form(J, func)
-        problem = self.backend.NonlinearVariationalProblem(lhs, func, bcs, J=J)
-        solver = self.backend.NonlinearVariationalSolver(problem, **self.solver_kwargs)
+        solver = self._ad_nlvs
+        solver.replace_forms(lhs, func, bcs, J)
         solver.parameters.update(self.solver_params)
         solver.solve()
         return func
