@@ -2,6 +2,9 @@ from firedrake import AbstractPointwiseOperator
 from pyop2.datatypes import ScalarType
 
 
+__all__ = ("VolumePotential",)
+
+
 class VolumePotential(AbstractPointwiseOperator):
     r"""
     Evaluates to
@@ -32,7 +35,7 @@ class VolumePotential(AbstractPointwiseOperator):
         * 'q_order': (optional) The desired :mod:`volumential` quadrature
                      order, defaults to *function_space*'s degree
         * 'force_direct_evaluation': (optional) As in
-                     :func:`volumential.volume_fmm.drive_fmm`.
+                     :func:`volumential.volume_fmm.drive_volume_fmm`.
                      Defaults to *False*
         * 'volumential_fmm_kwargs': (optional) A dictionary of kwargs
                      to pass to :func:`volumential.volume_fmm.drive_fmm`
@@ -189,7 +192,8 @@ class VolumePotential(AbstractPointwiseOperator):
 
         # pass operand through meshmode into volumential
         meshmode_src_vals = self.meshmode_connection.from_firedrake(operand)
-        from volumential.interpolation import interpolate_from_meshmode
+        from volumential.interpolation import (
+            interpolate_from_meshmode, interpolate_to_meshmode)
         volumential_src_vals = \
             interpolate_from_meshmode(self.queue,
                                       meshmode_src_vals,
@@ -206,5 +210,10 @@ class VolumePotential(AbstractPointwiseOperator):
             **self.volumential_fmm_kwargs)
 
         # TODO: pass volumential back to meshmode and then to firedrake
+        meshmode_src_vals = interpolate_to_meshmode(self.queue,
+                                                    pot,
+                                                    self.volumential_lookup)
+        self.meshmode_connection.from_meshmode(meshmode_src_vals,
+                                               out=self.dat.data)
 
         return self
