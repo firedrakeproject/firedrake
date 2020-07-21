@@ -74,7 +74,7 @@ class BlockIndexer(object):
 
         block_shape = tuple(len(V) for V in self.tensor.arg_function_spaces)
         # Convert slice indices to tuple of indices.
-        blocks = tuple(as_tuple(range(n)[k] if isinstance(k, slice) else k)
+        blocks = tuple(as_tuple(range(k.stop)[k] if isinstance(k, slice) else k)
                        for k, n in zip(key, block_shape))
 
         # Avoid repeated instantiation of an equivalent block
