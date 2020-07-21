@@ -78,7 +78,7 @@ class BlockIndexer(object):
                        for k, n in zip(key, block_shape))
 
         if blocks == tuple(tuple(range(n)) for n in block_shape):
-             return self.tensor
+            return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]

@@ -9,7 +9,6 @@ from firedrake.utils import cached_property
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
 import loopy
-from numbers import Integral
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
@@ -738,8 +737,8 @@ class LocalLoopyKernelBuilder(object):
                 key = self.bag.call_name_generator(integral_type)
                 call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
                 insn = loopy.CallInstruction((output,), call,
-                                            within_inames=frozenset(inames_dep),
-                                            predicates=predicates, id=key)
+                                             within_inames=frozenset(inames_dep),
+                                             predicates=predicates, id=key)
 
                 yield insn, kinfo.kernel.code
 
