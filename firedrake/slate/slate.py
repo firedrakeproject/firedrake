@@ -495,7 +495,7 @@ class Block(TensorBase):
             raise ValueError("Length of indices must be equal to the tensor rank.")
 
         if not all(0 <= i < len(arg.function_space())
-                   for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
+                   for arg, idx in zip(tensor.arguments(), indices) for i in idx):
             raise ValueError("Indices out of range.")
 
         if not tensor.is_mixed:
