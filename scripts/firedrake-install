@@ -272,7 +272,7 @@ honoured.""",
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
-                        help="Cleans up build artifacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommened")
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
@@ -360,6 +360,8 @@ else:
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--show-dependencies", action="store_true",
                         help="Print out the package manager used and packages installed/required.")
+    parser.add_argument("--remove-build-files", action="store_true",
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
