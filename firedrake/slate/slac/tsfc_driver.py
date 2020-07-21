@@ -65,7 +65,6 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None, coffee=True
                                subkernel_prefix,
                                parameters=tsfc_parameters,
                                coffee=coffee, split=False)
-        assert len(kernels) <= 1, "Kernels should not be split."
         if kernels:
             cxt_k = ContextKernel(tensor=tensor,
                                 coefficients=form.coefficients(),
