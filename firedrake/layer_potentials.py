@@ -1,4 +1,4 @@
-from firedrake import AbstractPointwiseOperator
+from firedrake.pointwise_operators import AbstractPointwiseOperator
 from pyop2.datatypes import ScalarType
 
 

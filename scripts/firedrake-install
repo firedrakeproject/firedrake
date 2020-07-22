@@ -1050,7 +1050,7 @@ def install_documentation_dependencies():
 def install_nonlocal_operator_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
-    log.info("Installing nonlocal operator dependencies")
+    log.info("Installing nonlocal operator dependencies:")
     # install pytential and its dependencies
     # (those not already installed by loopy)
     # https://documen.tician.de/pytential/misc.html
@@ -1069,6 +1069,8 @@ def install_nonlocal_operator_dependencies():
     # https://gitlab.tiker.net/xywei/volumential/-/blob/master/requirements.txt
     # https://xiaoyu-wei.com/docs/volumential/install.html
     run_pip_install(["git+https://gitlab.tiker.net/xywei/volumential.git"])
+    # Also grab recursivenodes for nice function space conversion
+    run_pip_install(['recursivenodes'])
 
 
 def clean_obsolete_packages():
