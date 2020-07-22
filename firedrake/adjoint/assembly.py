@@ -1,7 +1,6 @@
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint.blocks import AssembleBlock, PointwiseOperatorBlock
-import ufl
 
 
 def annotate_assemble(assemble):
@@ -22,10 +21,12 @@ def annotate_assemble(assemble):
 
             tape = get_working_tape()
 
-            coeff_form = form.coefficients()
-            for coeff in coeff_form:
-                if isinstance(coeff, ufl.ExternalOperator):
-                    block_extops = PointwiseOperatorBlock(coeff, *args, **kwargs)
+            extops_form = form.external_operators()
+            for coeff in form.coefficients():
+                extops_coeff_form = [e.coefficient for e in extops_form]
+                dict_extops = dict(zip(extops_coeff_form, extops_form))
+                if coeff in extops_coeff_form:
+                    block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **kwargs)
                     tape.add_block(block_extops)
 
                     block_variable = coeff.block_variable

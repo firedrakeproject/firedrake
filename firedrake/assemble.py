@@ -15,7 +15,6 @@ from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
-from firedrake.pointwise_operators import AbstractPointwiseOperator
 from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.utils import ScalarType
 from firedrake.adjoint import annotate_assemble
@@ -242,22 +241,27 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             for bc in bcs:
                 integral_types += [integral.integral_type() for integral in bc.integrals()]
 
-    new_coefficients = list(f.coefficients())
+    external_operators = list(f.external_operators())
+    new_coefficients = list(e.coefficient for e in external_operators)
     for ki in kernels:
         if hasattr(ki.kinfo, 'external_operators'):
             for k, v in ki.kinfo.external_operators.items():
-                c = f.coefficients()[k]
-                d = new_coefficients[k]
+                c = f.external_operators()[k]
+                d = external_operators[k]
                 # Check if we need to reconstruct new ExtOps
-                if d == c._extop_master and not (len(v) == 1 and v[0] == (0,)*len(v[0])):
+                if d.derivatives == c._extop_master.derivatives:
                     # ExternalOperators can generate other Extops (e.g when differentiating)
                     # The kernel contains information about which Extop has been created during form compiling,
                     # we still need to construct this dependency when needed, i.e. when the form is already
                     # compiled and therefore the differentiation bit of the code is not hit.
-                    new_coefficients.remove(c)
-                    d._add_dependencies(v)
-                    new_coefficients.extend([e for e in d._extop_dependencies if e.derivatives in v])
+                    deriv_ind = tuple(v.keys())
+                    args_list = tuple(tuple(f.arguments()[position] for position in args) for args in v.values())
+                    d._add_dependencies(deriv_ind, args_list)
+                    reconstruct_extops = [e for e in d._extop_dependencies if e.derivatives in v]
+                    external_operators.extend(reconstruct_extops)
+                    new_coefficients.extend([e.coefficient for e in reconstruct_extops])
 
+    new_coefficients = list(f.coefficients()) + [e for e in new_coefficients if e not in f.coefficients()]
     rank = len(f.arguments())
     if diagonal:
         assert rank == 2
@@ -434,12 +438,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # is only used inside residual and jacobian assembly.
 
     # If there are any PointwiseOperators, evaluate them now.
-    for c in coefficients:
-        if isinstance(c, AbstractPointwiseOperator):
-            if assemble_now:
-                c.evaluate()
-            else:
-                yield c.evaluate
+    for e in external_operators:
+        if assemble_now:
+            e.evaluate()
+        else:
+            yield e.evaluate
 
     if zero_tensor:
         yield zero_tensor_parloop

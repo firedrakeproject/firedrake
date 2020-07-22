@@ -7,6 +7,43 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
+class PointexprActionOperator(PointexprOperator):
+
+    _external_operator_type = 'GLOBAL'
+
+    def __init__(self, *args, **kwargs):
+        PointexprOperator.__init__(self, *args, **kwargs)
+
+    def _evaluate_action(self, args):
+        if len(args) == 0:
+            # Evaluate the operator
+            return self._evaluate()
+
+        # Evaluate the Jacobian/Hessian action
+        operands = self.ufl_operands
+        operator = self._compute_derivatives()
+        expr = as_ufl(operator(*operands))
+        if expr.ufl_shape == () and expr != 0:
+            var = VariableRuleset(self.ufl_operands[0])
+            expr = expr*var._Id
+        elif expr == 0:
+            return self.assign(expr)
+
+        for arg in args:
+            mi = indices(len(expr.ufl_shape))
+            aa = mi
+            bb = mi[-len(arg.ufl_shape):]
+            expr = arg[bb] * expr[aa]
+            mi_tensor = tuple(e for e in mi if not (e in aa and e in bb))
+            if len(expr.ufl_free_indices):
+                expr = as_tensor(expr, mi_tensor)
+        return self.interpolate(expr)
+
+
+def action_point_expr(point_expr, function_space):
+    return partial(PointexprActionOperator, operator_data=point_expr, function_space=function_space)
+
+
 def test_properties(mesh):
     P = FunctionSpace(mesh, "DG", 0)
     V = FunctionSpace(mesh, "CG", 1)
@@ -123,6 +160,29 @@ def test_scalar_check_equality(mesh):
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
 
+    # Action operator
+    u2 = Function(V1)
+    ps = action_point_expr(lambda x: x, function_space=V1)
+    tau2 = ps(u2)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+
+    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
+    check_error = False
+    try:
+        solve(F2 == 0, u2)
+    except:
+        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+        # it leads to a ConvergenceError
+        check_error = True
+    assert check_error
+    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
+                                          "ksp_type": "cg",
+                                          "pc_type": "none"})
+
+    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_expr < 1.0e-09
+
 
 def test_vector_check_equality(mesh):
 
@@ -142,6 +202,29 @@ def test_vector_check_equality(mesh):
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
+
+    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_expr < 1.0e-09
+
+    # Action operator
+    u2 = Function(V1)
+    ps = action_point_expr(lambda x: x, function_space=V1)
+    tau2 = ps(u2)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+
+    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
+    check_error = False
+    try:
+        solve(F2 == 0, u2)
+    except:
+        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+        # it leads to a ConvergenceError
+        check_error = True
+    assert check_error
+    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
+                                          "ksp_type": "cg",
+                                          "pc_type": "none"})
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
@@ -166,7 +249,96 @@ def test_tensor_check_equality(mesh):
     tau2 = ps(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2)
+    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
+                                          "ksp_type": "cg",
+                                          "pc_type": "none"})
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
+
+    # Action operator
+    u2 = Function(V1)
+    ps = action_point_expr(lambda x: x, function_space=V1)
+    tau2 = ps(u2)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+
+    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
+    check_error = False
+    try:
+        solve(F2 == 0, u2)
+    except:
+        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+        # it leads to a ConvergenceError
+        check_error = True
+    assert check_error
+    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
+                                          "ksp_type": "cg",
+                                          "pc_type": "none"})
+
+    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_expr < 1.0e-09
+
+
+def test_assemble_action(mesh):
+
+    from ufl.algorithms.ad import expand_derivatives
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    u = Function(V).assign(1.)
+    v = TestFunction(V)
+
+    # External operators
+    p = point_expr(lambda x: x, function_space=V)
+    p = p(u)
+
+    p_action = action_point_expr(lambda x: x, function_space=V)
+    p_action = p_action(u)
+
+    u_hat = TrialFunction(V)
+
+    # Compute Jacobian
+    a = inner(p, v)*dx
+    Ja = derivative(a, u, u_hat)
+    Ja = expand_derivatives(Ja)
+
+    a_action = inner(p_action, v)*dx
+    Ja_action = derivative(a_action, u, u_hat)
+    Ja_action = expand_derivatives(Ja_action)
+
+    # Assemble Ja and Ja_action
+    assemble(Ja)
+
+    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator
+    check_error = False
+    try:
+        assemble(Ja_action)
+    except ValueError:
+        check_error = True
+    assert check_error
+
+    assemble(Ja_action, mat_type="matfree")
+
+    # Check action arguments and arguments
+    _test_action_arguments(Ja, Ja_action, u_hat, Function(V))
+
+
+def _test_action_arguments(Ja, Ja_action, u_hat, g):
+
+    dp, = Ja.external_operators()
+    dp_action, = Ja_action.external_operators()
+
+    assert dp.arguments() == ()
+    assert dp.action_args() == ()
+    assert dp_action.arguments() == (u_hat,)
+    assert dp_action.action_args() == ()
+
+    # Take the action
+    Ja = action(Ja, g)
+    Ja_action = action(Ja_action, g)
+    dp, = Ja.external_operators()
+    dp_action, = Ja_action.external_operators()
+
+    assert dp.arguments() == ()
+    assert dp.action_args() == ()
+    assert dp_action.arguments() == ()
+    assert dp_action.action_args() == (g,)

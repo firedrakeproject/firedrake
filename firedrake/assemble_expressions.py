@@ -402,8 +402,10 @@ class ExpressionWalker(ReuseTransformer):
     condition = ReuseTransformer.reuse_if_possible
     math_function = ReuseTransformer.reuse_if_possible
 
-    def operator(self, o):
+    def external_operator(self, o):
+        return self.coefficient(o)
 
+    def operator(self, o):
         # Need pre-traversal of operators so as to correctly set the
         # intent of the lhs function of Assignments.
         if isinstance(o, AssignmentBase):

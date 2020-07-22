@@ -163,7 +163,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         if coefficient_derivatives is not None:
             cds.update(coefficient_derivatives)
         coefficient_derivatives = cds
-    elif isinstance(u, firedrake.Function):
+    elif isinstance(u, (firedrake.Function, firedrake.AbstractExternalOperator)):
         V = u.function_space()
         du = argument(V)
     elif isinstance(u, firedrake.Constant):
