@@ -266,6 +266,8 @@ honoured.""",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
+    parser.add_argument("--nonlocal-operator-dependencies", action="store_true",
+                        help="Install the dependencies required to compute nonlocal kernel actions (volume/layer potentials)")
 
     args = parser.parse_args()
 
@@ -351,6 +353,8 @@ else:
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
+    parser.add_argument("--nonlocal-operator-dependencies", action="store_true",
+                        help="Install the dependencies required to compute nonlocal kernel actions (volume/layer potentials)")
     parser.add_argument("--show-dependencies", action="store_true",
                         help="Print out the package manager used and packages installed/required.")
 
@@ -1048,6 +1052,30 @@ def install_documentation_dependencies():
     run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
 
 
+def install_nonlocal_operator_dependencies():
+    """Just install the required dependencies. There are no provenance
+    issues here so no need to record this in the configuration dict."""
+    log.info("Installing nonlocal operator dependencies")
+    # install pytential and its dependencies
+    # (those not already installed by loopy)
+    # https://documen.tician.de/pytential/misc.html
+    run_pip_install(["pyopencl[pocl]"])
+    run_pip_install(["sympy"])
+    run_pip_install(["pyfmmlib"])
+    run_pip_install(["git+https://github.com/inducer/gmsh_interop.git"])
+    run_pip_install(["git+https://github.com/inducer/modepy.git"])
+    run_pip_install(["git+https://github.com/inducer/pyvisfile.git"])
+    run_pip_install(["git+https://github.com/inducer/boxtree.git"])
+    run_pip_install(["git+https://github.com/inducer/sumpy.git"])
+    run_pip_install(["git+https://github.com/inducer/meshmode.git"])
+    run_pip_install(["git+https://github.com/inducer/pytential.git"])
+    # Also grab volumential and its dependencies
+    # (currently None, but eventually pypvfmm?)
+    # https://gitlab.tiker.net/xywei/volumential/-/blob/master/requirements.txt
+    # https://xiaoyu-wei.com/docs/volumential/install.html
+    run_pip_install(["git+https://gitlab.tiker.net/xywei/volumential.git"])
+
+
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     for package in old_git_packages:
@@ -1532,6 +1560,9 @@ with environment(**compiler_env):
 
     if args.documentation_dependencies:
         install_documentation_dependencies()
+
+    if args.nonlocal_operator_dependencies:
+        install_nonlocal_operator_dependencies()
 
 if mode == "update":
     try:
