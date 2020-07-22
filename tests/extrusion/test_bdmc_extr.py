@@ -15,7 +15,7 @@ def project_bdmc(size, degree, family):
     expr = as_vector((sin(2 * pi * x[0]) * sin(2 * pi * x[1]),
                       cos(2 * pi * x[0]) * cos(2 * pi * x[1])))
 
-    solve(inner(f-expr,v) * dx(degree=8) == 0, f)
+    solve(inner(f-expr, v) * dx(degree=8) == 0, f)
 
     return np.sqrt(assemble(inner(f-expr, f-expr) * dx(degree=8)))
 

@@ -21,6 +21,7 @@ def DGDPC0(request, mesh):
     else:
         return FunctionSpace(mesh, request.param, 0)
 
+
 @pytest.fixture(scope='module', params=["DG", "DPC"])
 def DGDPC1(request, mesh):
     if mesh.ufl_cell() == triangle:

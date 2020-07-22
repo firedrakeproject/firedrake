@@ -21,14 +21,16 @@ L = -f*v*dx(degree=10)
 
 # Compute solution
 w = Function(W)
-solve(a == L, w, solver_parameters={'pc_type': 'fieldsplit',
+sp = {'pc_type': 'fieldsplit',
       'pc_fieldsplit_type': 'schur',
       'ksp_type': 'preonly',
       'pc_fieldsplit_schur_fact_type': 'FULL',
       'fieldsplit_0_ksp_type': 'cg',
       'fieldsplit_0_pc_factor_shift_type': 'INBLOCKS',
       'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
-      'fieldsplit_1_ksp_type': 'cg'})
+      'fieldsplit_1_ksp_type': 'cg'}
+
+solve(a == L, w, solver_parameters=sp)
 # solve(a == L, w)
 sigma, u = w.split()
 
