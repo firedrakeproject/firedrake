@@ -1,11 +1,11 @@
-from firedrake.pointwise_operators import AbstractPointwiseOperator
+from firedrake.pointwise_operators import AbstractExternalOperator
 from pyop2.datatypes import ScalarType
 
 
 __all__ = ("VolumePotential",)
 
 
-class VolumePotential(AbstractPointwiseOperator):
+class VolumePotential(AbstractExternalOperator):
     r"""
     Evaluates to
 
@@ -50,20 +50,13 @@ class VolumePotential(AbstractPointwiseOperator):
             's *get_table* method
 
     """
-    def __init__(self, operand, function_space,
-                 derivatives=None,
-                 count=None,
-                 val=None,
-                 name=None,
-                 dtype=ScalarType,
-                 operator_data=None):
-        AbstractPointwiseOperator.__init__(self, operand, function_space,
-                                           derivatives=derivatives,
-                                           count=count,
-                                           val=val,
-                                           name=name,
-                                           dtype=dtype,
-                                           operator_data=operator_data)
+
+    _external_operator_type = 'GLOBAL'
+
+    def __init__(self, operand, function_space, operator_data):
+        AbstractExternalOperator.__init__(self, operand,
+                                          function_space=function_space,
+                                          operator_data=operator_data)
         # Validate input
         from firedrake import Function
         if not isinstance(operand, Function):
@@ -117,7 +110,7 @@ class VolumePotential(AbstractPointwiseOperator):
         # Build connection into meshmode
         from meshmode.interop.firedrake import FromFiredrakeConnection
         from meshmode.array_context import PyOpenCLArrayContext
-        actx = PyOpenCLArrayContext(cl_ctx)
+        actx = PyOpenCLArrayContext(queue)
         meshmode_connection = FromFiredrakeConnection(actx, function_space)
 
         # Build connection from meshmode into volumential
@@ -186,7 +179,7 @@ class VolumePotential(AbstractPointwiseOperator):
         self.volumential_fmm_kwargs = volumential_fmm_kwargs
         self.expansion_wrangler = wrangler
 
-    def evaluate(self):
+    def _evaluate(self):
         # Get operand
         operand, = self.ufl_operands
 
