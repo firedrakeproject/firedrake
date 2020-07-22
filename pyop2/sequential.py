@@ -114,10 +114,12 @@ class JITModule(base.JITModule):
         from pyop2.codegen.builder import WrapperBuilder
         from pyop2.codegen.rep2loopy import generate
 
-        builder = WrapperBuilder(iterset=self._iterset, iteration_region=self._iteration_region, pass_layer_to_kernel=self._pass_layer_arg)
+        builder = WrapperBuilder(kernel=self._kernel,
+                                 iterset=self._iterset,
+                                 iteration_region=self._iteration_region,
+                                 pass_layer_to_kernel=self._pass_layer_arg)
         for arg in self._args:
             builder.add_argument(arg)
-        builder.set_kernel(self._kernel)
 
         wrapper = generate(builder)
         code = loopy.generate_code_v2(wrapper)
@@ -235,10 +237,12 @@ def generate_single_cell_wrapper(iterset, args, forward_args=(), kernel_name=Non
     from loopy.types import OpaqueType
 
     forward_arg_types = [OpaqueType(fa) for fa in forward_args]
-    builder = WrapperBuilder(iterset=iterset, single_cell=True, forward_arg_types=forward_arg_types)
+    empty_kernel = Kernel("", kernel_name)
+    builder = WrapperBuilder(kernel=empty_kernel,
+                             iterset=iterset, single_cell=True,
+                             forward_arg_types=forward_arg_types)
     for arg in args:
         builder.add_argument(arg)
-    builder.set_kernel(Kernel("", kernel_name))
     wrapper = generate(builder, wrapper_name)
     code = loopy.generate_code_v2(wrapper)
 

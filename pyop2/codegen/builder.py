@@ -51,7 +51,10 @@ class Map(object):
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
         if offset is not None:
-            offset = NamedLiteral(offset, name=values.name + "_offset")
+            if len(set(map_.offset)) == 1:
+                offset = Literal(offset[0], casting=True)
+            else:
+                offset = NamedLiteral(offset, name=values.name + "_offset")
 
         self.values = values
         self.offset = offset
@@ -68,21 +71,33 @@ class Map(object):
         n, i, f = multiindex
         if layer is not None and self.offset is not None:
             # For extruded mesh, prefetch the indirections for each map, so that they don't
-            # need to be recomputed. Different f values need to be treated separately.
+            # need to be recomputed.
+            # First prefetch the base map (not dependent on layers)
+            base_key = None
+            if base_key not in self.prefetch:
+                j = Index()
+                base = Indexed(self.values, (n, j))
+                self.prefetch[base_key] = Materialise(PackInst(), base, MultiIndex(j))
+
+            base = self.prefetch[base_key]
+
+            # Now prefetch the extruded part of the map (inside the layer loop).
+            # This is necessary so loopy DTRT for MatSetValues
+            # Different f values need to be treated separately.
             key = f.extent
             if key is None:
                 key = 1
             if key not in self.prefetch:
                 bottom_layer, _ = self.layer_bounds
-                offset_extent, = self.offset.shape
-                j = Index(offset_extent)
-                base = Indexed(self.values, (n, j))
-                if f.extent:
-                    k = Index(f.extent)
-                else:
-                    k = Index(1)
+                k = Index(f.extent if f.extent is not None else 1)
                 offset = Sum(Sum(layer, Product(Literal(numpy.int32(-1)), bottom_layer)), k)
-                offset = Product(offset, Indexed(self.offset, (j,)))
+                j = Index()
+                # Inline map offsets where all entries are identical.
+                if self.offset.shape == ():
+                    offset = Product(offset, self.offset)
+                else:
+                    offset = Product(offset, Indexed(self.offset, (j,)))
+                base = Indexed(base, (j, ))
                 self.prefetch[key] = Materialise(PackInst(), Sum(base, offset), MultiIndex(k, j))
 
             return Indexed(self.prefetch[key], (f, i)), (f, i)
@@ -130,38 +145,78 @@ class Pack(metaclass=ABCMeta):
 
 class GlobalPack(Pack):
 
-    def __init__(self, outer, access):
+    def __init__(self, outer, access, init_with_zero=False):
         self.outer = outer
         self.access = access
+        self.init_with_zero = init_with_zero
 
     def kernel_arg(self, loop_indices=None):
-        return Indexed(self.outer, (Index(e) for e in self.outer.shape))
+        pack = self.pack(loop_indices)
+        return Indexed(pack, (Index(e) for e in pack.shape))
 
     def emit_pack_instruction(self, *, loop_indices=None):
-        shape = self.outer.shape
-        if self.access is WRITE:
-            zero = Zero((), self.outer.dtype)
-            multiindex = MultiIndex(*(Index(e) for e in shape))
-            yield Accumulate(PackInst(), Indexed(self.outer, multiindex), zero)
-        else:
-            return ()
+        return ()
 
     def pack(self, loop_indices=None):
-        return None
+        if hasattr(self, "_pack"):
+            return self._pack
+
+        shape = self.outer.shape
+        if self.access is READ:
+            # No packing required
+            return self.outer
+        # We don't need to pack for memory layout, however packing
+        # globals that are written is required such that subsequent
+        # vectorisation loop transformations privatise these reduction
+        # variables. The extra memory movement cost is minimal.
+        loop_indices = self.pick_loop_indices(*loop_indices)
+        if self.init_with_zero:
+            also_zero = {MIN, MAX}
+        else:
+            also_zero = set()
+        if self.access in {INC, WRITE} | also_zero:
+            val = Zero((), self.outer.dtype)
+            multiindex = MultiIndex(*(Index(e) for e in shape))
+            self._pack = Materialise(PackInst(loop_indices), val, multiindex)
+        elif self.access in {READ, RW, MIN, MAX} - also_zero:
+            multiindex = MultiIndex(*(Index(e) for e in shape))
+            expr = Indexed(self.outer, multiindex)
+            self._pack = Materialise(PackInst(loop_indices), expr, multiindex)
+        else:
+            raise ValueError("Don't know how to initialise pack for '%s' access" % self.access)
+        return self._pack
 
     def emit_unpack_instruction(self, *, loop_indices=None):
-        return ()
+        pack = self.pack(loop_indices)
+        loop_indices = self.pick_loop_indices(*loop_indices)
+        if pack is None:
+            return ()
+        elif self.access is READ:
+            return ()
+        elif self.access in {INC, MIN, MAX}:
+            op = {INC: Sum,
+                  MIN: Min,
+                  MAX: Max}[self.access]
+            multiindex = tuple(Index(e) for e in pack.shape)
+            rvalue = Indexed(self.outer, multiindex)
+            yield Accumulate(UnpackInst(loop_indices), rvalue, op(rvalue, Indexed(pack, multiindex)))
+        else:
+            multiindex = tuple(Index(e) for e in pack.shape)
+            rvalue = Indexed(self.outer, multiindex)
+            yield Accumulate(UnpackInst(loop_indices), rvalue, Indexed(pack, multiindex))
 
 
 class DatPack(Pack):
     def __init__(self, outer, access, map_=None, interior_horizontal=False,
-                 view_index=None, layer_bounds=None):
+                 view_index=None, layer_bounds=None,
+                 init_with_zero=False):
         self.outer = outer
         self.map_ = map_
         self.access = access
         self.interior_horizontal = interior_horizontal
         self.view_index = view_index
         self.layer_bounds = layer_bounds
+        self.init_with_zero = init_with_zero
 
     def _mask(self, map_):
         """Override this if the map_ needs a masking condition."""
@@ -197,11 +252,15 @@ class DatPack(Pack):
         if self.view_index is None:
             shape = shape + self.outer.shape[1:]
 
-        if self.access in {INC, WRITE}:
+        if self.init_with_zero:
+            also_zero = {MIN, MAX}
+        else:
+            also_zero = set()
+        if self.access in {INC, WRITE} | also_zero:
             val = Zero((), self.outer.dtype)
             multiindex = MultiIndex(*(Index(e) for e in shape))
             self._pack = Materialise(PackInst(), val, multiindex)
-        elif self.access in {READ, RW, MIN, MAX}:
+        elif self.access in {READ, RW, MIN, MAX} - also_zero:
             multiindex = MultiIndex(*(Index(e) for e in shape))
             expr, mask = self._rvalue(multiindex, loop_indices=loop_indices)
             if mask is not None:
@@ -529,8 +588,9 @@ class MixedMatPack(Pack):
 
 class WrapperBuilder(object):
 
-    def __init__(self, *, iterset, iteration_region=None, single_cell=False,
+    def __init__(self, *, kernel, iterset, iteration_region=None, single_cell=False,
                  pass_layer_to_kernel=False, forward_arg_types=()):
+        self.kernel = kernel
         self.arguments = []
         self.argument_accesses = []
         self.packed_args = []
@@ -546,6 +606,10 @@ class WrapperBuilder(object):
         self.forward_arguments = tuple(Argument((), fa, pfx="farg") for fa in forward_arg_types)
 
     @property
+    def requires_zeroed_output_arguments(self):
+        return self.kernel.requires_zeroed_output_arguments
+
+    @property
     def subset(self):
         return isinstance(self.iterset, Subset)
 
@@ -556,9 +620,6 @@ class WrapperBuilder(object):
     @property
     def constant_layers(self):
         return self.extruded and self.iterset.constant_layers
-
-    def set_kernel(self, kernel):
-        self.kernel = kernel
 
     @cached_property
     def loop_extents(self):
@@ -674,7 +735,8 @@ class WrapperBuilder(object):
                     shape = (None, *a.data.shape[1:])
                     argument = Argument(shape, a.data.dtype, pfx="mdat")
                     packs.append(a.data.pack(argument, arg.access, self.map_(a.map, unroll=a.unroll_map),
-                                             interior_horizontal=interior_horizontal))
+                                             interior_horizontal=interior_horizontal,
+                                             init_with_zero=self.requires_zeroed_output_arguments))
                     self.arguments.append(argument)
                 pack = MixedDatPack(packs, arg.access, arg.dtype, interior_horizontal=interior_horizontal)
                 self.packed_args.append(pack)
@@ -692,7 +754,8 @@ class WrapperBuilder(object):
                                     pfx="dat")
                 pack = arg.data.pack(argument, arg.access, self.map_(arg.map, unroll=arg.unroll_map),
                                      interior_horizontal=interior_horizontal,
-                                     view_index=view_index)
+                                     view_index=view_index,
+                                     init_with_zero=self.requires_zeroed_output_arguments)
                 self.arguments.append(argument)
                 self.packed_args.append(pack)
                 self.argument_accesses.append(arg.access)
@@ -700,7 +763,8 @@ class WrapperBuilder(object):
             argument = Argument(arg.data.dim,
                                 arg.data.dtype,
                                 pfx="glob")
-            pack = GlobalPack(argument, arg.access)
+            pack = GlobalPack(argument, arg.access,
+                              init_with_zero=self.requires_zeroed_output_arguments)
             self.arguments.append(argument)
             self.packed_args.append(pack)
             self.argument_accesses.append(arg.access)

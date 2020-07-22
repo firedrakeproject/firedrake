@@ -9,7 +9,8 @@ from pyop2.codegen.node import Node as NodeBase
 
 
 class InstructionLabel(object):
-    pass
+    def __init__(self, within_inames=()):
+        self.within_inames = tuple(w for w in within_inames if isinstance(w, Node))
 
 
 class PackInst(InstructionLabel):
@@ -99,6 +100,8 @@ class Index(Terminal, Scalar):
         elif self.extent != value:
             raise ValueError("Inconsistent index extents")
 
+    dtype = numpy.int32
+
 
 class FixedIndex(Terminal, Scalar):
     __slots__ = ("value", )
@@ -108,7 +111,9 @@ class FixedIndex(Terminal, Scalar):
 
     def __init__(self, value):
         assert isinstance(value, numbers.Integral)
-        self.value = int(value)
+        self.value = numpy.int32(value)
+
+    dtype = numpy.int32
 
 
 class RuntimeIndex(Scalar):
@@ -266,7 +271,7 @@ class Max(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Sum(Scalar):
@@ -280,7 +285,7 @@ class Sum(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Product(Scalar):
@@ -294,7 +299,7 @@ class Product(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return a.dtype
+        return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
 class Indexed(Scalar):
@@ -382,7 +387,7 @@ class Variable(Terminal):
 
 
 class DummyInstruction(Node):
-    __slots__ = ("children",)
+    __slots__ = ("children", "label")
     __front__ = ("label",)
 
     def __init__(self, label, *children):
@@ -391,16 +396,12 @@ class DummyInstruction(Node):
 
 
 class Accumulate(Node):
-    __slots__ = ("children",)
+    __slots__ = ("children", "label")
     __front__ = ("label",)
 
     def __init__(self, label, lvalue, rvalue):
         self.children = (lvalue, rvalue)
         self.label = label
-
-    def reconstruct(self, *args):
-        new = type(self)(*self._cons_args(args))
-        return new
 
 
 class FunctionCall(Node):
@@ -417,7 +418,7 @@ class FunctionCall(Node):
 
 
 class Conditional(Scalar):
-    __slots__ = ("children")
+    __slots__ = ("children", )
 
     def __init__(self, condition, then, else_):
         assert not condition.shape

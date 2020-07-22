@@ -1769,11 +1769,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         name = "neg"
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-        lvalue = p.Variable("neg")
+        lvalue = p.Variable("other")
         rvalue = p.Variable("self")
         i = p.Variable("i")
         insn = loopy.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("neg", dtype=self.dtype, shape=(self.cdim,)),
+        data = [loopy.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         knl = loopy.make_function([domain], [insn], data, name=name)
         return _make_object('Kernel', knl, name)
@@ -3287,6 +3287,8 @@ class Kernel(Cached):
         empty)
     :param ldargs: A list of arguments to pass to the linker when
         compiling this Kernel.
+    :param requires_zeroed_output_arguments: Does this kernel require the
+        output arguments to be zeroed on entry when called? (default no)
     :param cpp: Is the kernel actually C++ rather than C?  If yes,
         then compile with the C++ compiler (kernel is wrapped in
         extern C for linkage reasons).
@@ -3309,7 +3311,7 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
-                   user_code="", ldargs=None, cpp=False):
+                   user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3323,7 +3325,7 @@ class Kernel(Cached):
             code.update_persistent_hash(key_hash, LoopyKeyBuilder())
             code = key_hash.hexdigest()
         hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs)
-                  + str(headers) + version + str(ldargs) + str(cpp))
+                  + str(headers) + version + str(ldargs) + str(cpp) + str(requires_zeroed_output_arguments))
         return md5(hashee.encode()).hexdigest()
 
     @cached_property
@@ -3331,7 +3333,7 @@ class Kernel(Cached):
         return (self._key, )
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
-                 user_code="", ldargs=None, cpp=False):
+                 user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3346,6 +3348,7 @@ class Kernel(Cached):
         assert isinstance(code, (str, Node, loopy.Program, loopy.LoopKernel))
         self._code = code
         self._initialized = True
+        self.requires_zeroed_output_arguments = requires_zeroed_output_arguments
 
     @property
     def name(self):

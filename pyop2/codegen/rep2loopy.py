@@ -391,7 +391,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
             if isinstance(insn.children[1], (Zero, Literal)):
                 nesting[insn] = outer_inames
             else:
-                nesting[insn] = runtime_indices([insn])
+                nesting[insn] = runtime_indices([insn]) | runtime_indices(insn.label.within_inames)
         else:
             assert isinstance(insn, FunctionCall)
             if insn.name in (petsc_functions | {kernel_name}):
@@ -553,7 +553,7 @@ def generate(builder, wrapper_name=None):
     context.instruction_dependencies = deps
 
     statements = list(statement(insn, context) for insn in instructions)
-    # remote the dummy instructions (they were only used to ensure
+    # remove the dummy instructions (they were only used to ensure
     # that the kernel knows about the outer inames).
     statements = list(s for s in statements if not isinstance(s, DummyInstruction))
 
@@ -625,11 +625,10 @@ def generate(builder, wrapper_name=None):
     from coffee.base import Node
 
     if isinstance(kernel._code, loopy.LoopKernel):
+        from loopy.transform.callable import _match_caller_callee_argument_dimension_
         knl = kernel._code
         wrapper = loopy.register_callable_kernel(wrapper, knl)
-        from loopy.transform.callable import _match_caller_callee_argument_dimension_
         wrapper = _match_caller_callee_argument_dimension_(wrapper, knl.name)
-        wrapper = loopy.inline_callable_kernel(wrapper, knl.name)
     else:
         # kernel is a string, add it to preamble
         if isinstance(kernel._code, Node):
