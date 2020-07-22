@@ -129,7 +129,8 @@ class TSFCKernel(Cached):
             ast = kernel.ast
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
+            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
+                                                    requires_zeroed_output_arguments=True),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
