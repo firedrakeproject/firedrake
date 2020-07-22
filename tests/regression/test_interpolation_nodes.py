@@ -46,7 +46,10 @@ def test_div_curl_preserving(V):
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
     if dim == 2:
-        expression = as_vector([cos(y), sin(x)])
+        if "Nedelec" in V.ufl_element().family():
+            expression = grad(sin(x)*cos(y))
+        else:
+            expression = as_vector([cos(y), sin(x)])
     elif dim == 3:
         if "Nedelec" in V.ufl_element().family():
             expression = grad(sin(x)*exp(y)*z)
@@ -55,11 +58,7 @@ def test_div_curl_preserving(V):
 
     f = interpolate(expression, V)
     if "Nedelec" in V.ufl_element().family():
-        if dim == 2:
-            # Skip this test
-            norm_exp = 1e-15
-        else:
-            norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
+        norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
         norm_exp = sqrt(assemble(inner(div(f), div(f))*dx))
     assert abs(norm_exp) < 1e-10
@@ -79,7 +78,7 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
             expression = as_vector([sin(x)*cos(y), exp(x)*y])
         elif dim == 3:
             expression = as_vector([sin(y)*z*cos(x), cos(x)*z*x, exp(x)*y])
-        variant = "integral(" + str(degree+1) + ")"
+        variant = f"integral({degree+1})"
         V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=variant)
         V = FunctionSpace(mesh, V_el)
         f = interpolate(expression, V)
@@ -97,12 +96,18 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
                         ("N1div"),
                         ("N2div")],
                 ids=lambda x: "%s" % x)
-def function_space(request, degree):
-    return (request.param, degree)
+def space(request):
+    return request.param
 
 
-def test_convergence_order(mesh, function_space):
-    space, degree = function_space
+def expected_l2_order(space, degree):
+    if space in {"N2curl", "N2div"}:
+        return degree + 1
+    else:
+        return degree
+
+
+def test_convergence_order(mesh, space, degree):
     nref = 2
     nref_min = 1
     error = compute_interpolation_error(mesh, nref, space, degree)
@@ -110,10 +115,8 @@ def test_convergence_order(mesh, function_space):
     error_hD = error.T[1]
     conv_l2 = np.log2(error_l2[0:-1]/error_l2[1:])
     conv_hD = np.log2(error_hD[0:-1]/error_hD[1:])
-    if "1" in space:
-        conv_l2_expected = degree
-    else:
-        conv_l2_expected = degree + 1
+    conv_l2_expected = expected_l2_order(space, degree)
     conv_hD_expected = degree
-    assert np.allclose(conv_l2[nref_min:], conv_l2_expected*np.ones((nref-nref_min, 1)), atol=0.15)
-    assert np.allclose(conv_hD[nref_min:], conv_hD_expected*np.ones((nref-nref_min, 1)), atol=0.15)
+    eps = 0.15
+    assert all(conv_l2[nref_min:] > conv_l2_expected - eps)
+    assert all(conv_hD[nref_min:] > conv_hD_expected - eps)
