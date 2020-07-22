@@ -92,7 +92,7 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
-    cdm = mesh._plex
+    cdm = mesh._topology_dm
     cdm.setRefinementUniform(True)
     dms = []
     if mesh.comm.size > 1 and mesh._grown_halos:
@@ -151,10 +151,10 @@ def MeshHierarchy(mesh, refinement_levels,
 
     lgmaps = []
     for i, m in enumerate(meshes):
-        no = impl.create_lgmap(m._plex)
+        no = impl.create_lgmap(m._topology_dm)
         m.init()
-        o = impl.create_lgmap(m._plex)
-        m._plex.setRefineLevel(i)
+        o = impl.create_lgmap(m._topology_dm)
+        m._topology_dm.setRefineLevel(i)
         lgmaps.append((no, o))
 
     coarse_to_fine_cells = []

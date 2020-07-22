@@ -6,13 +6,19 @@ import types
 import sympy as sp
 import numpy as np
 
-from ufl import zero
+from ufl import zero, replace
 from ufl.core.external_operator import ExternalOperator
 from ufl.core.expr import Expr
+from ufl.core.multiindex import indices
+from ufl.coefficient import Coefficient
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
+from ufl.referencevalue import ReferenceValue
 from ufl.operators import transpose
 from ufl.log import error
+from ufl.tensors import as_tensor
+
+
 
 import firedrake.assemble
 from firedrake.function import Function
@@ -22,37 +28,119 @@ from firedrake.adjoint import PointwiseOperatorsMixin
 from pyop2.datatypes import ScalarType
 
 
-class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMixin, metaclass=ABCMeta):
+class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metaclass=ABCMeta):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
     This class inherits from firedrake.function.Function and ufl.core.external_operator.ExternalOperator
-    Every subclass based on this class must provide the `compute_derivatives` and 'evaluate' methods.
+    Every subclass based on this class must provide the `_compute_derivatives` and '_evaluate' or `_evaluate_action` methods.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data=None):
-        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count)
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data=None, coefficient=None, arguments=()):
+        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,\
+                                  count=count, arguments=arguments)
         aa = function_space
         ofs = self.original_function_space()
         if not isinstance(ofs, functionspaceimpl.WithGeometry):
-            fs1 = functionspaceimpl.FunctionSpace(function_space.mesh().topology, ofs.ufl_element())
-            fs = functionspaceimpl.WithGeometry(fs1, function_space.mesh())
+            fs = functionspaceimpl.FunctionSpace(function_space.mesh().topology, ofs.ufl_element())
+            fs = functionspaceimpl.WithGeometry(fs, function_space.mesh())
         else:
             fs = ofs
 
-        Function.__init__(self, fs, val, name, dtype, count=self._count)  # count has been initialised in ExternalOperator.__init__
+        # Check arguments and action_args
+        self._check_arguments_action_args()
+
+        # Count has been initialised in ExternalOperator.__init__
+        if coefficient is None:
+            coefficient = Function(fs, val, name, dtype, count=self.count())
+            self._val = coefficient.topological
+        elif not isinstance(coefficient, Coefficient):
+            raise TypeError('Expecting a Coefficient and not %s', type(coefficient))
+        self._coefficient = coefficient
+        self._val = val
+        self._name = name
 
         self._ufl_function_space = aa
         self._original_function_space = fs
         self.operator_data = operator_data
 
-    @abstractmethod
-    def compute_derivatives(self):
+    @property
+    def _external_operator_type(self):
+        raise NotImplementedError(self.__class__._external_operator_type)
+
+    def _check_arguments_action_args(self):
+        if not self._external_operator_type == 'GLOBAL':
+            return
+        n_args = len(self._arguments)
+        n_action_args = len(self._action_args)
+        if  n_args + n_action_args != sum(self.derivatives):
+            raise ValueError('Expecting number of arguments (%s) + number of action arguments (%s) to be equal to the number of derivatives taken (%s)!' % (n_args, n_action_args, sum(self.derivatives)))
+
+    def name(self):
+        return getattr(self.coefficient, '_name', self._name)
+
+    def function_space(self):
+        return self.coefficient.function_space()
+
+    def _make_function_space_args(self, k, y):
+        """Make the function space of the Gateaux derivative: dN[x] = \frac{\partial N}{\partial k} * y(x)
+        """
+        ufl_function_space = ExternalOperator._make_function_space_args(self, k, y)
+        mesh = self.function_space().mesh()
+        function_space = functionspaceimpl.FunctionSpace(mesh.topology, ufl_function_space.ufl_element())
+        return functionspaceimpl.WithGeometry(function_space, mesh)
+
+    @property
+    def dat(self):
+        return self.coefficient.dat
+
+    @property
+    def topological(self):
+        # When we replace coefficients in _build_coefficient_replace_map
+        # we replace firedrake.Function by ufl.Coefficient and we lose track of val
+        print('topological')
+        return getattr(self.coefficient, 'topological', self._val)
+
+    def assign(self, *args, **kwargs):
+        assign = self.coefficient.assign(*args, **kwargs)
+        # Keep track of the function's value
+        self._val = assign.topological
+        return assign
+
+    def interpolate(self, *args, **kwargs):
+        interpolate = self.coefficient.interpolate(*args, **kwargs)
+        # Keep track of the function's value
+        self._val = interpolate.topological
+        return interpolate
+
+    def split(self):
+        return self.coefficient.split()
+
+    @property
+    def block_variable(self):
+        return self.coefficient.block_variable
+
+    @property
+    def _ad_floating_active(self):
+        self.coefficient._ad_floating_active
+
+    def _compute_derivatives(self):
         """apply the derivatives on operator_data"""
 
-    @abstractmethod
-    def evaluate(self):
+    def _evaluate(self):
+        raise NotImplementedError('External operators with type %s require an _evaluate method' % self._external_operator_type)
+
+    def _evaluate_action(self):
+        raise NotImplementedError('External operators with type %s require an _evaluate_action method' % self._external_operator_type)
+
+    def evaluate(self, *args, **kwargs):
         """define the evaluation method for the ExternalOperator object"""
+        if self._external_operator_type == 'GLOBAL':
+            x = self.action_args()
+            if len(x) != sum(self.derivatives):
+                    raise ValueError('Global external operators cannot be evaluated, you need to take the action!')
+            return self._evaluate_action(x, *args, **kwargs)
+        return self._evaluate(*args, **kwargs)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
@@ -99,30 +187,37 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, coefficient=None, arguments=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
         deriv_multiindex = derivatives or self.derivatives
 
         if deriv_multiindex != self.derivatives:
             # If we are constructing a derivative
             corresponding_count = None
+            corresponding_coefficient = None
             e_master = self._extop_master
             for ext in e_master._extop_dependencies:
                 if ext.derivatives == deriv_multiindex:
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
                                                       derivatives=deriv_multiindex, count=count,
-                                                      val=ext.topological, name=name,
+                                                      #val=ext.topological,
+                                                      name=name,
+                                                      coefficient=coefficient,
+                                                      arguments=arguments,
                                                       operator_data=operator_data,
                                                       add_kwargs=add_kwargs)
         else:
-            corresponding_count = self._count
-            val = self.topological
+            corresponding_count = self.count()
+            corresponding_coefficient = coefficient or self._coefficient
+            #val = self.topological
 
         reconstruct_op = type(self)(*operands, function_space=function_space or self._ufl_function_space,
                                     derivatives=deriv_multiindex,
                                     count=corresponding_count,
-                                    val=val,
+                                    #val=val,
                                     name=name or self.name(),
+                                    coefficient=corresponding_coefficient,
+                                    arguments=arguments or (self.arguments()+self.action_args()),
                                     operator_data=operator_data or self.operator_data,
                                     **add_kwargs)
 
@@ -131,8 +226,9 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
             self._extop_master._extop_dependencies.append(reconstruct_op)
             reconstruct_op._extop_master = self._extop_master
         else:
-            reconstruct_op._extop_master = self._extop_master
-            reconstruct_op._extop_dependencies = self._extop_dependencies
+            if deriv_multiindex != (0,)*len(operands):
+                reconstruct_op._extop_master = self._extop_master
+            reconstruct_op._extop_dependencies = [e._ufl_expr_reconstruct_(*operands) for e in self._extop_dependencies[1:]]
         return reconstruct_op
 
     def __str__(self):
@@ -142,13 +238,15 @@ class AbstractPointwiseOperator(Function, ExternalOperator, PointwiseOperatorsMi
         return r
 
 
-class PointexprOperator(AbstractPointwiseOperator):
+class PointexprOperator(AbstractExternalOperator):
     r"""A :class:`PointexprOperator` is an implementation of ExternalOperator that is defined through
     a given function f (e.g. a lambda expression) and whose values are defined through the mere evaluation
     of f pointwise.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
+    _external_operator_type = 'LOCAL'
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data):
         r"""
         :param operands: operands on which act the :class:`PointexrOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -164,7 +262,7 @@ class PointexprOperator(AbstractPointwiseOperator):
         :param operator_data: dictionary containing the function defining how to evaluate the :class:`PointexprOperator`.
         """
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, coefficient=coefficient, arguments=arguments, dtype=dtype, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data, types.FunctionType):
@@ -177,14 +275,14 @@ class PointexprOperator(AbstractPointwiseOperator):
     def expr(self):
         return self.operator_data
 
-    def compute_derivatives(self):
+    def _compute_derivatives(self):
         symb = sp.symbols('s:%d' % len(self.ufl_operands))
         r = sp.diff(self.expr(*symb), *zip(symb, self.derivatives))
         return sp.lambdify(symb, r, dummify=True)
 
-    def evaluate(self):
+    def _evaluate(self):
         operands = self.ufl_operands
-        operator = self.compute_derivatives()
+        operator = self._compute_derivatives()
         expr = as_ufl(operator(*operands))
         if expr.ufl_shape == () and expr != 0:
             var = VariableRuleset(self.ufl_operands[0])
@@ -194,7 +292,7 @@ class PointexprOperator(AbstractPointwiseOperator):
         return self.interpolate(expr)
 
 
-class PointsolveOperator(AbstractPointwiseOperator):
+class PointsolveOperator(AbstractExternalOperator):
     r"""A :class:`PointsolveOperator` is an implementation of ExternalOperator that is defined through
     a given function f (e.g. a lambda expression) and whose values correspond to the root of this function
     evaluated pointwise, i.e. x such that f(x) = 0.
@@ -205,9 +303,10 @@ class PointsolveOperator(AbstractPointwiseOperator):
     https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html
      """
 
+    _external_operator_type = 'LOCAL'
     _cache = {}
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, disp=False):
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, disp=False):
         r"""
         :param operands: operands on which act the :class:`PointsolveOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -235,7 +334,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         :param disp: boolean indication whether we display the max of the number of iterations taken over the pointwise solves.
         """
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, coefficient=coefficient, arguments=arguments, dtype=dtype, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data['point_solve'], types.FunctionType):
@@ -291,7 +390,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
             return wrapper
         return eval_function
 
-    def compute_derivatives(self, f):
+    def _compute_derivatives(self, f):
         deriv_index = (0,) + self.derivatives
         symb = (self._sympy_create_symbols(self.ufl_function_space().shape, 0),)
         symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
@@ -372,9 +471,9 @@ class PointsolveOperator(AbstractPointwiseOperator):
                     raise NotImplementedError("Cross-derivatives not handled : %s" % deriv_index)
                 break
         self.dat.data[:] = res
-        return self
+        return self.coefficient
 
-    def evaluate(self):
+    def _evaluate(self):
         r"""
         Let f(x, y_1, ..., y_k) = 0, where y_1, ..., y_k are parameters. We look for the solution x of this equation.
         This method returns the solution x satisfying this equation or its derivatives: \frac{\partial x}{\partial y_i},
@@ -397,7 +496,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         if self.derivatives != (0,)*len(self.derivatives):
             e_master = self._extop_master
             #xstar = e_master.evaluate()
-            return self.compute_derivatives(e_master) #xstar)
+            return self._compute_derivatives(e_master) #xstar)
 
         # print('\n time elapsed: part1: ', time.time() - part1_time)
         # part2_time = time.time()
@@ -451,7 +550,7 @@ class PointsolveOperator(AbstractPointwiseOperator):
         # print('\n newton time elapsed: ', time.time() - cpu)
         self.dat.data[:] = res.squeeze()
         # print('\n evaluate time elapsed: ', time.time() - eval_time)
-        return self
+        return self.coefficient
 
     def _prepare_args_f(self, space):
         """
@@ -774,12 +873,13 @@ class PointsolveOperator(AbstractPointwiseOperator):
         return T.subs(dict(zip(s1, s2)))
 
 
-class PointnetOperator(AbstractPointwiseOperator):
+class PointnetOperator(AbstractExternalOperator):
     r"""A :class:`PointnetOperator`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, weights_version=None):
         r"""
         :param operands: operands on which act the :class:`PointnetOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -799,8 +899,14 @@ class PointnetOperator(AbstractPointwiseOperator):
         :param weights_version: a dictionary keeping track of the weights version, to inform if whether we need to update them.
         """
 
+        #import ipdb; ipdb.set_trace()
+        #if weights_version is None:
+        #    print('\n C NONE')
         # Add the weights in the operands list and update the derivatives multiindex
-        if not isinstance(operands[-1], Constant):
+        last_op = operands[-1]
+        init_weights = isinstance(last_op, Constant) or \
+                       (isinstance(last_op, ReferenceValue) and isinstance(last_op.ufl_operands[0], Constant))
+        if not init_weights:
             weights_val = ml_get_weights(operator_data['model'], operator_data['framework'])
             cw = Constant(zero(*weights_val.shape))
             # Assign and convert (from torch to numpy)
@@ -810,7 +916,7 @@ class PointnetOperator(AbstractPointwiseOperator):
             if isinstance(derivatives, tuple):
                 derivatives += (0,)
 
-        AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, coefficient=coefficient, arguments=arguments, dtype=dtype, operator_data=operator_data)
 
         # Checks
         if 'ncontrols' not in self.operator_data.keys():
@@ -860,12 +966,14 @@ class PointnetOperator(AbstractPointwiseOperator):
                           operator_data=self.operator_data,
                           weights_version=self._weights_version)
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, count=None, name=None, operator_data=None, val=None, coefficient=None, arguments=(), add_kwargs={}):
         "Overwrite _ufl_expr_reconstruct to pass on weights_version"
         add_kwargs['weights_version'] = self._weights_version
-        return AbstractPointwiseOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
+        return AbstractExternalOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
                                                                 derivatives=derivatives, count=count,
                                                                 val=val, name=name,
+                                                                coefficient=coefficient,
+                                                                arguments=arguments,
                                                                 operator_data=operator_data,
                                                                 add_kwargs=add_kwargs)
 
@@ -886,7 +994,9 @@ class PytorchOperator(PointnetOperator):
         its inputs.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data, weights_version=None):
+    _external_operator_type = 'LOCAL'
+
+    def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, weights_version=None):
         r"""
         :param operands: operands on which act the :class:`PytorchOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -905,7 +1015,7 @@ class PytorchOperator(PointnetOperator):
         :param weights_version: a dictionary keeping track of the weights version, to inform if whether we need to update them.
         """
 
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data, weights_version=weights_version)
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, coefficient=coefficient, arguments=arguments, dtype=dtype, operator_data=operator_data, weights_version=weights_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
@@ -918,7 +1028,7 @@ class PytorchOperator(PointnetOperator):
             raise ImportError("Error when trying to import PyTorch")
         return torch
 
-    def compute_derivatives(self, N, x, model_tape=False):
+    def _compute_derivatives(self, N, x, model_tape=False):
         """Compute the gradient of the network wrt inputs"""
         if self.derivatives == (0,)*len(self.ufl_operands):
             N = N.squeeze(1)
@@ -952,7 +1062,7 @@ class PytorchOperator(PointnetOperator):
         return wrapper
 
     @_eval_update_weights
-    def evaluate(self, model_tape=False):
+    def _evaluate(self, model_tape=False):
         """
         Evaluate the neural network by performing a forward pass through the network
         The first argument is considered as the input of the network, if one want to correlate different
@@ -976,7 +1086,7 @@ class PytorchOperator(PointnetOperator):
 
         # Vectorized forward pass
         val = model(torch_op)
-        res = self.compute_derivatives(val, torch_op, model_tape)
+        res = self._compute_derivatives(val, torch_op, model_tape)
 
         # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
         if model_tape:
@@ -1006,7 +1116,7 @@ class PytorchOperator(PointnetOperator):
             w = self.ufl_operands[-1]
             cst_fct_space = w._ad_function_space(self.function_space().mesh())
             return Function(cst_fct_space, val=grad_W).vector()
-        return AbstractPointwiseOperator.adjoint_action(self, x, idx)
+        return AbstractExternalOperator.adjoint_action(self, x, idx)
 
     def _assign_weights(self, weights):
         self.model.weight.data = weights

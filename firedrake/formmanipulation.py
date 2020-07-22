@@ -69,6 +69,16 @@ class ExtractSubBlock(MultiFunction):
         # [v_0, v_2, v_3][1, 2]
         return self.expr(o, *map_expr_dags(self.index_inliner, operands))
 
+    def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
+        # If we're only taking a derivative wrt part of an argument in
+        # a mixed space other bits might come back as zero. We want to
+        # propagate a zero in that case.
+        argument, = arguments
+        if all(isinstance(a, Zero) for a in argument.ufl_operands):
+            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        else:
+            return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
+
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace

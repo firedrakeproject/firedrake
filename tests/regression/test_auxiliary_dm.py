@@ -9,7 +9,7 @@ class ApproximateSchur(AuxiliaryOperatorPC):
         (v, w) = split(trial)
         (y, z) = split(test)
         a = inner(div(v), div(y))*dx - inner(div(w), div(z))*dx + inner(v, z)*dx + inner(w, y)*dx
-        bcs = [DirichletBC(Z.sub(0), Constant((0, 0)), "on_boundary")]
+        bcs = [DirichletBC(Z.sub(0), zero(), "on_boundary")]
         return (a, bcs)
 
 
@@ -28,7 +28,7 @@ class BiharmonicProblem(object):
 
     def bcs(self, Z):
         bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.ufl_domain()), "on_boundary"),
-               DirichletBC(Z.sub(1), Constant((0, 0)), "on_boundary")]
+               DirichletBC(Z.sub(1), zero(), "on_boundary")]
         return bcs
 
     def analytical_solution(self, mesh):

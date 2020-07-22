@@ -21,16 +21,12 @@ def test_abstract_pointwise_operator(mesh):
         assert x.derivatives == der
         assert x.ufl_shape == shape
 
-    class TestAbstract(AbstractPointwiseOperator):
+    class TestAbstract(AbstractExternalOperator):
+
+        _external_operator_type = 'LOCAL'
 
         def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
-            AbstractPointwiseOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
-
-        def compute_derivatives(self):
-            pass
-
-        def evaluate(self):
-            pass
+            AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
     f = lambda x, y: x*y
     p = TestAbstract(u, w, g, function_space=V, derivatives=(0, 0, 1), count=9999,

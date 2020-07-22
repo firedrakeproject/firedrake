@@ -318,10 +318,11 @@ def _extract_bcs(bcs):
     from firedrake.bcs import BCBase, EquationBC
     if bcs is None:
         return ()
-    try:
-        bcs = tuple(bcs)
-    except TypeError:
-        bcs = (bcs,)
+    if isinstance(bcs, (BCBase, EquationBC)):
+        return (bcs, )
+    else:
+        if not isinstance(bcs, (tuple, list)):
+            raise TypeError("bcs must be BCBase, EquationBC, tuple, or list, not '%s'." % type(bcs).__name__)
     for bc in bcs:
         if not isinstance(bc, (BCBase, EquationBC)):
             raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)

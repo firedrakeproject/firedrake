@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
 from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, PointwiseOperatorBlock
@@ -28,6 +29,8 @@ def annotate_solve(solve):
             the boundary. The interior values are not guaranteed to be zero.
 
     """
+
+    @wraps(solve)
     def wrapper(*args, **kwargs):
 
         annotate = annotate_tape(kwargs)
@@ -52,10 +55,12 @@ def annotate_solve(solve):
             block.add_output(block_variable)
 
             if isinstance(args[0], ufl.equation.Equation):
-                coeff_form = args[0].lhs.coefficients()
-                for coeff in coeff_form:
-                    if isinstance(coeff, ufl.ExternalOperator):
-                        block_extops = PointwiseOperatorBlock(coeff, *args, **sb_kwargs)
+                extops_form = args[0].lhs.external_operators()
+                extops_coeff_form = [e.coefficient for e in extops_form]
+                dict_extops = dict(zip(extops_coeff_form, extops_form))
+                for coeff in args[0].lhs.coefficients():
+                    if coeff in extops_coeff_form:
+                        block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **sb_kwargs)
                         tape.add_block(block_extops)
 
                         block_variable = coeff.block_variable

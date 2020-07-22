@@ -262,11 +262,10 @@ class PointwiseOperatorBlock(Block, Backend):
         self.add_dependency(self.point_op, no_duplicates=True)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        N, ops = inputs[-1], inputs[:-1]
-        return N._ufl_expr_reconstruct_(*ops)
+        return ufl.replace(self.point_op, self._replace_map())
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        if self.point_op == block_variable.output:
+        if self.point_op.coefficient == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
 
@@ -280,7 +279,19 @@ class PointwiseOperatorBlock(Block, Backend):
         dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
         return dNdm_adj
 
+    def _replace_map(self):
+        coeffs_point_op = self.point_op.ufl_operands + (self.point_op.coefficient,)
+        replace_coeffs = {}
+        for block_variable in self.get_dependencies():
+            coeff = block_variable.output
+            if coeff in coeffs_point_op:
+                replace_coeffs[coeff] = block_variable.saved_output
+        return replace_coeffs
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return ufl.replace(self.point_op, self._replace_map())
+
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        p = inputs[-1]
+        p = prepared
         q = type(p).copy(p)
         return q.evaluate()
