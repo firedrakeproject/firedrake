@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -171,7 +172,10 @@ def test_fieldsplitting(mesh, preassembled, parameters):
     Q = VectorFunctionSpace(mesh, "DG", 1)
     W = V*P*Q
 
-    expect = Constant((1, 2, 3, 4))
+    expect = Function(W)
+    expect.sub(0).assign(1)
+    expect.sub(1).assign(2)
+    expect.sub(2).assign(Constant((3, 4)))
 
     u = TrialFunction(W)
     v = TestFunction(W)
@@ -251,7 +255,7 @@ def test_get_info(a, bcs, infotype):
               + (trial.function_space().dof_dset.total_size
                  * trial.function_space().value_size))
 
-    expect *= np.float64().itemsize
+    expect *= ScalarType.itemsize
 
     if infotype == "sum":
         expect = A.comm.allreduce(expect, op=MPI.SUM)
@@ -265,3 +269,41 @@ def test_get_info(a, bcs, infotype):
         ctx = A.petscmat.getPythonContext()
         info = ctx.getInfo(A.petscmat, info=itype)
         assert info["memory"] == 2*expect
+
+
+def test_duplicate(a, bcs):
+
+    test, trial = a.arguments()
+
+    if test.function_space().shape == ():
+        rhs_form = inner(Constant(1), test)*dx
+    elif test.function_space().shape == (2, ):
+        rhs_form = inner(Constant((1, 1)), test)*dx
+
+    if bcs is not None:
+        Af = assemble(a, mat_type="matfree", bcs=bcs)
+        rhs = assemble(rhs_form, bcs=bcs)
+    else:
+        Af = assemble(a, mat_type="matfree")
+        rhs = assemble(rhs_form)
+
+    # matrix-free duplicate creates a matrix-free copy of Af
+    # we have not implemented the default copy = False
+    B_petsc = Af.petscmat.duplicate(copy=True)
+
+    ksp = PETSc.KSP().create()
+    ksp.setOperators(Af.petscmat)
+    ksp.setFromOptions()
+
+    solution1 = Function(test.function_space())
+    solution2 = Function(test.function_space())
+
+    # Solve system with original matrix A
+    with rhs.dat.vec_ro as b, solution1.dat.vec as x:
+        ksp.solve(b, x)
+
+    # Multiply with copied matrix B
+    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+        B_petsc.mult(x, y)
+    # Check if original rhs is equal to BA^-1 (rhs)
+    assert np.allclose(rhs.vector().array(), solution2.vector().array())

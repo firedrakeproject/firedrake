@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
@@ -12,6 +13,7 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             OverloadedType.__init__(self, *args,
                                     block_class=kwargs.pop("block_class", None),
@@ -27,6 +29,7 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_assign(assign):
+        @wraps(assign)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             if annotate:
@@ -82,14 +85,24 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
+<<<<<<< HEAD
         dst.assign(type(dst)(numpy.reshape(src[offset:offset + dst.ufl_element().value_size()], dst.ufl_shape)))
         offset += dst.ufl_element().value_size()
+=======
+        l = dst.ufl_element().value_size()
+        dst.assign(numpy.reshape(src[offset:offset + l], dst.ufl_shape), annotate=False)
+        offset += l
+>>>>>>> origin/master
         return dst, offset
 
     @staticmethod
     def _ad_to_list(m):
+<<<<<<< HEAD
         m_v = m.values()
         return m_v.tolist()
+=======
+        return m.values().tolist()
+>>>>>>> origin/master
 
     def _ad_copy(self):
         return self._constant_from_values()

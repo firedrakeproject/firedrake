@@ -3,7 +3,6 @@ import itertools
 import numpy
 import os
 import ufl
-import weakref
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.datatypes import IntType
@@ -414,53 +413,41 @@ class File(object):
 
         self._fnames = None
         self._topology = None
-        self._output_functions = weakref.WeakKeyDictionary()
-        self._mappers = weakref.WeakKeyDictionary()
 
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function, Projector, Interpolator
+            TensorFunctionSpace, Function
+        from tsfc.finatinterface import create_element as create_finat_element
 
         name = function.name()
         # Need to project/interpolate?
-        # If space is not the max element, we can do so.
-        if function.ufl_element == max_elem:
+        # If space is not the max element, we must do so.
+        finat_elem = function.function_space().finat_element
+        if finat_elem == create_finat_element(max_elem):
             return OFunction(array=get_array(function),
                              name=name, function=function)
         #  OK, let's go and do it.
+        # Build appropriate space for output function.
         shape = function.ufl_shape
-        output = self._output_functions.get(function)
-        if output is None:
-            # Build appropriate space for output function.
-            shape = function.ufl_shape
-            if len(shape) == 0:
-                V = FunctionSpace(function.ufl_domain(), max_elem)
-            elif len(shape) == 1:
-                if numpy.prod(shape) > 3:
-                    raise ValueError("Can't write vectors with more than 3 components")
-                V = VectorFunctionSpace(function.ufl_domain(), max_elem,
-                                        dim=shape[0])
-            elif len(shape) == 2:
-                if numpy.prod(shape) > 9:
-                    raise ValueError("Can't write tensors with more than 9 components")
-                V = TensorFunctionSpace(function.ufl_domain(), max_elem,
-                                        shape=shape)
-            else:
-                raise ValueError("Unsupported shape %s" % (shape, ))
-            output = Function(V)
-            self._output_functions[function] = output
-        if self.project:
-            projector = self._mappers.get(function)
-            if projector is None:
-                projector = Projector(function, output)
-                self._mappers[function] = projector
-            projector.project()
+        if len(shape) == 0:
+            V = FunctionSpace(function.ufl_domain(), max_elem)
+        elif len(shape) == 1:
+            if numpy.prod(shape) > 3:
+                raise ValueError("Can't write vectors with more than 3 components")
+            V = VectorFunctionSpace(function.ufl_domain(), max_elem,
+                                    dim=shape[0])
+        elif len(shape) == 2:
+            if numpy.prod(shape) > 9:
+                raise ValueError("Can't write tensors with more than 9 components")
+            V = TensorFunctionSpace(function.ufl_domain(), max_elem,
+                                    shape=shape)
         else:
-            interpolator = self._mappers.get(function)
-            if interpolator is None:
-                interpolator = Interpolator(function, output)
-                self._mappers[function] = interpolator
-            interpolator.interpolate()
+            raise ValueError("Unsupported shape %s" % (shape, ))
+        output = Function(V)
+        if self.project:
+            output.project(function)
+        else:
+            output.interpolate(function)
 
         return OFunction(array=get_array(output), name=name, function=output)
 

@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.overloaded_type import FloatingType
 from .blocks import DirichletBCBlock
 from pyadjoint.tape import no_annotations
@@ -6,6 +7,7 @@ from pyadjoint.tape import no_annotations
 class DirichletBCMixin(FloatingType):
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self,
                                   *args,
@@ -19,6 +21,7 @@ class DirichletBCMixin(FloatingType):
     @staticmethod
     def _ad_annotate_apply(apply):
         @no_annotations
+        @wraps(apply)
         def wrapper(self, *args, **kwargs):
             for arg in args:
                 if not hasattr(arg, "bcs"):
