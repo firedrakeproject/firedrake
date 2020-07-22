@@ -60,7 +60,6 @@ class AssembledPC(PCBase):
                                                     form_compiler_parameters=fcp,
                                                     mat_type=mat_type)
         self._assemble_P()
-        self.P.force_evaluation()
 
         # Transfer nullspace over
         Pmat = self.P.petscmat
@@ -83,7 +82,7 @@ class AssembledPC(PCBase):
         octx = get_appctx(dm)
         oproblem = octx._problem
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
@@ -94,7 +93,6 @@ class AssembledPC(PCBase):
 
     def update(self, pc):
         self._assemble_P()
-        self.P.force_evaluation()
 
     def form(self, pc, test, trial):
         _, P = pc.getOperators()

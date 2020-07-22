@@ -82,9 +82,6 @@ class PCDPC(PCBase):
                       mat_type=Kp_mat_type,
                       options_prefix=prefix + "Kp_")
 
-        Mp.force_evaluation()
-        Kp.force_evaluation()
-
         # FIXME: Should we transfer nullspaces over.  I think not.
 
         Mksp = PETSc.KSP().create(comm=pc.comm)
@@ -120,13 +117,11 @@ class PCDPC(PCBase):
                                                      form_compiler_parameters=context.fc_params,
                                                      mat_type=self.Fp_mat_type)
         self._assemble_Fp()
-        self.Fp.force_evaluation()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]
 
     def update(self, pc):
         self._assemble_Fp()
-        self.Fp.force_evaluation()
 
     def apply(self, pc, x, y):
         a, b = self.workspace

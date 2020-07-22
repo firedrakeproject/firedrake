@@ -6,17 +6,26 @@
 Firedrake events
 ----------------
 
+Firedrake USA '20
+~~~~~~~~~~~~~~~~~
+
+We'll be holding a Firedrake user and developer workshop for the first
+time in North America at the University of Washingon on 10 and 11
+February 2020. For more information, see the
+:doc:`the workshop page <firedrake_usa_20>`.
+
+
 Firedrake '19
 ~~~~~~~~~~~~~
 
-The third Firedrake user and developer workshop will be held at Durham
+The third Firedrake user and developer workshop was held at Durham
 University on 26 and 27 September 2019. For more information see
 :doc:`the workshop page <firedrake_19>`.
 
 Firedrake tutorial at RWTH Aachen University Jun 18 2019
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-There will be a hands-on Firedrake tutorial at the Aachen Institute
+There was a hands-on Firedrake tutorial at the Aachen Institute
 for Advanced Study in Computational Engineering Science (AICES) on 18
 June 2019. For more details see `their website <https://www.aices.rwth-aachen.de/en/media-and-seminars/events>`_.
  

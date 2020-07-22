@@ -69,6 +69,16 @@ class ExtractSubBlock(MultiFunction):
         # [v_0, v_2, v_3][1, 2]
         return self.expr(o, *map_expr_dags(self.index_inliner, operands))
 
+    def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
+        # If we're only taking a derivative wrt part of an argument in
+        # a mixed space other bits might come back as zero. We want to
+        # propagate a zero in that case.
+        argument, = arguments
+        if all(isinstance(a, Zero) for a in argument.ufl_operands):
+            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        else:
+            return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
+
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
@@ -117,7 +127,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
-def split_form(form):
+def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 
     Each entry is a :class:`SplitForm` tuple of the indices into the
@@ -149,8 +159,15 @@ def split_form(form):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
+    if diagonal:
+        assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
+            if diagonal:
+                i, j = idx
+                if i != j:
+                    continue
+                idx = (i, )
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)

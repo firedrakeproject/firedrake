@@ -42,6 +42,38 @@ bandwidth* of the machine.  You can measure how the achieved memory
 bandwidth changes depending on the number of processes used on your
 machine using STREAMS_.
 
+Parallel garbage collection
+===========================
+
+Firedrake objects often contain PETSc objects, but are managed by
+the Python garbage collector. It is possible that when executing in
+parallel, code will deadlock as the Python garbage collector is not
+collective over the MPI communicator that the PETSc objects are
+collective over. If you find parallel code hanging for inexplicable
+reasons, it is possible to turn off the Python garbage collector by
+including these lines in your code:
+
+.. code-block:: python
+
+    import gc
+    gc.disable()
+
+.. warning::
+    Disabling the garbage collector may cause memory leaks. It is
+    possible to call the garbage collector manually using
+    :func:`.gc.collect` to avoid the issue, but this may in turn
+    lead to a deadlock.
+
+The garbage collector can be turned back on with this line:
+
+.. code-block:: python
+
+    gc.enable()
+
+More information can be found in
+`this <https://github.com/firedrakeproject/firedrake/issues/1617>`_
+issue.
+
 Using MPI Communicators
 =======================
 

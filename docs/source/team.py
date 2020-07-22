@@ -11,15 +11,21 @@ if outfile == "teamgrid.rst":
         ("Lawrence Mitchell",
          "https://www.dur.ac.uk/computer.science/staff/profile/?id=17243"),
         ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
-        ("Tianjiao (TJ) Sun", "https://www.doc.ic.ac.uk/~ts2914/"),
         ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
-        ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),
         ("Rob Kirby", "http://www.baylor.edu/math/index.php?id=90540"),
-        ("Koki Sagiyama", "http://www.imperial.ac.uk/people/k.sagiyama")
+        ("Koki Sagiyama", "http://www.imperial.ac.uk/people/k.sagiyama"),
+        ("Nacime Bouziani", "https://www.imperial.ac.uk/people/n.bouziani18"),
+        ("Sophia Vorderwuelbecke", "https://www.imperial.ac.uk/people/s.vorderwuelbecke18"),
+        ("Tom Gregory", "https://www.imperial.ac.uk/people/t.gregory18"),
+        ("Jack Betteridge", "https://www.imperial.ac.uk/people/j.betteridge"),
+        ("Daniel Shapero", "http://psc.apl.uw.edu/people/investigators/daniel-shapero/"),
+        ("Reuben Hill", "https://www.imperial.ac.uk/people/reuben.hill10"),
     ])
 elif outfile == "teaminactive.rst":
     team = OrderedDict([
+        ("Tianjiao (TJ) Sun", "https://www.doc.ic.ac.uk/~ts2914/"),
+        ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Fabio Luporini", "http://www.imperial.ac.uk/people/f.luporini12"),
         ("Alastair Gregory", "http://www.imperial.ac.uk/people/a.gregory14"),
         ("Michael Lange", "https://www.linkedin.com/in/michael-lange-56675994/"),
@@ -56,7 +62,7 @@ names = []
 
 def imagename(name):
     puny = name.split()[0].lower().encode("punycode").decode()
-    return puny[:-1] if puny[-1]=="-" else puny 
+    return puny[:-1] if puny[-1]=="-" else puny
 
 # Write substitution rules for member images.
 for member, url in team.items():

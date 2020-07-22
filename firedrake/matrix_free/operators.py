@@ -7,6 +7,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
 
 from firedrake.petsc import PETSc
+from firedrake.utils import cached_property
 
 
 __all__ = ("ImplicitMatrixContext", )
@@ -157,6 +158,31 @@ class ImplicitMatrixContext(object):
                                                                tensor=self._x,
                                                                bcs=None,
                                                                form_compiler_parameters=self.fc_params))
+
+    @cached_property
+    def _diagonal(self):
+        from firedrake import Function
+        assert self.on_diag
+        return Function(self._x.function_space())
+
+    @cached_property
+    def _assemble_diagonal(self):
+        from firedrake.assemble import create_assembly_callable
+        return create_assembly_callable(self.a,
+                                        tensor=self._diagonal,
+                                        form_compiler_parameters=self.fc_params,
+                                        diagonal=True)
+
+    def getDiagonal(self, mat, vec):
+        self._assemble_diagonal()
+        for bc in self.bcs:
+            # Operator is identity on boundary nodes
+            bc.set(self._diagonal, 1)
+        with self._diagonal.dat.vec_ro as v:
+            v.copy(vec)
+
+    def missingDiagonal(self, mat):
+        return (False, -1)
 
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
@@ -345,3 +371,20 @@ class ImplicitMatrixContext(object):
         submat.setUp()
 
         return submat
+
+    def duplicate(self, mat, copy):
+
+        if copy == 0:
+            raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy=0")
+        newmat_ctx = ImplicitMatrixContext(self.a,
+                                           row_bcs=self.bcs,
+                                           col_bcs=self.bcs_col,
+                                           fc_params=self.fc_params,
+                                           appctx=self.appctx)
+        newmat = PETSc.Mat().create(comm=mat.comm)
+        newmat.setType("python")
+        newmat.setSizes((newmat_ctx.row_sizes, newmat_ctx.col_sizes),
+                        bsize=newmat_ctx.block_size)
+        newmat.setPythonContext(newmat_ctx)
+        newmat.setUp()
+        return newmat

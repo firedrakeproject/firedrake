@@ -12,6 +12,7 @@ from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.adjoint import FunctionMixin
 try:
     import cachetools
 except ImportError:
@@ -58,7 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Coefficient.__init__(self, function_space.ufl_element())
+        ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -73,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             assert val.comm == self.comm
             self.dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
+            self.dat = function_space.make_dat(val, dtype, self.name())
 
     @utils.cached_property
     def topological(self):
@@ -203,7 +204,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             return super(Function, self).__str__()
 
 
-class Function(ufl.Coefficient):
+class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
@@ -221,6 +222,7 @@ class Function(ufl.Coefficient):
     the :class:`.FunctionSpace`.
     """
 
+    @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
@@ -280,7 +282,9 @@ class Function(ufl.Coefficient):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        return getattr(self._data, name)
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Function, self).__dir__()
@@ -291,6 +295,7 @@ class Function(ufl.Coefficient):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.split()))
 
+    @FunctionMixin._ad_annotate_split
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -319,6 +324,7 @@ class Function(ufl.Coefficient):
             return self._components[i]
         return self._split[i]
 
+    @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`.Expression`.
@@ -348,6 +354,7 @@ class Function(ufl.Coefficient):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset)
 
+    @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of
@@ -366,9 +373,12 @@ class Function(ufl.Coefficient):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif (isinstance(expr, Function)
+              and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
             return self
 
@@ -506,7 +516,6 @@ class Function(ufl.Coefficient):
         :kwarg tolerance: Tolerance to use when checking for points in cell.
         """
         # Need to ensure data is up-to-date for reading
-        self.dat._force_evaluation(read=True, write=False)
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)
         from mpi4py import MPI

@@ -19,9 +19,9 @@ def DGDPC0(request, mesh):
     return FunctionSpace(mesh, request.param, 0)
 
 
-@pytest.fixture(scope='module')
-def DG1(mesh):
-    return FunctionSpace(mesh, "DG", 1)
+@pytest.fixture(scope='module', params=["DG", "DPC"])
+def DGDPC1(request, mesh):
+    return FunctionSpace(mesh, request.param, 1)
 
 
 @pytest.fixture
@@ -79,20 +79,20 @@ def test_left_to_right_parallel(mesh, DGDPC0, W):
     run_left_to_right(mesh, DGDPC0, W)
 
 
-def run_right_to_left(mesh, DG1, W):
+def run_right_to_left(mesh, DGDPC1, W):
     velocity = as_vector([-1.0, 0.0])
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = xs[1] + 0.5
-    inflow = Function(DG1)
+    inflow = Function(DGDPC1)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG1)
-    phi = TestFunction(DG1)
+    D = TrialFunction(DGDPC1)
+    phi = TestFunction(DGDPC1)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
@@ -101,19 +101,19 @@ def run_right_to_left(mesh, DG1, W):
 
     L = -inflow*phi*dot(u0, n)*ds_v(2)  # inflow at right-hand wall
 
-    out = Function(DG1)
+    out = Function(DGDPC1)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 2e-14
 
 
-def test_right_to_left(mesh, DG1, W):
-    run_right_to_left(mesh, DG1, W)
+def test_right_to_left(mesh, DGDPC1, W):
+    run_right_to_left(mesh, DGDPC1, W)
 
 
 @pytest.mark.parallel
-def test_right_to_left_parallel(mesh, DG1, W):
-    run_right_to_left(mesh, DG1, W)
+def test_right_to_left_parallel(mesh, DGDPC1, W):
+    run_right_to_left(mesh, DGDPC1, W)
 
 
 def run_bottom_to_top(mesh, DGDPC0, W):
@@ -153,20 +153,20 @@ def test_bottom_to_top_parallel(mesh, DGDPC0, W):
     run_bottom_to_top(mesh, DGDPC0, W)
 
 
-def run_top_to_bottom(mesh, DG1, W):
+def run_top_to_bottom(mesh, DGDPC1, W):
     velocity = as_vector([0.0, -1.0])
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
     inflowexpr = 0.5 + abs(xs[0] - 0.5)
-    inflow = Function(DG1)
+    inflow = Function(DGDPC1)
     inflow.interpolate(inflowexpr)
 
     n = FacetNormal(mesh)
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
-    D = TrialFunction(DG1)
-    phi = TestFunction(DG1)
+    D = TrialFunction(DGDPC1)
+    phi = TestFunction(DGDPC1)
 
     a1 = -D*dot(u0, grad(phi))*dx
     a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_h
@@ -175,16 +175,16 @@ def run_top_to_bottom(mesh, DG1, W):
 
     L = -inflow*phi*dot(u0, n)*ds_t  # inflow at top wall
 
-    out = Function(DG1)
+    out = Function(DGDPC1)
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
-def test_top_to_bottom(mesh, DG1, W):
-    run_top_to_bottom(mesh, DG1, W)
+def test_top_to_bottom(mesh, DGDPC1, W):
+    run_top_to_bottom(mesh, DGDPC1, W)
 
 
 @pytest.mark.parallel
-def test_top_to_bottom_parallel(mesh, DG1, W):
-    run_top_to_bottom(mesh, DG1, W)
+def test_top_to_bottom_parallel(mesh, DGDPC1, W):
+    run_top_to_bottom(mesh, DGDPC1, W)

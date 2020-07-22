@@ -17,16 +17,17 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.dmplex as dmplex
+import firedrake.cython.dmplex as dmplex
 import firedrake.expression as expression
-import firedrake.extrusion_numbering as extnum
+import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.spatialindex as spatialindex
+import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
+from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
@@ -367,14 +368,14 @@ class MeshTopology(object):
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
-                dmplex.set_adjacency_callback(self._plex)
-                self._plex.distributeOverlap(overlap)
-                dmplex.clear_adjacency_callback(self._plex)
+                dmplex.set_adjacency_callback(self._topology_dm)
+                self._topology_dm.distributeOverlap(overlap)
+                dmplex.clear_adjacency_callback(self._topology_dm)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
                 # Default is FEM (vertex star) adjacency.
-                self._plex.distributeOverlap(overlap)
+                self._topology_dm.distributeOverlap(overlap)
                 self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -383,7 +384,7 @@ class MeshTopology(object):
         plex.setFromOptions()
         utils._init()
 
-        self._plex = plex
+        self._topology_dm = plex
         self.name = name
         self.comm = dup_comm(plex.comm.tompi4py())
 
@@ -423,7 +424,7 @@ class MeshTopology(object):
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
-        dim = plex.getDimension()
+        tdim = plex.getDimension()
 
         # Allow empty local meshes on a process
         cStart, cEnd = plex.getHeightStratum(0)  # cells
@@ -436,8 +437,15 @@ class MeshTopology(object):
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
-
+        # Note that the geometric dimension of the cell is not set here
+        # despite it being a property of a UFL cell. It will default to
+        # equal the topological dimension.
+        # Firedrake mesh topologies, by convention, which specifically
+        # represent a mesh topology (as here) have geometric dimension
+        # equal their topological dimension. This is reflected in the
+        # corresponding UFL mesh.
+        cell = ufl.Cell(_cells[tdim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -452,7 +460,7 @@ class MeshTopology(object):
 
             if reorder:
                 with timed_region("Mesh: reorder"):
-                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    old_to_new = self._topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
             else:
@@ -462,14 +470,14 @@ class MeshTopology(object):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
-                self._plex_renumbering = dmplex.plex_renumbering(self._plex,
+                dmplex.mark_entity_classes(self._topology_dm)
+                self._entity_classes = dmplex.get_entity_classes(self._topology_dm).astype(int)
+                self._plex_renumbering = dmplex.plex_renumbering(self._topology_dm,
                                                                  self._entity_classes,
                                                                  reordering)
 
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
                 self._cell_numbering = self.create_section(entity_dofs)
@@ -480,7 +488,7 @@ class MeshTopology(object):
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
+                self._facet_ordering = dmplex.get_facet_ordering(self._topology_dm, facet_numbering)
         self._callback = callback
 
     layers = None
@@ -512,8 +520,30 @@ class MeshTopology(object):
         return self
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This is true even for immersed manifold
+            meshes.
+
+        """
+        return self._ufl_mesh.ufl_cell()
+
+    def ufl_mesh(self):
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This convention will be reflected in this
+            UFL mesh and is true even for immersed manifold meshes.
+
+        """
+        return self._ufl_mesh
 
     @utils.cached_property
     def cell_closure(self):
@@ -521,15 +551,15 @@ class MeshTopology(object):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self._plex
-        dim = plex.getDimension()
+        plex = self._topology_dm
+        tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
         cell_numbering = self._cell_numbering
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
-        assert dim == cell.topological_dimension()
+        assert tdim == cell.topological_dimension()
         if cell.is_simplex():
             import FIAT
             topology = FIAT.ufc_cell(cell).get_topology()
@@ -568,7 +598,7 @@ class MeshTopology(object):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
 
-        dm = self._plex
+        dm = self._topology_dm
         facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
                                                      self._facet_ordering)
         label = dmplex.FACE_SETS_LABEL
@@ -594,9 +624,8 @@ class MeshTopology(object):
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        point2facetnumber = {}
-        for i, f in enumerate(facets):
-            point2facetnumber[f] = i
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
@@ -622,7 +651,7 @@ class MeshTopology(object):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._plex,
+        cell_facets = dmplex.cell_facet_labeling(self._topology_dm,
                                                  self._cell_numbering,
                                                  self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
@@ -682,27 +711,27 @@ class MeshTopology(object):
         return self._cell_orientations
 
     def num_cells(self):
-        cStart, cEnd = self._plex.getHeightStratum(0)
+        cStart, cEnd = self._topology_dm.getHeightStratum(0)
         return cEnd - cStart
 
     def num_facets(self):
-        fStart, fEnd = self._plex.getHeightStratum(1)
+        fStart, fEnd = self._topology_dm.getHeightStratum(1)
         return fEnd - fStart
 
     def num_faces(self):
-        fStart, fEnd = self._plex.getDepthStratum(2)
+        fStart, fEnd = self._topology_dm.getDepthStratum(2)
         return fEnd - fStart
 
     def num_edges(self):
-        eStart, eEnd = self._plex.getDepthStratum(1)
+        eStart, eEnd = self._topology_dm.getDepthStratum(1)
         return eEnd - eStart
 
     def num_vertices(self):
-        vStart, vEnd = self._plex.getDepthStratum(0)
+        vStart, vEnd = self._topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
     def num_entities(self, d):
-        eStart, eEnd = self._plex.getDepthStratum(d)
+        eStart, eEnd = self._topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
     def size(self, d):
@@ -751,7 +780,7 @@ class MeshTopology(object):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmplex.get_cell_markers(self._plex,
+                ids = tuple(dmplex.get_cell_markers(self._topology_dm,
                                                     self._cell_numbering,
                                                     sid)
                             for sid in all_integer_subdomain_ids)
@@ -759,7 +788,7 @@ class MeshTopology(object):
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmplex.get_cell_markers(self._plex,
+                indices = dmplex.get_cell_markers(self._topology_dm,
                                                   self._cell_numbering,
                                                   subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
@@ -822,15 +851,16 @@ class ExtrudedMeshTopology(MeshTopology):
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self._plex = mesh._plex
+        self._topology_dm = mesh._topology_dm
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
-            extents = extnum.layer_extents(self._plex,
+            extents = extnum.layer_extents(self._topology_dm,
                                            self._cell_numbering,
                                            layers)
             if np.any(extents[:, 3] - extents[:, 2] <= 0):
@@ -980,7 +1010,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
-class MeshGeometry(ufl.Mesh):
+class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
     def __new__(cls, element):
@@ -992,6 +1022,7 @@ class MeshGeometry(ufl.Mesh):
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
+    @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
@@ -1026,6 +1057,7 @@ class MeshGeometry(ufl.Mesh):
         return self._topology
 
     @utils.cached_property
+    @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
         import firedrake.functionspaceimpl as functionspaceimpl
@@ -1137,7 +1169,7 @@ values from f.)"""
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-        x = np.asarray(x, dtype=np.float)
+        x = np.asarray(x, dtype=utils.ScalarType)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
@@ -1217,7 +1249,9 @@ values from f.)"""
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
-        return getattr(self._topology, name)
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
@@ -1474,16 +1508,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
+    helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
-        hfamily = "DG"
-    else:
-        hfamily = mesh._coordinates.ufl_element().family()
-    hdegree = mesh._coordinates.ufl_element().degree()
+        helement = helement.reconstruct(family="DG", variant="equispaced")
+    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, hfamily, hdegree, dim=gdim,
-                                                       vfamily="Lagrange", vdegree=1)
+    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
 
@@ -1494,8 +1527,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        fs = functionspace.VectorFunctionSpace(self, "CG", hdegree, dim=gdim,
-                                               vfamily="CG", vdegree=1)
+        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        element = ufl.TensorProductElement(helement, velement)
+        fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs)
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)

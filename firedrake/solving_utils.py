@@ -60,9 +60,15 @@ class _SNESContext(object):
         ``"state"``.
     :arg pre_jacobian_callback: User-defined function called immediately
         before Jacobian assembly
+    :arg post_jacobian_callback: User-defined function called immediately
+        after Jacobian assembly
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
+    :arg post_function_callback: User-defined function called immediately
+        after residual assembly
     :arg options_prefix: The options prefix of the SNES.
+    :arg transfer_manager: Object that can transfer functions between
+        levels, typically a :class:`~.TransferManager`
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -72,9 +78,10 @@ class _SNESContext(object):
     """
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
-                 options_prefix=None):
+                 post_jacobian_callback=None, post_function_callback=None,
+                 options_prefix=None,
+                 transfer_manager=None):
         from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import DirichletBC
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -87,6 +94,8 @@ class _SNESContext(object):
         self._problem = problem
         self._pre_jacobian_callback = pre_jacobian_callback
         self._pre_function_callback = pre_function_callback
+        self._post_jacobian_callback = post_jacobian_callback
+        self._post_function_callback = post_function_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -122,9 +131,9 @@ class _SNESContext(object):
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
-        self.bcs_F = [bc if isinstance(bc, DirichletBC) else bc._F for bc in problem.bcs]
-        self.bcs_J = [bc if isinstance(bc, DirichletBC) else bc._J for bc in problem.bcs]
-        self.bcs_Jp = [bc if isinstance(bc, DirichletBC) else bc._Jp for bc in problem.bcs]
+        self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
+        self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
+        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
         self._assemble_residual = create_assembly_callable(self.F,
                                                            tensor=self._F,
                                                            bcs=self.bcs_F,
@@ -138,6 +147,53 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
+        self._transfer_manager = transfer_manager
+
+    @property
+    def transfer_manager(self):
+        """This allows the transfer manager to be set from options, e.g.
+
+        solver_parameters = {"ksp_type": "cg",
+                             "pc_type": "mg",
+                             "mg_transfer_manager": __name__ + ".manager"}
+
+        The value for "mg_transfer_manager" can either be a specific instantiated
+        object, or a function or class name. In the latter case it will be invoked
+        with no arguments to instantiate the object.
+
+        If "snes_type": "fas" is used, the relevant option is "fas_transfer_manager",
+        with the same semantics.
+        """
+        if self._transfer_manager is None:
+            opts = PETSc.Options()
+            prefix = self.options_prefix or ""
+            if opts.hasName(prefix + "mg_transfer_manager"):
+                managername = opts[prefix + "mg_transfer_manager"]
+            elif opts.hasName(prefix + "fas_transfer_manager"):
+                managername = opts[prefix + "fas_transfer_manager"]
+            else:
+                managername = None
+
+            if managername is None:
+                from firedrake import TransferManager
+                transfer = TransferManager(use_averaging=True)
+            else:
+                (modname, objname) = managername.rsplit('.', 1)
+                mod = __import__(modname)
+                obj = getattr(mod, objname)
+                if isinstance(obj, type):
+                    transfer = obj()
+                else:
+                    transfer = obj
+
+            self._transfer_manager = transfer
+        return self._transfer_manager
+
+    @transfer_manager.setter
+    def transfer_manager(self, manager):
+        if self._transfer_manager is not None:
+            raise ValueError("Must set transfer manager before first use.")
+        self._transfer_manager = manager
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -235,7 +291,8 @@ class _SNESContext(object):
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx))
+                                     appctx=self.appctx,
+                                     transfer_manager=self.transfer_manager))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
@@ -257,6 +314,10 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
+
+        if ctx._post_function_callback is not None:
+            with ctx._F.dat.vec as F_:
+                ctx._post_function_callback(X, F_)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -292,12 +353,13 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
+
+        if ctx._post_jacobian_callback is not None:
+            ctx._post_jacobian_callback(X, J)
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
         ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
@@ -325,19 +387,17 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
-            _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
-            inject(fine._x, ctx._x)
+            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
+            manager.inject(fine._x, ctx._x)
 
             for bc in itertools.chain(*ctx._problem.bcs):
                 if isinstance(bc, DirichletBC):
                     bc.apply(ctx._x)
 
         ctx._assemble_jac()
-        ctx._jac.force_evaluation()
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
-            ctx._pjac.force_evaluation()
 
     @cached_property
     def _jac(self):

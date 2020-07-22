@@ -26,7 +26,21 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --package-branch fiat cyrus-serendipity --package-branch ufl cyrus-serendipity --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install pyadjoint --no-package-manager || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --package-branch fiat bdmc --package-branch tsfc bdmc --package-branch FInAT bdmc --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
+          }
+        }
+      }
+    }
+    stage('Setup') {
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+python $(which firedrake-clean)
+python -m pip install pytest-cov pytest-xdist
+python -m pip list
+'''
           }
         }
       }
@@ -39,11 +53,8 @@ pipeline {
               timestamps {
                 sh '''
 . ./firedrake/bin/activate
-python $(which firedrake-clean)
-python -m pip install pytest-cov pytest-xdist
-python -m pip list
 cd firedrake/src/firedrake
-python -m pytest -n 11 --cov firedrake -v tests
+python -m pytest --durations=200 -n 11 --cov firedrake -v tests
 '''
               }
             }
@@ -74,6 +85,8 @@ cd firedrake/src/pyadjoint; python -m pytest -v tests/firedrake_adjoint
 echo $PATH
 echo $VIRTUAL_ENV
 ls $VIRTUAL_ENV/bin
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/bibliography.bib
+firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
 cd firedrake/src/firedrake/docs; make html
 '''
               }

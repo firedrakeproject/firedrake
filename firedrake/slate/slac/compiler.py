@@ -27,6 +27,7 @@ from firedrake.slate.slac.utils import topological_sort
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
+from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
 
@@ -35,8 +36,6 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
-
-from tsfc.parameters import SCALAR_TYPE
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -107,9 +106,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
-    if slate_expr.is_mixed:
-        raise NotImplementedError("Compiling mixed slate expressions")
 
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
@@ -143,7 +139,8 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
     # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
     logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
@@ -174,10 +171,10 @@ def generate_kernel_ast(builder, statements, declared_temps):
     result_sym = ast.Symbol("T%d" % len(declared_temps))
     result_data_sym = ast.Symbol("A%d" % len(declared_temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym), pointers=[("restrict",)])
+    result = ast.Decl(ScalarType_c, ast.Symbol(result_data_sym), pointers=[("restrict",)])
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             SCALAR_TYPE,
+                                                             ScalarType_c,
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -188,7 +185,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl(SCALAR_TYPE, builder.coord_sym,
+    args = [result, ast.Decl(ScalarType_c, builder.coord_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"])]
 
@@ -201,7 +198,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
     # Coefficient information
     expr_coeffs = slate_expr.coefficients()
     for c in expr_coeffs:
-        args.extend([ast.Decl(SCALAR_TYPE, csym,
+        args.extend([ast.Decl(ScalarType_c, csym,
                               pointers=[("restrict",)],
                               qualifiers=["const"]) for csym in builder.coefficient(c)])
 
@@ -220,13 +217,17 @@ def generate_kernel_ast(builder, statements, declared_temps):
                              qualifiers=["const"]))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
-    # added as the final argument to the kernel.
+    # added as the final argument to the kernel
+    # and the amount of layers before that.
     if builder.needs_mesh_layers:
+        args.append(ast.Decl("int", builder.mesh_layer_count_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
         args.append(ast.Decl("int", builder.mesh_layer_sym))
 
     # Cell size information
     if builder.needs_cell_sizes:
-        args.append(ast.Decl(SCALAR_TYPE, builder.cell_size_sym,
+        args.append(ast.Decl(ScalarType_c, builder.cell_size_sym,
                              pointers=[("restrict",)],
                              qualifiers=["const"]))
 
@@ -486,18 +487,18 @@ def tensor_assembly_calls(builder):
 
         # FIXME: No variable layers assumption
         statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
-        num_layers = builder.expression.ufl_domain().topological.layers - 1
-        int_top = assembly_calls["interior_facet_horiz_top"]
-        int_btm = assembly_calls["interior_facet_horiz_bottom"]
-        ext_top = assembly_calls["exterior_facet_top"]
-        ext_btm = assembly_calls["exterior_facet_bottom"]
-
-        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers - 1)
-        bottom = ast.Block(int_top + ext_btm, open_scope=True)
-        top = ast.Block(int_btm + ext_top, open_scope=True)
-        rest = ast.Block(int_btm + int_top, open_scope=True)
-        statements.append(ast.If(ast.Eq(builder.mesh_layer_sym, 0),
-                                 (bottom, ast.If(eq_layer, (top, rest)))))
+        num_layers = ast.Symbol(builder.mesh_layer_count_sym, rank=(0,))
+        layer = builder.mesh_layer_sym
+        types = ["interior_facet_horiz_top",
+                 "interior_facet_horiz_bottom",
+                 "exterior_facet_top",
+                 "exterior_facet_bottom"]
+        decide = [ast.Less(layer, num_layers),
+                  ast.Greater(layer, 0),
+                  ast.Eq(layer, num_layers),
+                  ast.Eq(layer, 0)]
+        for (integral_type, which) in zip(types, decide):
+            statements.append(ast.If(which, (ast.Block(assembly_calls[integral_type], open_scope=True),)))
 
     return statements
 

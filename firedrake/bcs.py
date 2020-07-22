@@ -24,6 +24,7 @@ from firedrake import slate
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake import replace
 from firedrake import solving
+from firedrake.adjoint.dirichletbc import DirichletBCMixin
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -80,8 +81,6 @@ class BCBase(object):
                 break
         # Used for indexing functions passed in.
         self._indices = tuple(reversed(indices))
-        # Used for finding local to global maps with boundary conditions applied
-        self._cache_key = (self.domain_args, (self.method, tuple(indexing), tuple(components)))
         # init bcs
         self.bcs = []
         # Remember the depth of the bc
@@ -131,7 +130,7 @@ class BCBase(object):
         # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
         sub_d = [as_tuple(i) for i in sub_d]
 
-        ndim = self.function_space().mesh()._plex.getDimension()
+        ndim = self.function_space().mesh()._topology_dm.getDimension()
         sd = [[] for _ in range(ndim)]
         for i in sub_d:
             sd[ndim - len(i)].append(i)
@@ -241,8 +240,12 @@ class BCBase(object):
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
+    def extract_forms(self, form_type):
+        # Return boundary condition objects actually used in assembly.
+        raise NotImplementedError("Method to extract form objects not implemented.")
 
-class DirichletBC(BCBase):
+
+class DirichletBC(BCBase, DirichletBCMixin):
     r'''Implementation of a strong Dirichlet boundary condition.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -267,8 +270,12 @@ class DirichletBC(BCBase):
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
 
+    @DirichletBCMixin._ad_annotate_init
     def __init__(self, V, g, sub_domain, method="topological"):
         super().__init__(V, sub_domain, method=method)
+        if len(V) > 1:
+            raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
+                             "Apply to the components by indexing the space with .sub(...)")
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
         # it, we need to remember it so that we can re-interpolate it
@@ -378,6 +385,7 @@ class DirichletBC(BCBase):
         self._original_val = val
 
     @timed_function('ApplyBC')
+    @DirichletBCMixin._ad_annotate_apply
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
@@ -432,6 +440,10 @@ class DirichletBC(BCBase):
 
     def integrals(self):
         return []
+
+    def extract_form(self, form_type):
+        # DirichletBC is directly used in assembly.
+        return self
 
 
 class EquationBC(object):
@@ -511,6 +523,16 @@ class EquationBC(object):
     def dirichlet_bcs(self):
         # _F, _J, and _Jp all have the same DirichletBCs
         yield from self._F.dirichlet_bcs()
+
+    def extract_form(self, form_type):
+        r"""Return :class:`.EquationBCSplit` associated with the given 'form_type'.
+
+        :arg form_type: Form to extract; 'F', 'J', or 'Jp'.
+        """
+        if form_type not in {"F", "J", "Jp"}:
+            raise ValueError("Unknown form_type: 'form_type' must be 'F', 'J', or 'Jp'.")
+        else:
+            return getattr(self, f"_{form_type}")
 
     def reconstruct(self, V, subu, u, field):
         _F = self._F.reconstruct(field=field, V=V, subu=subu, u=u)

@@ -54,7 +54,7 @@ class VertexBasedLimiter(Limiter):
         for i
             <float64> _alpha1 = fmin(alpha, fmin(1, (qmax[i] - qavg)/(q[i] - qavg)))
             <float64> _alpha2 = fmin(alpha, fmin(1, (qavg - qmin[i])/(qavg - q[i])))
-            alpha = if(q[i] > qavg, _alpha1, if(q[i] < qavg, _alpha2, alpha))
+            alpha = _alpha1 if q[i] > qavg else (_alpha2 if q[i] < qavg else  alpha)
         end
         for ii
             q[ii] = qavg + alpha * (q[ii] - qavg)

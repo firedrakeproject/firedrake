@@ -13,6 +13,13 @@ import coffee.base as ast
 
 from firedrake.logging import warning
 from firedrake import constant
+from firedrake.utils import ScalarType_c
+try:
+    from cachetools import LRUCache
+    kernel_cache = LRUCache(maxsize=128)
+except ImportError:
+    warning("cachetools not available, firedrake.par_loop calls will be slowed down")
+    kernel_cache = None
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -102,11 +109,21 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
-    kargs.append(...)
-    knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                              name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"])
-
-    return pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+    try:
+        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        if kernel_cache is not None:
+            return kernel_cache[key]
+        else:
+            raise KeyError("No cache")
+    except KeyError:
+        kargs.append(...)
+        knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
+                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
+        knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+        if kernel_cache is not None:
+            return kernel_cache.setdefault(key, knl)
+        else:
+            return knl
 
 
 def _form_string_kernel(body, measure, args, **kwargs):
@@ -123,7 +140,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
             # Do we have a component of a mixed function?
@@ -137,7 +154,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
                 ndof = func.function_space().finat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, ))))
+            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
         body = body.replace(var+".dofs", str(ndof))
 
     return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,

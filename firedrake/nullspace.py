@@ -48,6 +48,7 @@ class VectorSpaceBasis(object):
                 petsc_vecs.append(v_)
         self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
+        self._ad_orthogonalized = False
 
     def nullspace(self, comm=None):
         r"""The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
@@ -83,6 +84,7 @@ class VectorSpaceBasis(object):
                 vec.array -= alpha
             vec.normalize()
         self.check_orthogonality()
+        self._ad_orthogonalized = True
 
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
@@ -95,6 +97,7 @@ class VectorSpaceBasis(object):
         nullsp = self.nullspace(comm=b.comm)
         with b.dat.vec as v:
             nullsp.remove(v)
+        self._ad_orthogonalized = True
 
     def check_orthogonality(self, orthonormal=True):
         r"""Check if the basis is orthogonal.

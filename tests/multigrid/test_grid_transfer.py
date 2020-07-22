@@ -40,7 +40,7 @@ def hierarchy(cell, refinements_per_level):
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
 
     if cell in {"prism", "hexahedron"}:
-        hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=3)
+        hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=[3]*nref, height=1)
     if cell == "triangle-nonnested":
         c2f = {}
         for k, v in hierarchy.coarse_to_fine_cells.items():

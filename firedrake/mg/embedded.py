@@ -1,89 +1,102 @@
 import firedrake
 import ufl
+from functools import reduce
+from enum import IntEnum
+from operator import and_
 from firedrake.petsc import PETSc
 
 
-__all__ = ("EmbeddedDGTransfer", )
+__all__ = ("TransferManager", )
 
 
 native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
 
 
-def EmbeddedDGTransfer(element, use_fortin_interpolation=True):
-    """Return an object that provides grid transfers.
-
-    This object provides transfers of functions between levels in a
-    mesh hierarchy for element types that are not supported directly
-    by Firedrake's multilevel implementation.  It computes transfers
-    by embedding the element in an appropriate DG space, transferring
-    the resulting DG function, and then mapping back.
-
-    :arg element: The UFL element that will be transferred.
-    :arg use_fortin_interpolation: If True, use Fortin operator
-       as an approximate mass inverse, otherwise, use an actual mass
-       solve.
-    """
-    if type(element) is firedrake.MixedElement:
-        return MixedTransfer(element, use_fortin_interpolation=use_fortin_interpolation)
-    else:
-        return SingleTransfer(element, use_fortin_interpolation=use_fortin_interpolation)
+class Op(IntEnum):
+    PROLONG = 0
+    RESTRICT = 1
+    INJECT = 2
 
 
-class NativeTransfer(object):
-    """A transfer object that just calls the native transfer
-    routines."""
-    @staticmethod
-    def prolong(c, f):
-        return firedrake.prolong(c, f)
+class TransferManager(object):
+    class Cache(object):
+        """A caching object for work vectors and matrices.
 
-    @staticmethod
-    def inject(f, c):
-        return firedrake.inject(f, c)
+        :arg element: The element to use for the caching."""
+        def __init__(self, element):
+            cell = element.cell()
+            degree = element.degree()
+            family = lambda c: "DG" if c.is_simplex() else "DQ"
+            if isinstance(cell, ufl.TensorProductCell):
+                scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
+                                                            for (c, d) in zip(cell.sub_cells(), degree)))
+            else:
+                scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
+            shape = element.value_shape()
+            if len(shape) == 0:
+                DG = scalar_element
+            elif len(shape) == 1:
+                shape, = shape
+                DG = ufl.VectorElement(scalar_element, dim=shape)
+            else:
+                DG = ufl.TensorElement(scalar_element, shape=shape)
+            self.embedding_element = DG
+            self._V_DG_mass = {}
+            self._DG_inv_mass = {}
+            self._V_approx_inv_mass = {}
+            self._V_inv_mass_ksp = {}
+            self._DG_work = {}
+            self._work_vec = {}
+            self._V_dof_weights = {}
 
-    @staticmethod
-    def restrict(f, c):
-        return firedrake.restrict(f, c)
+    def __init__(self, *, native_transfers=None, use_averaging=True):
+        """
+        An object for managing transfers between levels in a multigrid
+        hierarchy (possibly via embedding in DG spaces).
 
+        :arg native_transfers: dict mapping UFL element
+           to "natively supported" transfer operators. This should be
+           a three-tuple of (prolong, restrict, inject).
+        :arg use_averaging: Use averaging to approximate the
+           projection out of the embedded DG space? If False, a global
+           L2 projection will be performed.
+        """
+        self.native_transfers = native_transfers or {}
+        self.use_averaging = use_averaging
+        self.caches = {}
 
-class SingleTransfer(object):
-    """Create a transfer object for a single (not mixed) element."""
-    def __new__(cls, element, use_fortin_interpolation=True):
-        if element.family() in native:
-            return NativeTransfer
-        else:
-            return super().__new__(cls)
+    def is_native(self, element):
+        if element in self.native_transfers.keys():
+            return True
+        if isinstance(element.cell(), ufl.TensorProductCell):
+            return reduce(and_, map(self.is_native, element.sub_elements()))
+        return element.family() in native
 
-    def __init__(self, element, use_fortin_interpolation=True):
-        degree = element.degree()
-        cell = element.cell()
-        shape = element.value_shape()
-        if len(shape) == 0:
-            DG = ufl.FiniteElement("DG", cell, degree)
-        elif len(shape) == 1:
-            shape, = shape
-            DG = ufl.VectorElement("DG", cell, degree, dim=shape)
-        else:
-            DG = ufl.TensorElement("DG", cell, degree, shape=shape)
+    def _native_transfer(self, element, op):
+        try:
+            return self.native_transfers[element][op]
+        except KeyError:
+            if self.is_native(element):
+                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                return self.native_transfers.setdefault(element, ops)[op]
+        return None
 
-        self.embedding_element = DG
-        self.use_fortin_interpolation = use_fortin_interpolation
-        self._V_DG_mass = {}
-        self._DG_inv_mass = {}
-        self._V_approx_inv_mass = {}
-        self._V_inv_mass_ksp = {}
-        self._DG_work = {}
-        self._work_vec = {}
-        self._V_dof_weights = {}
+    def cache(self, element):
+        try:
+            return self.caches[element]
+        except KeyError:
+            return self.caches.setdefault(element, TransferManager.Cache(element))
 
     def V_dof_weights(self, V):
-        """Dof weights for Fortin projection.
+        """Dof weights for averaging projection.
 
         :arg V: function space to compute weights for.
         :returns: A PETSc Vec.
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._V_dof_weights[key]
+            return cache._V_dof_weights[key]
         except KeyError:
             # Compute dof multiplicity for V
             # Spin over all (owned) cells incrementing visible dofs by 1.
@@ -97,7 +110,7 @@ class SingleTransfer(object):
                                {"A": (f, firedrake.INC)},
                                is_loopy_kernel=True)
             with f.dat.vec_ro as fv:
-                return self._V_dof_weights.setdefault(key, fv.copy())
+                return cache._V_dof_weights.setdefault(key, fv.copy())
 
     def V_DG_mass(self, V, DG):
         """
@@ -106,14 +119,14 @@ class SingleTransfer(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._V_DG_mass[key]
+            return cache._V_DG_mass[key]
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
                                                    firedrake.TrialFunction(V))*firedrake.dx)
-            M.force_evaluation()
-            return self._V_DG_mass.setdefault(key, M.petscmat)
+            return cache._V_DG_mass.setdefault(key, M.petscmat)
 
     def DG_inv_mass(self, DG):
         """
@@ -121,14 +134,14 @@ class SingleTransfer(object):
         :arg DG: the DG space
         :returns: A PETSc Mat.
         """
+        cache = self.caches[DG.ufl_element()]
         key = DG.dim()
         try:
-            return self._DG_inv_mass[key]
+            return cache._DG_inv_mass[key]
         except KeyError:
             M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TestFunction(DG),
                                                                     firedrake.TrialFunction(DG))*firedrake.dx).inv)
-            M.force_evaluation()
-            return self._DG_inv_mass.setdefault(key, M.petscmat)
+            return cache._DG_inv_mass.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass(self, V, DG):
         """
@@ -137,17 +150,17 @@ class SingleTransfer(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG.
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._V_approx_inv_mass[key]
+            return cache._V_approx_inv_mass[key]
         except KeyError:
             a = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
                                                  firedrake.TrialFunction(V))*firedrake.dx)
             b = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
                                                  firedrake.TrialFunction(DG))*firedrake.dx)
             M = firedrake.assemble(a.inv * b)
-            M.force_evaluation()
-            return self._V_approx_inv_mass.setdefault(key, M.petscmat)
+            return cache._V_approx_inv_mass.setdefault(key, M.petscmat)
 
     def V_inv_mass_ksp(self, V):
         """
@@ -155,13 +168,13 @@ class SingleTransfer(object):
         :arg V: a function space.
         :returns: A PETSc KSP for inverting (V, V).
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._V_inv_mass_ksp[key]
+            return cache._V_inv_mass_ksp[key]
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(V),
                                                    firedrake.TrialFunction(V))*firedrake.dx)
-            M.force_evaluation()
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
@@ -169,30 +182,32 @@ class SingleTransfer(object):
             ksp.pc.setType("cholesky")
             ksp.setFromOptions()
             ksp.setUp()
-            return self._V_inv_mass_ksp.setdefault(key, ksp)
+            return cache._V_inv_mass_ksp.setdefault(key, ksp)
 
     def DG_work(self, V):
         """A DG work Function matching V
         :arg V: a function space.
         :returns: A Function in the embedding DG space.
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._DG_work[key]
+            return cache._DG_work[key]
         except KeyError:
-            DG = firedrake.FunctionSpace(V.mesh(), self.embedding_element)
-            return self._DG_work.setdefault(key, firedrake.Function(DG))
+            DG = firedrake.FunctionSpace(V.mesh(), cache.embedding_element)
+            return cache._DG_work.setdefault(key, firedrake.Function(DG))
 
     def work_vec(self, V):
         """A work Vec for V
         :arg V: a function space.
         :returns: A PETSc Vec for V.
         """
+        cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
-            return self._work_vec[key]
+            return cache._work_vec[key]
         except KeyError:
-            return self._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
+            return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
@@ -204,6 +219,15 @@ class SingleTransfer(object):
         Vs = source.function_space()
         Vt = target.function_space()
 
+        source_element = Vs.ufl_element()
+        target_element = Vt.ufl_element()
+        if self.is_native(source_element) and self.is_native(target_element):
+            return self._native_transfer(source_element, transfer_op)(source, target)
+        if type(source_element) is ufl.MixedElement:
+            assert type(target_element) is ufl.MixedElement
+            for source_, target_ in zip(source.split(), target.split()):
+                self.op(source_, target_, transfer_op=transfer_op)
+            return target
         # Get some work vectors
         dgsource = self.DG_work(Vs)
         dgtarget = self.DG_work(Vt)
@@ -219,12 +243,12 @@ class SingleTransfer(object):
 
         # Transfer
         # u \in VDGs -> u \in VDGt
-        transfer_op(dgsource, dgtarget)
+        self.op(dgsource, dgtarget, transfer_op)
 
         # Project back
         # u \in VDGt -> u \in Vt
         with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
-            if self.use_fortin_interpolation:
+            if self.use_averaging:
                 self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
                 t.pointwiseDivide(t, self.V_dof_weights(Vt))
             else:
@@ -238,7 +262,7 @@ class SingleTransfer(object):
         :arg uc: The source (coarse grid) function.
         :arg uf: The target (fine grid) function.
         """
-        self.op(uc, uf, transfer_op=firedrake.prolong)
+        self.op(uc, uf, transfer_op=Op.PROLONG)
 
     def inject(self, uf, uc):
         """Inject a function (primal restriction)
@@ -246,7 +270,7 @@ class SingleTransfer(object):
         :arg uc: The source (fine grid) function.
         :arg uf: The target (coarse grid) function.
         """
-        self.op(uf, uc, transfer_op=firedrake.inject)
+        self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, gf, gc):
         """Restrict a dual function.
@@ -257,6 +281,15 @@ class SingleTransfer(object):
         Vc = gc.function_space()
         Vf = gf.function_space()
 
+        source_element = Vf.ufl_element()
+        target_element = Vc.ufl_element()
+        if self.is_native(source_element) and self.is_native(target_element):
+            return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
+        if type(source_element) is ufl.MixedElement:
+            assert type(target_element) is ufl.MixedElement
+            for source_, target_ in zip(gf.split(), gc.split()):
+                self.restrict(source_, target_)
+            return gc
         dgf = self.DG_work(Vf)
         dgc = self.DG_work(Vc)
         VDGf = dgf.function_space()
@@ -266,7 +299,7 @@ class SingleTransfer(object):
 
         # g \in Vf^* -> g \in VDGf^*
         with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
-            if self.use_fortin_interpolation:
+            if self.use_averaging:
                 work.pointwiseDivide(gfv, self.V_dof_weights(Vf))
                 self.V_approx_inv_mass(Vf, VDGf).multTranspose(work, dgscratch)
             else:
@@ -274,41 +307,10 @@ class SingleTransfer(object):
                 self.V_DG_mass(Vf, VDGf).mult(work, dgscratch)
 
         # g \in VDGf^* -> g \in VDGc^*
-        firedrake.restrict(dgf, dgc)
+        self.restrict(dgf, dgc)
 
         # g \in VDGc^* -> g \in Vc^*
         with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
             self.DG_inv_mass(VDGc).mult(dgscratch, dgwork)
             self.V_DG_mass(Vc, VDGc).multTranspose(dgwork, gcv)
-
-
-class MixedTransfer(object):
-    """Create a transfer object for a mixed element.
-
-    This just makes :class:`SingleTransfer` objects for each sub element."""
-    def __init__(self, element, use_fortin_interpolation=True):
-        self._transfers = {}
-        self._use_fortin_interpolation = use_fortin_interpolation
-
-    def transfers(self, element):
-        try:
-            return self._transfers[element]
-        except KeyError:
-            transfers = tuple(SingleTransfer(e, use_fortin_interpolation=self._use_fortin_interpolation)
-                              for e in element.sub_elements())
-            return self._transfers.setdefault(element, transfers)
-
-    def prolong(self, uc, uf):
-        element = uc.function_space().ufl_element()
-        for c, f, t in zip(uc.split(), uf.split(), self.transfers(element)):
-            t.prolong(c, f)
-
-    def inject(self, uf, uc):
-        element = uf.function_space().ufl_element()
-        for f, c, t in zip(uf.split(), uc.split(), self.transfers(element)):
-            t.inject(f, c)
-
-    def restrict(self, uf_dual, uc_dual):
-        element = uf_dual.function_space().ufl_element()
-        for f, c, t in zip(uf_dual.split(), uc_dual.split(), self.transfers(element)):
-            t.restrict(f, c)
+        return gc

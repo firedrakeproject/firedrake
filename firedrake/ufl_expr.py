@@ -139,7 +139,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """
     # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if not u_is_x and len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
+    uc, = (u,) if u_is_x else extract_coefficients(u)
+    if not u_is_x and len(uc.split()) > 1 and set(extract_coefficients(form)) & set(uc.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
 
@@ -163,17 +164,21 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         if coefficient_derivatives is not None:
             cds.update(coefficient_derivatives)
         coefficient_derivatives = cds
-    elif isinstance(u, firedrake.Function):
-        V = u.function_space()
+    elif isinstance(uc, firedrake.Function):
+        V = uc.function_space()
         du = argument(V)
-    elif isinstance(u, firedrake.Constant):
-        if u.ufl_shape != ():
+    elif isinstance(uc, firedrake.Constant):
+        if uc.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")
         V = firedrake.FunctionSpace(mesh, "Real", 0)
         du = argument(V)
     else:
         raise RuntimeError("Can't compute derivative for form")
 
+    if u.ufl_shape != du.ufl_shape:
+        raise ValueError("Shapes of u and du do not match.\n"
+                         "If you passed an indexed part of split(u) into "
+                         "derivative, you need to provide an appropriate du as well.")
     return ufl.derivative(form, u, du, coefficient_derivatives)
 
 

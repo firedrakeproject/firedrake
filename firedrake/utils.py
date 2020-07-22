@@ -1,9 +1,15 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
+from pyop2.datatypes import ScalarType, as_cstr
+from firedrake_configuration import get_config
 
 
 _current_uid = 0
+
+ScalarType_c = as_cstr(ScalarType)
+
+complex_mode = get_config()["options"].get("complex", False)
 
 
 def _new_uid():

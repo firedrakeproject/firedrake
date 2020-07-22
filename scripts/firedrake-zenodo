@@ -105,7 +105,7 @@ parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrak
 parser.add_argument("--title", "-t", action="store", nargs=1,
                     help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
 parser.add_argument("--info-file", action="store", nargs=1,
-                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code).  Will be uploaded to Zenodo using the provided name.""")
+                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
 parser.add_argument("--new-version-of", action="store", nargs=1,
                     help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
 parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -712,6 +712,7 @@ tag += "." + str(index + 1)
 
 # Verify commits. This ensures that an invalid sha will cause us to fail before we release any component.
 # This step also replaces short shas with long ones. This seems to be necessary for release creation.
+
 for component in components:
     repo = gh.repository(projects[component], component)
 
@@ -721,9 +722,13 @@ for component in components:
             log.error("Failed to find specified commit for %s" % component)
 
         shas[component] = commit.sha
-
     except KeyError:
         log.warning("No commit specified for %s. No release will be created for this component." % component)
+
+    # Also check that the tag name does not already exist.
+    if any(t.name == tag for t in repo.tags()):
+        log.warning(f"Repository {component} already has tag {tag}. This should not have happened.")
+        sys.exit(1)
 
 # Now create releases.
 message = """This release is specifically created to document the version of
@@ -760,7 +765,7 @@ for component in (set(shas) & set(components)):
             name=descriptions[component],
             body=message.format(component=component),
             draft=False,
-            prerelease=True)
+            prerelease=False)
 
 meta_file = "firedrake-meta-release.json"
 with open(meta_file, "w") as f:
