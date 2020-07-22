@@ -345,3 +345,14 @@ def test_interpolate_minmax(access):
         expect = np.where(f.dat.data_ro > g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
 
     assert np.allclose(actual, expect)
+
+
+def test_interpolate_periodic_coords_max():
+    mesh = PeriodicUnitSquareMesh(4, 4)
+    V = VectorFunctionSpace(mesh, "P", 1)
+
+    continuous = interpolate(SpatialCoordinate(mesh), V, access=MAX)
+
+    # All nodes on the "seam" end up being 1, not 0.
+    assert np.allclose(np.unique(continuous.dat.data_ro),
+                       [0.25, 0.5, 0.75, 1])
