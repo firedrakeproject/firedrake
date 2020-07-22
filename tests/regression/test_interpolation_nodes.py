@@ -108,8 +108,8 @@ def test_convergence_order(mesh, function_space):
     error = compute_interpolation_error(mesh, nref, space, degree)
     error_l2 = error.T[0]
     error_hD = error.T[1]
-    conv_l2 = np.log(error_l2[0:-1]/error_l2[1:])/np.log(2)
-    conv_hD = np.log(error_hD[0:-1]/error_hD[1:])/np.log(2)
+    conv_l2 = np.log2(error_l2[0:-1]/error_l2[1:])
+    conv_hD = np.log2(error_hD[0:-1]/error_hD[1:])
     if "1" in space:
         conv_l2_expected = degree
     else:
