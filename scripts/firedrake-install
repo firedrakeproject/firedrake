@@ -1060,7 +1060,7 @@ def install_nonlocal_operator_dependencies():
     run_pip_install(["git+https://github.com/inducer/gmsh_interop.git"])
     run_pip_install(["git+https://github.com/inducer/modepy.git"])
     run_pip_install(["git+https://github.com/inducer/pyvisfile.git"])
-    run_pip_install(["git+https://github.com/inducer/boxtree.git"])
+    run_pip_install(["git+https://gitlab.tiker.net/xywei/boxtree.git"])
     run_pip_install(["git+https://github.com/inducer/sumpy.git"])
     run_pip_install(["git+https://github.com/inducer/meshmode.git"])
     run_pip_install(["git+https://github.com/inducer/pytential.git"])
