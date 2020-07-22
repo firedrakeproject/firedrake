@@ -85,24 +85,14 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-<<<<<<< HEAD
-        dst.assign(type(dst)(numpy.reshape(src[offset:offset + dst.ufl_element().value_size()], dst.ufl_shape)))
-        offset += dst.ufl_element().value_size()
-=======
         l = dst.ufl_element().value_size()
         dst.assign(numpy.reshape(src[offset:offset + l], dst.ufl_shape), annotate=False)
         offset += l
->>>>>>> origin/master
         return dst, offset
 
     @staticmethod
     def _ad_to_list(m):
-<<<<<<< HEAD
-        m_v = m.values()
-        return m_v.tolist()
-=======
         return m.values().tolist()
->>>>>>> origin/master
 
     def _ad_copy(self):
         return self._constant_from_values()

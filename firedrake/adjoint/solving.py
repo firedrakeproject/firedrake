@@ -29,11 +29,8 @@ def annotate_solve(solve):
             the boundary. The interior values are not guaranteed to be zero.
 
     """
-<<<<<<< HEAD
-=======
 
     @wraps(solve)
->>>>>>> origin/master
     def wrapper(*args, **kwargs):
 
         annotate = annotate_tape(kwargs)
