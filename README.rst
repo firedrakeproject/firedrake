@@ -7,10 +7,10 @@
 Installing PyOP2
 ================
 
-PyOP2 requires Python 3.4 or later.
+PyOP2 requires Python 3.6 or later.
 
-The main testing platform for PyOP2 is Ubuntu 16.04 64-bit with Python
-3.5. Later Ubuntu versions should also work. Some users successfully
+The main testing platform for PyOP2 is Ubuntu 18.04 64-bit with Python
+3.6. Later Ubuntu versions should also work. Some users successfully
 use PyOP2 on Mac OS X.
 
 Installation of the dependencies is somewhat involved, and therefore

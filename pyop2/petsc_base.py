@@ -518,6 +518,10 @@ class MatBlock(base.Mat):
     def _kernel_args_(self):
         return (self.handle.handle, )
 
+    @utils.cached_property
+    def _wrapper_cache_key_(self):
+        return (type(self._parent), self._parent.dtype, self.dims)
+
     @property
     def assembly_state(self):
         # Track our assembly state only
@@ -611,7 +615,7 @@ class Mat(base.Mat):
 
     @utils.cached_property
     def _kernel_args_(self):
-        return (self.handle.handle, )
+        return tuple(a.handle.handle for a in self)
 
     @collective
     def _init(self):
@@ -788,6 +792,7 @@ class Mat(base.Mat):
         blocks in matrices."""
         # One of the path entries was not an Arg.
         if path == (None, None):
+            lgmaps, = lgmaps
             assert all(l is None for l in lgmaps)
             return _make_object('Arg',
                                 data=self.handle.getPythonContext().global_,

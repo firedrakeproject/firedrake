@@ -3,7 +3,11 @@ import numpy
 
 import loopy
 from loopy.symbolic import SubArrayRef
-from loopy.types import OpaqueType
+from loopy.expression import dtype_to_type_context
+from pymbolic.mapper.stringifier import PREC_NONE
+from pymbolic import var
+from loopy.types import NumpyType, OpaqueType
+import abc
 
 import islpy as isl
 import pymbolic.primitives as pym
@@ -29,7 +33,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           Materialise, Accumulate, FunctionCall, When,
                                           Argument, Variable, Literal, NamedLiteral,
                                           Symbol, Zero, Sum, Min, Max, Product)
-from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst)
+from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 
 
@@ -83,6 +87,163 @@ def petsc_function_lookup(target, identifier):
     if identifier in petsc_functions:
         return PetscCallable(name=identifier)
     return None
+
+
+class LACallable(loopy.ScalarCallable, metaclass=abc.ABCMeta):
+    """
+    The LACallable (Linear algebra callable)
+    replaces loopy.CallInstructions to linear algebra functions
+    like solve or inverse by LAPACK calls.
+    """
+    def __init__(self, name, arg_id_to_dtype=None,
+                 arg_id_to_descr=None, name_in_target=None):
+
+        super(LACallable, self).__init__(name,
+                                         arg_id_to_dtype=arg_id_to_dtype,
+                                         arg_id_to_descr=arg_id_to_descr)
+        self.name = name
+        self.name_in_target = name_in_target if name_in_target else name
+
+    @abc.abstractmethod
+    def generate_preambles(self, target):
+        pass
+
+    def with_types(self, arg_id_to_dtype, kernel, callables_table):
+        dtypes = OrderedDict()
+        for i in range(len(arg_id_to_dtype)):
+            if arg_id_to_dtype.get(i) is None:
+                # the types provided aren't mature enough to specialize the
+                # callable
+                return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
+                        callables_table)
+            else:
+                mat_dtype = arg_id_to_dtype[i].numpy_dtype
+                dtypes[i] = NumpyType(mat_dtype)
+        dtypes[-1] = NumpyType(dtypes[0].dtype)
+
+        return (self.copy(name_in_target=self.name_in_target,
+                arg_id_to_dtype=dtypes),
+                callables_table)
+
+    def emit_call_insn(self, insn, target, expression_to_code_mapper):
+        assert self.is_ready_for_codegen()
+        assert isinstance(insn, loopy.CallInstruction)
+
+        parameters = insn.expression.parameters
+
+        parameters = list(parameters)
+        par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
+
+        parameters.append(insn.assignees[-1])
+        par_dtypes.append(self.arg_id_to_dtype[0])
+
+        mat_descr = self.arg_id_to_descr[0]
+        arg_c_parameters = [
+            expression_to_code_mapper(
+                par,
+                PREC_NONE,
+                dtype_to_type_context(target, par_dtype),
+                par_dtype
+            ).expr
+            for par, par_dtype in zip(parameters, par_dtypes)
+        ]
+        c_parameters = [arg_c_parameters[-1]]
+        c_parameters.extend([arg for arg in arg_c_parameters[:-1]])
+        c_parameters.append(numpy.int32(mat_descr.shape[1]))  # n
+        return var(self.name_in_target)(*c_parameters), False
+
+
+class INVCallable(LACallable):
+    """
+    The InverseCallable replaces loopy.CallInstructions to "inverse"
+    functions by LAPACK getri.
+    """
+    def generate_preambles(self, target):
+        assert isinstance(target, loopy.CTarget)
+        inverse_preamble = """
+            #define Inverse_HPP
+            #define BUF_SIZE 30
+
+            static PetscBLASInt ipiv_buffer[BUF_SIZE];
+            static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
+            static void inverse(PetscScalar* __restrict__ Aout, const PetscScalar* __restrict__ A, PetscBLASInt N)
+            {
+                PetscBLASInt info;
+                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
+                PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
+                memcpy(Aout, A, N*N*sizeof(PetscScalar));
+                LAPACKgetrf_(&N, &N, Aout, &N, ipiv, &info);
+                if(info == 0){
+                    LAPACKgetri_(&N, Aout, &N, ipiv, Awork, &N, &info);
+                }
+                if(info != 0){
+                    fprintf(stderr, \"Getri throws nonzero info.\");
+                    abort();
+                }
+                if ( N > BUF_SIZE ) {
+                    free(Awork);
+                    free(ipiv);
+                }
+            }
+        """
+        yield ("inverse", "#include <petscsys.h>\n#include <petscblaslapack.h>\n" + inverse_preamble)
+        return
+
+
+def inv_fn_lookup(target, identifier):
+    if identifier == 'inv':
+        return INVCallable(name='inverse')
+    else:
+        return None
+
+
+class SolveCallable(LACallable):
+    """
+    The SolveCallable replaces loopy.CallInstructions to "solve"
+    functions by LAPACK getrs.
+    """
+    def generate_preambles(self, target):
+        assert isinstance(target, loopy.CTarget)
+        code = """
+            #define Solve_HPP
+            #define BUF_SIZE 30
+
+            static PetscBLASInt ipiv_buffer[BUF_SIZE];
+            static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
+            static void solve(PetscScalar* __restrict__ out, const PetscScalar* __restrict__ A, const PetscScalar* __restrict__ B, PetscBLASInt N)
+            {
+                PetscBLASInt info;
+                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
+                memcpy(out,B,N*sizeof(PetscScalar));
+                PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
+                memcpy(Awork,A,N*N*sizeof(PetscScalar));
+                PetscBLASInt NRHS = 1;
+                const char T = 'T';
+                LAPACKgetrf_(&N, &N, Awork, &N, ipiv, &info);
+                if(info == 0){
+                    LAPACKgetrs_(&T, &N, &NRHS, Awork, &N, ipiv, out, &N, &info);
+                }
+                if(info != 0){
+                    fprintf(stderr, \"Gesv throws nonzero info.\");
+                    abort();
+                }
+
+                if ( N > BUF_SIZE ) {
+                    free(ipiv);
+                    free(Awork);
+                }
+            }
+        """
+
+        yield ("solve", "#include <petscsys.h>\n#include <petscblaslapack.h>\n" + code)
+        return
+
+
+def solve_fn_lookup(target, identifier):
+    if identifier == 'solve':
+        return SolveCallable(name='solve')
+    else:
+        return None
 
 
 class _PreambleGen(ImmutableRecord):
@@ -230,7 +391,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
             if isinstance(insn.children[1], (Zero, Literal)):
                 nesting[insn] = outer_inames
             else:
-                nesting[insn] = runtime_indices([insn])
+                nesting[insn] = runtime_indices([insn]) | runtime_indices(insn.label.within_inames)
         else:
             assert isinstance(insn, FunctionCall)
             if insn.name in (petsc_functions | {kernel_name}):
@@ -307,13 +468,12 @@ def instruction_dependencies(instructions, initialisers):
         )))
         deps[op] -= frozenset(names[op])
 
-    # kernel instructions depends on packing instructions
-    for op in instructions_by_type[KernelInst]:
-        deps[op] |= frozenset(names[o] for o in instructions_by_type[PackInst])
-
-    # unpacking instructions depends on kernel instructions
-    for op in instructions_by_type[UnpackInst]:
-        deps[op] |= frozenset(names[o] for o in instructions_by_type[KernelInst])
+    for typ, depends_on in [(KernelInst, [PackInst]),
+                            (PreUnpackInst, [KernelInst]),
+                            (UnpackInst, [KernelInst, PreUnpackInst])]:
+        for op in instructions_by_type[typ]:
+            ops = itertools.chain(*(instructions_by_type[t] for t in depends_on))
+            deps[op] |= frozenset(names[o] for o in ops)
 
     # add sequential instructions in the initialisers
     for inits in initialisers:
@@ -322,8 +482,7 @@ def instruction_dependencies(instructions, initialisers):
                 deps[p] |= frozenset(names[c] for c in imperatives(inits[:i])) - frozenset([name])
 
     # add name to deps
-    deps = dict((op, (names[op], dep)) for op, dep in deps.items())
-    return deps
+    return dict((op, (names[op], dep)) for op, dep in deps.items())
 
 
 def generate(builder, wrapper_name=None):
@@ -394,7 +553,7 @@ def generate(builder, wrapper_name=None):
     context.instruction_dependencies = deps
 
     statements = list(statement(insn, context) for insn in instructions)
-    # remote the dummy instructions (they were only used to ensure
+    # remove the dummy instructions (they were only used to ensure
     # that the kernel knows about the outer inames).
     statements = list(s for s in statements if not isinstance(s, DummyInstruction))
 
@@ -460,17 +619,16 @@ def generate(builder, wrapper_name=None):
     # register kernel
     kernel = builder.kernel
     headers = set(kernel._headers)
-    headers = headers | set(["#include <math.h>"])
+    headers = headers | set(["#include <math.h>", "#include <complex.h>", "#include <petsc.h>"])
     preamble = "\n".join(sorted(headers))
 
     from coffee.base import Node
 
     if isinstance(kernel._code, loopy.LoopKernel):
+        from loopy.transform.callable import _match_caller_callee_argument_dimension_
         knl = kernel._code
         wrapper = loopy.register_callable_kernel(wrapper, knl)
-        from loopy.transform.callable import _match_caller_callee_argument_dimension_
         wrapper = _match_caller_callee_argument_dimension_(wrapper, knl.name)
-        wrapper = loopy.inline_callable_kernel(wrapper, knl.name)
     else:
         # kernel is a string, add it to preamble
         if isinstance(kernel._code, Node):

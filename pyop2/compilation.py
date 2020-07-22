@@ -186,15 +186,16 @@ class Compiler(object):
 
     @property
     def compiler_version(self):
+        key = (id(self.comm), self._cc)
         try:
-            return Compiler.compiler_versions[self._cc]
+            return Compiler.compiler_versions[key]
         except KeyError:
             if self.comm.rank == 0:
                 ver = sniff_compiler_version(self._cc)
             else:
                 ver = None
             ver = self.comm.bcast(ver, root=0)
-            return Compiler.compiler_versions.setdefault(self._cc, ver)
+            return Compiler.compiler_versions.setdefault(key, ver)
 
     @property
     def workaround_cflags(self):
@@ -212,9 +213,10 @@ class Compiler(object):
             if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
                 return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("7.3") <= ver < version.StrictVersion("7.5"):
+            if version.StrictVersion("7.3") <= ver <= version.StrictVersion("7.5"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
                 # See also https://github.com/firedrakeproject/firedrake/issues/1442
+                # And https://github.com/firedrakeproject/firedrake/issues/1717
                 # Bug also on skylake with the vectoriser in this
                 # combination (disappears without
                 # -fno-tree-loop-vectorize!)
@@ -232,7 +234,7 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(str(jitmodule.cache_key).encode())
+        hsh = md5(str(jitmodule.cache_key[1:]).encode())
         hsh.update(self._cc.encode())
         if self._ld:
             hsh.update(self._ld.encode())
@@ -456,7 +458,9 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
         class StrCode(object):
             def __init__(self, code, argtypes):
                 self.code_to_compile = code
-                self.cache_key = code
+                self.cache_key = (None, code)  # We peel off the first
+                # entry, since for a jitmodule, it's a process-local
+                # cache key
                 self.argtypes = argtypes
         code = StrCode(jitmodule, argtypes)
     elif isinstance(jitmodule, JITModule):

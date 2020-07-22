@@ -59,7 +59,7 @@ from pyop2.version import __version__ as version
 
 from coffee.base import Node
 from coffee.visitors import EstimateFlops
-from functools import reduce, partial
+from functools import reduce
 
 import loopy
 
@@ -124,7 +124,7 @@ class Arg(object):
         :param map:  A :class:`Map` to access this :class:`Arg` or the default
                      if the identity map is to be used.
         :param access: An access descriptor of type :class:`Access`
-        :param lgmaps: For :class:`Mat` objects, a 2-tuple of local to
+        :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
             global maps used during assembly.
 
         Checks that:
@@ -148,6 +148,7 @@ class Arg(object):
         self.lgmaps = None
         if self._is_mat and lgmaps is not None:
             self.lgmaps = as_tuple(lgmaps)
+            assert len(self.lgmaps) == self.data.nblocks
         else:
             if lgmaps is not None:
                 raise ValueError("Local to global maps only for matrices")
@@ -215,11 +216,11 @@ class Arg(object):
             return tuple(_make_object('Arg', d, m, self._access)
                          for d, m in zip(self.data, self._map))
         elif self._is_mixed_mat:
-            s = self.data.sparsity.shape
+            rows, cols = self.data.sparsity.shape
             mr, mc = self.map
             return tuple(_make_object('Arg', self.data[i, j], (mr.split[i], mc.split[j]),
                                       self._access)
-                         for j in range(s[1]) for i in range(s[0]))
+                         for i in range(rows) for j in range(cols))
         else:
             return (self,)
 
@@ -392,8 +393,6 @@ class Set(object):
     Halo send/receive data is stored on sets in a :class:`Halo`.
     """
 
-    _globalcount = 0
-
     _CORE_SIZE = 0
     _OWNED_SIZE = 1
     _GHOST_SIZE = 2
@@ -417,12 +416,11 @@ class Set(object):
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
             size[Set._GHOST_SIZE], "Set received invalid sizes: %s" % size
         self._sizes = size
-        self._name = name or "set_%d" % Set._globalcount
+        self._name = name or "set_#x%x" % id(self)
         self._halo = halo
         self._partition_size = 1024
         # A cache of objects built on top of this set
         self._cache = {}
-        Set._globalcount += 1
 
     @cached_property
     def core_size(self):
@@ -776,11 +774,6 @@ class Subset(ExtrudedSet):
         else:
             return self._superset.layers_array[self.indices, ...]
 
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Subset`"""
-        return ctypes.c_voidp
-
 
 class SetPartition(object):
     def __init__(self, set, offset, size):
@@ -906,7 +899,6 @@ class DataSet(ObjectCached):
 
     Set used in the op2.Dat structures to specify the dimension of the data.
     """
-    _globalcount = 0
 
     @validate_type(('iter_set', Set, SetTypeError),
                    ('dim', (numbers.Integral, tuple, list), DimTypeError),
@@ -921,8 +913,7 @@ class DataSet(ObjectCached):
         self._set = iter_set
         self._dim = as_tuple(dim, numbers.Integral)
         self._cdim = np.prod(self._dim).item()
-        self._name = name or "dset_%d" % DataSet._globalcount
-        DataSet._globalcount += 1
+        self._name = name or "dset_#x%x" % id(self)
         self._initialized = True
 
     @classmethod
@@ -1001,7 +992,6 @@ class DataSet(ObjectCached):
 class GlobalDataSet(DataSet):
     """A proxy :class:`DataSet` for use in a :class:`Sparsity` where the
     matrix has :class:`Global` rows or columns."""
-    _globalcount = 0
 
     def __init__(self, global_):
         """
@@ -1351,13 +1341,12 @@ class Dat(DataCarrier, _EmptyDataMixin):
         from pyop2.codegen.builder import DatPack
         return DatPack
 
-    _globalcount = 0
     _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
     @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError),
                    ('name', str, NameTypeError))
     @validate_dtype(('dtype', None, DataTypeError))
-    def __init__(self, dataset, data=None, dtype=None, name=None, uid=None):
+    def __init__(self, dataset, data=None, dtype=None, name=None):
 
         if isinstance(dataset, Dat):
             self.__init__(dataset.dataset, None, dtype=dataset.dtype,
@@ -1375,14 +1364,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self._dataset = dataset
         self.comm = dataset.comm
         self.halo_valid = True
-        # If the uid is not passed in from outside, assume that Dats
-        # have been declared in the same order everywhere.
-        if uid is None:
-            self._id = Dat._globalcount
-            Dat._globalcount += 1
-        else:
-            self._id = uid
-        self._name = name or "dat_%d" % self._id
+        self._name = name or "dat_#x%x" % id(self)
 
     @cached_property
     def _kernel_args_(self):
@@ -1428,11 +1410,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
         return self.dataset.cdim
-
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Dat`"""
-        return ctypes.c_voidp
 
     @property
     @collective
@@ -1568,7 +1545,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         loop = loops.get(iterset, None)
 
         if loop is None:
-
             import islpy as isl
             import pymbolic.primitives as p
 
@@ -1593,17 +1569,16 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
         :arg other: The destination :class:`Dat`
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
-
+        if other is self:
+            return
         self._copy_parloop(other, subset=subset).compute()
 
     @collective
     def _copy_parloop(self, other, subset=None):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
-
             import islpy as isl
             import pymbolic.primitives as p
-
             inames = isl.make_zero_and_vars(["i"])
             domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
             _other = p.Variable("other")
@@ -1640,117 +1615,130 @@ class Dat(DataCarrier, _EmptyDataMixin):
             raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
-    def _op(self, other, op):
-
-        ret = _make_object('Dat', self.dataset, None, self.dtype)
-        name = "binop_%s" % op.__name__
-
+    def _op_kernel(self, op, globalp, dtype):
+        key = (op, globalp, dtype)
+        try:
+            if not hasattr(self, "_op_kernel_cache"):
+                self._op_kernel_cache = {}
+            return self._op_kernel_cache[key]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
+        name = "binop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _other = p.Variable("other")
         _self = p.Variable("self")
         _ret = p.Variable("ret")
         i = p.Variable("i")
-
         lhs = _ret.index(i)
-        if np.isscalar(other):
-            other = _make_object('Global', 1, data=other)
+        if globalp:
             rhs = _other.index(0)
+            rshape = (1, )
         else:
-            self._check_shape(other)
             rhs = _other.index(i)
+            rshape = (self.cdim, )
         insn = loopy.Assignment(lhs, op(_self.index(i), rhs), within_inames=frozenset(["i"]))
         data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,)),
+                loopy.GlobalArg("other", dtype=dtype, shape=rshape),
                 loopy.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
         knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
+        return self._op_kernel_cache.setdefault(key, _make_object('Kernel', knl, name))
 
-        par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
-
+    def _op(self, other, op):
+        ret = _make_object('Dat', self.dataset, None, self.dtype)
+        if np.isscalar(other):
+            other = _make_object('Global', 1, data=other)
+            globalp = True
+        else:
+            self._check_shape(other)
+            globalp = False
+        par_loop(self._op_kernel(op, globalp, other.dtype),
+                 self.dataset.set, self(READ), other(READ), ret(WRITE))
         return ret
 
-    def _iop(self, other, op):
-        name = "iop_%s" % op.__name__
-
+    def _iop_kernel(self, op, globalp, other_is_self, dtype):
+        key = (op, globalp, other_is_self, dtype)
+        try:
+            if not hasattr(self, "_iop_kernel_cache"):
+                self._iop_kernel_cache = {}
+            return self._iop_kernel_cache[key]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
+        name = "iop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _other = p.Variable("other")
         _self = p.Variable("self")
         i = p.Variable("i")
-
         lhs = _self.index(i)
-        if np.isscalar(other):
-            other = _make_object('Global', 1, data=other)
+        rshape = (self.cdim, )
+        if globalp:
             rhs = _other.index(0)
+            rshape = (1, )
+        elif other_is_self:
+            rhs = _self.index(i)
         else:
-            self._check_shape(other)
             rhs = _other.index(i)
         insn = loopy.Assignment(lhs, op(lhs, rhs), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,))]
+        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
+        if not other_is_self:
+            data.append(loopy.GlobalArg("other", dtype=dtype, shape=rshape))
         knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
+        return self._iop_kernel_cache.setdefault(key, _make_object('Kernel', knl, name))
 
-        par_loop(k, self.dataset.set, self(INC), other(READ))
-
+    def _iop(self, other, op):
+        globalp = False
+        if np.isscalar(other):
+            other = _make_object('Global', 1, data=other)
+            globalp = True
+        elif other is not self:
+            self._check_shape(other)
+        args = [self(INC)]
+        if other is not self:
+            args.append(other(READ))
+        par_loop(self._iop_kernel(op, globalp, other is self, other.dtype), self.dataset.set, *args)
         return self
 
-    def _uop(self, op):
-        name = "uop_%s" % op.__name__
-
-        _op = {operator.sub: partial(operator.sub, 0)}[op]
-
+    def _inner_kernel(self, dtype):
+        try:
+            if not hasattr(self, "_inner_kernel_cache"):
+                self._inner_kernel_cache = {}
+            return self._inner_kernel_cache[dtype]
+        except KeyError:
+            pass
         import islpy as isl
         import pymbolic.primitives as p
-
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _self = p.Variable("self")
+        _other = p.Variable("other")
+        _ret = p.Variable("ret")
+        _conj = p.Variable("conj") if dtype.kind == "c" else lambda x: x
         i = p.Variable("i")
-
-        insn = loopy.Assignment(_self.index(i), _op(_self.index(i)), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
-        knl = loopy.make_function([domain], [insn], data, name=name)
-        k = _make_object('Kernel', knl, name)
-
-        par_loop(k, self.dataset.set, self(RW))
-        return self
+        insn = loopy.Assignment(_ret[0], _ret[0] + _self[i]*_conj(_other[i]),
+                                within_inames=frozenset(["i"]))
+        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("other", dtype=dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("ret", dtype=self.dtype, shape=(1,))]
+        knl = loopy.make_function([domain], [insn], data, name="inner")
+        k = _make_object('Kernel', knl, "inner")
+        return self._inner_kernel_cache.setdefault(dtype, k)
 
     def inner(self, other):
         """Compute the l2 inner product of the flattened :class:`Dat`
 
         :arg other: the other :class:`Dat` to compute the inner
-             product against.
+             product against. The complex conjugate of this is taken.
 
         """
         self._check_shape(other)
         ret = _make_object('Global', 1, data=0, dtype=self.dtype)
-
-        import islpy as isl
-        import pymbolic.primitives as p
-
-        inames = isl.make_zero_and_vars(["i"])
-        domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-        _self = p.Variable("self")
-        _other = p.Variable("other")
-        _ret = p.Variable("ret")
-        i = p.Variable("i")
-
-        insn = loopy.Assignment(_ret.index(0), _ret.index(0) + _self.index(i) * _other.index(i), within_inames=frozenset(["i"]))
-        data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,)),
-                loopy.GlobalArg("ret", dtype=ret.dtype, shape=(1,))]
-        knl = loopy.make_function([domain], [insn], data, name="inner")
-
-        k = _make_object('Kernel', knl, "inner")
-        par_loop(k, self.dataset.set, self(READ), other(READ), ret(INC))
+        par_loop(self._inner_kernel(other.dtype), self.dataset.set,
+                 self(READ), other(READ), ret(INC))
         return ret.data_ro[0]
 
     @property
@@ -1761,7 +1749,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
            This acts on the flattened data (see also :meth:`inner`)."""
         from math import sqrt
-        return sqrt(self.inner(self))
+        return sqrt(self.inner(self).real)
 
     def __pos__(self):
         pos = _make_object('Dat', self)
@@ -1777,9 +1765,27 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.__radd__(other) <==> other + self."""
         return self + other
 
+    @cached_property
+    def _neg_kernel(self):
+        # Copy and negate in one go.
+        import islpy as isl
+        import pymbolic.primitives as p
+        name = "neg"
+        inames = isl.make_zero_and_vars(["i"])
+        domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
+        lvalue = p.Variable("other")
+        rvalue = p.Variable("self")
+        i = p.Variable("i")
+        insn = loopy.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
+        data = [loopy.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
+                loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
+        knl = loopy.make_function([domain], [insn], data, name=name)
+        return _make_object('Kernel', knl, name)
+
     def __neg__(self):
-        neg = _make_object('Dat', self)
-        return neg._uop(operator.sub)
+        neg = _make_object('Dat', self.dataset, dtype=self.dtype)
+        par_loop(self._neg_kernel, self.dataset.set, neg(WRITE), self(READ))
+        return neg
 
     def __sub__(self, other):
         """Pointwise subtraction of fields."""
@@ -2258,7 +2264,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         initialised to be zero.
     """
 
-    _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
 
     @validate_type(('name', str, NameTypeError))
@@ -2274,9 +2279,8 @@ class Global(DataCarrier, _EmptyDataMixin):
         DataCarrier.__init__(self)
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
         self._buf = np.empty(self.shape, dtype=self.dtype)
-        self._name = name or "global_%d" % Global._globalcount
+        self._name = name or "global_#x%x" % id(self)
         self.comm = comm
-        Global._globalcount += 1
 
     @cached_property
     def _kernel_args_(self):
@@ -2319,11 +2323,6 @@ class Global(DataCarrier, _EmptyDataMixin):
     @cached_property
     def dataset(self):
         return _make_object('GlobalDataSet', self)
-
-    @property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Global`"""
-        return ctypes.c_voidp
 
     @property
     def shape(self):
@@ -2485,7 +2484,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     def inner(self, other):
         assert isinstance(other, Global)
-        return np.dot(self.data_ro, other.data_ro)
+        return np.dot(self.data_ro, np.conj(other.data_ro))
 
 
 class Map(object):
@@ -2503,8 +2502,6 @@ class Map(object):
       map result will be passed to the kernel.
     """
 
-    _globalcount = 0
-
     dtype = IntType
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
@@ -2518,14 +2515,13 @@ class Map(object):
                                       (iterset.total_size, arity),
                                       allow_none=True)
         self.shape = (iterset.total_size, arity)
-        self._name = name or "map_%d" % Map._globalcount
+        self._name = name or "map_#x%x" % id(self)
         if offset is None or len(offset) == 0:
             self._offset = None
         else:
             self._offset = verify_reshape(offset, IntType, (arity, ))
         # A cache for objects built on top of this map
         self._cache = {}
-        Map._globalcount += 1
 
     @cached_property
     def _kernel_args_(self):
@@ -2549,11 +2545,6 @@ class Map(object):
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
-
-    @cached_property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Map`"""
-        return ctypes.c_voidp
 
     @cached_property
     def split(self):
@@ -2826,8 +2817,7 @@ class Sparsity(ObjectCached):
             raise ValueError("Haven't thought hard enough about different left and right communicators")
         self.comm = self.lcomm
 
-        self._name = name or "sparsity_%d" % Sparsity._globalcount
-        Sparsity._globalcount += 1
+        self._name = name or "sparsity_#x%x" % id(self)
 
         self.iteration_regions = iteration_regions
         # If the Sparsity is defined on MixedDataSets, we need to build each
@@ -2864,7 +2854,6 @@ class Sparsity(ObjectCached):
         self._initialized = True
 
     _cache = {}
-    _globalcount = 0
 
     @classmethod
     @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
@@ -3114,7 +3103,6 @@ class Mat(DataCarrier):
     INSERT_VALUES = "INSERT_VALUES"
     ADD_VALUES = "ADD_VALUES"
 
-    _globalcount = 0
     _modes = [WRITE, INC]
 
     @validate_type(('sparsity', Sparsity, SparsityTypeError),
@@ -3125,10 +3113,10 @@ class Mat(DataCarrier):
         self.lcomm = sparsity.lcomm
         self.rcomm = sparsity.rcomm
         self.comm = sparsity.comm
+        dtype = dtype or ScalarType
         self._datatype = np.dtype(dtype)
-        self._name = name or "mat_%d" % Mat._globalcount
+        self._name = name or "mat_#x%x" % id(self)
         self.assembly_state = Mat.ASSEMBLED
-        Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path, lgmaps=None, unroll_map=False):
@@ -3160,14 +3148,13 @@ class Mat(DataCarrier):
             "Abstract Mat base class doesn't know how to set values.")
 
     @cached_property
-    def _argtypes_(self):
-        """Ctypes argtype for this :class:`Mat`"""
-        return (ctypes.c_voidp, )
+    def nblocks(self):
+        return int(np.prod(self.sparsity.shape))
 
     @cached_property
-    def _argtype(self):
+    def _argtypes_(self):
         """Ctypes argtype for this :class:`Mat`"""
-        return ctypes.c_voidp
+        return tuple(ctypes.c_voidp for _ in self)
 
     @cached_property
     def dims(self):
@@ -3309,6 +3296,8 @@ class Kernel(Cached):
         empty)
     :param ldargs: A list of arguments to pass to the linker when
         compiling this Kernel.
+    :param requires_zeroed_output_arguments: Does this kernel require the
+        output arguments to be zeroed on entry when called? (default no)
     :param cpp: Is the kernel actually C++ rather than C?  If yes,
         then compile with the C++ compiler (kernel is wrapped in
         extern C for linkage reasons).
@@ -3331,7 +3320,7 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
-                   user_code="", ldargs=None, cpp=False):
+                   user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3345,7 +3334,7 @@ class Kernel(Cached):
             code.update_persistent_hash(key_hash, LoopyKeyBuilder())
             code = key_hash.hexdigest()
         hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs)
-                  + str(headers) + version + str(ldargs) + str(cpp))
+                  + str(headers) + version + str(ldargs) + str(cpp) + str(requires_zeroed_output_arguments))
         return md5(hashee.encode()).hexdigest()
 
     @cached_property
@@ -3353,7 +3342,7 @@ class Kernel(Cached):
         return (self._key, )
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
-                 user_code="", ldargs=None, cpp=False):
+                 user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3368,6 +3357,7 @@ class Kernel(Cached):
         assert isinstance(code, (str, Node, loopy.Program, loopy.LoopKernel))
         self._code = code
         self._initialized = True
+        self.requires_zeroed_output_arguments = requires_zeroed_output_arguments
 
     @property
     def name(self):
@@ -3422,7 +3412,7 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, iterset, *args, **kwargs):
         counter = itertools.count()
         seen = defaultdict(lambda: next(counter))
-        key = (kernel._wrapper_cache_key_ + iterset._wrapper_cache_key_
+        key = ((id(dup_comm(iterset.comm)), ) + kernel._wrapper_cache_key_ + iterset._wrapper_cache_key_
                + (iterset._extruded, (iterset._extruded and iterset.constant_layers), isinstance(iterset, Subset)))
 
         for arg in args:
@@ -3558,9 +3548,23 @@ class ParLoop(object):
         with self._parloop_event:
             orig_lgmaps = []
             for arg in self.args:
-                if arg._is_mat and arg.lgmaps is not None:
-                    orig_lgmaps.append(arg.data.handle.getLGMap())
-                    arg.data.handle.setLGMap(*arg.lgmaps)
+                if arg._is_mat:
+                    new_state = {INC: Mat.ADD_VALUES,
+                                 WRITE: Mat.INSERT_VALUES}[arg.access]
+                    for m in arg.data:
+                        m.change_assembly_state(new_state)
+                    arg.data.change_assembly_state(new_state)
+                    # Boundary conditions applied to the matrix appear
+                    # as modified lgmaps on the Arg. We set them onto
+                    # the matrix so things are correctly dropped in
+                    # insertion, and then restore the original lgmaps
+                    # afterwards.
+                    if arg.lgmaps is not None:
+                        olgmaps = []
+                        for m, lgmaps in zip(arg.data, arg.lgmaps):
+                            olgmaps.append(m.handle.getLGMap())
+                            m.handle.setLGMap(*lgmaps)
+                        orig_lgmaps.append(olgmaps)
             self.global_to_local_begin()
             iterset = self.iterset
             arglist = self.arglist
@@ -3577,7 +3581,8 @@ class ParLoop(object):
             self.update_arg_data_state()
             for arg in reversed(self.args):
                 if arg._is_mat and arg.lgmaps is not None:
-                    arg.data.handle.setLGMap(*orig_lgmaps.pop())
+                    for m, lgmaps in zip(arg.data, orig_lgmaps.pop()):
+                        m.handle.setLGMap(*lgmaps)
             self.reduction_end()
             self.local_to_global_end()
 
@@ -3595,25 +3600,25 @@ class ParLoop(object):
     @collective
     def global_to_local_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_begin()
 
     @collective
     def global_to_local_end(self):
         """Finish halo exchanges"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.global_to_local_end()
 
     @collective
     def local_to_global_begin(self):
         """Start halo exchanges."""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_begin()
 
     @collective
     def local_to_global_end(self):
         """Finish halo exchanges (wait on irecvs)"""
-        for arg in self.dat_args:
+        for arg in self.unique_dat_args:
             arg.local_to_global_end()
 
     @cached_property
@@ -3667,11 +3672,24 @@ class ParLoop(object):
 
     @cached_property
     def dat_args(self):
-        return [arg for arg in self.args if arg._is_dat]
+        return tuple(arg for arg in self.args if arg._is_dat)
+
+    @cached_property
+    def unique_dat_args(self):
+        seen = {}
+        unique = []
+        for arg in self.dat_args:
+            if arg.data not in seen:
+                unique.append(arg)
+                seen[arg.data] = arg
+            elif arg.access != seen[arg.data].access:
+                raise ValueError("Same Dat appears multiple times with different "
+                                 "access descriptors")
+        return tuple(unique)
 
     @cached_property
     def global_reduction_args(self):
-        return [arg for arg in self.args if arg._is_global_reduction]
+        return tuple(arg for arg in self.args if arg._is_global_reduction)
 
     @cached_property
     def kernel(self):
