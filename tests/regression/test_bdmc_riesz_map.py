@@ -15,11 +15,6 @@ def degree(request):
     return request.param
 
 
-@pytest.fixture(scope='module', params=[2])
-def dim(request):
-    return request.param
-
-
 sp = {"snes_type": "ksponly",
       "ksp_type": "preonly",
       "pc_type": "lu",
@@ -27,10 +22,8 @@ sp = {"snes_type": "ksponly",
       "mat_mumps_icntl_14": 200}
 
 
-def error(N, problem, degree, dim):
+def error(N, problem, degree):
     mesh = UnitSquareMesh(N, N, quadrilateral=True)
-    if dim == 3:
-        mesh = ExtrudedMesh(mesh, N)
 
     if problem == "div":
         op = div
@@ -45,16 +38,9 @@ def error(N, problem, degree, dim):
     u = Function(V)
     v = TestFunction(V)
 
-    k = 1
-    if dim == 2:
-        (x, y) = SpatialCoordinate(mesh)
-        u_ex = as_vector([sin(2*pi*x) * cos(2*pi*y),
-                          x * (1-x) * y * (1-y)])
-    else:
-        (x, y, z) = SpatialCoordinate(mesh)
-        u_ex = as_vector([sin(2*pi*k*x) * cos(2*pi*k*y) * sin(4*pi*z),
-                          x * (1-x) * z * (1-z),
-                          y * (1-y) * z * (1-z)])
+    (x, y) = SpatialCoordinate(mesh)
+    u_ex = as_vector([sin(2*pi*x) * cos(2*pi*y),
+                      x * (1-x) * y * (1-y)])
 
     if problem == "div":
         f = u_ex - grad(div(u_ex))
@@ -70,16 +56,11 @@ def error(N, problem, degree, dim):
     return err
 
 
-def test_bdmc_riesz_map(problem, degree, dim):
-
-    if dim == 2:
-        Ns = [10, 20, 40]
-    else:
-        Ns = [2, 4, 8]
+def test_bdmc_riesz_map(problem, degree):
 
     errors = []
-    for N in Ns:
-        errors.append(error(N, problem, degree, dim))
+    for N in [10, 20, 40]:
+        errors.append(error(N, problem, degree))
 
     convergence_orders = lambda x: numpy.log2(numpy.array(x)[:-1] / numpy.array(x)[1:])
     conv = convergence_orders(errors)
