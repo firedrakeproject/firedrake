@@ -513,12 +513,12 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
-    external_operators = list(f.external_operators())
+    external_operators = list(expr.external_operators())
     new_coefficients = list(e.coefficient for e in external_operators)
     for ki in kernels:
         if hasattr(ki.kinfo, 'external_operators'):
             for k, v in ki.kinfo.external_operators.items():
-                c = f.external_operators()[k]
+                c = expr.external_operators()[k]
                 d = external_operators[k]
                 # Check if we need to reconstruct new ExtOps
                 if d.derivatives == c._extop_master.derivatives:
@@ -527,13 +527,13 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                     # we still need to construct this dependency when needed, i.e. when the form is already
                     # compiled and therefore the differentiation bit of the code is not hit.
                     deriv_ind = tuple(v.keys())
-                    args_list = tuple(tuple(f.arguments()[position] for position in args) for args in v.values())
+                    args_list = tuple(tuple(expr.arguments()[position] for position in args) for args in v.values())
                     d._add_dependencies(deriv_ind, args_list)
                     reconstruct_extops = [e for e in d._extop_dependencies if e.derivatives in v]
                     external_operators.extend(reconstruct_extops)
                     new_coefficients.extend([e.coefficient for e in reconstruct_extops])
 
-    coefficients = f.coefficients() + tuple(e for e in new_coefficients if e not in f.coefficients())
+    coefficients += tuple(e for e in new_coefficients if e not in coefficients)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -546,10 +546,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
 
     # If there are any PointwiseOperators, evaluate them now.
     for e in external_operators:
-        if assemble_now:
-            e.evaluate()
-        else:
-            yield e.evaluate
+        yield e.evaluate
 
     for indices, kinfo in kernels:
         kernel = kinfo.kernel
