@@ -5,7 +5,7 @@ import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
-import firedrake.cython.dmplex as dmplex
+import firedrake.cython.dmcommon as dmcommon
 
 
 _MPI_types = {}
@@ -85,7 +85,7 @@ _contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=Tru
 class Halo(op2.Halo):
     """Build a Halo for a function space.
 
-    :arg dm:  The DMPlex describing the topology.
+    :arg dm: The DM describing the topology.
     :arg section: The data layout.
 
     The halo is implemented using a PETSc SF (star forest) object and
@@ -110,7 +110,7 @@ class Halo(op2.Halo):
         # (so we don't need to do the local copy).  To facilitate
         # this, prune the SF to remove all the roots that reference
         # the local rank.
-        sf = dmplex.prune_sf(self.dm.getDefaultSF())
+        sf = dmcommon.prune_sf(self.dm.getDefaultSF())
         sf.setFromOptions()
         if sf.getType() != sf.Type.BASIC:
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
@@ -124,21 +124,21 @@ class Halo(op2.Halo):
     def local_to_global_numbering(self):
         lsec = self.dm.getDefaultSection()
         gsec = self.dm.getDefaultGlobalSection()
-        return dmplex.make_global_numbering(lsec, gsec)
+        return dmcommon.make_global_numbering(lsec, gsec)
 
     def global_to_local_begin(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
             return
         mtype, _ = _get_mtype(dat)
-        dmplex.halo_begin(self.sf, dat, mtype, False)
+        dmcommon.halo_begin(self.sf, dat, mtype, False)
 
     def global_to_local_end(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
             return
         mtype, _ = _get_mtype(dat)
-        dmplex.halo_end(self.sf, dat, mtype, False)
+        dmcommon.halo_end(self.sf, dat, mtype, False)
 
     def local_to_global_begin(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
@@ -151,7 +151,7 @@ class Halo(op2.Halo):
               (True, op2.MIN): MPI.MIN,
               (False, op2.MAX): _contig_max_op,
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
-        dmplex.halo_begin(self.sf, dat, mtype, True, op=op)
+        dmcommon.halo_begin(self.sf, dat, mtype, True, op=op)
 
     def local_to_global_end(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
@@ -164,4 +164,4 @@ class Halo(op2.Halo):
               (True, op2.MIN): MPI.MIN,
               (False, op2.MAX): _contig_max_op,
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
-        dmplex.halo_end(self.sf, dat, mtype, True, op=op)
+        dmcommon.halo_end(self.sf, dat, mtype, True, op=op)
