@@ -882,8 +882,9 @@ class MeshTopology(object):
         super_sub_map.fill(-1)
         sub_super_map = dmplex.submesh_create_sub_super_map(self, dim)
         # Generate the reverse map
-        for i, v in enumerate(np.nditer(sub_super_map)):
-            super_sub_map[v] = i
+        if len(sub_super_map) > 0:
+            for i, v in enumerate(np.nditer(sub_super_map)):
+                super_sub_map[v] = i
         #TODO: generalize for facet_set etc..
         return op2.Map(self.submesh_parent.cell_set, self.cell_set, 1,
                        super_sub_map,

@@ -99,7 +99,7 @@ def test_submesh_poisson_cell_error(f_lambda, b_lambda):
     assert(sqrt(assemble(inner(u - g, u - g) * dx)) < 0.00018)
 
 
-#@pytest.mark.parallel
+@pytest.mark.parallel
 def test_submesh_helmholtz():
 
     msh = RectangleMesh(2**8, 2**7, 2., 1., quadrilateral=True)
