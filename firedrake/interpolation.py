@@ -68,7 +68,10 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
-        self.callable, arguments = make_interpolator(expr, V, subset, access)
+        try:
+            self.callable, arguments = make_interpolator(expr, V, subset, access)
+        except FIAT.hdiv_trace.TraceError:
+            raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
