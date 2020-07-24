@@ -128,7 +128,7 @@ class VolumePotential(AbstractExternalOperator):
         boxgeo = bboxfmm_fac(queue)
         lookup_fac = ElementsToSourcesLookupBuilder(
             cl_ctx, tree=boxgeo.tree, discr=meshmode_connection.discr)
-        lookup, _ = lookup_fac(queue)
+        lookup, evt = lookup_fac(queue)
 
         # Create near-field table in volumential
         from volumential.table_manager import NearFieldInteractionTableManager
@@ -139,7 +139,6 @@ class VolumePotential(AbstractExternalOperator):
             dim,
             kernel_type,
             q_order,
-            force_recompute=False,
             compute_method=table_compute_method,
             queue=queue,
             **table_kwargs)
@@ -164,7 +163,7 @@ class VolumePotential(AbstractExternalOperator):
             queue=queue,
             tree=boxgeo.tree,
             near_field_table=nftable,
-            dtype=dtype,
+            dtype=ScalarType,
             fmm_level_to_order=lambda kernel, kernel_args, tree, lev: m_order,
             quad_order=q_order)
 
