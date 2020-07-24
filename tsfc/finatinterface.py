@@ -244,8 +244,8 @@ def convert_hcurlelement(element, **kwargs):
 
 @convert.register(ufl.RestrictedElement)
 def convert_restrictedelement(element, **kwargs):
-    # Fall back on FIAT
-    return fiat_compat(element), set()
+    finat_elem, deps = _create_element(element._element, **kwargs)
+    return finat.RestrictedElement(finat_elem, element.restriction_domain()), deps
 
 
 @convert.register(ufl.NodalEnrichedElement)
