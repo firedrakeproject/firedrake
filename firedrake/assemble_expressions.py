@@ -29,7 +29,7 @@ def extract_coefficients(expr):
     for e in ufl_traversal(expr):
         if isinstance(e, ufl.Coefficient):
             res += (e,)
-        elif isinstance(ufl.ExternalOperator):
+        elif isinstance(e, ufl.ExternalOperator):
             import ipdb; ipdb.set_trace()
             res += (e.coefficient,)
     return res
