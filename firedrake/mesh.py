@@ -1205,25 +1205,19 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell = ufl.Cell("vertex")
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
+        # Mark OP2 entities and derive the resulting Swarm numbering
+        with timed_region("Mesh: numbering"):
+            dmcommon.mark_entity_classes(self.topology_dm)
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
-            # Mark OP2 entities and derive the resulting Swarm numbering
-            with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self.topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            # Derive a cell numbering from the Swarm numbering
+            entity_dofs = np.zeros(tdim+1, dtype=IntType)
+            entity_dofs[-1] = 1
 
-                # Derive a cell numbering from the Swarm numbering
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-
-        self._callback = callback
+            self._cell_numbering = self.create_section(entity_dofs)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self.create_section(entity_dofs)
 
     @property
     def comm(self):
