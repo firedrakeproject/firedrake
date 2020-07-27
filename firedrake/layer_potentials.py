@@ -51,7 +51,7 @@ class VolumePotential(AbstractExternalOperator):
 
     """
 
-    _external_operator_type = 'GLOBAL'
+    _external_operator_type = 'LOCAL'  # So that don't only eval action
 
     def __init__(self, operand, function_space, operator_data):
         AbstractExternalOperator.__init__(self, operand,
@@ -183,9 +183,9 @@ class VolumePotential(AbstractExternalOperator):
         operand, = self.ufl_operands
 
         # pass operand through meshmode into volumential
-        meshmode_src_vals = self.meshmode_connection.from_firedrake(operand)
-        from volumential.interpolation import (
-            interpolate_from_meshmode, interpolate_to_meshmode)
+        meshmode_src_vals = \
+            self.meshmode_connection.from_firedrake(operand, actx=self.actx)
+        from volumential.interpolation import interpolate_from_meshmode
         volumential_src_vals = \
             interpolate_from_meshmode(self.queue,
                                       meshmode_src_vals,
@@ -202,6 +202,7 @@ class VolumePotential(AbstractExternalOperator):
             **self.volumential_fmm_kwargs)
 
         # TODO: pass volumential back to meshmode and then to firedrake
+        from volumential.interpolation import interpolate_to_meshmode
         meshmode_src_vals = interpolate_to_meshmode(self.queue,
                                                     pot,
                                                     self.volumential_lookup)
