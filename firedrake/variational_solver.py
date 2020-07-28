@@ -10,6 +10,7 @@ from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from ufl.algorithms.analysis import extract_coefficients
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -243,18 +244,22 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.transfer_manager = manager
 
     def replace_forms(self, F, u, bcs, J):
-        self._problem.J = J
-        self._ctx.J = J
+        self.assign_coefficients(self._problem.F, F)
+        self.assign_coefficients(self._ctx.F, F)
 
-        self._problem.u = u
-        self._ctx._x = u
-
-        self._problem.F = F
-        self._ctx.F = F
+        self.assign_coefficients(self._problem.J, J)
+        self.assign_coefficients(self._ctx.J, J)
 
         Jp_eq_J = self._problem.Jp is None and all(bc.Jp_eq_J for bc in bcs)
         if (self._ctx.mat_type != self._ctx.pmat_type or not Jp_eq_J) and self._problem.Jp is None:
-            self._ctx.Jp = self._ctx.J
+            self.assign_coefficients(self._ctx.Jp, self._ctx.J)
+
+        self.assign_coefficients(self._problem.u, u)
+        self.assign_coefficients(self._ctx._x, u)
+
+    def assign_coefficients(self, expr1, expr2):
+        for cof1, cof2 in zip(extract_coefficients(expr1), extract_coefficients(expr2)):
+            cof1.assign(cof2)
 
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):

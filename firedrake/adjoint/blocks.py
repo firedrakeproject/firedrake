@@ -117,10 +117,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         J = self.problem_J
         if J is not None:
             J = self._replace_form(J, func)
+            J._cache = self.problem_J._cache
+        lhs._cache = self.equation.lhs._cache
+
         solver = self._ad_nlvs
         solver.replace_forms(lhs, func, bcs, J)
         solver.parameters.update(self.solver_params)
         solver.solve()
+        func.assign(solver._problem.u)
         return func
 
 
