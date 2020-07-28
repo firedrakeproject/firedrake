@@ -59,6 +59,10 @@ notebooks <https://jupyter.org/>`__ that are a more interactive way of
 getting to know Firedrake.  They are described in more detail :doc:`on
 their own page <notebooks>`.
 
+Youtube Channel
+---------------
+Firedrake has a `youtube channel <https://www.youtube.com/channel/UCwwT3kL0HHCv_O3VaeX3GUg>`__ where recorded tutorials are occasionally uploaded.
+
 .. only:: html
 
   API documentation

@@ -3,7 +3,7 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from pyop2.datatypes import IntType
 
@@ -313,12 +313,12 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     # Plex will always have an exterior_facets label (maybe
     # zero-sized), but may not always have boundary_ids or
     # boundary_faces.
-    has_bdy_ids = plex.hasLabel(dmplex.FACE_SETS_LABEL)
+    has_bdy_ids = plex.hasLabel(dmcommon.FACE_SETS_LABEL)
     has_bdy_faces = plex.hasLabel("boundary_faces")
 
     CHKERR(DMGetLabel(plex.dm, <const char*>b"exterior_facets", &exterior_facets))
     if has_bdy_ids:
-        label = dmplex.FACE_SETS_LABEL.encode()
+        label = dmcommon.FACE_SETS_LABEL.encode()
         CHKERR(DMGetLabel(plex.dm, <const char*>label, &boundary_ids))
     if has_bdy_faces:
         CHKERR(DMGetLabel(plex.dm, <const char*>b"boundary_faces", &boundary_faces))
