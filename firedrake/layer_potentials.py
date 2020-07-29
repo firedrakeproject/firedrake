@@ -37,8 +37,8 @@ class VolumePotential(AbstractExternalOperator):
         * 'force_direct_evaluation': (optional) As in
                      :func:`volumential.volume_fmm.drive_volume_fmm`.
                      Defaults to *False*
-        * 'volumential_fmm_kwargs': (optional) A dictionary of kwargs
-                     to pass to :func:`volumential.volume_fmm.drive_fmm`
+        * 'fmm_kwargs': (optional) A dictionary of kwargs
+                 to pass to :func:`volumential.volume_fmm.drive_fmm`.
         * 'root_extent': (optional) the root extent to pass to
             :class:`volumential.table_manager.NearFieldInteractionTableManager`
             (defaults to 1)
@@ -53,10 +53,26 @@ class VolumePotential(AbstractExternalOperator):
 
     _external_operator_type = 'LOCAL'  # So that don't only eval action
 
-    def __init__(self, operand, function_space, operator_data):
+    def __init__(self, operand,
+                 function_space,
+                 derivatives=None,
+                 count=None,
+                 val=None,
+                 name=None,
+                 dtype=ScalarType,
+                 operator_data=None,
+                 coefficient=None,
+                 arguments=()):
         AbstractExternalOperator.__init__(self, operand,
                                           function_space=function_space,
-                                          operator_data=operator_data)
+                                          derivatives=derivatives,
+                                          count=count,
+                                          val=val,
+                                          name=name,
+                                          dtype=dtype,
+                                          operator_data=operator_data,
+                                          coefficient=coefficient,
+                                          arguments=arguments)
         # Validate input
         from firedrake import Function
         if not isinstance(operand, Function):
@@ -69,7 +85,7 @@ class VolumePotential(AbstractExternalOperator):
         required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
                          'm_order', 'dataset_filename')
         optional_keys = ('q_order', 'force_direct_evaluation',
-                         'volume_fmm_kwargs', 'root_extent',
+                         'fmm_kwargs', 'root_extent',
                          'table_compute_method', 'table_kwargs')
         permissible_keys = required_keys + optional_keys
         if not all(key in operator_data for key in required_keys):
@@ -77,7 +93,7 @@ class VolumePotential(AbstractExternalOperator):
                              "keys: %s" % required_keys)
         if not all(key in permissible_keys for key in operator_data):
             raise ValueError("operator_data contains an unexpected key. All "
-                             "keys must be one of %s." % permissible_keys)
+                             "keys must be one of %s." % (permissible_keys,))
         kernel = operator_data['kernel']
         kernel_type = operator_data['kernel_type']
         cl_ctx = operator_data['cl_ctx']
@@ -89,8 +105,7 @@ class VolumePotential(AbstractExternalOperator):
         q_order = operator_data.get('q_order', degree)
         force_direct_evaluation = operator_data.get('force_direct_evaluation',
                                                     False)
-        volumential_fmm_kwargs = operator_data.get('volumential_fmm_kwargs',
-                                                   {})
+        fmm_kwargs = operator_data.get('fmm_kwargs', {})
         root_extent = operator_data.get("root_extent", 1)
         table_compute_method = operator_data.get('table_compute_method',
                                                  'DrosteSum')
@@ -185,7 +200,7 @@ class VolumePotential(AbstractExternalOperator):
         self.to_volumential_lookup = elt_to_src_lookup
         self.from_volumential_lookup = leaves_to_node_lookup
         self.force_direct_evaluation = force_direct_evaluation
-        self.volumential_fmm_kwargs = volumential_fmm_kwargs
+        self.fmm_kwargs = fmm_kwargs
         self.expansion_wrangler = wrangler
         # so we don't have to keep making a fd function during conversion
         # from meshmode. AbstractExternalOperator s aren't functions,
@@ -217,7 +232,8 @@ class VolumePotential(AbstractExternalOperator):
         volumential_src_vals = \
             interpolate_from_meshmode(self.queue,
                                       meshmode_src_vals,
-                                      self.to_volumential_lookup)
+                                      self.to_volumential_lookup,
+                                      order="tree")
 
         # evaluate volume fmm
         from volumential.volume_fmm import drive_volume_fmm
@@ -227,17 +243,24 @@ class VolumePotential(AbstractExternalOperator):
             volumential_src_vals * self.volumential_boxgeo.weights,
             volumential_src_vals,
             direct_evaluation=self.force_direct_evaluation,
-            **self.volumential_fmm_kwargs)
+            reorder_sources=False,
+            **self.fmm_kwargs)
 
         # pass volumential back to meshmode DOFArray
         from volumential.interpolation import interpolate_to_meshmode
         from meshmode.dof_array import unflatten
+        user_order = self.fmm_kwargs.get("reorder_potentials", True)
+        if user_order:
+            order = "user"
+        else:
+            order = "tree"
         meshmode_pot_vals = interpolate_to_meshmode(self.queue,
                                                     pot,
-                                                    self.from_volumential_lookup)
+                                                    self.from_volumential_lookup,
+                                                    order=order)
         meshmode_pot_vals = unflatten(self.actx,
                                       self.meshmode_connection.discr,
-                                      meshmode_src_vals)
+                                      meshmode_pot_vals)
         # get meshmode data back as firedrake fntn
         self.meshmode_connection.from_meshmode(
             meshmode_pot_vals,
