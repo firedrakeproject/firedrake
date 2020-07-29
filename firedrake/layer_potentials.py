@@ -62,6 +62,9 @@ class VolumePotential(AbstractExternalOperator):
         if not isinstance(operand, Function):
             raise TypeError(":arg:`operand` must be of type firedrake.Function"
                             ", not %s." % type(operand))
+        if operand.function_space().shape != tuple():
+            raise ValueError(":arg:`operand` must be a function with shape (),"
+                             " not %s." % operand.function_space().shape)
         assert isinstance(operator_data, dict)
         required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
                          'm_order', 'dataset_filename')
@@ -126,9 +129,15 @@ class VolumePotential(AbstractExternalOperator):
             expand_to_hold_mesh=meshmode_connection.discr.mesh,
             mesh_padding_factor=0.0)
         boxgeo = bboxfmm_fac(queue)
-        lookup_fac = ElementsToSourcesLookupBuilder(
+        elt_to_src_lookup_fac = ElementsToSourcesLookupBuilder(
             cl_ctx, tree=boxgeo.tree, discr=meshmode_connection.discr)
-        lookup, evt = lookup_fac(queue)
+        elt_to_src_lookup, evt = elt_to_src_lookup_fac(queue)
+
+        # Build connection from volumential into meshmode
+        from volumential.interpolation import LeavesToNodesLookupBuilder
+        leaves_to_node_lookup_fac = LeavesToNodesLookupBuilder(
+            cl_ctx, trav=boxgeo.trav, discr=meshmode_connection.discr)
+        leaves_to_node_lookup, evt = leaves_to_node_lookup_fac(queue)
 
         # Create near-field table in volumential
         from volumential.table_manager import NearFieldInteractionTableManager
@@ -173,24 +182,42 @@ class VolumePotential(AbstractExternalOperator):
         self.sumpy_kernel = kernel
         self.meshmode_connection = meshmode_connection
         self.volumential_boxgeo = boxgeo
-        self.volumential_lookup = lookup
+        self.to_volumential_lookup = elt_to_src_lookup
+        self.from_volumential_lookup = leaves_to_node_lookup
         self.force_direct_evaluation = force_direct_evaluation
         self.volumential_fmm_kwargs = volumential_fmm_kwargs
         self.expansion_wrangler = wrangler
+        # so we don't have to keep making a fd function during conversion
+        # from meshmode. AbstractExternalOperator s aren't functions,
+        # so can't use *self*
+        self.fd_pot = Function(function_space)
 
-    def _evaluate(self):
+    def _evaluate(self, continuity_tolerance=None):
+        """
+        :arg continuity_tolerance: If *None* then ignored. Otherwise, a floating
+            point value. If the function space associated to this operator
+            is a continuous one and *continuity_tolerance* is a float, it is
+            verified that,
+            during the conversion of the evaluated potential
+            from meshmode's discontinuous function space representation into
+            firedrake's continuous one, the potential's value at
+            a firedrake node is within *continuity_tolerance* of its
+            value at any duplicated firedrake node
+        """
         # Get operand
         operand, = self.ufl_operands
 
-        # pass operand through meshmode into volumential
+        # pass operand into a meshmode DOFArray
+        from meshmode.dof_array import flatten
         meshmode_src_vals = \
             self.meshmode_connection.from_firedrake(operand, actx=self.actx)
+        meshmode_src_vals = flatten(meshmode_src_vals)
+        # pass flattened operand into volumential interpolator
         from volumential.interpolation import interpolate_from_meshmode
         volumential_src_vals = \
             interpolate_from_meshmode(self.queue,
                                       meshmode_src_vals,
-                                      self.volumential_lookup)
-        volumential_src_vals = volumential_src_vals.get(self.queue)
+                                      self.to_volumential_lookup)
 
         # evaluate volume fmm
         from volumential.volume_fmm import drive_volume_fmm
@@ -198,15 +225,25 @@ class VolumePotential(AbstractExternalOperator):
             self.volumential_boxgeo.traversal,
             self.expansion_wrangler,
             volumential_src_vals * self.volumential_boxgeo.weights,
+            volumential_src_vals,
             direct_evaluation=self.force_direct_evaluation,
             **self.volumential_fmm_kwargs)
 
-        # TODO: pass volumential back to meshmode and then to firedrake
+        # pass volumential back to meshmode DOFArray
         from volumential.interpolation import interpolate_to_meshmode
+        from meshmode.dof_array import unflatten
         meshmode_src_vals = interpolate_to_meshmode(self.queue,
                                                     pot,
-                                                    self.volumential_lookup)
-        self.meshmode_connection.from_meshmode(meshmode_src_vals,
-                                               out=self.dat.data)
+                                                    self.from_volumential_lookup)
+        meshmode_src_vals = unflatten(self.actx,
+                                      self.meshmode_connection.discr,
+                                      meshmode_src_vals)
+        # get meshmode data back as firedrake fntn
+        self.meshmode_connection.from_meshmode(
+            meshmode_src_vals,
+            out = self.fd_pot,
+            assert_fdrake_discontinuous=False,
+            continuity_tolerance=continuity_tolerance)
+        self.dat.data[:] = self.fd_pot.dat.data[:]
 
         return self
