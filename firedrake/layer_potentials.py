@@ -232,16 +232,16 @@ class VolumePotential(AbstractExternalOperator):
         # pass volumential back to meshmode DOFArray
         from volumential.interpolation import interpolate_to_meshmode
         from meshmode.dof_array import unflatten
-        meshmode_src_vals = interpolate_to_meshmode(self.queue,
+        meshmode_pot_vals = interpolate_to_meshmode(self.queue,
                                                     pot,
                                                     self.from_volumential_lookup)
-        meshmode_src_vals = unflatten(self.actx,
+        meshmode_pot_vals = unflatten(self.actx,
                                       self.meshmode_connection.discr,
                                       meshmode_src_vals)
         # get meshmode data back as firedrake fntn
         self.meshmode_connection.from_meshmode(
-            meshmode_src_vals,
-            out = self.fd_pot,
+            meshmode_pot_vals,
+            out=self.fd_pot,
             assert_fdrake_discontinuous=False,
             continuity_tolerance=continuity_tolerance)
         self.dat.data[:] = self.fd_pot.dat.data[:]
