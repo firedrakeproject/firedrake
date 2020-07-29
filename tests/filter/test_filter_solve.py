@@ -26,40 +26,36 @@ def test_filter_poisson():
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x) * cos(2 * pi * y))
 
     # Solve with DirichletBC
-    a0 = dot(grad(v), grad(u)) * dx
-    L0 = f * v * dx
+    a0 = inner(grad(u), grad(v)) * dx
+    L0 = inner(f, v) * dx
     bc = DirichletBC(V, g, [1, 2, 3, 4])
     u0 = Function(V)
     solve(a0 == L0, u0, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Solve with Masked; no DirichletBC
-    subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
-    fltr_b = Function(V).assign(Constant(1.), subset=subset_1234)
-    fltr_d = Function(V).assign(Constant(1.), subset=V.node_set.difference(subset_1234))
+    Vsub = Subspace(V, Constant(1.), (1, 2, 3, 4))
+    v_b = Masked(v, Vsub)
+    u_b = Masked(u, Vsub)
+    g_b = Masked(g, Vsub)
+    v_d = v - v_b 
+    u_d = u - u_b 
 
-    v_d = Masked(v, fltr_d)
-    v_b = Masked(v, fltr_b)
-    u_d = Masked(u, fltr_d)
-    u_b = Masked(u, fltr_b)
-    g_b = Masked(g, fltr_b)
+    # Unsymmetrised form:
+    # a1 = inner(grad(u), grad(v_d)) * dx + inner(u, v_b) * ds
+    # L1 = inner(f, v_d) * dx + inner(g, v_b) * ds
 
-    #a1 = dot(grad(v_d), grad(u)) * dx + u * v_b * ds
-    #L1 = f * v_d * dx + g * v_b *ds
-
-    a1 = dot(grad(u_d), grad(v_d)) * dx + u_b * v_b * ds
-    L1 = f * v_d * dx - dot(grad(g_b), grad(v_d)) * dx + g * v_b * ds
+    # Symmetrised form:
+    a1 = inner(grad(u_d), grad(v_d)) * dx + inner(u_b, v_b) * ds
+    L1 = inner(f, v_d) * dx - inner(grad(g_b), grad(v_d)) * dx + inner(g, v_b) * ds
 
     u1 = Function(V)
-    #solve(a1 == L1, u1, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
-    solve(a1 == L1, u1, solver_parameters={"ksp_type": "cg", 
-                                           "ksp_rtol": 1.e-15,
-                                           "pc_type": "ilu"})
+    solve(a1 == L1, u1, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Assert u1 == u0
     assert(sqrt(assemble(dot(u1 - u0, u1 - u0) * dx)) < 1e-13)
     assert(sqrt(assemble(dot(u1 - g, u1 - g) * dx)) < 1e-4)
     # Check that Dirichlet B.C. is strongly applied
-    assert(sqrt(assemble(dot(u1 - g, u1 - g) * ds)) < 1e-15)
+    assert(sqrt(assemble(dot(u1 - g, u1 - g) * ds)) < 1e-13)
 
 
 def test_filter_stokes():
@@ -94,13 +90,13 @@ def test_filter_stokes():
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    value = as_vector([get_gbar(y), 0])
-    bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)),
+    flux = as_vector([get_gbar(y), 0])
+    bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)),
            DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
-    a = (nu * inner(grad(u), grad(v)) - p * div(v) - q * div(u)) * dx
+    a = (nu * inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx
     L = inner(Constant((0, 0)), v) * dx
-    wh0 = Function(W)
-    solve(a == L, wh0, bcs=bcs, solver_parameters=solver_parameters)
+    sol_target = Function(W)
+    solve(a == L, sol_target, bcs=bcs, solver_parameters=solver_parameters)
 
     # Rotated domain
     theta = pi / 6
@@ -113,73 +109,63 @@ def test_filter_stokes():
 
     r = -sin(theta) * x + cos(theta) * y
     gbar = get_gbar(r)
-    value = as_vector([cos(theta) * gbar, sin(theta) * gbar])
-    bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)), ]
+    flux = as_vector([cos(theta) * gbar, sin(theta) * gbar])
+    bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)), ]
     
-    # Define filters
-    subset_34 = V.boundary_node_subset((3, 4))
-    fltr0 = Function(W)
-    #fltr0.assign(Constant([1., 1., 1]))
-    fltr0.assign(Constant(1.))
-    fltr0.sub(0).assign(Constant([0., 0.]), subset=subset_34)
-    fltr1 = Function(W)
-    fltr1.sub(0).assign(Constant([1., 1.]), subset=subset_34)
-
     # Trial/Test function
-    u = TrialFunction(W)
-    v = TestFunction(W)
-    #ubar, p = split(u)
+    up = TrialFunction(W)
+    vq = TestFunction(W)
 
-    # Filter: domain
-    ubar0, p0 = split(Masked(u, fltr0))
-    vbar0, q0 = split(Masked(v, fltr0))
+    g = Function(W)
+    g.sub(0).assign(Constant([1., 1.]), subset=V.boundary_node_subset((3, 4)))
+    Wsub = Subspace(W, g)
+    up34 = Masked(up, Wsub)
+    vq34 = Masked(vq, Wsub)
 
-    # Filter: boundary {3, 4}
-    ubar1, p1 = split(Masked(u, fltr1))
-    vbar1, q1 = split(Masked(v, fltr1))
+    u, p = split(up)
+    v, q = split(vq)
+    u34, p34 = split(up34)
+    v34, q34 = split(vq34)
+    u00, p0 = u - u34, p - p34
+    v00, q0 = v - v34, q - q34
 
-    # Filter: boundary {1, 2}
-    # not used; use DirichletBC
+    v0 = v00 + dot(v34, xprime) * xprime
+    u0 = u00 + dot(u34, xprime) * xprime
+    v1 = dot(v34, yprime) * yprime
+    u1 = dot(u34, yprime) * yprime
 
     # Define form
-    ubar1t = dot(ubar1, xprime) * xprime
-    vbar1t = dot(vbar1, xprime) * xprime
-    # Unsymmetrised form
-    # a0 = (nu * inner(grad(ubar), grad(vbar0)) - p * div(vbar0) - div(ubar) * q0) * dx
-    # a1 = (nu * inner(grad(ubar), grad(vbar1t)) - p * div(vbar1t) - div(ubar) * q1) * dx + dot(ubar, yprime) * dot(vbar1, yprime) * ds
-    # Symmetrised form
-    #a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - (p0 + p1) * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
-    #a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - (p0 + p1) * div(vbar1t) - div(ubar0 + ubar1t) * q1) * dx + dot(ubar1, yprime) * dot(vbar1, yprime) * ds
-    a0 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar0)) - p0 * div(vbar0) - div(ubar0 + ubar1t) * q0) * dx
-    a1 = (nu * inner(grad(ubar0 + ubar1t), grad(vbar1t)) - p0 * div(vbar1t)) * dx + dot(ubar1, yprime) * dot(vbar1, yprime) * ds
-    a = a0 + a1
-    L = inner(Constant((0, 0)), vbar0) * dx
-    wh1 = Function(W)
-    solve(a == L, wh1, bcs=bcs, solver_parameters=solver_parameters)
+    a = (nu * inner(grad(u0), grad(v0)) - inner(p0, div(v0)) - inner(div(u0), q0)) * dx + inner(u1, v1) * ds
+    L = inner(Constant((0, 0)), v0) * dx
+
+    # Solve
+    sol = Function(W)
+    solve(a == L, sol, bcs=bcs, solver_parameters=solver_parameters)
 
     # Postprocess
-    ubar_target, p_target = wh0.split()
-    ubar, p = wh1.split()
-    ubar_target_data = np.concatenate((cos(theta) * ubar_target.dat.data[:, [0]] - sin(theta) * ubar_target.dat.data[:, [1]],
-                                       sin(theta) * ubar_target.dat.data[:, [0]] + cos(theta) * ubar_target.dat.data[:, [1]]), axis=1)
-    assert(np.linalg.norm(ubar.dat.data - ubar_target_data)/np.linalg.norm(ubar_target_data) < 1e-14)
-    assert(np.linalg.norm(p.dat.data - p_target.dat.data)/np.linalg.norm(p_target.dat.data) < 1e-13)
+    a0, b0 = sol_target.split()
+    a1, b1 = sol.split()
+    a0_, b0_ = a0.dat.data, b0.dat.data
+    a1_, b1_ = a1.dat.data, b1.dat.data
+    a0_ = np.concatenate((cos(theta) * a0_[:, [0]] - sin(theta) * a0_[:, [1]],
+                          sin(theta) * a0_[:, [0]] + cos(theta) * a0_[:, [1]]), axis=1)
+    assert(np.linalg.norm(a1_ - a0_)/np.linalg.norm(a0_) < 1e-14)
+    assert(np.linalg.norm(b1_ - b0_)/np.linalg.norm(b0_) < 1e-13)
 
     # Plot solution
     import matplotlib.pyplot as plt
     fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
-    arrows = quiver(ubar, axes=axes[0])
+    arrows = quiver(a1, axes=axes[0])
     axes[0].set_xlim(-0.6, 1.8)
     axes[0].set_aspect("equal")
     axes[0].set_title("Velocity")
     fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
-
-    triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
+    triangles = tripcolor(b1, axes=axes[1], cmap='coolwarm')
     axes[1].set_aspect("equal")
     axes[1].set_title("Pressure")
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
-    plt.savefig('temp11.pdf')
+    plt.savefig('test_subspace_stokes.pdf')
 
 
 def test_filter_stokes2():
@@ -311,7 +297,7 @@ def test_filter_stokes2():
     axes[1].set_title("Pressure")
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
-    plt.savefig('temp13.pdf')
+    plt.savefig('temp12.pdf')
 
 
 def test_filter_stokes3():

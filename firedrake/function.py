@@ -677,23 +677,35 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 class Subspace(ufl.Subspace):
     r"""Wrapper for `ufl.Subspace`.
 
-    :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`
+    :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`.
+    :arg val: The subspace values that are multiplied to basis functions.
+    :arg subdomain: The subdomain(s) on which values are set.
+    The constructor mimics that of :class:`~DirichletBC`.
     """
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
         elif not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Subspace defined on a "
                                       + str(type(function_space)))
-        if isinstance(val, (Function, CoordinatelessFunction)):
-            val = val.topological
-            if val.function_space() != V.topological:
-                raise ValueError("Function values have wrong function space.")
-            self._data = val
+        if subdomain:
+            if not val:
+                raise RuntimeError("Must provide val if providing subdomain.")
+            if not isinstance(subdomain, op2.Subset):
+               # Turn subdomain into op2.Subset.
+               subdomain = V.boundary_node_subset(subdomain) 
+            val = Function(V).assign(val, subset=subdomain)
+            self._data = val.topological
         else:
-            self._data = CoordinatelessFunction(V.topological,
-                                                val=val, name=name, dtype=dtype)
+            if isinstance(val, (Function, CoordinatelessFunction)):
+                val = val.topological
+                if val.function_space() != V.topological:
+                    raise ValueError("Function values have wrong function space.")
+                self._data = val
+            else:
+                self._data = CoordinatelessFunction(V.topological,
+                                                    val=val, name=name, dtype=dtype)
         self._function_space = V
         super().__init__(V)
 
@@ -704,6 +716,6 @@ class Subspace(ufl.Subspace):
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
-            on which this :class:`Function` is defined.
+            that this :class:`Subspace` is a subspace of.
         """
         return self._function_space
