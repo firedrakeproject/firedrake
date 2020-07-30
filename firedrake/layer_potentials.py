@@ -32,6 +32,9 @@ class VolumePotential(AbstractExternalOperator):
 
         And optional keys
 
+        * 'grp_factory': (optional) An interpolatory group factory
+            inheriting from :class:`meshmode.discretization.ElementGroupFactory`
+            to be used in the intermediate :mod:`meshmode` representation
         * 'q_order': (optional) The desired :mod:`volumential` quadrature
                      order, defaults to *function_space*'s degree
         * 'force_direct_evaluation': (optional) As in
@@ -84,9 +87,10 @@ class VolumePotential(AbstractExternalOperator):
         assert isinstance(operator_data, dict)
         required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
                          'm_order', 'dataset_filename')
-        optional_keys = ('q_order', 'force_direct_evaluation',
+        optional_keys = ('grp_factory', 'q_order', 'force_direct_evaluation',
                          'fmm_kwargs', 'root_extent',
-                         'table_compute_method', 'table_kwargs')
+                         'table_compute_method', 'table_kwargs',
+                         )
         permissible_keys = required_keys + optional_keys
         if not all(key in operator_data for key in required_keys):
             raise ValueError("operator_data is missing one of the required "
@@ -102,6 +106,7 @@ class VolumePotential(AbstractExternalOperator):
         m_order = operator_data['m_order']
         dataset_filename = operator_data['dataset_filename']
         degree = function_space.ufl_element().degree()
+        grp_factory = operator_data.get('grp_factory', None)
         q_order = operator_data.get('q_order', degree)
         force_direct_evaluation = operator_data.get('force_direct_evaluation',
                                                     False)
@@ -129,7 +134,8 @@ class VolumePotential(AbstractExternalOperator):
         from meshmode.interop.firedrake import FromFiredrakeConnection
         from meshmode.array_context import PyOpenCLArrayContext
         actx = PyOpenCLArrayContext(queue)
-        meshmode_connection = FromFiredrakeConnection(actx, function_space)
+        meshmode_connection = FromFiredrakeConnection(actx, function_space,
+                                                      grp_factory=grp_factory)
 
         # Build connection from meshmode into volumential
         # (following https://gitlab.tiker.net/xywei/volumential/-/blob/fe2c3e7af355d5c527060e783237c124c95397b5/test/test_interpolation.py#L72 ) # noqa : E501
