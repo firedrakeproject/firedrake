@@ -221,11 +221,11 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         # compiler) to the global coefficient/topological coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
-        topo_coeff_number_map = dict((n, subspace_numbers[f])
+        subspace_number_map = dict((n, subspace_numbers[f])
                                      for (n, f) in enumerate(f.subspaces()))
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
-                            number_map, topo_coeff_number_map, interface, coffee, diagonal).kernels
+                            number_map, subspace_number_map, interface, coffee, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

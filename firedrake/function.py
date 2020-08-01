@@ -20,7 +20,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'Subspace', 'PointNotInDomainError']
+__all__ = ['Function', 'Subspace', 'TransformedSubspace', 'PointNotInDomainError']
 
 
 class _CFunction(ctypes.Structure):
@@ -674,8 +674,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
                             comm=function.comm)
 
 
-class Subspace(ufl.Subspace):
-    r"""Wrapper for `ufl.Subspace`.
+class SubspaceBase(ufl.Subspace):
+    r"""Wrapper base for `ufl.Subspace`.
 
     :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`.
     :arg val: The subspace values that are multiplied to basis functions.
@@ -719,3 +719,13 @@ class Subspace(ufl.Subspace):
             that this :class:`Subspace` is a subspace of.
         """
         return self._function_space
+
+
+class Subspace(SubspaceBase):
+    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
+        super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
+
+
+class TransformedSubspace(SubspaceBase):
+    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
+        super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
