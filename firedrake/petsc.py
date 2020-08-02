@@ -9,7 +9,6 @@ from contextlib import contextmanager
 
 __all__ = ("PETSc", "OptionsManager")
 
-PETSc.Sys.popErrorHandler()
 
 def flatten_parameters(parameters, sep="_"):
     """Flatten a nested parameters dict, joining keys with sep.

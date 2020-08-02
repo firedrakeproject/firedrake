@@ -96,12 +96,11 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, _ad_nlvs, **kwargs):
+    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
         self.equation = equation
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
-        self._ad_nlvs = _ad_nlvs
 
         super().__init__(self.equation.lhs, self.equation.rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
@@ -114,18 +113,34 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        J = self.problem_J
-        if J is not None:
-            J = self._replace_form(J, func)
-            J._cache = self.problem_J._cache
-        lhs._cache = self.equation.lhs._cache
+        self._ad_nlvs_replace_forms()
+        self._ad_nlvs.parameters.update(self.solver_params)
+        self._ad_nlvs.solve()
+        return self._ad_nlvs._problem.u
 
-        solver = self._ad_nlvs
-        solver.replace_forms(lhs, func, bcs, J)
-        solver.parameters.update(self.solver_params)
-        solver.solve()
-        func.assign(solver._problem.u)
-        return func
+    def _ad_assign_map(self, form):
+        assign_map = {}
+        form_ad_id_map = dict((coeff._ad_id, coeff) for coeff in form.coefficients())
+        for block_variable in self.get_dependencies():
+            coeff_id = id(block_variable.output)
+            if coeff_id in form_ad_id_map:
+                assign_map[form_ad_id_map[coeff_id]] = block_variable.saved_output
+        return assign_map
+
+    def _ad_assign_coefficients(self, form, func=None):
+        assign_map = self._ad_assign_map(form)
+        if func is not None and self._ad_nlvs._problem.u in assign_map:
+            self.backend.Function.assign(func, assign_map[self._ad_nlvs._problem.u])
+            assign_map[self._ad_nlvs._problem.u] = func
+
+        for coeff, value in assign_map.items():
+            coeff.assign(value)
+
+    def _ad_nlvs_replace_forms(self):
+        problem = self._ad_nlvs._problem
+        func = self.backend.Function(problem.u.function_space())
+        self._ad_assign_coefficients(problem.F, func)
+        self._ad_assign_coefficients(problem.J)
 
 
 class ProjectBlock(SolveVarFormBlock):
