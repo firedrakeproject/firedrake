@@ -47,7 +47,7 @@ This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
 minute or less. If they fail to run for any reason, please see the
 section below on how to diagnose and debug a failed installation. If
-you want to run the entire test suite you can to ``make alltest``
+you want to run the entire test suite you can do ``make alltest``
 instead, but this takes several hours.
 
 .. note::
@@ -188,9 +188,8 @@ There are three ways to work around this problem.
    Anaconda, then install Firedrake. If you need Anaconda later, you
    can re-enable it with a shell script that will add those directories
    back onto your path.
-3. Use a tool like pyenv_, which makes it possible to switch between
-   different versions of Python on a per-terminal session or per-
-   directory basis.
+3. Use a `Docker image <https://hub.docker.com/r/firedrakeproject/firedrake>`_
+   that we've built with Firedrake and its dependencies already installed.
 
 **MacOS system Python.** The official MacOS installer on the Python
 website does not have a working SSL by default. A working SSL is
@@ -251,4 +250,3 @@ packages for which these are also dependencies.
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _PETSc: https://www.mcs.anl.gov/petsc/
-.. _pyenv: https://github.com/pyenv/pyenv
