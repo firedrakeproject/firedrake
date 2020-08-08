@@ -12,6 +12,7 @@ from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.constant import Constant
 from firedrake.adjoint import FunctionMixin
 try:
     import cachetools
@@ -20,7 +21,8 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'Subspace', 'TransformedSubspace', 'PointNotInDomainError']
+__all__ = ['Function', 'Subspace', 'TransformedSubspace', 'PointNotInDomainError',
+           'BCSubspace', 'BCRotatedSubspace']
 
 
 class _CFunction(ctypes.Structure):
@@ -729,3 +731,30 @@ class Subspace(SubspaceBase):
 class TransformedSubspace(SubspaceBase):
     def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
         super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
+
+
+def BCSubspace(V, subdomain):
+    r"""Return Subspace associated with boundaries.
+
+    :arg V: The function space.
+    :arg subdomain: The subdomain.
+    """
+    if not isinstance(V, functionspaceimpl.WithGeometry):
+        raise TypeError("V must be `functionspaceimpl.WithGeometry`, not %s." % V.__class__.__name__ )
+    tV = V.topological
+    if isinstance(tV, functionspaceimpl.ProxyFunctionSpace):
+        # Reconstruct the parent WithGeometry
+        # TODO: When submesh lands, just do W = V.parent.
+        W = functionspaceimpl.WithGeometry(tV.parent, V.mesh())
+        g = Function(W)
+        i = tV.index if tV.index is not None else tV.component
+        g.sub(i).assign(Constant(1.), subset=tV.boundary_node_subset(subdomain))
+        return  Subspace(W, val=g)
+    return Subspace(V, val=Constant(1.), subdomain=subdomain)
+
+
+def BCRotatedSubspace():
+    pass
+
+
+    

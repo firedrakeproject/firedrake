@@ -25,7 +25,8 @@ def test_filter_poisson():
     solve(a0 == L0, u0, bcs = [bc, ], solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Solve with Masked; no DirichletBC
-    Vsub = Subspace(V, Constant(1.), (1, 2, 3, 4))
+    #Vsub = Subspace(V, Constant(1.), (1, 2, 3, 4))
+    Vsub = BCSubspace(V, (1, 2, 3, 4))
     v_b = Masked(v, Vsub)
     u_b = Masked(u, Vsub)
     g_b = Masked(g, Vsub)
@@ -108,9 +109,10 @@ def test_filter_stokes():
     up = TrialFunction(W)
     vq = TestFunction(W)
 
-    g = Function(W)
-    g.sub(0).assign(Constant([1., 1.]), subset=V.boundary_node_subset((3, 4)))
-    Wsub = Subspace(W, g)
+    #g = Function(W)
+    #g.sub(0).assign(Constant([1., 1.]), subset=V.boundary_node_subset((3, 4)))
+    #Wsub = Subspace(W, g)
+    Wsub = BCSubspace(W.sub(0), (3, 4))
     up34 = Masked(up, Wsub)
     vq34 = Masked(vq, Wsub)
 
@@ -120,7 +122,8 @@ def test_filter_stokes():
     v34, q34 = split(vq34)
     u00, p0 = u - u34, p - p34
     v00, q0 = v - v34, q - q34
-
+    u00, p0 = split(up - up34)
+    v00, q0 = split(vq - vq34)
     v0 = v00 + dot(v34, xprime) * xprime
     u0 = u00 + dot(u34, xprime) * xprime
     v1 = dot(v34, yprime) * yprime

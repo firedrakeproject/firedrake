@@ -14,7 +14,8 @@ def test_filter_one_form_lagrange():
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    Vsub = Subspace(V, Constant(1.), 1)
+    #Vsub = Subspace(V, Constant(1.), 1)
+    Vsub = BCSubspace(V, 1)
 
     rhs0 = assemble(f * v * dx)
     rhs1 = assemble(f * Masked(v, Vsub) * dx)
