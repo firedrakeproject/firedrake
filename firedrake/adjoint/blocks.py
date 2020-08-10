@@ -276,7 +276,7 @@ class PointwiseOperatorBlock(Block, Backend):
             N._weights_version['version'] = q_rep.dat._dat_version
 
         i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0]
-        dNdm_adj = N.adjoint_action(adj_inputs[0], i_ops)
+        dNdm_adj = N.evaluate_adj_component_control(adj_inputs[0], i_ops)
         return dNdm_adj
 
     def _replace_map(self):

@@ -329,7 +329,7 @@ def _test_action_arguments(Ja, Ja_action, u_hat, g):
 
     assert dp.arguments() == ()
     assert dp.action_args() == ()
-    assert dp_action.arguments() == (u_hat,)
+    assert dp_action.arguments() == ((u_hat, False),)
     assert dp_action.action_args() == ()
 
     # Take the action
@@ -341,4 +341,4 @@ def _test_action_arguments(Ja, Ja_action, u_hat, g):
     assert dp.arguments() == ()
     assert dp.action_args() == ()
     assert dp_action.arguments() == ()
-    assert dp_action.action_args() == (g,)
+    assert dp_action.action_args() == ((g, False),)

@@ -6,7 +6,7 @@ import types
 import sympy as sp
 import numpy as np
 
-from ufl import zero, replace
+from ufl import zero, replace, conj
 from ufl.core.external_operator import ExternalOperator
 from ufl.core.expr import Expr
 from ufl.core.multiindex import indices
@@ -14,7 +14,7 @@ from ufl.coefficient import Coefficient
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
 from ufl.referencevalue import ReferenceValue
-from ufl.operators import transpose
+from ufl.operators import transpose, inner
 from ufl.log import error
 from ufl.tensors import as_tensor
 
@@ -48,7 +48,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
             fs = ofs
 
         # Check arguments and action_args
-        self._check_arguments_action_args()
+        #self._check_arguments_action_args()
 
         # Count has been initialised in ExternalOperator.__init__
         if coefficient is None:
@@ -82,10 +82,10 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
     def function_space(self):
         return self.coefficient.function_space()
 
-    def _make_function_space_args(self, k, y):
-        """Make the function space of the Gateaux derivative: dN[x] = \frac{\partial N}{\partial k} * y(x)
-        """
-        ufl_function_space = ExternalOperator._make_function_space_args(self, k, y)
+    def _make_function_space_args(self, k, y, adjoint=False):
+        """Make the function space of the Gateaux derivative: dN[x] = \frac{dN}{dOperands[k]} * y(x) if adjoint is False
+        and of \frac{dN}{dOperands[k]}^{*} * y(x) if adjoint is True"""
+        ufl_function_space = ExternalOperator._make_function_space_args(self, k, y, adjoint=adjoint)
         mesh = self.function_space().mesh()
         function_space = functionspaceimpl.FunctionSpace(mesh.topology, ufl_function_space.ufl_element())
         return functionspaceimpl.WithGeometry(function_space, mesh)
@@ -98,7 +98,6 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
     def topological(self):
         # When we replace coefficients in _build_coefficient_replace_map
         # we replace firedrake.Function by ufl.Coefficient and we lose track of val
-        print('topological')
         return getattr(self.coefficient, 'topological', self._val)
 
     def assign(self, *args, **kwargs):
@@ -133,12 +132,19 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
     def _evaluate_action(self):
         raise NotImplementedError('External operators with type %s require an _evaluate_action method' % self._external_operator_type)
 
+    def _evaluate_adjoint_action(self, x):
+        raise NotImplementedError('External operators with type %s should have an _evaluate_adjoint_action method when needed' % self._external_operator_type)
+
     def evaluate(self, *args, **kwargs):
         """define the evaluation method for the ExternalOperator object"""
-        if self._external_operator_type == 'GLOBAL':
-            x = self.action_args()
+        action_args = self.action_args()
+        if self._external_operator_type == 'GLOBAL':# and sum(self.derivatives) != 0:
+            x = tuple(e for e, _ in action_args)
             if len(x) != sum(self.derivatives):
                     raise ValueError('Global external operators cannot be evaluated, you need to take the action!')
+            is_adjoint = action_args[-1][1] if len(action_args) > 0 else False
+            if is_adjoint:
+                return self._evaluate_adjoint_action(x)
             return self._evaluate_action(x, *args, **kwargs)
         return self._evaluate(*args, **kwargs)
 
@@ -163,25 +169,39 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
     # depending on wrt what is taken the derivative
     # E.g. the neural network case: where the adjoint derivative computation leads us
     # to compute the gradient wrt the inputs of the network or the weights.
-    def adjoint_action(self, x, idx):
+    def evaluate_adj_component_control(self, x, idx):
         r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
-            This method computes the action of (dN/dq)^{*}
-            where q \in \{u, m\}.
+            This method computes the action of (dN/dm)^{*} on x where m is the control
         """
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        """
+        # This chunk of code assume that GLOBAL refers to being global with respect to the control as well
+        if self._external_operator_type == 'GLOBAL':
+            function_space = self._make_function_space_args(idx, x, adjoint=True)
+            dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives,
+                                               function_space=function_space)
+            result = dNdq._evaluate_adjoint_action(x)
+            return result.vector()
+        """
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
+        dNdq = dNdq._evaluate()
+        dNdq_adj = conj(transpose(dNdq))
         result = firedrake.assemble(dNdq_adj)
         return result.vector() * x
 
-    def _adjoint(self, idx):
+    def evaluate_adj_component_state(self, x, idx):
+        r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
+            This method computes the action of (dN/du)^{*} on x where u is the state
+        """
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        if self._external_operator_type == 'GLOBAL':
+            new_args = self.arguments() + ((x, True),)
+            function_space = self._make_function_space_args(idx, x, adjoint=True)
+            return self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives,
+                                               function_space=function_space, arguments=new_args)
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq.evaluate()
-        dNdq_adj = transpose(dNdq)
-        result = firedrake.assemble(dNdq_adj)
-        return result
+        dNdq_adj = conj(transpose(dNdq))
+        return inner(dNdq_adj, x)
 
     @utils.cached_property
     def _split(self):
@@ -1103,7 +1123,7 @@ class PytorchOperator(PointnetOperator):
     def get_weights(self):
         return ml_get_weights(self.model, self.framework)
 
-    def adjoint_action(self, x, idx):
+    def evaluate_adj_component_control(self, x, idx):
         if idx == len(self.ufl_operands) - 1:
             outputs = self.evaluate(model_tape=True)
             weights = self.model.weight
@@ -1116,7 +1136,7 @@ class PytorchOperator(PointnetOperator):
             w = self.ufl_operands[-1]
             cst_fct_space = w._ad_function_space(self.function_space().mesh())
             return Function(cst_fct_space, val=grad_W).vector()
-        return AbstractExternalOperator.adjoint_action(self, x, idx)
+        return AbstractExternalOperator.evaluate_adj_component_control(self, x, idx)
 
     def _assign_weights(self, weights):
         self.model.weight.data = weights
