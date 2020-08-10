@@ -63,7 +63,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data = []
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
-    data.append(lp.GlobalArg("layer_height", dtype=ScalarType, shape=()))
+    data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=()))
     data.append(lp.ValueArg('layer'))
     base_coord_dim = base_coords.function_space().value_size
     # Deal with tensor product cells
@@ -85,12 +85,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'l'), (base_coord_dim, 2)))
         instructions = """
-        <{IntType}> base_coord_dim = {bcdim}
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
-        ext_coords[{dd}, l, base_coord_dim] = layer_height[0] * (layer + l)
-        """.format(IntType=IntType,
-                   dd=', '.join(dd),
-                   bcdim=base_coord_dim)
+        ext_coords[{dd}, l, {base_coord_dim}] = layer_height[0] * (layer + l)
+        """.format(dd=', '.join(dd),
+                   base_coord_dim=base_coord_dim)
         ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_uniform_extrusion", target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial':
@@ -137,22 +135,22 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         _dd = _get_arity_axis_inames('_d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(_dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', '_c', '__c', '___c', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
+        domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'c3', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
         # Formula for normal, n
         n_1_1 = """
         n[0] = -bc[1, 1] + bc[0, 1]
         n[1] = bc[1, 0] - bc[0, 0]
         """
         n_2_1 = """
-        v0[___c] = bc[1, ___c] - bc[0, ___c]
-        v1[___c] = bc[2, ___c] - bc[0, ___c]
+        v0[c3] = bc[1, c3] - bc[0, c3]
+        v1[c3] = bc[2, c3] - bc[0, c3]
         n[0] = v0[1] * v1[2] - v0[2] * v1[1]
         n[1] = v0[2] * v1[0] - v0[0] * v1[2]
         n[2] = v0[0] * v1[1] - v0[1] * v1[0]
         """
         n_2_2 = """
-        v0[___c] = bc[0, 1, ___c] - bc[0, 0, ___c]
-        v1[___c] = bc[1, 0, ___c] - bc[0, 0, ___c]
+        v0[c3] = bc[0, 1, c3] - bc[0, 0, c3]
+        v1[c3] = bc[1, 0, c3] - bc[0, 0, c3]
         n[0] = v0[1] * v1[2] - v0[2] * v1[1]
         n[1] = v0[2] * v1[0] - v0[0] * v1[2]
         n[2] = v0[0] * v1[1] - v0[1] * v1[0]
@@ -163,13 +161,13 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         instructions = """
         <{RealType}> dot = 0
         <{RealType}> norm = 0
-        <{RealType}> v0[__c] = 0
-        <{RealType}> v1[__c] = 0
-        <{RealType}> n[__c] = 0
-        <{RealType}> x[__c] = 0
-        <{RealType}> bc[{_dd}, _c] = real(base_coords[{_dd}, _c])
+        <{RealType}> v0[c2] = 0
+        <{RealType}> v1[c2] = 0
+        <{RealType}> n[c2] = 0
+        <{RealType}> x[c2] = 0
+        <{RealType}> bc[{_dd}, c1] = real(base_coords[{_dd}, c1])
         for {_dd}
-            x[_c] = x[_c] + bc[{_dd}, _c]
+            x[c1] = x[c1] + bc[{_dd}, c1]
         end
         {ninst}
         for k
@@ -178,7 +176,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         end
         norm = sqrt(norm)
         norm = -norm if dot < 0 else norm
-        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + n[c] * layer_height[dd] * (layer + l) / norm
+        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * layer_height[dd] * (layer + l) / norm
         """.format(RealType=RealType,
                    dd=', '.join(dd),
                    _dd=', '.join(_dd),
