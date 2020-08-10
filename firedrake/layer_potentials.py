@@ -78,12 +78,14 @@ class VolumePotential(AbstractExternalOperator):
                                           arguments=arguments)
         # Validate input
         from firedrake import Function
-        if not isinstance(operand, Function):
-            raise TypeError(":arg:`operand` must be of type firedrake.Function"
-                            ", not %s." % type(operand))
-        if operand.function_space().shape != tuple():
-            raise ValueError(":arg:`operand` must be a function with shape (),"
-                             " not %s." % operand.function_space().shape)
+        # This check is currently not right, so comment it out
+        #
+        # if not isinstance(operand, Function):
+        #     raise TypeError(":arg:`operand` must be of type firedrake.Function"
+        #                     ", not %s." % type(operand))
+        # if operand.function_space().shape != tuple():
+        #     raise ValueError(":arg:`operand` must be a function with shape (),"
+        #                      " not %s." % operand.function_space().shape)
         assert isinstance(operator_data, dict)
         required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
                          'm_order', 'dataset_filename')
