@@ -30,10 +30,8 @@ def extract_coefficients(expr):
         if isinstance(e, ufl.Coefficient):
             res += (e,)
         elif isinstance(e, ufl.ExternalOperator):
-            import ipdb; ipdb.set_trace()
             res += (e.coefficient,)
     return res
-    #return tuple(e for e in ufl_traversal(expr) if isinstance(e, ufl.Coefficient))
 
 
 class Translator(MultiFunction, ufl2gem.Mixin):
@@ -108,6 +106,9 @@ class Translator(MultiFunction, ufl2gem.Mixin):
             return gem.Indexed(var, (0, ))
         else:
             return var
+
+    def external_operator(self, o):
+        return self.coefficient(o.coefficient)
 
 
 class IndexRelabeller(MultiFunction):

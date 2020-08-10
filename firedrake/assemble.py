@@ -527,7 +527,8 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                     # we still need to construct this dependency when needed, i.e. when the form is already
                     # compiled and therefore the differentiation bit of the code is not hit.
                     deriv_ind = tuple(v.keys())
-                    args_list = tuple(tuple(expr.arguments()[position] for position in args) for args in v.values())
+                    expr_args = expr.arguments()
+                    args_list = tuple(tuple((expr_args[position], is_adj) for position, is_adj in args) for args in v.values())
                     d._add_dependencies(deriv_ind, args_list)
                     reconstruct_extops = [e for e in d._extop_dependencies if e.derivatives in v]
                     external_operators.extend(reconstruct_extops)
