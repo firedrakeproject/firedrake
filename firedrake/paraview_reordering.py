@@ -6,7 +6,7 @@ import numpy as np
 from pyop2.utils import as_tuple
 
 """
-This requires (even more) explanation.
+This requires some explanation:
 VTK has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
 However, we only need vtkCommonDataModel (previously vtkCommonKitPython),
 which, according to ldd, only cares about things that we should expect:

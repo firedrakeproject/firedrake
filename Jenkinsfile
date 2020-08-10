@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --remove-build-files || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -117,13 +117,20 @@ make lint
       }
     }
     stage('Docker'){
+      when {
+        branch 'master'
+      }
       steps {
         sh '''
 sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
 sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
+sudo docker push firedrakeproject/firedrake-env:latest
 sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-vanilla:latest -f docker/Dockerfile.vanilla .
+sudo docker push firedrakeproject/firedrake-vanilla:latest
 sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake:latest -f docker/Dockerfile.firedrake .
+sudo docker push firedrakeproject/firedrake:latest
 sudo docker build --no-cache -t firedrakeproject/firedrake-notebooks:latest -f docker/Dockerfile.jupyter .
+sudo docker push firedrakeproject/firedrake-notebooks:latest
 '''
       }
     }
