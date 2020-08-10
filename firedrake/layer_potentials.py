@@ -1,4 +1,10 @@
 from firedrake.pointwise_operators import AbstractExternalOperator
+
+from ufl.algorithms.apply_derivatives import VariableRuleset
+from ufl.constantvalue import as_ufl
+from ufl.core.multiindex import indices
+from ufl.tensors import as_tensor
+
 from pyop2.datatypes import ScalarType
 
 
@@ -54,29 +60,17 @@ class VolumePotential(AbstractExternalOperator):
 
     """
 
-    _external_operator_type = 'LOCAL'  # So that don't only eval action
+    _external_operator_type = 'GLOBAL'
 
-    def __init__(self, operand,
-                 function_space,
-                 derivatives=None,
-                 count=None,
-                 val=None,
-                 name=None,
-                 dtype=ScalarType,
-                 operator_data=None,
-                 coefficient=None,
-                 arguments=()):
-        AbstractExternalOperator.__init__(self, operand,
+    def __init__(self, operand, function_space, operator_data, **kwargs):
+        AbstractExternalOperator.__init__(self,
+                                          operand,
                                           function_space=function_space,
-                                          derivatives=derivatives,
-                                          count=count,
-                                          val=val,
-                                          name=name,
-                                          dtype=dtype,
                                           operator_data=operator_data,
-                                          coefficient=coefficient,
-                                          arguments=arguments)
+                                          **kwargs)
         # Validate input
+        assert self.derivatives == (0,), \
+            "Derivatives of volume potential not currently supported"
         from firedrake import Function
         # This check is currently not right, so comment it out
         #
@@ -278,3 +272,34 @@ class VolumePotential(AbstractExternalOperator):
         self.dat.data[:] = self.fd_pot.dat.data[:]
 
         return self
+
+    def _compute_derivatives(self, continuity_tolerance=None):
+        # TODO : Support derivatives
+        return self._evaluate(continuity_tolerance=continuity_tolerance)
+
+    def _evaluate_action(self, args, continuity_tolerance=None):
+        # From tests/pointwiseoperator/test_point_expr.py
+        # https://github.com/firedrakeproject/firedrake/blob/c0d9b592f587fa8c7437f690da7a6595f6804c1b/tests/pointwiseoperator/test_point_expr.py  # noqa
+        if len(args) == 0:
+            # Evaluate the operator
+            return self._evaluate(continuity_tolerance=continuity_tolerance)
+
+        # Evaluate the Jacobian/Hessian action
+        operands = self.ufl_operands
+        operator = self._compute_derivatives(continuity_tolerance=continuity_tolerance)
+        expr = as_ufl(operator(*operands))
+        if expr.ufl_shape == () and expr != 0:
+            var = VariableRuleset(self.ufl_operands[0])
+            expr = expr*var._Id
+        elif expr == 0:
+            return self.assign(expr)
+
+        for arg in args:
+            mi = indices(len(expr.ufl_shape))
+            aa = mi
+            bb = mi[-len(arg.ufl_shape):]
+            expr = arg[bb] * expr[aa]
+            mi_tensor = tuple(e for e in mi if not (e in aa and e in bb))
+            if len(expr.ufl_free_indices):
+                expr = as_tensor(expr, mi_tensor)
+        return self.interpolate(expr)
