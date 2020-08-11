@@ -12,6 +12,8 @@ from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
 
+from pyadjoint.tape import no_annotations
+
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
@@ -957,6 +959,9 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                                  degree=degree, reorder=reorder, comm=comm)
 
 
+# mesh is mainly used as a utility, so it's unnecessary to annotate the construction
+# in this case.
+@no_annotations
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
                          z0=0.8,

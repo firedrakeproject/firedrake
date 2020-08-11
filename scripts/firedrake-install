@@ -13,6 +13,8 @@ import atexit
 import json
 import pprint
 import shlex
+from glob import iglob
+from itertools import chain
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -58,7 +60,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade",
-                           "petsc_int_type", "cache_dir"]
+                           "petsc_int_type", "cache_dir", "remove_build_files"]
 
 
 def deep_update(this, that):
@@ -269,6 +271,8 @@ honoured.""",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
+    parser.add_argument("--remove-build-files", action="store_true",
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
@@ -356,6 +360,8 @@ else:
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--show-dependencies", action="store_true",
                         help="Print out the package manager used and packages installed/required.")
+    parser.add_argument("--remove-build-files", action="store_true",
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
@@ -839,6 +845,14 @@ def build_and_install_petsc():
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
+        if args.remove_build_files and not args.honour_petsc_dir:
+            log.info("Cleaning up PETSc build artifacts")
+            check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch, "externalpackages")])
+            check_call(["rm", "-rf", os.path.join(petsc_dir, "src", "docs")])
+            tutorial_output = os.path.join(petsc_dir, "src", "**", "tutorials", "output", "*")
+            test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
+            for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
+                check_call(["rm", "-f", deletefile])
 
 
 def build_and_install_h5py():
@@ -1301,15 +1315,6 @@ if mode == "install":
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
-
-    # If Python 3.8 or later install VTK from custom wheel
-    if sys.version_info >= (3, 8):
-        log.info("Pip installing VTK for Python3.8")
-        if osname == "Darwin":
-            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl"])
-        elif osname == "Linux":
-            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl"])
-
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
