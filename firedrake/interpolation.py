@@ -68,7 +68,10 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
-        self.callable, arguments = make_interpolator(expr, V, subset, access)
+        try:
+            self.callable, arguments = make_interpolator(expr, V, subset, access)
+        except FIAT.hdiv_trace.TraceError:
+            raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
@@ -222,7 +225,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
+        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords,
+                                                                                              domain=V.mesh(), coffee=False)
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
