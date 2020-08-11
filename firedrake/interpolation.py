@@ -208,16 +208,25 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     from finat.fiat_elements import FiatElement
     from finat.tensorfiniteelement import TensorFiniteElement
     from finat.tensor_product import TensorProductElement
+    from finat.enriched import EnrichedElement
     from tsfc.finatinterface import create_element as create_finat_element
     try:
         element = create_finat_element(V.ufl_element())
         print(element)
-        # FInAT dual evaluation currently only accepts FiatElements
-        elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement)
-        # fiatelement = create_element(V.ufl_element(), vector_is_mixed=False)
-        # import pdb; pdb.set_trace()
+        # Only FInAT elements below have dual_evaluation method implemented
+        # elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement)
+        elements_with_basis = (FiatElement, TensorProductElement, EnrichedElement)
         if not isinstance(element, elements_with_basis):
             element = create_element(V.ufl_element(), vector_is_mixed=False)
+        # Only FiatElements have dual_basis implemented
+        if isinstance(element, TensorProductElement):
+            for factor in element.factors:
+                if not isinstance(factor, elements_with_basis):
+                    element = create_element(V.ufl_element(), vector_is_mixed=False)
+        elif isinstance(element, EnrichedElement):
+            for factor in element.elements:
+                if not isinstance(factor, elements_with_basis):
+                    element = create_element(V.ufl_element(), vector_is_mixed=False)
         print(element)
     except KeyError:
         # FInAT only elements
