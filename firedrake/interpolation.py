@@ -206,12 +206,19 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     from finat.fiat_elements import FiatElement
+    from finat.tensorfiniteelement import TensorFiniteElement
+    from finat.tensor_product import TensorProductElement
     from tsfc.finatinterface import create_element as create_finat_element
     try:
         element = create_finat_element(V.ufl_element())
+        print(element)
         # FInAT dual evaluation currently only accepts FiatElements
-        if not isinstance(element, FiatElement):
+        elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement)
+        # fiatelement = create_element(V.ufl_element(), vector_is_mixed=False)
+        # import pdb; pdb.set_trace()
+        if not isinstance(element, elements_with_basis):
             element = create_element(V.ufl_element(), vector_is_mixed=False)
+        print(element)
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -237,6 +244,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         kernel = op2.Kernel(ast, ast.name)
     elif hasattr(expr, "eval"):
         to_pts = []
+        # TODO: fix non-FiatElement? but deprecated
         # FInAT dual evaluation currently only accepts FiatElements
         for dual in (element._element.dual_basis() if isinstance(element, FiatElement) else element.dual_basis()):
             if not isinstance(dual, FIAT.functional.PointEvaluation):
