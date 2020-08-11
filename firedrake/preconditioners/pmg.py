@@ -202,6 +202,7 @@ class PMGPC(PCBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setCreateInjection(self.create_injection)
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
@@ -237,6 +238,28 @@ class PMGPC(PCBase):
 
         R = PETSc.Mat().createTranspose(I)
         return R, None
+
+    def create_injection(self, dmc, dmf):
+        cctx = get_appctx(dmc)
+        fctx = get_appctx(dmf)
+
+        cV = cctx.J.arguments()[0].function_space()
+        fV = fctx.J.arguments()[0].function_space()
+
+        cbcs = []
+        fbcs = []
+
+        prefix = dmc.getOptionsPrefix()
+        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+
+        if mattype == "matfree":
+            I = prolongation_matrix_matfree(cV, fV, cbcs, fbcs)
+        elif mattype == "aij":
+            I = prolongation_matrix_aij(cV, fV, cbcs, fbcs)
+            I = PETSc.Mat().createTranspose(I)
+        else:
+            raise ValueError("Unknown matrix type")
+        return I
 
     def view(self, pc, viewer=None):
         if viewer is None:
