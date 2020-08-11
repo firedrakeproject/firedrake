@@ -84,49 +84,6 @@ gives a full list of update options. For instance additional Firedrake
 packages can be installed into an existing Firedrake installation using
 ``firedrake-update``.
 
-Debugging install problems
---------------------------
-
-If ``firedrake-install`` fails, the following flowchart describes some
-common build problems and how to solve them. If you understand the
-prognosis and feel comfortable making these fixes yourself then great!
-If not, feel free to ask for more help in our
-:doc:`Slack channel </contact>`.
-
-.. graphviz:: install-debug.dot
-
-If you don't see the issue you're experiencing in this chart, please
-ask us on Slack or report a bug by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
-diagnose what's going wrong, **please include the following log files**:
-
-* ``firedrake-install.log`` from Firedrake, which you can find in the
-  directory where you invoked ``firedrake-install`` from
-* ``configure.log`` and ``make.log`` from PETSc, which you can find in
-  ``src/petsc/`` inside the directory where Firedrake virtual
-  environment was created
-
-Likewise, if it's ``firedrake-update`` that fails, please include the
-file ``firedrake-update.log``. You can find this in the Firedrake
-virtual environment.
-
-Recovering from a broken installation script
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you find yourself in the unfortunate position that
-``firedrake-update`` won't run because of a bug, and the bug has been
-fixed in Firedrake master, then the following procedure will rebuild
-``firedrake-update`` using the latest version.
-
-From the top directory of your Firedrake install,
-type::
-
-  cd src/firedrake
-  git pull
-  ./scripts/firedrake-install --rebuild-script
-
-You should now be able to run ``firedrake-update``.
-
 System requirements
 -------------------
 
@@ -160,7 +117,6 @@ Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed
 `instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
 Installation on previous versions of Windows is unlikely to work.
-
 
 System anti-requirements
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -208,6 +164,48 @@ MacPorts installed, you should ensure that ``/opt/local/bin`` and
 using Firedrake. This should ensure that no MacPorts installed tools
 are found.
 
+Debugging install problems
+--------------------------
+
+If ``firedrake-install`` fails, the following flowchart describes some
+common build problems and how to solve them. If you understand the
+prognosis and feel comfortable making these fixes yourself then great!
+If not, feel free to ask for more help in our
+:doc:`Slack channel </contact>`.
+
+.. graphviz:: install-debug.dot
+
+If you don't see the issue you're experiencing in this chart, please
+ask us on Slack or report a bug by creating a new `github issue
+<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
+diagnose what's going wrong, **please include the following log files**:
+
+* ``firedrake-install.log`` from Firedrake, which you can find in the
+  directory where you invoked ``firedrake-install`` from
+* ``configure.log`` and ``make.log`` from PETSc, which you can find in
+  ``src/petsc/`` inside the directory where Firedrake virtual
+  environment was created
+
+Likewise, if it's ``firedrake-update`` that fails, please include the
+file ``firedrake-update.log``. You can find this in the Firedrake
+virtual environment.
+
+Recovering from a broken installation script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you find yourself in the unfortunate position that
+``firedrake-update`` won't run because of a bug, and the bug has been
+fixed in Firedrake master, then the following procedure will rebuild
+``firedrake-update`` using the latest version.
+
+From the top directory of your Firedrake install,
+type::
+
+  cd src/firedrake
+  git pull
+  ./scripts/firedrake-install --rebuild-script
+
+You should now be able to run ``firedrake-update``.
 
 Visualisation software
 ----------------------
