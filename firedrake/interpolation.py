@@ -12,6 +12,7 @@ from tsfc import compile_expression_dual_evaluation
 
 import firedrake
 from firedrake import utils
+from firedrake.adjoint import annotate_interpolate
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -75,8 +76,10 @@ class Interpolator(object):
         self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
+        self.expr = expr
         self.V = V
 
+    @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
         :arg function: If the expression being interpolated contains an
