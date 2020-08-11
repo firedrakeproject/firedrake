@@ -58,16 +58,13 @@ class NonlinearVariationalSolverMixin:
                                                        solver_kwargs=self._ad_kwargs,
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
-                    from firedrake import NonlinearVariationalProblem, NonlinearVariationalSolver
-                    F_clone, u_clone, J_clone = self._ad_cloned_residual_and_jacobian(self._ad_problem.F,
-                                                                                      self._ad_problem.J,
+                    from firedrake import NonlinearVariationalSolver
+                    self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem.F,
                                                                                       self._ad_problem.u,
-                                                                                      block.get_dependencies())
-                    problem_clone = NonlinearVariationalProblem(F_clone,
-                                                                u_clone,
-                                                                self._ad_problem.bcs,
-                                                                J_clone)
-                    self._ad_nlvs = NonlinearVariationalSolver(problem_clone, **self._ad_kwargs)
+                                                                                      self._ad_problem.bcs,
+                                                                                      self._ad_problem.J,
+                                                                                      block.get_dependencies()),
+                                                               **self._ad_kwargs)
 
                 block._ad_nlvs = self._ad_nlvs
                 tape.add_block(block)
@@ -83,12 +80,13 @@ class NonlinearVariationalSolverMixin:
         return wrapper
 
     @no_annotations
-    def _ad_cloned_residual_and_jacobian(self, F, J, u, dependencies):
+    def _ad_problem_clone(self, F, u, bcs, J, dependencies):
         """Replaces every coefficient in the residual and jacobian with a deepcopy to return
         new UFL expressions. We'll be modifying the numerical values of the coefficients in the residual
         and jacobian, so in order not to affect the user-defined self._ad_problem.F, self._ad_problem.J
         and self._ad_problem.u expressions, we'll instead create clones of them.
         """
+        from firedrake import NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 
@@ -102,7 +100,7 @@ class NonlinearVariationalSolverMixin:
                     F_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     F_replace_map[coeff] = coeff.copy(deepcopy=True)
-                F_replace_map[coeff]._ad_id = id(coeff)
+                F_replace_map[coeff]._ad_count = coeff.count()
 
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:
@@ -111,6 +109,9 @@ class NonlinearVariationalSolverMixin:
                     J_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     J_replace_map[coeff] = coeff.copy()
-                F_replace_map[coeff]._ad_id = id(coeff)
+                J_replace_map[coeff]._ad_count = coeff.count()
 
-        return replace(F, F_replace_map), F_replace_map[u], replace(J, J_replace_map)
+        return NonlinearVariationalProblem(replace(F, F_replace_map),
+                                           F_replace_map[u],
+                                           bcs=bcs,
+                                           J=replace(J, J_replace_map))

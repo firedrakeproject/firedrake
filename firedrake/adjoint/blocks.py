@@ -123,11 +123,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _ad_assign_map(self, form):
         assign_map = {}
-        form_ad_id_map = dict((coeff._ad_id, coeff) for coeff in form.coefficients())
+        form_ad_count_map = dict((coeff._ad_count, coeff) for coeff in form.coefficients())
         for block_variable in self.get_dependencies():
-            coeff_id = id(block_variable.output)
-            if coeff_id in form_ad_id_map:
-                assign_map[form_ad_id_map[coeff_id]] = block_variable.saved_output
+            coeff = block_variable.output
+            if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
+                coeff_count = coeff.count()
+                if coeff_count in form_ad_count_map:
+                    assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
         return assign_map
 
     def _ad_assign_coefficients(self, form, func=None):
