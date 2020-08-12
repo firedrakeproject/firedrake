@@ -228,6 +228,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             for factor in element.elements:
                 if not isinstance(factor, elements_with_basis):
                     element = create_element(V.ufl_element(), vector_is_mixed=False)
+        elif isinstance(element, FlattenedDimensions):
+            if not isinstance(element.product, elements_with_basis):
+                element = create_element(V.ufl_element(), vector_is_mixed=False)
         print(element)
     except KeyError:
         # FInAT only elements
