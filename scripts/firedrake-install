@@ -551,7 +551,6 @@ if options.get("mpiexec") is not None:
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
-    petsc_options.add("--download-mpich-device=ch3:nemesis")
 
 petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
