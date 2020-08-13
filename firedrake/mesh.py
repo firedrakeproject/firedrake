@@ -1298,6 +1298,23 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    @property
+    def cell_parent_cell_list(self):
+        """Return a list of parent mesh cells numbers in vertex only
+        mesh cell order.
+        """
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        self.topology_dm.restoreField("parentcellnum")
+        return cell_parent_cell_list
+
+    @property
+    def cell_parent_cell_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh cells.
+        """
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_cell_list, "cell_parent_cell")
+
 
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
