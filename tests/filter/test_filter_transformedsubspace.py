@@ -32,29 +32,6 @@ def _poisson_get_forms_original(V, f, n):
     return a, L
 
 
-def _poisson_get_forms_hermite(V, xprime, yprime, g, f):
-
-    # Filter test function
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    V1 = BCSubspace(V, (1,2,3,4))
-
-    ub = Masked(u, V1)
-    vb = Masked(v, V1)
-
-    gb = Masked(g, V1)
-
-    # Make sure to project with very small tolerance.
-    ud = Masked(u, V1.complement)
-    vd = Masked(v, V1.complement)
-
-    a = inner(grad(ud), grad(vd)) * dx + inner(ub, vb)* ds
-    L = inner(f, vd) * dx - inner(grad(gb), grad(vd)) * dx + inner(gb, vb) * ds
-
-    return a, L
-
-
 def _poisson(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
@@ -83,13 +60,26 @@ def _poisson(n, el_type, degree, perturb):
     f = Function(V).project(_poisson_analytical(V, xprime, yprime, 'force'), solver_parameters=solver_parameters)
     g = Function(V).project(_poisson_analytical(V, xprime, yprime, 'solution'), solver_parameters=solver_parameters)
     #a, L = _poisson_get_forms_original(V, f, n)
-    a, L = _poisson_get_forms_hermite(V, xprime, yprime, g, f)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    V1 = BoundarySubspace(V, (1,2,3,4))
+
+    ub = Masked(u, V1)
+    vb = Masked(v, V1)
+
+    gb = Masked(g, V1)
+
+    # Make sure to project with very small tolerance.
+    ud = Masked(u, V1.complement)
+    vd = Masked(v, V1.complement)
+
+    a = inner(grad(ud), grad(vd)) * dx + inner(ub, vb)* ds
+    L = inner(f, vd) * dx - inner(grad(gb), grad(vd)) * dx + inner(gb, vb) * ds
+
     # Solve
     sol = Function(V)
     solve(a == L, sol, bcs=[], solver_parameters={"ksp_type": 'preonly', "pc_type": 'lu'})
-    #solve(a == L, sol, bcs=[], solver_parameters={"ksp_type": 'gmres',
-    #                                              "ksp_rtol": 1.e-12,
-    #                                              "ksp_atol": 1.e-12})
 
     # Postprocess
     sol_exact = _poisson_analytical(V, xprime, yprime, 'solution')

@@ -14,8 +14,7 @@ def test_filter_one_form_lagrange():
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    #Vsub = Subspace(V, Constant(1.), 1)
-    Vsub = BCSubspace(V, 1)
+    Vsub = BoundarySubspace(V, 1)
 
     rhs0 = assemble(f * v * dx)
     rhs1 = assemble(f * Masked(v, Vsub) * dx)
@@ -36,7 +35,7 @@ def test_filter_one_form_bdm():
     f = Function(V).project(as_vector([8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5),
                                        8.0 * pi * pi * cos(2 * pi *x + pi/7) * cos(2 * pi * y + pi/11)]))
 
-    Vsub = Subspace(V, Function(V).project(as_vector([1., 2.])), 1)
+    Vsub = ScalarSubspace(V, Function(V).project(as_vector([1., 2.])), 1)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Masked(v, Vsub)) * dx)
@@ -65,7 +64,7 @@ def test_filter_one_form_mixed():
     g.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=BDM.boundary_node_subset((1, )))
     g.sub(1).assign(Constant(1.), subset=CG.boundary_node_subset((1, )))
 
-    Vsub = Subspace(V, g)
+    Vsub = ScalarSubspace(V, g)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Masked(v, Vsub)) * dx)
@@ -84,8 +83,8 @@ def test_filter_two_form_lagrange():
     u = TrialFunction(V)
 
     subdomain1 = V.boundary_node_subset((1, ))
-    Vsub_b = Subspace(V, Constant(1.), subdomain1)
-    Vsub_d = Subspace(V, Constant(1.), V.node_set.difference(subdomain1))
+    Vsub_b = ScalarSubspace(V, Constant(1.), subdomain1)
+    Vsub_d = ScalarSubspace(V, Constant(1.), V.node_set.difference(subdomain1))
 
     v_b = Masked(v, Vsub_b)
     u_b = Masked(u, Vsub_b)

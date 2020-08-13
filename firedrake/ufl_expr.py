@@ -7,7 +7,8 @@ from ufl.classes import ListTensor
 
 import firedrake
 from firedrake import utils
-from firedrake.function import Function, Subspace, Subspaces, ComplementSubspace
+from firedrake.function import Function
+from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, ScalarSubspace
 
 import functools
 
@@ -269,7 +270,7 @@ class _Masked(ufl.Masked):
     def __init__(self, form_argument, subspace):
         if isinstance(subspace, Function):
             f = subspace
-            subspace = Subspace(f.function_space(), val=f)
+            subspace = ScalarSubspace(f.function_space(), val=f)
         super().__init__(form_argument, subspace)
 
 
@@ -282,7 +283,7 @@ def Masked(form_argument, subspace):
     if isinstance(subspace, Subspaces):
         ms = tuple(Masked(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (ufl.Subspace, ufl.classes.ListTensor, Function)):
+    elif isinstance(subspace, (Subspace, ufl.classes.ListTensor, Function)):
         return _Masked(form_argument, subspace)
     else:
         raise TypeError("Must be `Subspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
