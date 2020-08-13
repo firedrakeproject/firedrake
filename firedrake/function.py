@@ -14,6 +14,9 @@ from firedrake import utils
 from firedrake import vector
 from firedrake.constant import Constant
 from firedrake.adjoint import FunctionMixin
+#from firedrake.utils import IntType, RealType, ScalarType
+from finat.point_set import PointSet
+from finat.quadrature import QuadratureRule
 try:
     import cachetools
 except ImportError:
@@ -21,8 +24,10 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'Subspace', 'TransformedSubspace', 'PointNotInDomainError',
-           'BCSubspace', 'BCRotatedSubspace']
+__all__ = ['Function',
+           'Subspace', 'TransformedSubspace', 'Subspaces',
+           'BCSubspace', 'BCRotatedSubspace',
+           'PointNotInDomainError']
 
 
 class _CFunction(ctypes.Structure):
@@ -722,6 +727,11 @@ class SubspaceBase(ufl.Subspace):
         """
         return self._function_space
 
+    #@utils.cached_property
+    @property
+    def complement(self):
+        return ComplementSubspace(self)
+
 
 class Subspace(SubspaceBase):
     def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
@@ -731,6 +741,39 @@ class Subspace(SubspaceBase):
 class TransformedSubspace(SubspaceBase):
     def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
         super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
+
+
+class Subspaces(object):
+    r"""Bag of :class:`.SubspaceBase`s.
+
+    :arg subspaces: :class:`.SubspaceBase` objects.
+    """
+
+    def __init__(self, *subspaces):
+        self._components = tuple(subspaces)
+
+    def __iter__(self):
+        return iter(self._components)
+
+    #@utils.cached_property
+    @property
+    def complement(self):
+        return ComplementSubspace(self)
+
+
+class ComplementSubspace(object):
+    r"""Complement of :class:`.Subspace` or :class:`.Subspaces`."""
+
+    def __init__(self, subspace):
+        if not isinstance(subspace, (SubspaceBase, Subspaces)):
+            raise TypeError("Expecting `SubspaceBase` or `Subspaces`,"
+                            " not %s." % subspace.__class__.__name__)
+        self._subspace = subspace
+
+    #@utils.cached_property
+    @property
+    def complement(self):
+        return self._subspace
 
 
 def BCSubspace(V, subdomain):
@@ -746,15 +789,92 @@ def BCSubspace(V, subdomain):
         # Reconstruct the parent WithGeometry
         # TODO: When submesh lands, just do W = V.parent.
         W = functionspaceimpl.WithGeometry(tV.parent, V.mesh())
-        g = Function(W)
         i = tV.index if tV.index is not None else tV.component
-        g.sub(i).assign(Constant(1.), subset=tV.boundary_node_subset(subdomain))
-        return  Subspace(W, val=g)
-    return Subspace(V, val=Constant(1.), subdomain=subdomain)
+        #g.sub(i).assign(Constant(1.), subset=tV.boundary_node_subset(subdomain))
+        f0, f1 = _boundary_subspace_functions(V, subdomain)
+        g0 = Function(W)
+        g0.sub(i).assign(f0, subset=tV.boundary_node_subset(subdomain))
+        if f1:
+            g1 = Function(W)
+            g1.sub(i).assign(f1)
+            return  Subspaces(Subspace(W, val=g0), TransformedSubspace(W, val=g1))
+        else:
+            return Subspace(W, val=g0)
+    else:
+        f0, f1 = _boundary_subspace_functions(V, subdomain)
+        if f1:
+            return  Subspaces(Subspace(V, val=f0), TransformedSubspace(V, val=f1)).complement
+        else:
+            return Subspace(V, val=f0, subdomain=subdomain)
+            
+
+def _boundary_subspace_functions(V, subdomain):
+    # Define op2.subsets to be used when defining filters
+    if V.ufl_element().family() == 'Hermite':
+        assert V.ufl_element().degree() == 3
+
+        from firedrake import TestFunction, TrialFunction, Masked, FacetNormal, inner, dx, grad, ds, solve, par_loop
+        v = TestFunction(V)
+        u = TrialFunction(V)
+
+
+        subset_1234 = V.boundary_node_subset((1, 2, 3, 4))
+        subset_12 = V.boundary_node_subset((1, 2))
+        subset_34 = V.boundary_node_subset((3, 4))
+        subset_value = V.node_subset(derivative_order=0)  # subset of value nodes
+        subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
+
+        corners = subset_12.intersection(subset_34)
+        g5 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset((1, 2, 3, 4)).difference(corners).intersection(subset_deriv))
+        v5 = Masked(v, g5)
+        u5 = Masked(u, g5)
+        quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
+
+        normal = FacetNormal(V.mesh())
+
+
+        aa = inner(u - u5, v - v5) * dx + inner(grad(u5), grad(v5)) * ds((1, 2, 3, 4), scheme=quad_rule_boun)
+        ff = inner(normal, grad(v5)) * ds((1, 2, 3, 4), scheme=quad_rule_boun)
+        s0 = Function(V)
+        s1 = Function(V)
+        solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
+        s1 = _normalise_subspace(s1, (1,2,3,4))
+        s0.assign(Constant(1.), subset=V.node_set.difference(V.boundary_node_subset((1,2,3,4))))
+
+        return s0, s1
+    else:
+        return Constant(1.), None
 
 
 def BCRotatedSubspace():
     pass
 
 
-    
+
+def _normalise_subspace(old_subspace, subdomain):
+    from firedrake import par_loop, ds, WRITE, READ
+    domain = ""
+    domain = "{[k]: 0 <= k < 3}"
+    instructions = """
+    <float64> eps = 1e-9
+    <float64> norm = 0
+    for k
+        norm = sqrt(old_subspace[3 * k + 1] * old_subspace[3 * k + 1] + old_subspace[3 * k + 2] * old_subspace[3 * k + 2])
+        if norm > eps
+            new_subspace[3 * k + 1] = old_subspace[3 * k + 1] / norm
+            new_subspace[3 * k + 2] = old_subspace[3 * k + 2] / norm
+        end
+    end
+    """
+
+    V = old_subspace.function_space()
+    new_subspace = Function(V)
+
+    par_loop((domain, instructions), ds(subdomain),
+             {"new_subspace": (new_subspace, WRITE),
+              "old_subspace": (old_subspace, READ)},
+             is_loopy_kernel=True)
+
+    return new_subspace
+
+

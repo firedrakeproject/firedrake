@@ -3,10 +3,13 @@ import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.classes import ListTensor
 
 import firedrake
 from firedrake import utils
-from firedrake.function import CoordinatelessFunction, Function, Subspace
+from firedrake.function import Function, Subspace, Subspaces, ComplementSubspace
+
+import functools
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -256,21 +259,30 @@ def FacetNormal(mesh):
     return ufl.FacetNormal(mesh)
 
 
-class Masked(ufl.Masked):
-    """Wrapper for `ufl.Masked` operator.
+class _Masked(ufl.Masked):
+    """Wrapper for `ufl.Masked` class.
 
     :arg form_argument: the :class:`~.Argument` or :class:`~.Function`
-       to apply filter to.
-    :arg subspace: the :class:`~.Subspace`
-       (or :class:`~.CoordinatelessFunction` or :class:`~.Function`)
-       object that encodes the subspace of interest.
+       to "mask".
+    :arg subspace: the :class:`~.Subspace` (or :class:`~.Function`).
     """
     def __init__(self, form_argument, subspace):
         if isinstance(subspace, Function):
             f = subspace
             subspace = Subspace(f.function_space(), val=f)
-        #if not isinstance(fltr, CoordinatelessFunction):
-        #    raise TypeError("Must provide `Masked` with \
-        #                    `CoordinatelessFunction` or `Function`, \
-        #                     not %s" % fltr.__class__.__name__)
         super().__init__(form_argument, subspace)
+
+
+def Masked(form_argument, subspace):
+    """Return `_Masked` objects."""
+    if isinstance(subspace, ComplementSubspace):
+        return form_argument - Masked(form_argument, subspace.complement)
+    if isinstance(subspace, (list, tuple)):
+        subspace = Subspaces(*subspace)
+    if isinstance(subspace, Subspaces):
+        ms = tuple(Masked(form_argument, s) for s in subspace)
+        return functools.reduce(lambda a, b: a + b, ms)
+    elif isinstance(subspace, (ufl.Subspace, ufl.classes.ListTensor, Function)):
+        return _Masked(form_argument, subspace)
+    else:
+        raise TypeError("Must be `Subspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
