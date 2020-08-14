@@ -12,15 +12,6 @@ def _rotate_mesh(mesh, theta):
     return Mesh(coords)
 
 
-def _poisson_analytical(V, xi, eta, which):
-    if which == 'solution':
-        #return sin(2 * pi * xi) * sin(2 * pi * eta)
-        return cos(2 * pi * xi) * cos(2 * pi * eta)
-    elif which == 'force':
-        #return 8.0 * pi * pi * sin(2 * pi * xi) * sin(2 * pi * eta)
-        return 8.0 * pi * pi * cos(2 * pi * xi) * cos(2 * pi * eta)
-
-
 def _poisson_get_forms_original(V, f, n):
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -54,11 +45,16 @@ def _poisson(n, el_type, degree, perturb):
     xprime = cos(theta) * x + sin(theta) * y
     yprime = -sin(theta) * x + cos(theta) * y
 
-    # Define forms
-    
-    solver_parameters = {"ksp_rtol": 1.e-18}
-    f = Function(V).project(_poisson_analytical(V, xprime, yprime, 'force'), solver_parameters=solver_parameters)
-    g = Function(V).project(_poisson_analytical(V, xprime, yprime, 'solution'), solver_parameters=solver_parameters)
+    # 
+    if True:
+        g = cos(2 * pi * xprime) * cos(2 * pi * yprime)
+        f = 8.0 * pi * pi * cos(2 * pi * xprime) * cos(2 * pi * yprime)
+    else:
+        g = sin(2 * pi * xprime) * sin(2 * pi * yprime)
+        f = 8.0 * pi * pi * sin(2 * pi * xprime) * sin(2 * pi * yprime)
+
+    gV = Function(V).project(g, solver_parameters={"ksp_rtol": 1.e-16})
+
     #a, L = _poisson_get_forms_original(V, f, n)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -67,8 +63,7 @@ def _poisson(n, el_type, degree, perturb):
 
     ub = Masked(u, V1)
     vb = Masked(v, V1)
-
-    gb = Masked(g, V1)
+    gb = Masked(gV, V1)
 
     # Make sure to project with very small tolerance.
     ud = Masked(u, V1.complement)
@@ -79,13 +74,11 @@ def _poisson(n, el_type, degree, perturb):
 
     # Solve
     sol = Function(V)
-    solve(a == L, sol, bcs=[], solver_parameters={"ksp_type": 'preonly', "pc_type": 'lu'})
+    solve(a == L, sol, bcs=[], solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-13})
 
     # Postprocess
-    sol_exact = _poisson_analytical(V, xprime, yprime, 'solution')
-    sol_exact_proj = Function(V).project(_poisson_analytical(V, xprime, yprime, 'solution'), solver_parameters=solver_parameters)
-    err = sqrt(assemble(dot(sol - sol_exact, sol - sol_exact) * dx))
-    berr = sqrt(assemble(dot(sol - sol_exact_proj, sol - sol_exact_proj) * ds))
+    err = sqrt(assemble(dot(sol - g, sol - g) * dx))
+    berr = sqrt(assemble(dot(sol - gV, sol - gV) * ds))
     print("error            : ", err)
     print("error on boundary: ", berr)
     """
