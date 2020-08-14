@@ -100,6 +100,7 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
+        pdm.setCreateInjection(self.create_injection)
         pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
@@ -151,7 +152,8 @@ class PMGPC(PCBase):
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
-        cu = firedrake.Function(cV)
+
+        cu = firedrake.interpolate(fu, cV)
 
         parent = get_parent(fdm)
         assert parent is not None
