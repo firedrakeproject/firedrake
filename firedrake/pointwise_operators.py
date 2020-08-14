@@ -187,6 +187,8 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
         dNdq = dNdq._evaluate()
         dNdq_adj = conj(transpose(dNdq))
         result = firedrake.assemble(dNdq_adj)
+        if isinstance(self.ufl_operands[idx], Constant):
+            return result.vector().inner(x)
         return result.vector() * x
 
     def evaluate_adj_component_state(self, x, idx):
@@ -919,9 +921,6 @@ class PointnetOperator(AbstractExternalOperator):
         :param weights_version: a dictionary keeping track of the weights version, to inform if whether we need to update them.
         """
 
-        #import ipdb; ipdb.set_trace()
-        #if weights_version is None:
-        #    print('\n C NONE')
         # Add the weights in the operands list and update the derivatives multiindex
         last_op = operands[-1]
         init_weights = isinstance(last_op, Constant) or \
