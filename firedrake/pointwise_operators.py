@@ -38,7 +38,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
 
     def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data=None, coefficient=None, arguments=()):
         ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,\
-                                  count=count, arguments=arguments)
+                                  arguments=arguments)
         aa = function_space
         ofs = self.original_function_space()
         if not isinstance(ofs, functionspaceimpl.WithGeometry):
