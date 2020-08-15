@@ -59,10 +59,7 @@ class NonlinearVariationalSolverMixin:
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
                     from firedrake import NonlinearVariationalSolver
-                    self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem.F,
-                                                                                      self._ad_problem.u,
-                                                                                      self._ad_problem.bcs,
-                                                                                      self._ad_problem.J,
+                    self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem,
                                                                                       block.get_dependencies()),
                                                                **self._ad_kwargs)
 
@@ -80,18 +77,19 @@ class NonlinearVariationalSolverMixin:
         return wrapper
 
     @no_annotations
-    def _ad_problem_clone(self, F, u, bcs, J, dependencies):
+    def _ad_problem_clone(self, problem, dependencies):
         """Replaces every coefficient in the residual and jacobian with a deepcopy to return
-        new UFL expressions. We'll be modifying the numerical values of the coefficients in the residual
-        and jacobian, so in order not to affect the user-defined self._ad_problem.F, self._ad_problem.J
-        and self._ad_problem.u expressions, we'll instead create clones of them.
+        a clone of the original NonlinearVariationalProblem instance. We'll be modifying the
+        numerical values of the coefficients in the residual and jacobian, so in order not to
+        affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
+        expressions, we'll instead create clones of them.
         """
         from firedrake import NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 
-        F_coefficients = F.coefficients()
-        J_coefficients = J.coefficients()
+        F_coefficients = problem.F.coefficients()
+        J_coefficients = problem.J.coefficients()
 
         for block_variable in dependencies:
             coeff = block_variable.output
@@ -111,7 +109,7 @@ class NonlinearVariationalSolverMixin:
                     J_replace_map[coeff] = coeff.copy()
                 J_replace_map[coeff]._ad_count = coeff.count()
 
-        return NonlinearVariationalProblem(replace(F, F_replace_map),
-                                           F_replace_map[u],
-                                           bcs=bcs,
-                                           J=replace(J, J_replace_map))
+        return NonlinearVariationalProblem(replace(problem.F, F_replace_map),
+                                           F_replace_map[problem.u],
+                                           bcs=problem.bcs,
+                                           J=replace(problem.J, J_replace_map))
