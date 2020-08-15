@@ -100,12 +100,14 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
-        self.equation = equation
+        lhs = equation.lhs
+        rhs = equation.rhs
+
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
-        super().__init__(self.equation.lhs, self.equation.rhs, func, bcs, **{**solver_kwargs, **kwargs})
+        super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
             for coeff in self.problem_J.coefficients():
