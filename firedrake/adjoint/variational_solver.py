@@ -5,6 +5,7 @@ from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_
 from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
 from ufl import replace
 
+
 class NonlinearVariationalProblemMixin:
     @staticmethod
     def _ad_annotate_init(init):
