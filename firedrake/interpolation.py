@@ -211,15 +211,20 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     from finat.enriched import EnrichedElement
     from finat.cube import FlattenedDimensions
     from tsfc.finatinterface import create_element as create_finat_element
-    try:
-        element = create_finat_element(V.ufl_element())
+
+    if not isinstance(expr, firedrake.Expression):
+        try:
+            element = create_finat_element(V.ufl_element())
+        except KeyError:
+            # FInAT only elements
+            raise NotImplementedError("Don't know how to create FInAT element for %s" % V.ufl_element())
+
         print(element)
         # Only FInAT elements below have dual_evaluation method implemented
-        # elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement)
-        elements_with_basis = (FiatElement, TensorProductElement, EnrichedElement, FlattenedDimensions)
+        elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement,
+                               EnrichedElement, FlattenedDimensions)
         if not isinstance(element, elements_with_basis):
             element = create_element(V.ufl_element(), vector_is_mixed=False)
-        # Only FiatElements have dual_basis implemented
         if isinstance(element, TensorProductElement):
             for factor in element.factors:
                 if not isinstance(factor, elements_with_basis):
@@ -232,9 +237,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             if not isinstance(element.product, elements_with_basis):
                 element = create_element(V.ufl_element(), vector_is_mixed=False)
         print(element)
-    except KeyError:
-        # FInAT only elements
-        raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
+    else:
+        try:
+            element = create_element(V.ufl_element())
+        except KeyError:
+            # FIAT only elements
+            raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
 
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
@@ -257,9 +265,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         kernel = op2.Kernel(ast, ast.name)
     elif hasattr(expr, "eval"):
         to_pts = []
-        # TODO: fix non-FiatElement? but deprecated
         # FInAT dual evaluation currently only accepts FiatElements
-        for dual in (element._element.dual_basis() if isinstance(element, FiatElement) else element.dual_basis()):
+        for dual in element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
             pts, = dual.pt_dict.keys()
