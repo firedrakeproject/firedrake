@@ -179,7 +179,7 @@ def BoundarySubspace(V, subdomain):
 
 def _boundary_subspace_functions(V, subdomain):
     #from firedrake import TestFunction, TrialFunction, Masked, FacetNormal, inner, dx, grad, ds, solve, par_loop
-    from firedrake import FacetNormal, inner, dx, grad, ds, solve, par_loop
+    from firedrake import FacetNormal, inner, dx, grad, ds, solve, par_loop, dot, as_tensor
     #from firedrake.parloops import par_loop
     #from firedrake import solve
     # Define op2.subsets to be used when defining filters
@@ -207,6 +207,7 @@ def _boundary_subspace_functions(V, subdomain):
 
         normal = FacetNormal(V.mesh())
 
+        """
         aa = inner(u - u1, v - v1) * dx + inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
         ff = inner(normal, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
         s0 = Function(V)
@@ -214,8 +215,19 @@ def _boundary_subspace_functions(V, subdomain):
         solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace(s1, subdomain)
         s0.assign(Constant(1.), subset=V.node_set.difference(V.boundary_node_subset(subdomain)))
-
         return (s0, s1), True
+        """
+        tangent = dot(as_tensor([[0., 1.], [-1., 0.]]), normal)
+        aa = inner(u - u1, v - v1) * dx + inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
+        ff = inner(tangent, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
+        s0 = Function(V)
+        s1 = Function(V)
+        solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
+        s1 = _normalise_subspace(s1, subdomain)
+        s0.assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_value))
+        s0.assign(Constant(1.), subset=corners)
+        
+        return (s0, s1), False
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
         return (f0, None), False
