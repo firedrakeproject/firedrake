@@ -87,7 +87,9 @@ class PMGPC(PCBase):
         elements = [ele]
         while True:
             try:
-                ele = self.coarsen_element(ele)
+                ele_ = self.coarsen_element(ele)
+                assert ele_.value_shape() == ele.value_shape()
+                ele = ele_
             except ValueError:
                 break
             elements.append(ele)
@@ -100,7 +102,6 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
-        pdm.setCreateInjection(self.create_injection)
         pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
@@ -153,7 +154,12 @@ class PMGPC(PCBase):
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
 
-        cu = firedrake.interpolate(fu, cV)
+        if isinstance(fV.ufl_element(), MixedElement) and not isinstance(fV.ufl_element(), (VectorElement, TensorElement)):
+            cu = firedrake.Function(cV)
+            for (i, _) in enumerate(fV):
+                firedrake.interpolate(fu.split()[i], cu.split()[i])
+        else:
+            cu = firedrake.interpolate(fu, cV)
 
         parent = get_parent(fdm)
         assert parent is not None
@@ -204,7 +210,6 @@ class PMGPC(PCBase):
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
-        cdm.setCreateInjection(self.create_injection)
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
@@ -240,28 +245,6 @@ class PMGPC(PCBase):
 
         R = PETSc.Mat().createTranspose(I)
         return R, None
-
-    def create_injection(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-
-        cbcs = []
-        fbcs = []
-
-        prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
-            I = prolongation_matrix_matfree(cV, fV, cbcs, fbcs)
-        elif mattype == "aij":
-            I = prolongation_matrix_aij(cV, fV, cbcs, fbcs)
-            I = PETSc.Mat().createTranspose(I)
-        else:
-            raise ValueError("Unknown matrix type")
-        return I
 
     def view(self, pc, viewer=None):
         if viewer is None:
