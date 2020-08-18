@@ -199,8 +199,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install creates a venv in ./firedrake and installs inside
-that venv.
+The install creates a venv in ./firedrake (or in ./name where name is the
+parameter given to --venv-name) and installs inside that venv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -259,7 +259,7 @@ honoured.""",
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
-                        help="Name of the venv to create (default is 'firedrake')")
+                        help="Name of the venv to create and the name of the install directory relative to this install script (default is 'firedrake' with directory ./firedrake)")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
     parser.add_argument("--pip-install", action="append", dest="pip_packages",
