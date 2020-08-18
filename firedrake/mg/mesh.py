@@ -5,7 +5,7 @@ from collections import defaultdict
 import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
-from firedrake.cython.dmplex import CELL_SETS_LABEL, FACE_SETS_LABEL
+from firedrake.cython.dmcommon import CELL_SETS_LABEL, FACE_SETS_LABEL
 from .utils import set_level
 
 
