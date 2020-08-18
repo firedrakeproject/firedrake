@@ -24,6 +24,8 @@ def _poisson_get_forms_original(V, f, n):
 
 
 def _poisson(n, el_type, degree, perturb):
+    # Modified code examples in R. C. Kirby and L. Mitchell 2019
+
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
         V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
@@ -34,7 +36,7 @@ def _poisson(n, el_type, degree, perturb):
                                                  y - eps*sin(8*pi*x)*sin(8*pi*y)]))
         mesh = Mesh(new)
 
-    # Rotate mesh (Currently only works with unrotated mesh)
+    # Rotate mesh
     theta = pi / 6
     mesh = _rotate_mesh(mesh, theta)
 

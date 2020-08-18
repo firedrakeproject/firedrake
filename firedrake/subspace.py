@@ -226,7 +226,6 @@ def _boundary_subspace_functions(V, subdomain):
         s1 = _normalise_subspace(s1, subdomain)
         s0.assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_value))
         s0.assign(Constant(1.), subset=corners)
-        
         return (s0, s1), False
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
