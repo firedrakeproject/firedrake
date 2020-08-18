@@ -229,15 +229,47 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
 
     mesh = V.ufl_domain()
     coords = mesh.coordinates
+    dual_eval_domain = V.mesh()
+    trans_mesh_allowed = False
+
+    if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        if mesh.geometric_dimension() != expr.ufl_domain().geometric_dimension():
+            raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension")
+        # Create a quadrature element for a runtime point with weight 1
+        # to represent the runtime tabulated point, on the expression's
+        # mesh reference cell, onto which we interpolate
+        from finat.quadrature_element import QuadratureElement
+        from finat.quadrature import QuadratureRule
+        from finat.point_set import UnknownPointSingleton
+        import gem
+        tdim = expr.ufl_domain().topological_dimension()
+        point = gem.Variable('X', (tdim,))
+        try:
+            cell = expr.ufl_element().cell
+        except AttributeError:
+            # expression must be pure function of spatial coordinates so
+            # domain has correct cell
+            cell = expr.ufl_domain().ufl_cell
+        # TODO: turn this into an appropriate TensorFiniteElement when
+        # we have a vector or tensor element as our target V (check with
+        # V.ufl_element().num_sub_elements() I think.)
+        # See tsfc.finatinterface.convert_vectorelement for example
+        if V.ufl_element().num_sub_elements() > 0:
+            raise NotImplementedError("Cannot interpolate across meshes onto mixed elements yet")
+        to_element = QuadratureElement(cell, None, rule=QuadratureRule(UnknownPointSingleton(point), weights=[1.]))
+        trans_mesh_allowed = True
+        # switch domain coords to expression's mesh and mesh coordinates
+        dual_eval_domain = expr.ufl_domain()
+        coords = expr.ufl_domain().coordinates
 
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
     if not isinstance(expr, firedrake.Expression):
-        if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
-            raise NotImplementedError("Interpolation onto another mesh not supported.")
+        if expr.ufl_domain() and expr.ufl_domain() != V.mesh() and not trans_mesh_allowed:
+            raise NotImplementedError("Interpolation onto the target mesh not supported.")
         ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element,
-                                                                                                                       domain=V.mesh(),
+                                                                                                                       domain=dual_eval_domain,
                                                                                                                        parameters=parameters,
                                                                                                                        coffee=False)
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
@@ -253,7 +285,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
 
-    cell_set = coords.cell_set
+    cell_set = mesh.coordinates.cell_set
     if subset is not None:
         assert subset.superset == cell_set
         cell_set = subset
@@ -262,6 +294,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if first_coeff_fake_coords:
         # Replace with real coords coefficient
         coefficients[0] = coords
+
+    if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        # NOTE: Shouldn't this happen in compile_expression_dual_evaluation?
+        coefficients = coefficients + [mesh.reference_coordinates]
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -289,13 +325,27 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         cs = mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        m_ = coefficient.cell_node_map()
-        parloop_args.append(coefficient.dat(op2.READ, m_))
+        if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and not isinstance(coefficient.function_space().mesh().topology, firedrake.mesh.VertexOnlyMeshTopology):
+            # manually build map from vertex only mesh cell to parent cell nodes
+            # TODO: Move this to a Composed Map utility builder function and
+            # stash the composed map on cell_parent_cell_map using caching
+            iterset = mesh.cell_parent_cell_map.iterset
+            toset = coefficient.cell_node_map().toset
+            assert mesh.cell_parent_cell_map.arity == 1
+            arity = coefficient.cell_node_map().arity
+            # TODO: Move below line into cython
+            values = coefficient.cell_node_map().values[mesh.cell_parent_cell_map.values].reshape(iterset.size, arity)
+            assert values.shape == (iterset.size, arity)
+            m_ = op2.Map(iterset, toset, arity, values)
+            parloop_args.append(coefficient.dat(op2.READ, m_))
+        else:
+            m_ = coefficient.cell_node_map()
+            parloop_args.append(coefficient.dat(op2.READ, m_))
 
     for o in coefficients:
         domain = o.ufl_domain()
-        if domain is not None and domain.topology != mesh.topology:
-            raise NotImplementedError("Interpolation onto another mesh not supported.")
+        if domain is not None and domain.topology != mesh.topology and not trans_mesh_allowed:
+            raise NotImplementedError("Interpolation onto the target mesh not supported.")
 
     parloop = op2.ParLoop(*parloop_args).compute
     if isinstance(tensor, op2.Mat):
