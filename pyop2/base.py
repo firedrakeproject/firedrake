@@ -1277,7 +1277,7 @@ class _EmptyDataMixin(object):
     """
     def __init__(self, data, dtype, shape):
         if data is None:
-            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
+            self._dtype = np.dtype(dtype if dtype is not None else ScalarType)
         else:
             self._numpy_data = verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
