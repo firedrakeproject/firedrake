@@ -102,13 +102,18 @@ class TSFCKernel(Cached):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
+        # This needs to be part of the key so that if we compile the
+        # same form on different communicators we don't hit the cache
+        # inadvertantly.
+        comm = form.ufl_domains()[0].comm
         return md5((form.signature() + name
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
                     + str(type(interface))
                     + str(coffee)
-                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
+                    + str(diagonal)
+                    + str(id(comm))).encode()).hexdigest(), comm
 
     def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
