@@ -17,13 +17,15 @@ def do_projection(n, degree):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2**n, 2**n, quadrilateral=True)
 
-    # V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
-    # eps = Constant(0.5 / 2**(n+1))
+    V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+    eps = Constant(0.1 / 2**(n+1))
 
-    # x, y = SpatialCoordinate(mesh)
-    # new = Function(V).interpolate(as_vector([x + eps*sin(8*pi*x)*sin(8*pi*y),
-    #                                          y - eps*sin(8*pi*x)*sin(8*pi*y)]))
-    # mesh = Mesh(new)
+    x, y = SpatialCoordinate(mesh)
+    # Interpolation is not a thing yet for FInAT bases without underlying
+    # FIAT elements.  Hopefully soon
+    new = Function(V).project(as_vector([x + eps*sin(8*pi*x)*sin(8*pi*y),
+                                         y - eps*sin(8*pi*x)*sin(8*pi*y)]))
+    mesh = Mesh(new)
 
     V = FunctionSpace(mesh, "Sdirect", degree)
 
@@ -40,11 +42,9 @@ def do_projection(n, degree):
 @pytest.mark.parametrize(('deg', 'convrate'),
                          [(2, 2.5),
                           (3, 3.8),
-                          (4, 4.8),
-                          (5, 4.9)])
+                          (4, 4.7),
+                          (5, 5.7)])
 def test_firedrake_projection_scalar_convergence(deg, convrate):
-    diff = np.array([do_projection(i, deg) for i in range(2, 6)])
+    diff = np.array([do_projection(i, deg) for i in range(3, 7)])
     conv = np.log2(diff[:-1] / diff[1:])
-    print(diff)
-    print(conv)
-    assert np.array(conv)[-1] > convrate
+    assert (np.array(conv) > convrate).all()
