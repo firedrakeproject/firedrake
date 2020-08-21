@@ -127,11 +127,11 @@ class VolumePotential(AbstractExternalOperator):
                             "not %s." % type(q_order))
 
         # Build connection into meshmode
-        from meshmode.interop.firedrake import FromFiredrakeConnection
+        from meshmode.interop.firedrake import build_connection_from_firedrake
         from meshmode.array_context import PyOpenCLArrayContext
         actx = PyOpenCLArrayContext(queue)
-        meshmode_connection = FromFiredrakeConnection(actx, function_space,
-                                                      grp_factory=grp_factory)
+        meshmode_connection = build_connection_from_firedrake(
+            actx, function_space, grp_factory=grp_factory)
 
         # Build connection from meshmode into volumential
         # (following https://gitlab.tiker.net/xywei/volumential/-/blob/fe2c3e7af355d5c527060e783237c124c95397b5/test/test_interpolation.py#L72 ) # noqa : E501
