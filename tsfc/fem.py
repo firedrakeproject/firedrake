@@ -694,7 +694,13 @@ def translate_coefficient(terminal, mt, ctx):
 
 
 def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
-    context = PointSetContext(**kwargs)
+
+    # kwargs must be context kwargs for a PointSetContext or GemPointContext
+    point_expr = kwargs.get("point_expr")
+    if point_expr:
+        context = GemPointContext(**kwargs)
+    else:
+        context = PointSetContext(**kwargs)
 
     # Abs-simplification
     expression = simplify_abs(expression, context.complex_mode)
