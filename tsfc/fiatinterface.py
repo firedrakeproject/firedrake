@@ -29,6 +29,8 @@ from FIAT.tensor_product import FlattenedDimensions
 
 import ufl
 
+from tsfc.finatinterface import as_fiat_cell
+
 
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
@@ -71,15 +73,6 @@ supported_elements = {
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
 element is supported, but must be handled specially because it doesn't
 have a direct FIAT equivalent."""
-
-
-def as_fiat_cell(cell):
-    """Convert a ufl cell to a FIAT cell.
-
-    :arg cell: the :class:`ufl.Cell` to convert."""
-    if not isinstance(cell, ufl.AbstractCell):
-        raise ValueError("Expecting a UFL Cell")
-    return FIAT.ufc_cell(cell)
 
 
 @singledispatch

@@ -24,11 +24,9 @@
 from functools import singledispatch, partial
 import weakref
 
+import FIAT
 import finat
-
 import ufl
-
-from tsfc.fiatinterface import as_fiat_cell
 
 
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
@@ -79,12 +77,20 @@ element is supported, but must be handled specially because it doesn't
 have a direct FInAT equivalent."""
 
 
+def as_fiat_cell(cell):
+    """Convert a ufl cell to a FIAT cell.
+
+    :arg cell: the :class:`ufl.Cell` to convert."""
+    if not isinstance(cell, ufl.AbstractCell):
+        raise ValueError("Expecting a UFL Cell")
+    return FIAT.ufc_cell(cell)
+
+
 def fiat_compat(element):
-    from tsfc.fiatinterface import create_element
     from finat.fiat_elements import FiatElement
 
     assert element.cell().is_simplex()
-    return FiatElement(create_element(element))
+    return FiatElement(create_element(element).fiat_equivalent)
 
 
 @singledispatch
