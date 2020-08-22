@@ -34,6 +34,7 @@ __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
 supported_elements = {
     # These all map directly to FInAT elements
+    "Bernstein": finat.Bernstein,
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
@@ -117,8 +118,6 @@ def convert_finiteelement(element, **kwargs):
             raise ValueError("Quadrature scheme and degree must be specified!")
 
         return finat.QuadratureElement(cell, degree, scheme), set()
-    elif element.family() == "Bernstein":
-        return fiat_compat(element), set()
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":
