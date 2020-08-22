@@ -4,7 +4,22 @@ import FIAT
 from FIAT.discontinuous_lagrange import HigherOrderDiscontinuousLagrange as FIAT_DiscontinuousLagrange
 
 import ufl
-from tsfc.fiatinterface import create_element, supported_elements
+from tsfc.fiatinterface import create_element
+
+
+supported_elements = {
+    # These all map directly to FIAT elements
+    "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
+    "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
+    "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
+    "Lagrange": FIAT.Lagrange,
+    "Nedelec 1st kind H(curl)": FIAT.Nedelec,
+    "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
+    "Raviart-Thomas": FIAT.RaviartThomas,
+    "Regge": FIAT.Regge,
+}
+"""A :class:`.dict` mapping UFL element family names to their
+FIAT-equivalent constructors."""
 
 
 @pytest.fixture(params=["BDM",

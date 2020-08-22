@@ -21,54 +21,12 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
-import FIAT
-
 from finat.tensorfiniteelement import TensorFiniteElement
 
 from tsfc.finatinterface import create_element as create_finat_element
 
 
-__all__ = ("create_element", "supported_elements")
-
-
-supported_elements = {
-    # These all map directly to FIAT elements
-    "Bernstein": FIAT.Bernstein,
-    "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
-    "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
-    "Bubble": FIAT.Bubble,
-    "FacetBubble": FIAT.FacetBubble,
-    "Crouzeix-Raviart": FIAT.CrouzeixRaviart,
-    "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
-    "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
-    "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
-    "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
-    "Gauss-Legendre": FIAT.GaussLegendre,
-    "Lagrange": FIAT.Lagrange,
-    "Nedelec 1st kind H(curl)": FIAT.Nedelec,
-    "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
-    "Raviart-Thomas": FIAT.RaviartThomas,
-    "HDiv Trace": FIAT.HDivTrace,
-    "Regge": FIAT.Regge,
-    "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
-    # These require special treatment below
-    "DQ": None,
-    "Q": None,
-    "RTCE": None,
-    "RTCF": None,
-    "NCE": None,
-    "NCF": None,
-    "DPC": FIAT.DPC,
-    "S": FIAT.Serendipity,
-    "DPC L2": FIAT.DPC,
-    "Discontinuous Lagrange L2": FIAT.DiscontinuousLagrange,
-    "Gauss-Legendre L2": FIAT.GaussLegendre,
-    "DQ L2": None,
-}
-"""A :class:`.dict` mapping UFL element family names to their
-FIAT-equivalent constructors.  If the value is ``None``, the UFL
-element is supported, but must be handled specially because it doesn't
-have a direct FIAT equivalent."""
+__all__ = ("create_element",)
 
 
 def create_element(element, vector_is_mixed=True):
