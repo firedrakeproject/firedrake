@@ -25,11 +25,10 @@ import FIAT
 
 from finat.tensorfiniteelement import TensorFiniteElement
 
-from tsfc.finatinterface import as_fiat_cell
 from tsfc.finatinterface import create_element as create_finat_element
 
 
-__all__ = ("create_element", "supported_elements", "as_fiat_cell")
+__all__ = ("create_element", "supported_elements")
 
 
 supported_elements = {

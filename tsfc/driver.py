@@ -26,7 +26,7 @@ from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
 
 from tsfc import fem, ufl_utils
-from tsfc.fiatinterface import as_fiat_cell
+from tsfc.finatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping
