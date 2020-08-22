@@ -87,13 +87,6 @@ def as_fiat_cell(cell):
     return FIAT.ufc_cell(cell)
 
 
-def fiat_compat(element):
-    from finat.fiat_elements import FiatElement
-
-    assert element.cell().is_simplex()
-    return FiatElement(create_element(element).fiat_equivalent)
-
-
 @singledispatch
 def convert(element, **kwargs):
     """Handler for converting UFL elements to FInAT elements.
@@ -193,6 +186,13 @@ def convert_enrichedelement(element, **kwargs):
     return finat.EnrichedElement(elements), set.union(*deps)
 
 
+@convert.register(ufl.NodalEnrichedElement)
+def convert_nodalenrichedelement(element, **kwargs):
+    elements, deps = zip(*[_create_element(elem, **kwargs)
+                           for elem in element._elements])
+    return finat.NodalEnrichedElement(elements), set.union(*deps)
+
+
 @convert.register(ufl.MixedElement)
 def convert_mixedelement(element, **kwargs):
     elements, deps = zip(*[_create_element(elem, **kwargs)
@@ -252,11 +252,6 @@ def convert_hcurlelement(element, **kwargs):
 def convert_restrictedelement(element, **kwargs):
     finat_elem, deps = _create_element(element._element, **kwargs)
     return finat.RestrictedElement(finat_elem, element.restriction_domain()), deps
-
-
-@convert.register(ufl.NodalEnrichedElement)
-def convert_nodalenrichedelement(element, **kwargs):
-    return fiat_compat(element), set()
 
 
 hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
