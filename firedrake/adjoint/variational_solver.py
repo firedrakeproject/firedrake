@@ -21,6 +21,7 @@ class NonlinearVariationalProblemMixin:
             self._ad_count_map = {}
         return wrapper
 
+
 class NonlinearVariationalSolverMixin:
     @staticmethod
     def _ad_annotate_init(init):
@@ -112,8 +113,8 @@ class NonlinearVariationalSolverMixin:
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
 
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                          F_replace_map[problem.u],
-                                          bcs=problem.bcs,
-                                          J=replace(problem.J, J_replace_map))
+                                           F_replace_map[problem.u],
+                                           bcs=problem.bcs,
+                                           J=replace(problem.J, J_replace_map))
         nlvp._ad_count_map = _ad_count_map
         return nlvp
