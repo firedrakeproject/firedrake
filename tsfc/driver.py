@@ -275,7 +275,7 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, *,
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg to_element: A FIAT FiniteElement for the target space
+    :arg to_element: A FInAT element for the target space
     :arg coordinates: the coordinate function
     :arg domain: optional UFL domain the expression is defined on (useful when expression contains no domain).
     :arg interface: backend module for the kernel interface
@@ -284,6 +284,11 @@ def compile_expression_dual_evaluation(expression, to_element, coordinates, *,
     """
     import coffee.base as ast
     import loopy as lp
+
+    # Just convert FInAT element to FIAT for now.
+    # Dual evaluation in FInAT will bring a thorough revision.
+    to_element = to_element.fiat_equivalent
+
     if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
         raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
