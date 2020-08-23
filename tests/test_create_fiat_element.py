@@ -4,7 +4,7 @@ import FIAT
 from FIAT.discontinuous_lagrange import HigherOrderDiscontinuousLagrange as FIAT_DiscontinuousLagrange
 
 import ufl
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_element as _create_element
 
 
 supported_elements = {
@@ -20,6 +20,12 @@ supported_elements = {
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors."""
+
+
+def create_element(ufl_element):
+    """Create a FIAT element given a UFL element."""
+    finat_element = _create_element(ufl_element)
+    return finat_element.fiat_equivalent
 
 
 @pytest.fixture(params=["BDM",
