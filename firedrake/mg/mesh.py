@@ -5,6 +5,7 @@ from collections import defaultdict
 import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
+from firedrake.cython.dmcommon import CELL_SETS_LABEL, FACE_SETS_LABEL
 from .utils import set_level
 
 
@@ -127,7 +128,11 @@ def MeshHierarchy(mesh, refinement_levels,
         # Remove vertex (and edge) points from labels on exterior
         # facets.  Interior facets will be relabeled in Mesh
         # construction below.
-        impl.filter_exterior_facet_labels(rdm)
+        impl.filter_labels(rdm, rdm.getHeightStratum(1),
+                           "exterior_facets", "boundary_faces",
+                           FACE_SETS_LABEL)
+        impl.filter_labels(rdm, rdm.getHeightStratum(0),
+                           CELL_SETS_LABEL)
         rdm.removeLabel("pyop2_core")
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
