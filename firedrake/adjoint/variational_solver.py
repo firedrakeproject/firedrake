@@ -18,8 +18,8 @@ class NonlinearVariationalProblemMixin:
             self._ad_bcs = self.bcs
             self._ad_J = self.J
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
+            self._ad_count_map = {}
         return wrapper
-
 
 class NonlinearVariationalSolverMixin:
     @staticmethod
@@ -92,6 +92,7 @@ class NonlinearVariationalSolverMixin:
         F_coefficients = problem.F.coefficients()
         J_coefficients = problem.J.coefficients()
 
+        _ad_count_map = {}
         for block_variable in dependencies:
             coeff = block_variable.output
             if coeff in F_coefficients and coeff not in F_replace_map:
@@ -99,7 +100,7 @@ class NonlinearVariationalSolverMixin:
                     F_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     F_replace_map[coeff] = coeff.copy(deepcopy=True)
-                F_replace_map[coeff]._ad_count = coeff.count()
+                _ad_count_map[F_replace_map[coeff]] = coeff.count()
 
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:
@@ -108,9 +109,11 @@ class NonlinearVariationalSolverMixin:
                     J_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     J_replace_map[coeff] = coeff.copy()
-                J_replace_map[coeff]._ad_count = coeff.count()
+                _ad_count_map[J_replace_map[coeff]] = coeff.count()
 
-        return NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u],
-                                           bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
+        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
+                                          F_replace_map[problem.u],
+                                          bcs=problem.bcs,
+                                          J=replace(problem.J, J_replace_map))
+        nlvp._ad_count_map = _ad_count_map
+        return nlvp

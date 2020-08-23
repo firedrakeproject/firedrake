@@ -100,14 +100,12 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
-        lhs = equation.lhs
-        rhs = equation.rhs
-
+        self.equation = equation
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
-        super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
+        super().__init__(self.equation.lhs, self.equation.rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
             for coeff in self.problem_J.coefficients():
@@ -124,8 +122,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return self._ad_nlvs._problem.u
 
     def _ad_assign_map(self, form):
+        count_map = self._ad_nlvs._problem._ad_count_map
         assign_map = {}
-        form_ad_count_map = dict((coeff._ad_count, coeff) for coeff in form.coefficients())
+        form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
             if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
