@@ -179,14 +179,15 @@ def test_stokes_component_all():
     a = inner(grad(u), grad(v))*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(f, v)*dx
 
+    params = {"mat_type": "aij",
+              "pc_type": "lu",
+              "pc_factor_mat_solver_type": "mumps",
+              "pc_factor_shift_type": "nonzero"}
+
     Uall = Function(W)
-    solve(a == L, Uall, bcs=bcs_all, solver_parameters={"mat_type": "aij",
-                                                        "pc_type": "lu",
-                                                        "pc_factor_shift_type": "nonzero"})
+    solve(a == L, Uall, bcs=bcs_all, solver_parameters=params)
     Ucmp = Function(W)
-    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters={"mat_type": "aij",
-                                                        "pc_type": "lu",
-                                                        "pc_factor_shift_type": "nonzero"})
+    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters=params)
 
     for a, b in zip(Uall.split(), Ucmp.split()):
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
