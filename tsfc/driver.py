@@ -6,7 +6,7 @@ import sys
 from functools import reduce
 from itertools import chain
 
-from numpy import asarray
+from numpy import asarray, allclose
 
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -18,15 +18,18 @@ from ufl.utils.sequences import max_degree
 import gem
 import gem.impero_utils as impero_utils
 
+import FIAT
 from FIAT.reference_element import TensorProductCell
+from FIAT.functional import PointEvaluation
 
 from finat.point_set import PointSet
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
+from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
 
 from tsfc import fem, ufl_utils
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
+from tsfc.ufl_utils import apply_mapping
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -47,14 +50,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     assert isinstance(form, Form)
 
     # Determine whether in complex mode:
-    # complex nodes would break the refactoriser.
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    if complex_mode:
-        logger.warning("Disabling whole expression optimisations"
-                       " in GEM for supporting complex mode.")
-        parameters = parameters.copy()
-        parameters["mode"] = 'vanilla'
-
     fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
@@ -95,6 +91,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
             # Delayed import, loopy is a runtime dependency
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
+    if coffee:
+        scalar_type = parameters["scalar_type_c"]
+    else:
+        scalar_type = parameters["scalar_type"]
 
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
@@ -120,7 +120,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface(integral_type, integral_data.subdomain_id,
                         domain_numbering[integral_data.domain],
-                        parameters["scalar_type"],
+                        scalar_type,
                         diagonal=diagonal)
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
@@ -151,11 +151,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
                       integral_type=integral_type,
-                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_multiindices=argument_multiindices,
-                      index_cache=index_cache)
+                      index_cache=index_cache,
+                      scalar_type=parameters["scalar_type"])
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
@@ -264,24 +264,28 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
 
-    return builder.construct_kernel(kernel_name, impero_c, parameters["precision"], index_names, quad_rule)
+    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
 
-def compile_expression_at_points(expression, points, coordinates, interface=None,
-                                 parameters=None, coffee=True):
-    """Compiles a UFL expression to be evaluated at compile-time known
-    reference points.  Useful for interpolating UFL expressions onto
-    function spaces with only point evaluation nodes.
+def compile_expression_dual_evaluation(expression, to_element, coordinates, *,
+                                       domain=None, interface=None,
+                                       parameters=None, coffee=False):
+    """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
+
+    Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg points: reference coordinates of the evaluation points
+    :arg to_element: A FIAT FiniteElement for the target space
     :arg coordinates: the coordinate function
+    :arg domain: optional UFL domain the expression is defined on (useful when expression contains no domain).
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
     :arg coffee: compile coffee kernel instead of loopy kernel
     """
     import coffee.base as ast
     import loopy as lp
+    if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
+        raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
 
     if parameters is None:
         parameters = default_parameters()
@@ -292,6 +296,13 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
 
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
+
+    # Find out which mapping to apply
+    try:
+        mapping, = set(to_element.mapping())
+    except ValueError:
+        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
+    expression = apply_mapping(expression, mapping, domain)
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression,
@@ -329,22 +340,75 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
     # Translate to GEM
-    point_set = PointSet(points)
-    config = dict(interface=builder,
-                  ufl_cell=coordinates.ufl_domain().ufl_cell(),
-                  precision=parameters["precision"],
-                  point_set=point_set,
-                  argument_multiindices=argument_multiindices)
-    ir, = fem.compile_ufl(expression, point_sum=False, **config)
+    kernel_cfg = dict(interface=builder,
+                      ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                      argument_multiindices=argument_multiindices,
+                      index_cache={},
+                      scalar_type=parameters["scalar_type"])
 
-    # Deal with non-scalar expressions
-    value_shape = ir.shape
-    tensor_indices = tuple(gem.Index() for s in value_shape)
-    if value_shape:
-        ir = gem.Indexed(ir, tensor_indices)
+    if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
+        # This is an optimisation for point-evaluation nodes which
+        # should go away once FInAT offers the interface properly
+        qpoints = []
+        # Everything is just a point evaluation.
+        for dual in to_element.dual_basis():
+            ptdict = dual.get_point_dict()
+            qpoint, = ptdict.keys()
+            (qweight, component), = ptdict[qpoint]
+            assert allclose(qweight, 1.0)
+            assert component == ()
+            qpoints.append(qpoint)
+        point_set = PointSet(qpoints)
+        config = kernel_cfg.copy()
+        config.update(point_set=point_set)
+
+        # Allow interpolation onto QuadratureElements to refer to the quadrature
+        # rule they represent
+        if isinstance(to_element, FIAT.QuadratureElement):
+            assert allclose(asarray(qpoints), asarray(to_element._points))
+            quad_rule = QuadratureRule(point_set, to_element._weights)
+            config["quadrature_rule"] = quad_rule
+
+        expr, = fem.compile_ufl(expression, **config, point_sum=False)
+        shape_indices = tuple(gem.Index() for _ in expr.shape)
+        basis_indices = point_set.indices
+        ir = gem.Indexed(expr, shape_indices)
+    else:
+        # This is general code but is more unrolled than necssary.
+        dual_expressions = []   # one for each functional
+        broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape())
+        shape_indices = tuple(gem.Index() for _ in expression.ufl_shape[:broadcast_shape])
+        expr_cache = {}         # Sharing of evaluation of the expression at points
+        for dual in to_element.dual_basis():
+            pts = tuple(sorted(dual.get_point_dict().keys()))
+            try:
+                expr, point_set = expr_cache[pts]
+            except KeyError:
+                point_set = PointSet(pts)
+                config = kernel_cfg.copy()
+                config.update(point_set=point_set)
+                expr, = fem.compile_ufl(expression, **config, point_sum=False)
+                expr = gem.partial_indexed(expr, shape_indices)
+                expr_cache[pts] = expr, point_set
+            weights = collections.defaultdict(list)
+            for p in pts:
+                for (w, cmp) in dual.get_point_dict()[p]:
+                    weights[cmp].append(w)
+            qexprs = gem.Zero()
+            for cmp in sorted(weights):
+                qweights = gem.Literal(weights[cmp])
+                qexpr = gem.Indexed(expr, cmp)
+                qexpr = gem.index_sum(gem.Indexed(qweights, point_set.indices)*qexpr,
+                                      point_set.indices)
+                qexprs = gem.Sum(qexprs, qexpr)
+            assert qexprs.shape == ()
+            assert set(qexprs.free_indices) == set(chain(shape_indices, *argument_multiindices))
+            dual_expressions.append(qexprs)
+        basis_indices = (gem.Index(), )
+        ir = gem.Indexed(gem.ListTensor(dual_expressions), basis_indices)
 
     # Build kernel body
-    return_indices = point_set.indices + tensor_indices + tuple(chain(*argument_multiindices))
+    return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
     if coffee:
@@ -353,14 +417,16 @@ def compile_expression_at_points(expression, points, coordinates, interface=None
         return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
 
     return_expr = gem.Indexed(return_var, return_indices)
+
+    # TODO: one should apply some GEM optimisations as in assembly,
+    # but we don't for now.
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
-    point_index, = point_set.indices
-
+    index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([ir])
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, parameters["precision"], {point_index: 'p'})
+    return builder.construct_kernel(return_arg, impero_c, index_names)
 
 
 def lower_integral_type(fiat_cell, integral_type):
