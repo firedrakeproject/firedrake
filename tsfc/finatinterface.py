@@ -71,6 +71,7 @@ supported_elements = {
     "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
     "Gauss-Legendre L2": finat.GaussLegendre,
     "DQ L2": None,
+    "Direct Serendipity": finat.DirectSerendipity,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
