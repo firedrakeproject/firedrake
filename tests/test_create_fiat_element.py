@@ -11,7 +11,6 @@ supported_elements = {
     # These all map directly to FIAT elements
     "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
-    "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
@@ -30,7 +29,6 @@ def create_element(ufl_element):
 
 @pytest.fixture(params=["BDM",
                         "BDFM",
-                        "DRT",
                         "Lagrange",
                         "N1curl",
                         "N2curl",
