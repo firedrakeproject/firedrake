@@ -79,6 +79,22 @@ def test_vector():
 
     assert np.allclose(g.dat.data, h.dat.data)
 
+def test_tensor():
+    mesh = UnitSquareMesh(2, 2)
+    x = SpatialCoordinate(mesh)
+    U = TensorFunctionSpace(mesh, 'P', 2)
+    V = TensorFunctionSpace(mesh, 'CG', 3)
+
+    c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
+
+    f = interpolate(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = interpolate(c, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
 
 def test_constant_expression():
     m = UnitTriangleMesh()
@@ -113,15 +129,15 @@ def test_hdiv_2d():
     mesh.init_cell_orientations(x)
     x = mesh.coordinates
 
-    V1 = FunctionSpace(mesh, 'RTCF', 1)
-    V2 = FunctionSpace(mesh, 'RTCF', 2)
+    U = FunctionSpace(mesh, 'RTCF', 1)
+    V = FunctionSpace(mesh, 'RTCF', 2)
     c = as_vector([x[1], -x[0], 0.0])
 
-    f = project(c, V1)
-    g = interpolate(f, V2)
+    f = interpolate(c, U)
+    g = interpolate(f, V)
 
     # g shall be equivalent to:
-    h = project(f, V2)
+    h = interpolate(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -132,15 +148,15 @@ def test_hcurl_2d():
     mesh.init_cell_orientations(x)
     x = mesh.coordinates
 
-    V1 = FunctionSpace(mesh, 'RTCE', 1)
-    V2 = FunctionSpace(mesh, 'RTCE', 2)
+    U = FunctionSpace(mesh, 'RTCE', 1)
+    V = FunctionSpace(mesh, 'RTCE', 2)
     c = as_vector([-x[1], x[0], 0.0])
 
-    f = project(c, V1)
-    g = interpolate(f, V2)
+    f = interpolate(c, U)
+    g = interpolate(f, V)
 
     # g shall be equivalent to:
-    h = project(f, V2)
+    h = interpolate(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
