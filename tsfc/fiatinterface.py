@@ -115,7 +115,7 @@ def convert_finiteelement(element, vector_is_mixed):
             raise ValueError("Quadrature scheme and degree must be specified!")
 
         quad_rule = FIAT.create_quadrature(cell, degree, scheme)
-        return FIAT.QuadratureElement(cell, quad_rule.get_points())
+        return FIAT.QuadratureElement(cell, quad_rule.get_points(), weights=quad_rule.get_weights())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":
@@ -140,7 +140,10 @@ def convert_finiteelement(element, vector_is_mixed):
             lmbda = FIAT.GaussLobattoLegendre
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
-    elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
+    elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
+                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
+        lmbda = partial(lmbda, variant=element.variant())
+    elif element.family() in {"Discontinuous Lagrange", "Discontinuous Lagrange L2"}:
         if kind == 'equispaced':
             lmbda = FIAT.DiscontinuousLagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':

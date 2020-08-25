@@ -21,7 +21,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
-from functools import singledispatch
+from functools import singledispatch, partial
 import weakref
 
 import finat
@@ -146,6 +146,9 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
+    elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
+                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
+        lmbda = partial(lmbda, variant=element.variant())
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'equispaced':
             lmbda = finat.DiscontinuousLagrange
@@ -244,8 +247,8 @@ def convert_hcurlelement(element, **kwargs):
 
 @convert.register(ufl.RestrictedElement)
 def convert_restrictedelement(element, **kwargs):
-    # Fall back on FIAT
-    return fiat_compat(element), set()
+    finat_elem, deps = _create_element(element._element, **kwargs)
+    return finat.RestrictedElement(finat_elem, element.restriction_domain()), deps
 
 
 @convert.register(ufl.NodalEnrichedElement)

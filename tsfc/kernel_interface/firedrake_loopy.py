@@ -101,11 +101,18 @@ class KernelBuilderBase(_KernelBuilderBase):
         physically mapped elements (Argyris, Bell, etc...).  We need a
         measure of the mesh size around each vertex (hence this lives
         in P1).
+
+        Should the domain have topological dimension 0 this does
+        nothing.
         """
-        f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-        funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-        self.cell_sizes_arg = funarg
-        self._cell_sizes = expression
+        if domain.ufl_cell().topological_dimension() > 0:
+            # Can't create P1 since only P0 is a valid finite element if
+            # topological_dimension is 0 and the concept of "cell size"
+            # is not useful for a vertex.
+            f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
+            funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+            self.cell_sizes_arg = funarg
+            self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -146,12 +153,11 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, precision, index_names):
+    def construct_kernel(self, return_arg, impero_c, index_names):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg return_arg: loopy.GlobalArg for the return value
         :arg impero_c: gem.ImperoC object that represents the kernel
-        :arg precision: floating point precision for code generation
         :arg index_names: pre-assigned index names
         :returns: :class:`ExpressionKernel` object
         """
@@ -164,7 +170,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         for name_, shape in self.tabulations:
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
-        loopy_kernel = generate_loopy(impero_c, args, precision, self.scalar_type,
+        loopy_kernel = generate_loopy(impero_c, args, self.scalar_type,
                                       "expression_kernel", index_names)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
                                 self.coefficients, self.tabulations)
@@ -263,7 +269,7 @@ class KernelBuilder(KernelBuilderBase):
         knl = self.kernel
         knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, precision, index_names, quadrature_rule):
+    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -271,7 +277,6 @@ class KernelBuilder(KernelBuilderBase):
 
         :arg name: function name
         :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg precision: floating-point precision for printing
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
@@ -292,8 +297,7 @@ class KernelBuilder(KernelBuilderBase):
             args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
 
         self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.ast = generate_loopy(impero_c, args, precision,
-                                         self.scalar_type, name, index_names)
+        self.kernel.ast = generate_loopy(impero_c, args, self.scalar_type, name, index_names)
         return self.kernel
 
     def construct_empty_kernel(self, name):
