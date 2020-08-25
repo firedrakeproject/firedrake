@@ -61,6 +61,7 @@ def test_split_function_derivative():
     assert np.allclose(actual.M.values, expect.M.values)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
 def test_assemble_split_mixed_derivative():
     """Assemble the derivative of a form wrt part of mixed function."""
     mesh = UnitSquareMesh(1, 1)
