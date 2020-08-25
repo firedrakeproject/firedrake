@@ -211,6 +211,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     from finat.enriched import EnrichedElement
     from finat.cube import FlattenedDimensions
     from finat.discontinuous import DiscontinuousElement
+    from finat.hdivcurl import HDivElement, HCurlElement
     from tsfc.finatinterface import create_element as create_finat_element
 
     if not isinstance(expr, firedrake.Expression):
@@ -223,7 +224,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         print(element)
         # Only FInAT elements below have dual_evaluation method implemented
         elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement,
-                               EnrichedElement, FlattenedDimensions, DiscontinuousElement)
+                               EnrichedElement, FlattenedDimensions, DiscontinuousElement,
+                               HDivElement, HCurlElement)
         if not isinstance(element, elements_with_basis):
             element = create_element(V.ufl_element(), vector_is_mixed=False)
         if isinstance(element, TensorProductElement):
