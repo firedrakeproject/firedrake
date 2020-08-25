@@ -5,6 +5,7 @@ from collections import defaultdict
 import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
+from firedrake.cython.dmcommon import CELL_SETS_LABEL, FACE_SETS_LABEL
 from .utils import set_level
 
 
@@ -92,7 +93,7 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
-    cdm = mesh._plex
+    cdm = mesh._topology_dm
     cdm.setRefinementUniform(True)
     dms = []
     if mesh.comm.size > 1 and mesh._grown_halos:
@@ -127,7 +128,11 @@ def MeshHierarchy(mesh, refinement_levels,
         # Remove vertex (and edge) points from labels on exterior
         # facets.  Interior facets will be relabeled in Mesh
         # construction below.
-        impl.filter_exterior_facet_labels(rdm)
+        impl.filter_labels(rdm, rdm.getHeightStratum(1),
+                           "exterior_facets", "boundary_faces",
+                           FACE_SETS_LABEL)
+        impl.filter_labels(rdm, rdm.getHeightStratum(0),
+                           CELL_SETS_LABEL)
         rdm.removeLabel("pyop2_core")
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
@@ -151,10 +156,10 @@ def MeshHierarchy(mesh, refinement_levels,
 
     lgmaps = []
     for i, m in enumerate(meshes):
-        no = impl.create_lgmap(m._plex)
+        no = impl.create_lgmap(m._topology_dm)
         m.init()
-        o = impl.create_lgmap(m._plex)
-        m._plex.setRefineLevel(i)
+        o = impl.create_lgmap(m._topology_dm)
+        m._topology_dm.setRefineLevel(i)
         lgmaps.append((no, o))
 
     coarse_to_fine_cells = []

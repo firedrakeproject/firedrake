@@ -37,7 +37,7 @@ def compile_element(expression, coordinates, parameters=None):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
     # Apply UFL preprocessing
-    expression = tsfc.ufl_utils.preprocess_expression(expression)
+    expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=utils.complex_mode)
 
     # Collect required coefficients
     coefficient, = extract_coefficients(expression)
@@ -67,15 +67,15 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
-                  precision=parameters["precision"],
                   point_indices=(),
-                  point_expr=point)
+                  point_expr=point,
+                  scalar_type=utils.ScalarType)
     # TODO: restore this for expression evaluation!
     # config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression)
+    expression = tsfc.ufl_utils.simplify_abs(expression, utils.complex_mode)
 
     # Translate UFL -> GEM
     translator = tsfc.fem.Translator(context)
@@ -101,7 +101,7 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], utils.ScalarType_c)
+    body = generate_coffee(impero_c, {}, utils.ScalarType_c)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
@@ -125,7 +125,7 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, int const start, int const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)

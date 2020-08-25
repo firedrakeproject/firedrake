@@ -351,8 +351,6 @@ each supermesh cell.
         "to_reference": str(to_reference_kernel),
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
-        "value_size_A": V_A.value_size,
-        "value_size_B": V_B.value_size,
         "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
         "libsupermesh_intersect_simplices": "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real",
         "dim": dim

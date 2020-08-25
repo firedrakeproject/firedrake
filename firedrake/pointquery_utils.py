@@ -16,7 +16,7 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
-from firedrake.utils import ScalarType_c
+from firedrake.utils import ScalarType_c, complex_mode
 
 from coffee.base import ArrayInit
 
@@ -91,7 +91,7 @@ def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
 
-    formatter = ArrayInit(X, precision=parameters["precision"])._formatter
+    formatter = ArrayInit(X, precision=numpy.finfo(parameters["scalar_type"]).resolution)._formatter
     return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
 
@@ -107,8 +107,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
 
     # Translation to GEM
     C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-    expr = ufl_utils.preprocess_expression(expr)
-    expr = ufl_utils.simplify_abs(expr)
+    expr = ufl_utils.preprocess_expression(expr, complex_mode=complex_mode)
+    expr = ufl_utils.simplify_abs(expr, complex_mode)
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
@@ -120,9 +120,9 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
-        precision=parameters["precision"],
         point_indices=(),
         point_expr=point,
+        scalar_type=parameters["scalar_type"]
     )
     translator = tsfc.fem.Translator(context)
     ir = map_expr_dag(translator, expr)
@@ -143,7 +143,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
+    body = tsfc.coffee.generate(impero_c, {}, ScalarType_c)
     body.open_scope = False
 
     return body

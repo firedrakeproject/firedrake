@@ -250,6 +250,13 @@ class HybridizationPC(SCBase):
         trace_ksp.setDMActive(False)
         trace_ksp.setOptionsPrefix(prefix)
         trace_ksp.setOperators(Smat, Smat)
+
+        # Option to add custom monitor
+        monitor = self.ctx.appctx.get('custom_monitor', None)
+        if monitor:
+            monitor.add_reconstructor(self.backward_substitution)
+            trace_ksp.setMonitor(monitor)
+
         self.trace_ksp = trace_ksp
 
         with dmhooks.add_hooks(trace_dm, self,

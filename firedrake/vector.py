@@ -63,7 +63,9 @@ class Vector(object):
 
     # Make everything mostly pretend to be like a Function
     def __getattr__(self, name):
-        return getattr(self.function, name)
+        val = getattr(self.function, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Vector, self).__dir__()

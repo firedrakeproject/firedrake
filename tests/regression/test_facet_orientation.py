@@ -37,7 +37,7 @@ def test_consistent_facet_orientation(mesh_thunk):
     domain = "{[i]: 0 <= i < C.dofs}"
     instructions = """
     for i
-        R[0, 0] = fmax(R[0, 0], fabs(C[i, 0] - D[i, 0]))
+        R[0, 0] = fmax(R[0, 0], abs(C[i, 0] - D[i, 0]))
     end
     """
     par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)},

@@ -14,9 +14,9 @@ import ufl
 from pyop2 import op2
 from tsfc.finatinterface import create_element
 
+from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data
-from firedrake import utils
-from firedrake import dmhooks
+from firedrake.petsc import PETSc
 
 
 class WithGeometry(ufl.FunctionSpace):
@@ -227,7 +227,9 @@ class WithGeometry(ufl.FunctionSpace):
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
-        return getattr(self.topological, name)
+        val = getattr(self.topological, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(WithGeometry, self).__dir__()
@@ -276,6 +278,8 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
+        # Used for reconstruction of mixed/component spaces
+        self.real_tensorproduct = real_tensorproduct
         sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -290,7 +294,7 @@ class FunctionSpace(object):
             self.shape = element.value_shape()[:1]
         else:
             self.shape = ()
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
         self._mesh = mesh
 
@@ -365,7 +369,7 @@ class FunctionSpace(object):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
+                             sf=self.mesh()._topology_dm.getPointSF(),
                              section=self._shared_data.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
@@ -389,7 +393,12 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __len__(self):
         return 1
@@ -454,10 +463,10 @@ class FunctionSpace(object):
         See also :attr:`dof_count` and :attr:`node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
+        return op2.Dat(self.dof_dset, val, valuetype, name)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.Map` from cels to
@@ -508,7 +517,48 @@ class FunctionSpace(object):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
-        return self._shared_data.lgmap(self, bcs, lgmap=lgmap)
+        # Caching these things is too complicated, since it depends
+        # not just on the bcs, but also the parent space, and anything
+        # this space has been recursively split out from [e.g. inside
+        # fieldsplit]
+        if bcs is None or len(bcs) == 0:
+            return lgmap or self.dof_dset.lgmap
+        for bc in bcs:
+            fs = bc.function_space()
+            while fs.component is not None and fs.parent is not None:
+                fs = fs.parent
+            if fs.topological != self.topological:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+        unblocked = any(bc.function_space().component is not None
+                        for bc in bcs)
+        if lgmap is None:
+            lgmap = self.dof_dset.lgmap
+            if unblocked:
+                indices = lgmap.indices.copy()
+                bsize = 1
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                assert bsize == self.value_size
+        else:
+            # MatBlock case, LGMap is already unrolled.
+            indices = lgmap.block_indices.copy()
+            bsize = lgmap.getBlockSize()
+            unblocked = True
+        nodes = []
+        for bc in bcs:
+            if bc.function_space().component is not None:
+                nodes.append(bc.nodes * self.value_size
+                             + bc.function_space().component)
+            elif unblocked:
+                tmp = bc.nodes * self.value_size
+                for i in range(self.value_size):
+                    nodes.append(tmp + i)
+            else:
+                nodes.append(bc.nodes)
+        nodes = numpy.unique(numpy.concatenate(nodes))
+        indices[nodes] = -1
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
         from firedrake import FunctionSpace
@@ -534,11 +584,12 @@ class MixedFunctionSpace(object):
         super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s
-                                               in spaces])
+        mesh, = set(s.mesh() for s in spaces)
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
+                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
-        self._mesh = spaces[0].mesh()
+        self._mesh = mesh
         self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
@@ -556,8 +607,12 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
-        return self._ufl_element
+        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
+        return self.ufl_function_space().ufl_element()
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace):
@@ -676,14 +731,14 @@ class MixedFunctionSpace(object):
         If BCs is provided, mask out those dofs which match the BC nodes."""
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
+        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
@@ -717,7 +772,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None):
+    def __new__(cls, mesh, element, name=None, real_tensorproduct=False):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
@@ -772,7 +827,8 @@ def IndexedFunctionSpace(index, space, parent):
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name,
+                                 real_tensorproduct=space.real_tensorproduct)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -794,7 +850,8 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name,
+                             real_tensorproduct=parent.real_tensorproduct)
     new.identifier = "component"
     new.component = component
     new.parent = parent
@@ -818,7 +875,7 @@ class RealFunctionSpace(FunctionSpace):
     value_size = 1
 
     def __init__(self, mesh, element, name):
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
@@ -843,13 +900,13 @@ class RealFunctionSpace(FunctionSpace):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._plex.getPointSF(),
+                             sf=self.mesh()._topology_dm.getPointSF(),
                              section=None)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self.comm)
