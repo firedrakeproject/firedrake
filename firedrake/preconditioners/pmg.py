@@ -13,7 +13,6 @@ from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import ScalarType_c
 import firedrake
 
 

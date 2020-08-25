@@ -26,6 +26,7 @@ def direction(request):
 def quadrilateral(request):
     return request.param
 
+
 @pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
