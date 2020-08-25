@@ -113,6 +113,8 @@ def pytest_collection_modifyitems(session, config, items):
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
     def fin():
-        assert(len(get_working_tape().get_blocks()) == 0)
+        tape = get_working_tape()
+        if tape is not None:
+            assert len(tape.get_blocks()) == 0
 
     request.addfinalizer(fin)

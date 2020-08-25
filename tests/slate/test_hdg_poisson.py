@@ -79,7 +79,7 @@ def run_LDG_H_problem(r, degree, quads=False):
                                   "redundant_pc_factor_mat_solver_type": "mumps",
                                   "redundant_mat_mumps_icntl_14": 200}}
 
-    bcs = DirichletBC(W.sub(2), Constant(0.0), "on_boundary")
+    bcs = DirichletBC(W.sub(2), zero(), "on_boundary")
     problem = NonlinearVariationalProblem(F, s, bcs=bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()

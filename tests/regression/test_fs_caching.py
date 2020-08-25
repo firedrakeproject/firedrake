@@ -9,7 +9,7 @@ def howmany(cls):
         try:
             if isinstance(x, cls):
                 n += 1
-        except ReferenceError:
+        except (ReferenceError, AttributeError):
             pass
     return n
 

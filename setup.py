@@ -47,7 +47,7 @@ if "clean" in sys.argv[1:]:
                 os.remove(os.path.join(dirname, f))
 
 cython_compile_time_env = {'COMPLEX': complex_mode}
-cythonfiles = [("dmplex", ["petsc"]),
+cythonfiles = [("dmcommon", ["petsc"]),
                ("extrusion_numbering", ["petsc"]),
                ("hdf5interface", ["petsc"]),
                ("mgimpl", ["petsc"]),

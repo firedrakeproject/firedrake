@@ -144,3 +144,15 @@ def test_total_facet(mesh):
     ref = assemble(form).dat.data
 
     assert np.allclose(A, ref, rtol=1e-14)
+
+
+def test_no_horiz_jump():
+    mesh = UnitTriangleMesh()
+    mesh = ExtrudedMesh(mesh, 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    u = TestFunction(DG)
+
+    _, _, z = SpatialCoordinate(mesh)
+    form = jump(z*u)*dS_h
+
+    assert np.allclose(assemble(Tensor(form)).dat.data, assemble(form).dat.data)
