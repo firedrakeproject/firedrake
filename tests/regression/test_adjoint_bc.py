@@ -13,7 +13,7 @@ def howmany(cls):
     return n
 
 
-def test_bcs_collected_when_not_annotating():
+def test_bcs_garbage_collected_when_not_annotating():
     mesh = UnitTriangleMesh()
 
     V = FunctionSpace(mesh, "DG", 0)
@@ -27,5 +27,9 @@ def test_bcs_collected_when_not_annotating():
 
     before = howmany(DirichletBC)
     run(u, 100)
+    gc.collect()
     after = howmany(DirichletBC)
-    assert before == after
+    # BC objects hold refcycles in the adjoint mixin, hence we're just
+    # going to check that we didn't leak any new ones after the
+    # collection sweep.
+    assert before >= after
