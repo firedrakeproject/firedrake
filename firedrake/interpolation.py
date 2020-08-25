@@ -205,13 +205,6 @@ def make_interpolator(expr, V, subset, access):
 
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
-    from finat.fiat_elements import FiatElement
-    from finat.tensorfiniteelement import TensorFiniteElement
-    from finat.tensor_product import TensorProductElement
-    from finat.enriched import EnrichedElement
-    from finat.cube import FlattenedDimensions
-    from finat.discontinuous import DiscontinuousElement
-    from finat.hdivcurl import HDivElement, HCurlElement
     from tsfc.finatinterface import create_element as create_finat_element
 
     if not isinstance(expr, firedrake.Expression):
@@ -220,25 +213,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         except KeyError:
             # FInAT only elements
             raise NotImplementedError("Don't know how to create FInAT element for %s" % V.ufl_element())
-
-        print(element)
-        # Only FInAT elements below have dual_evaluation method implemented
-        elements_with_basis = (FiatElement, TensorFiniteElement, TensorProductElement,
-                               EnrichedElement, FlattenedDimensions, DiscontinuousElement,
-                               HDivElement, HCurlElement)
-        if not isinstance(element, elements_with_basis):
-            element = create_element(V.ufl_element(), vector_is_mixed=False)
-        if isinstance(element, TensorProductElement):
-            for factor in element.factors:
-                if not isinstance(factor, elements_with_basis):
-                    element = create_element(V.ufl_element(), vector_is_mixed=False)
-        elif isinstance(element, EnrichedElement):
-            for factor in element.elements:
-                if not isinstance(factor, elements_with_basis):
-                    element = create_element(V.ufl_element(), vector_is_mixed=False)
-        elif isinstance(element, FlattenedDimensions):
-            if not isinstance(element.product, elements_with_basis):
-                element = create_element(V.ufl_element(), vector_is_mixed=False)
         print(element)
     else:
         try:
@@ -268,7 +242,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         kernel = op2.Kernel(ast, ast.name)
     elif hasattr(expr, "eval"):
         to_pts = []
-        # FInAT dual evaluation currently only accepts FiatElements
+        # For FIAT elements
         for dual in element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
