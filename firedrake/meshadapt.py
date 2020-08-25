@@ -5,7 +5,7 @@ import abc
 import numpy as np
 
 from firedrake.mesh import Mesh
-import firedrake.cython.dmplex as dmplex
+import firedrake.cython.dmcommon as dmplex
 import firedrake.utils as utils
 import firedrake.functionspace as functionspace
 import firedrake.function as function
@@ -54,7 +54,7 @@ class AnisotropicAdaptation(AdaptationBase):
         """
         Generates the adapted mesh wrt the metric
         """
-        plex = self.mesh.topology._plex
+        plex = self.mesh.topology._topology_dm
         dim = self.mesh._topological_dimension
         # PETSc adapt routine expects that the right coordinate section is set
         # hence the following bloc of code

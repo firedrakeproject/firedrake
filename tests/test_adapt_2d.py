@@ -32,12 +32,12 @@ assert(np.allclose(gnew.dat.data, hnew.dat.data))
 
 # test preservation of boundary labels
 
-plex = mesh._plex
+plex = mesh._topology_dm
 bdLabelSize = plex.getLabelSize("Face Sets")
 lis = plex.getLabelIdIS("Face Sets")
 bdLabelVal = lis.getIndices()
 
-plexnew = newmesh._plex
+plexnew = newmesh._topology_dm
 bdLabelSizenew = plexnew.getLabelSize("Face Sets")
 assert(bdLabelSizenew == bdLabelSize)
 lisnew = plexnew.getLabelIdIS("Face Sets")
