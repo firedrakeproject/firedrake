@@ -272,6 +272,7 @@ def test_real_interpolate():
     assert np.allclose(a_int.dat.data_ro, 1.0)
 
 
+@pytest.mark.skipcomplex
 def test_real_interpolate_minmaxinc():
     N = 100
     mesh = IntervalMesh(N, 0, 1)
