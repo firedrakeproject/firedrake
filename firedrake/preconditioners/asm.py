@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 import numpy
 
-__all__ = ("ASMPatchPC", "ASMLinesmoothPC")
+__all__ = ("ASMPatchPC", "ASMStarPC", "ASMLinesmoothPC")
 
 
 class ASMPatchPC(PCBase):
@@ -78,6 +78,62 @@ class ASMPatchPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         self.asmpc.applyTranspose(x, y)
+
+
+class ASMStarPC(ASMPatchPC):
+    '''Patch-based PC using Star of mesh entities implmented as an
+    :class:`ASMPatchPC`.
+
+    ASMStarPC is an additive Schwarz preconditioner where each patch
+    consists of all DoFs on the topological star of the mesh entity
+    specified by `pc_star_construct_dim`.
+    '''
+
+    _prefix = "pc_star_"
+
+    def get_patches(self, V):
+        mesh = V._mesh
+        mesh_dm = mesh._topology_dm
+        lgmap = V.dof_dset.lgmap
+
+        # Obtain the topological entities to use to construct the stars
+        depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
+
+        # Accessing .indices causes the allocation of a global array,
+        # so we need to cache these for efficiency
+        V_local_ises_indices = []
+        for (i, W) in enumerate(V):
+            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
+
+        # Build index sets for the patches
+        ises = []
+        (start, end) = mesh_dm.getDepthStratum(depth)
+        for seed in range(start, end):
+            # Only build patches over owned DoFs
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+
+            # Create point list from mesh DM
+            pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+
+            # Get DoF indices for patch
+            indices = []
+            for (i, W) in enumerate(V):
+                section = W.dm.getDefaultSection()
+                for p in pt_array.tolist():
+                    dof = section.getDof(p)
+                    if dof <= 0:
+                        continue
+                    off = section.getOffset(p)
+                    # Local indices within W
+                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    indices.extend(V_local_ises_indices[i][W_indices])
+            # Map local indices into global indices and create the IS for PCASM
+            global_indices = lgmap.apply(indices)
+            iset = PETSc.IS().createGeneral(global_indices, comm=COMM_SELF)
+            ises.append(iset)
+
+        return ises
 
 
 class ASMLinesmoothPC(ASMPatchPC):
