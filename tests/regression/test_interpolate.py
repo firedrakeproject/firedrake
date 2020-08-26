@@ -96,6 +96,7 @@ def test_tensor():
 
     assert np.allclose(g.dat.data, h.dat.data)
 
+
 def test_tensor():
     mesh = UnitSquareMesh(2, 2)
     x = SpatialCoordinate(mesh)
