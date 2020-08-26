@@ -1,5 +1,9 @@
-"""Provides the interface to TSFC for compiling a form, and transforms the TSFC-
-generated code in order to make it suitable for passing to the backends."""
+"""
+Provides the interface to TSFC for compiling a form, and
+transforms the TSFC-generated code to make it suitable for
+passing to the backends.
+
+"""
 import pickle
 
 from hashlib import md5
@@ -19,7 +23,7 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form
 
@@ -55,7 +59,14 @@ class TSFCKernel(Cached):
     @classmethod
     def _cache_lookup(cls, key):
         key, comm = key
-        return cls._cache.get(key) or cls._read_from_disk(key, comm)
+        # comm has to be part of the in memory key so that when
+        # compiling the same code on different subcommunicators we
+        # don't get deadlocks. But MPI_Comm objects are not hashable,
+        # so use comm.py2f() since this is an internal communicator and
+        # hence the C handle is stable.
+        commkey = comm.py2f()
+        assert commkey != MPI.COMM_NULL.py2f()
+        return cls._cache.get((key, commkey)) or cls._read_from_disk(key, comm)
 
     @classmethod
     def _read_from_disk(cls, key, comm):
