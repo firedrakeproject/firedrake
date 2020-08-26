@@ -106,17 +106,11 @@ def coarsen_form(form, self, coefficient_mapping=None):
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
-    val = self(bc._original_val, self, coefficient_mapping=coefficient_mapping)
-    zeroed = bc._currently_zeroed
+    val = self(bc.function_arg, self, coefficient_mapping=coefficient_mapping)
     subdomain = bc.sub_domain
     method = bc.method
 
-    bc = type(bc)(V, val, subdomain, method=method)
-
-    if zeroed:
-        bc.homogenize()
-
-    return bc
+    return type(bc)(V, val, subdomain, method=method)
 
 
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
@@ -283,7 +277,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
     from firedrake.dmhooks import add_hook, get_parent
     from itertools import chain
-    for val in chain(coefficient_mapping.values(), (bc._original_val for bc in problem.bcs)):
+    for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
         if isinstance(val, firedrake.function.Function):
             V = val.function_space()
             coarseneddm = V.dm
