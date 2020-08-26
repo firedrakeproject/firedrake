@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 import numpy
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMLinesmoothPC")
+__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC")
 
 
 class ASMPatchPC(PCBase):
@@ -121,6 +121,73 @@ class ASMStarPC(ASMPatchPC):
             for (i, W) in enumerate(V):
                 section = W.dm.getDefaultSection()
                 for p in pt_array.tolist():
+                    dof = section.getDof(p)
+                    if dof <= 0:
+                        continue
+                    off = section.getOffset(p)
+                    # Local indices within W
+                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    indices.extend(V_local_ises_indices[i][W_indices])
+            # Map local indices into global indices and create the IS for PCASM
+            global_indices = lgmap.apply(indices)
+            iset = PETSc.IS().createGeneral(global_indices, comm=COMM_SELF)
+            ises.append(iset)
+
+        return ises
+
+
+class ASMVankaPC(ASMPatchPC):
+    '''Patch-based PC using closure of star of mesh entities implmented as an
+    :class:`ASMPatchPC`.
+
+    ASMVankaPC is an additive Schwarz preconditioner where each patch
+    consists of all DoFs on the closure of the star of the mesh entity
+    specified by `pc_vanka_construct_dim` (or codim).
+    '''
+
+    _prefix = "pc_vanka_"
+
+    def get_patches(self, V):
+        mesh = V._mesh
+        mesh_dm = mesh._topology_dm
+        lgmap = V.dof_dset.lgmap
+
+        # Obtain the topological entities to use to construct the stars
+        depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
+        height = PETSc.Options().getInt(self.prefix + "construct_codim", default=-1)
+        if (depth == -1 and height == -1) or (depth != -1 and height != -1):
+            raise ValueError(f"Must set exactly one of {self.prefix + 'construct_dim'} or {self.prefix + 'construct_codim'}!")
+
+        # Accessing .indices causes the allocation of a global array,
+        # so we need to cache these for efficiency
+        V_local_ises_indices = []
+        for (i, W) in enumerate(V):
+            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
+
+        # Build index sets for the patches
+        ises = []
+        if depth != -1:
+            (start, end) = mesh_dm.getDepthStratum(depth)
+        else:
+            (start, end) = mesh_dm.getHeightStratum(height)
+
+        for seed in range(start, end):
+            # Only build patches over owned DoFs
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+
+            # Create point list from mesh DM
+            star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            pt_array = set()
+            for pt in star.tolist():
+                closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
+                pt_array.update(closure.tolist())
+
+            # Get DoF indices for patch
+            indices = []
+            for (i, W) in enumerate(V):
+                section = W.dm.getDefaultSection()
+                for p in pt_array:
                     dof = section.getDof(p)
                     if dof <= 0:
                         continue
