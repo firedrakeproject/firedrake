@@ -250,17 +250,12 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     # P1 to remind you that P1 is of lower degree
     # than Pk
     from tsfc import compile_expression_dual_evaluation
-    from tsfc.fiatinterface import create_element
-    from tsfc.finatinterface import create_element as create_finat_element
-    from finat.fiat_elements import FiatElement
+    from tsfc.finatinterface import create_element
     from firedrake import TestFunction
 
     expr = TestFunction(P1)
     coords = Pk.ufl_domain().coordinates
-    element = create_finat_element(Pk.ufl_element())
-    # FInAT dual evaluation currently only accepts FiatElements
-    if not isinstance(element, FiatElement):
-        element = create_element(Pk.ufl_element(), vector_is_mixed=False)
+    element = create_element(Pk.ufl_element())
 
     ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, element, coords, coffee=False)
     kernel = op2.Kernel(ast, ast.name)
