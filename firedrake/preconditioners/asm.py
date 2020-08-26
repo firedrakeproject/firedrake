@@ -36,10 +36,24 @@ class ASMPatchPC(PCBase):
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
         asmpc.incrementTabLevel(1, parent=pc)
-        asmpc.setOptionsPrefix(self.prefix + "_sub")
+        asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
         asmpc.setType(asmpc.Type.ASM)
         asmpc.setASMLocalSubdomains(len(ises), ises)
+
+        # Set default solver parameters
+        asmpc.setASMType(PETSc.PC.ASMType.BASIC)
+        opts = PETSc.Options(asmpc.getOptionsPrefix())
+        if "sub_pc_type" not in opts:
+            opts["sub_pc_type"] = "lu"
+        if "sub_pc_factor_shift_type" not in opts:
+            opts["sub_pc_factor_shift_type"] = "NONE"
+
+        # Try to do this programatically
+        # ksp = asmpc.getASMSubKSP()
+        # ksp.pc.setType(PETSc.PC.Type.LU)
+        # ksp.pc.setFactorShift(shift_type=PETSc.Mat.FactorShiftType.NONZERO)
+
         asmpc.setFromOptions()
         self.asmpc = asmpc
 
