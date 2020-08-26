@@ -328,7 +328,8 @@ def test_adjoint_dg():
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
-@pytest.mark.skipcomplex # complex numbers are not orderable
+
+@pytest.mark.skipcomplex  # complex numbers are not orderable
 @pytest.mark.parametrize("access", [MIN, MAX])
 def test_interpolate_minmax(access):
     mesh = UnitSquareMesh(3, 3)
@@ -346,7 +347,8 @@ def test_interpolate_minmax(access):
 
     assert np.allclose(actual, expect)
 
-@pytest.mark.skipcomplex # complex numbers are not orderable
+
+@pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)
