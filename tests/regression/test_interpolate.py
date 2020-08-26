@@ -346,7 +346,7 @@ def test_interpolate_minmax(access):
 
     assert np.allclose(actual, expect)
 
-
+@pytest.mark.skipcomplex # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)
