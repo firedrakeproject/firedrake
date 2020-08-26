@@ -73,36 +73,7 @@ def test_moore_spence():
 
     bcs = [DirichletBC(Z.sub(0), 0.0, "on_boundary"), DirichletBC(Z.sub(2), 0.0, "on_boundary")]
 
-    # Need to fieldsplit onto the real variable as assembly doesn't work with R
-    sp = {
-        "mat_type": "matfree",
-        "snes_type": "newtonls",
-        "snes_monitor": None,
-        "snes_converged_reason": None,
-        "snes_linesearch_type": "basic",
-        "ksp_type": "fgmres",
-        "ksp_monitor_true_residual": None,
-        "ksp_max_it": 10,
-        "pc_type": "fieldsplit",
-        "pc_fieldsplit_type": "schur",
-        "pc_fieldsplit_schur_fact_type": "full",
-        "pc_fieldsplit_0_fields": "0,2",
-        "pc_fieldsplit_1_fields": "1",
-        "fieldsplit_0_ksp_type": "preonly",
-        "fieldsplit_0_pc_type": "python",
-        "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
-        "fieldsplit_0_assembled_pc_type": "lu",
-        "fieldsplit_0_assembled_pc_factor_mat_solver_type": "mumps",
-        "fieldsplit_0_assembled_mat_mumps_icntl_14": 200,
-        "mat_mumps_icntl_14": 200,
-        "fieldsplit_1_ksp_type": "gmres",
-        "fieldsplit_1_ksp_monitor_true_residual": None,
-        "fieldsplit_1_ksp_max_it": 1,
-        "fieldsplit_1_ksp_convergence_test": "skip",
-        "fieldsplit_1_pc_type": "none",
-    }
-
-    solve(F == 0, z, bcs=bcs, solver_parameters=sp)
+    solve(F == 0, z, bcs=bcs)
     with z.sub(1).dat.vec_ro as x:
         param = x.norm()
 
