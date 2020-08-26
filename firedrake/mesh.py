@@ -1917,7 +1917,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         For example, the swarm coordinates themselves are stored in a
         field named `DMSwarmPIC_coor` which, were it not created
         automatically, would be initialised with
-        ``fields = [("DMSwarmPIC_coor", coordsdim, ScalarType)]``.
+        ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
         information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
     :return: the immersed DMSwarm
@@ -1925,6 +1925,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     .. note::
 
         The created DMSwarm uses the communicator of the input DMPlex.
+
+    .. note::
+
+        In complex mode the "DMSwarmPIC_coor" field is still saved as a
+        real number unlike the coordinates of a DMPlex which become
+        complex (though usually with zeroed imaginary parts).
     """
 
     # Check coords
