@@ -22,24 +22,29 @@ import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
-from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.utils import ScalarType_c
 from ufl.log import GREEN
 from gem.utils import groupby
+from gem import impero_utils
 
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
+from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
 
 import firedrake.slate.slate as slate
 import numpy as np
-
+import loopy
+import gem
+from gem import indices as make_indices
+from tsfc.loopy import generate as generate_loopy
 
 __all__ = ['compile_expression']
 
@@ -67,18 +72,22 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, tsfc_parameters):
+    def _cache_key(cls, expr, tsfc_parameters, coffee):
         return md5((expr.expression_hash
-                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(sorted(tsfc_parameters.items()))
+                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, tsfc_parameters):
+    def __init__(self, expr, tsfc_parameters, coffee=False):
         if self._initialized:
             return
-        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        if coffee:
+            self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        else:
+            self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
 
-def compile_expression(slate_expr, tsfc_parameters=None):
+def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -100,8 +109,69 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        kernel = SlateKernel(slate_expr, tsfc_parameters, coffee).split_kernel
         return cache.setdefault(key, kernel)
+
+
+def get_temp_info(loopy_kernel):
+    """Get information about temporaries in loopy kernel.
+
+    Returns memory in bytes and number of temporaries.
+    """
+    mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
+    mem_total = sum(mems)
+    num_temps = len(loopy_kernel.temporary_variables)
+
+    # Get number of temporaries of different shapes
+    shapes = {}
+    for temp in loopy_kernel.temporary_variables.values():
+        shape = temp.shape
+        if temp.storage_shape is not None:
+            shape = temp.storage_shape
+
+        shapes[len(shape)] = shapes.get(len(shape), 0) + 1
+    return mem_total, num_temps, mems, shapes
+
+
+def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
+    cpu_time = time.time()
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
+
+    Citations().register("Gibson2018")
+
+    # Create a loopy builder for the Slate expression,
+    # e.g. contains the loopy kernels coming from TSFC
+    gem_expr, var2terminal = slate_to_gem(slate_expr)
+    slate_loopy = gem_to_loopy(gem_expr)
+    builder = LocalLoopyKernelBuilder(expression=slate_expr,
+                                      tsfc_parameters=tsfc_parameters)
+    loopy_merged = merge_loopy(slate_loopy, builder, var2terminal)
+
+    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
+    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
+
+    # WORKAROUND: Generate code directly from the loopy kernel here,
+    # then attach code as a c-string to the op2kernel
+    code = loopy.generate_code_v2(loopy_merged).device_code()
+    code.replace('void slate_kernel', 'static void slate_kernel')
+    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+
+    kinfo = KernelInfo(kernel=loopykernel,
+                       integral_type="cell",  # slate can only do things as contributions to the cell integrals
+                       oriented=builder.bag.needs_cell_orientations,
+                       subdomain_id="otherwise",
+                       domain_number=0,
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       needs_cell_facets=builder.bag.needs_cell_facets,
+                       pass_layer_arg=builder.bag.needs_mesh_layers,
+                       needs_cell_sizes=builder.bag.needs_cell_sizes)
+
+    # Cache the resulting kernel
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
+    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    return (SplitKernel(idx, kinfo),)
 
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
@@ -530,6 +600,30 @@ def parenthesize(arg, prec=None, parent=None):
     if prec is None or parent is None or prec >= parent:
         return arg
     return "(%s)" % arg
+
+
+def gem_to_loopy(gem_expr):
+    """ Method encapsulating stage 2.
+    Converts the gem expression dag into imperoc first, and then further into loopy.
+    :return slate_loopy: loopy kernel for slate operations.
+    """
+    # Creation of return variables for outer loopy
+    shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
+    idx = make_indices(len(shape))
+    indexed_gem_expr = gem.Indexed(gem_expr, idx)
+    arg = [loopy.GlobalArg("output", shape=shape)]
+    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
+
+    preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
+
+    # glue assignments to return variable
+    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+
+    # Part A: slate to impero_c
+    impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
+
+    # Part B: impero_c to loopy
+    return generate_loopy(impero_c, arg, parameters["form_compiler"]["scalar_type"], "slate_loopy", [])
 
 
 def slate_to_cpp(expr, temps, prec=None):
