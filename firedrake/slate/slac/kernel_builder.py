@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import count
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
@@ -437,13 +438,14 @@ class LocalLoopyKernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.bag = None
+        self.kernel_counter = count()
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
 
-        return compile_terminal_form(terminal, prefix="subkernel%s_" % terminal._output_string,
+        return compile_terminal_form(terminal, prefix=f"subkernel{next(self.kernel_counter)}_",
                                      tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
