@@ -41,7 +41,7 @@ that Firedrake is fully functional. Activate the venv_ as above and
 then run::
 
   cd $VIRTUAL_ENV/src/firedrake
-  python3 -m pytest tests/regression/ -k "poisson_strong | stokes_mini | dg_advection"
+  pytest tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a

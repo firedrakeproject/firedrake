@@ -415,3 +415,30 @@ def test_minmax(fn):
         expect = 2
 
     assert np.allclose(h.dat.data_ro, expect)
+
+
+def test_assign_mixed_multiple_shaped():
+    mesh = UnitTriangleMesh()
+    V = VectorFunctionSpace(mesh, "DG", 0)
+    Q = FunctionSpace(mesh, "P", 1)
+    P = FunctionSpace(mesh, "RT", 2)
+    X = TensorFunctionSpace(mesh, "DG", 1)
+
+    Z = V*Q*P*X
+
+    z1 = Function(Z)
+    z2 = Function(Z)
+
+    z1.dat[0].data[:] = [1, 2]
+    z1.dat[1].data[:] = 3
+    z1.dat[2].data[:] = 4
+    z1.dat[3].data[:] = [[6, 7], [8, 9]]
+
+    z2.dat[0].data[:] = [10, 11]
+    z2.dat[1].data[:] = 12
+    z2.dat[2].data[:] = 13
+    z2.dat[3].data[:] = [[15, 16], [17, 18]]
+
+    q = assemble(z1 - z2)
+    for q, p1, p2 in zip(q.split(), z1.split(), z2.split()):
+        assert np.allclose(q.dat.data_ro, p1.dat.data_ro - p2.dat.data_ro)
