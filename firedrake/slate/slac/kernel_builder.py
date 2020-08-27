@@ -19,7 +19,7 @@ import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 from firedrake.parameters import parameters
-from tsfc.loopy import create_domains
+from tsfc.loopy import create_domains, assign_dtypes
 
 from pytools import UniqueNameGenerator
 
@@ -607,7 +607,9 @@ class LocalLoopyKernelBuilder(object):
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
+            (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
+                                                   dtype=dtype,
                                                    shape=gem_tensor.shape,
                                                    address_space=loopy.AddressSpace.LOCAL)
             tensor2temp[slate_tensor] = loopy_tensor

@@ -103,8 +103,10 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
-    if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"]
+    params = parameters["form_compiler"].copy()
+    if tsfc_parameters is not None:
+        params.update(tsfc_parameters)
+    tsfc_parameters = params
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
