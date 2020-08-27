@@ -1,6 +1,8 @@
 from firedrake import *
+import pytest
 
 
+@pytest.mark.skipcomplexnoslate
 def test_prolong_ncf_cube():
     base = UnitSquareMesh(1, 1, quadrilateral=True)
     basemh = MeshHierarchy(base, 1)
