@@ -18,7 +18,6 @@ from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
-from firedrake.parameters import parameters
 from tsfc.loopy import create_domains, assign_dtypes
 
 from pytools import UniqueNameGenerator
@@ -653,7 +652,7 @@ class LocalLoopyKernelBuilder(object):
     def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
-                                dtype=parameters["form_compiler"]["scalar_type"])]
+                                dtype=self.tsfc_parameters["scalar_type"])]
 
         for loopy_inner in templated_subkernels:
             for arg in loopy_inner.args[1:]:
@@ -666,12 +665,12 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
-                                          dtype=parameters["form_compiler"]["scalar_type"])
+                                          dtype=self.tsfc_parameters["scalar_type"])
                     args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
-                                      dtype=parameters["form_compiler"]["scalar_type"])
+                                      dtype=self.tsfc_parameters["scalar_type"])
                 args.append(arg)
 
         if self.bag.needs_cell_facets:
