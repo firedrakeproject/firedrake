@@ -65,27 +65,26 @@ class BlockIndexer(object):
         self.block_cache = {}
 
     def __getitem__(self, key):
-
-        key = list(as_tuple(key))
-
+        key = as_tuple(key)
         # Make indexing with too few indices legal.
-        key += [slice(None) for i in range(self.tensor.rank - len(key))]
-
+        key = key + tuple(slice(None) for i in range(self.tensor.rank - len(key)))
         if len(key) > self.tensor.rank:
             raise ValueError("Attempting to index a rank-%s tensor with %s indices."
                              % (self.tensor.rank, len(key)))
 
+        block_shape = tuple(len(V) for V in self.tensor.arg_function_spaces)
         # Convert slice indices to tuple of indices.
-        blocks = tuple(range(n)[k] if isinstance(k, slice) else k
-                       for k, n in zip(key, self.tensor.shape))
+        blocks = tuple(as_tuple(range(k.stop)[k] if isinstance(k, slice) else k)
+                       for k, n in zip(key, block_shape))
 
+        if blocks == tuple(tuple(range(n)) for n in block_shape):
+            return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]
         except KeyError:
             block = Block(tensor=self.tensor, indices=blocks)
             self.block_cache[blocks] = block
-
         return block
 
 
@@ -123,6 +122,10 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def _metakernel_cache(self):
         return {}
+
+    @property
+    def children(self):
+        return self.operands
 
     @cached_property
     def expression_hash(self):

@@ -7,7 +7,7 @@ from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_base_element
 from tsfc import compile_expression_dual_evaluation
 
 import firedrake
@@ -206,7 +206,7 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
-        to_element = create_element(V.ufl_element(), vector_is_mixed=False)
+        to_element = create_base_element(V.ufl_element())
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -233,7 +233,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
-        for dual in to_element.dual_basis():
+        for dual in to_element.fiat_equivalent.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
             pts, = dual.pt_dict.keys()
@@ -303,7 +303,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     function provided."""
 
     coords_space = coords.function_space()
-    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
+    coords_element = create_base_element(coords_space.ufl_element()).fiat_equivalent
 
     X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 

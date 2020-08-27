@@ -1,7 +1,7 @@
 import os
 import importlib
 
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
 
@@ -43,7 +43,8 @@ def firedrake_local_to_cart(element):
     :arg element: a ufl element.
     :returns: a list of arrays of floats where each array is a node.
     """
-    fiat_element = create_element(element, vector_is_mixed=False)
+    # TODO: Revise this when FInAT gets dual evaluation
+    fiat_element = create_base_element(element).fiat_equivalent
     # TODO: Surely there is an easier way that I've forgotten?
     return [np.array(list(phi.get_point_dict().keys())[0])
             for phi in fiat_element.dual_basis()]
