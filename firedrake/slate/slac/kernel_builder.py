@@ -4,7 +4,7 @@ from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 
-from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
+from firedrake.slate.slac.utils import traverse_dags, Transformer
 from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
@@ -262,7 +262,6 @@ class LocalKernelBuilder(object):
                 coords = coordinates
 
             for split_kernel in cxt_kernel.tsfc_kernels:
-                indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
                 kint_type = kinfo.integral_type
                 needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
@@ -283,9 +282,8 @@ class LocalKernelBuilder(object):
                     args.append(self.cell_size_sym)
 
                 # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
                 call = ast.FunCall(kinfo.kernel.name,
-                                   tensor,
+                                   self.temps[exp],
                                    self.coord_sym,
                                    *args)
 
