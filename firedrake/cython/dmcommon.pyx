@@ -2475,6 +2475,40 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
                                <void *>buf.data))
 
 
+def to_petsc_local_numbering(PETSc.Vec vec, V):
+    """Reorder a PETSc Vec corresponding to a Firedrake Function
+       w.r.t. to initial PETSc numbering
+
+    :arg vec: the PETSc Vec to reorder
+    :arg V: the FunctionSpace of the function from which vec comes from
+
+    :ret out: a copy of vec ordered with PETSc numbering
+    """
+    cdef int dim, idx, start, end, p, d, k
+    cdef PetscInt dof, off
+    cdef PETSc.Vec out
+    cdef PETSc.Section section
+    cdef np.ndarray[PetscReal, mode="c", ndim=1] varray, oarray
+
+    section = V.dm.getDefaultSection()
+    out = vec.duplicate()
+    varray = vec.array_r
+    oarray = out.array
+    dim = V.value_size
+    idx = 0
+    start, end = vec.getOwnershipRange()
+    for p in range(*section.getChart()):
+        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(section.sec, p, &off))
+            if off >= 0:
+                for d in range(dof):
+                    for k in range(dim):
+                        oarray[idx] = varray[dim*off + d*off + k - start]  # TODO cython -a => light yellow, is that ok ?
+                        idx += 1
+    return out
+
+
 cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
