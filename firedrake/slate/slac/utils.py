@@ -318,7 +318,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
@@ -333,12 +333,11 @@ def merge_loopy(slate_loopy, builder, var2terminal):
                                     for terminal in terminal_tensors)))
 
     # Construct args
-    args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
-
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
-    insns += builder.slate_call(slate_loopy)
+    insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains

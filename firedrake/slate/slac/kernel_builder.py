@@ -641,13 +641,19 @@ class LocalLoopyKernelBuilder(object):
 
         return inits, tensor2temp
 
-    def slate_call(self, kernel):
+    def slate_call(self, kernel, temporaries):
         # Slate kernel call
-        call = pym.Call(pym.Variable(kernel.name), tuple())
+        reads = []
+        for t in temporaries:
+            shape = t.shape
+            name = t.name
+            idx = self.bag.index_creator(shape)
+            reads.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
+        call = pym.Call(pym.Variable(kernel.name), tuple(reads))
         output_var = pym.Variable(kernel.args[0].name)
         slate_kernel_call_output = self.generate_lhs(self.expression, output_var)
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
-        return [insn]
+        return insn
 
     def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
