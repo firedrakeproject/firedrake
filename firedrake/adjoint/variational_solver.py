@@ -21,6 +21,9 @@ class NonlinearVariationalProblemMixin:
             self._ad_count_map = {}
         return wrapper
 
+    def _ad_count_map_update(self, updated_ad_count_map):
+        self._ad_count_map = updated_ad_count_map
+
 
 class NonlinearVariationalSolverMixin:
     @staticmethod
@@ -116,5 +119,5 @@ class NonlinearVariationalSolverMixin:
                                            F_replace_map[problem.u],
                                            bcs=problem.bcs,
                                            J=replace(problem.J, J_replace_map))
-        nlvp._ad_count_map = _ad_count_map
+        nlvp._ad_count_map_update(_ad_count_map)
         return nlvp
