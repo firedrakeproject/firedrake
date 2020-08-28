@@ -156,7 +156,7 @@ class ASMVankaPC(ASMPatchPC):
         depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
         height = PETSc.Options().getInt(self.prefix + "construct_codim", default=-1)
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
-            raise ValueError(f"Must set exactly one of {self.prefix + 'construct_dim'} or {self.prefix + 'construct_codim'}!")
+            raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
