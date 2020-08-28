@@ -118,7 +118,7 @@ cells are not currently supported")
     <int32> swap = 1 if a >= b else 0
     <float64> aa = fmin(a, b)
     <float64> bb = fmax(a, b)
-    <float64> bb_abs = fabs(bb)
+    <float64> bb_abs = abs(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
@@ -525,17 +525,17 @@ cells in each direction are not currently supported")
     end
     for j
         <float64> phi = atan2(old_coords[j, 1], old_coords[j, 0])
-        <float64> _phi = fabs(sin(phi))
+        <float64> _phi = abs(sin(phi))
         <double> _theta_1 = atan2(old_coords[j, 2], old_coords[j, 1] / sin(phi) - 1)
         <double> _theta_2 = atan2(old_coords[j, 2], old_coords[j, 0] / cos(phi) - 1)
         <float64> theta = _theta_1 if _phi > bigeps else _theta_2
         new_coords[j, 0] = phi / (2 * pi)
         new_coords[j, 0] = new_coords[j, 0] + 1 if new_coords[j, 0] < -eps else new_coords[j, 0]
-        <float64> _nc_abs = fabs(new_coords[j, 0])
+        <float64> _nc_abs = abs(new_coords[j, 0])
         new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
         new_coords[j, 1] = theta / (2 * pi)
         new_coords[j, 1] = new_coords[j, 1] + 1 if new_coords[j, 1] < -eps else new_coords[j, 1]
-        _nc_abs = fabs(new_coords[j, 1])
+        _nc_abs = abs(new_coords[j, 1])
         new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = new_coords[j, 1] * Ly[0]

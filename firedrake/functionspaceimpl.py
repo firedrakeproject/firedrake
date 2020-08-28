@@ -253,7 +253,9 @@ class WithGeometry(ufl.FunctionSpace):
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
-        return getattr(self.topological, name)
+        val = getattr(self.topological, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(WithGeometry, self).__dir__()
@@ -338,6 +340,8 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
+        # Used for reconstruction of mixed/component spaces
+        self.real_tensorproduct = real_tensorproduct
         sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -353,6 +357,7 @@ class FunctionSpace(object):
         else:
             self.shape = ()
         self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
         self._mesh = mesh
 
@@ -462,7 +467,12 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
+        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
         return self._ufl_element
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __len__(self):
         return 1
@@ -528,7 +538,7 @@ class FunctionSpace(object):
         See also :attr:`dof_count` and :attr:`node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
@@ -623,17 +633,18 @@ class MixedFunctionSpace(object):
             self._mesh = _mesh[0]
             # MixedElement on a single cell
             self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s in spaces])
+            self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), self._ufl_element)
         else:
             # Mixed mesh_topology
             self._mesh = _mesh
             # MixedElement on a mixed cell
             self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s in spaces], mixed=True)
+            self._ufl_function_space = ufl.FunctionSpace(tuple(m.ufl_mesh() for m in self._mesh), self._ufl_element)
 
         # Cache sparsity maps on test function space object;
         # we set items when allocating, and get values when
         # actually assembling.
         self._sparsity_maps = {}
-
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -650,8 +661,12 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.Mixedelement` this space represents."""
+        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
         return self._ufl_element
+
+    def ufl_function_space(self):
+        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
+        return self._ufl_function_space
 
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace):
@@ -778,14 +793,14 @@ class MixedFunctionSpace(object):
         If BCs is provided, mask out those dofs which match the BC nodes."""
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
+        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
                             for i, (s, v) in enumerate(zip(self._split, val)))
 
     @utils.cached_property
@@ -824,7 +839,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None):
+    def __new__(cls, mesh, element, name=None, real_tensorproduct=False):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
@@ -879,7 +894,8 @@ def IndexedFunctionSpace(index, space, parent):
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name,
+                                 real_tensorproduct=space.real_tensorproduct)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -901,7 +917,8 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name,
+                             real_tensorproduct=parent.real_tensorproduct)
     new.identifier = "component"
     new.component = component
     new.parent = parent
@@ -925,7 +942,7 @@ class RealFunctionSpace(FunctionSpace):
     value_size = 1
 
     def __init__(self, mesh, element, name):
-        self._ufl_element = element
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
@@ -960,7 +977,7 @@ class RealFunctionSpace(FunctionSpace):
         dmhooks.set_function_space(dm, self)
         return dm
 
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+    def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self.comm)

@@ -9,7 +9,7 @@ class ApproximateSchur(AuxiliaryOperatorPC):
         (v, w) = split(trial)
         (y, z) = split(test)
         a = inner(div(v), div(y))*dx - inner(div(w), div(z))*dx + inner(v, z)*dx + inner(w, y)*dx
-        bcs = [DirichletBC(Z.sub(0), Constant((0, 0)), "on_boundary")]
+        bcs = [DirichletBC(Z.sub(0), zero(), "on_boundary")]
         return (a, bcs)
 
 
@@ -28,7 +28,7 @@ class BiharmonicProblem(object):
 
     def bcs(self, Z):
         bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.ufl_domain()), "on_boundary"),
-               DirichletBC(Z.sub(1), Constant((0, 0)), "on_boundary")]
+               DirichletBC(Z.sub(1), zero(), "on_boundary")]
         return bcs
 
     def analytical_solution(self, mesh):
@@ -68,7 +68,7 @@ def test_auxiliary_dm():
         + 0.5 * inner(u, u)*dx
         + inner(alpha, v)*dx + inner(div(alpha), u)*dx
         - inner(f, u)*dx
-        )  # noqa: E121
+    )  # noqa: E121
 
     F = derivative(L, z, w)
 
@@ -121,7 +121,7 @@ def test_auxiliary_dm():
                  "fieldsplit_1_aux_mg_coarse_pc_type": "lu",
                  "fieldsplit_1_aux_mg_coarse_pc_factor_mat_solver_type": "mumps",
                  "fieldsplit_1_aux_mg_coarse_mat_mumps_icntl_14": 200,
-                 }
+    }
 
     # Solve variational form
     nvproblem = NonlinearVariationalProblem(F, z, bcs=bcs)

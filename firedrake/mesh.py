@@ -443,8 +443,15 @@ class MeshTopology(object):
             nfacets = plex.getConeSize(cStart) if dim > 0 else 1
         nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
-
+        # Note that the geometric dimension of the cell is not set here
+        # despite it being a property of a UFL cell. It will default to
+        # equal the topological dimension.
+        # Firedrake mesh topologies, by convention, which specifically
+        # represent a mesh topology (as here) have geometric dimension
+        # equal their topological dimension. This is reflected in the
+        # corresponding UFL mesh.
+        cell = ufl.Cell(_cells[dim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -521,8 +528,30 @@ class MeshTopology(object):
         return self
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This is true even for immersed manifold
+            meshes.
+
+        """
+        return self._ufl_mesh.ufl_cell()
+
+    def ufl_mesh(self):
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This convention will be reflected in this
+            UFL mesh and is true even for immersed manifold meshes.
+
+        """
+        return self._ufl_mesh
 
     @utils.cached_property
     def cell_closure(self):
@@ -957,7 +986,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self._plex,
@@ -1446,7 +1476,9 @@ values from f.)"""
             return self.submesh_parent.submesh_get_depth() + 1
 
     def __getattr__(self, name):
-        return getattr(self._topology, name)
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
