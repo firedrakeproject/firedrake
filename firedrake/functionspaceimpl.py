@@ -531,7 +531,7 @@ class FunctionSpace(object):
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         r"""Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
+        return op2.Dat(self.dof_dset, val, valuetype, name)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.Map` from cells to
