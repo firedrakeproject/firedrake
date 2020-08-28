@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.overloaded_type import FloatingType
 from .blocks import DirichletBCBlock
-from pyadjoint.tape import no_annotations
+from pyadjoint.tape import stop_annotating, annotate_tape
 
 
 class DirichletBCMixin(FloatingType):
@@ -20,14 +20,17 @@ class DirichletBCMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_apply(apply):
-        @no_annotations
         @wraps(apply)
         def wrapper(self, *args, **kwargs):
-            for arg in args:
-                if not hasattr(arg, "bcs"):
-                    arg.bcs = []
-            arg.bcs.append(self)
-            return apply(self, *args, **kwargs)
+            annotate = annotate_tape(kwargs)
+            if annotate:
+                for arg in args:
+                    if not hasattr(arg, "bcs"):
+                        arg.bcs = []
+                arg.bcs.append(self)
+            with stop_annotating():
+                ret = apply(self, *args, **kwargs)
+            return ret
         return wrapper
 
     def _ad_create_checkpoint(self):
