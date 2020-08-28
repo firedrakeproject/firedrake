@@ -33,25 +33,22 @@ use Firedrake::
 
      source firedrake/bin/activate.csh
 
-Reporting installation bugs
----------------------------
-
-If ``firedrake-install`` fails to work, please report a bug so that we
-can fix it for you by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__.  Please
-include the log file ``firedrake-install.log`` in your bug report.
-Similarly if ``firedrake-update`` fails, it produces a
-``firedrake-update.log`` file which will help us to debug the problem.
-
 Testing the installation
 ------------------------
 
-It is recommended to run the test suite after installation to check
-that the Firedrake installation is fully functional.  Activate the
-venv_ as above and then run::
+We recommend that you run the test suite after installation to check
+that Firedrake is fully functional. Activate the venv_ as above and
+then run::
 
-  cd firedrake/src/firedrake
-  make alltest
+  cd $VIRTUAL_ENV/src/firedrake
+  pytest tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+
+This command will run a few of the unit tests, which exercise a good
+chunk of the functionality of the library. These tests should take a
+minute or less. If they fail to run for any reason, please see the
+section below on how to diagnose and debug a failed installation. If
+you want to run the entire test suite you can do ``make alltest``
+instead, but this takes several hours.
 
 .. note::
 
@@ -66,66 +63,6 @@ venv_ as above and then run::
 
   where ``LOCALHOSTNAME`` is the name returned by running the `hostname`
   command. Should the local host name change, this may require updating.
-
-
-System requirements
--------------------
-
-The installation script is tested on Ubuntu and MacOS X. Installation
-is likely to work well on other Linux platforms, although the script
-may stop to ask you to install some dependency packages. Installation
-on other Unix platforms may work but is untested. On Linux systems
-that do not use the Debian package management system, it will be
-necessary to pass the `--no-package-manager` option to the install
-script. In this case, it is the user's responsibilty to ensure that
-they have the system dependencies:
-
-* A C and C++ compiler (for example gcc/g++ or clang), GNU make
-* A Fortran compiler (for PETSc)
-* Blas and Lapack
-* Git, Mercurial
-* Python version >=3.6
-* The Python headers
-* autoconf, automake, libtool
-* CMake
-* zlib
-* flex, bison
-
-Firedrake has been successfully installed on Windows 10 using the
-Windows Subsystem for Linux. There are more detailed
-`instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
-Installation on previous versions of Windows is unlikely to work.
-
-
-Supported Python distributions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Firedrake requires Python 3.6 or later.
-
-On Ubuntu (18.04 or later), the system installed Python 3 is supported and tested.
-
-On Mac OS, the homebrew_ installed Python 3 is supported and tested::
-
-  brew install python3
-
-If instead you choose to install Python 3 using the official Mac OS
-installer on the Python website, you need to be aware that that
-installation will not have a working SSL by default. You need to
-follow the SSL certificate instructions given in the installation process (or in
-``/Applications/Python X.X/ReadMe.rtf`` after installation).
-
-Additional considerations for MacPorts users
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Mac OS has multiple competing package managers which sometimes cause
-issues for users attempting to install Firedrake. In particular, the
-assembler provided by MacPorts is incompatible with the Mac system
-compilers in a manner which causes Firedrake to fail to install. For
-this reason, if you are installing Firedrake on a Mac which also has
-MacPorts installed, you should ensure that ``/opt/local/bin`` and
-``/opt/local/sbin`` are removed from your ``PATH`` when installing or
-using Firedrake. This should ensure that no MacPorts installed tools
-are found.
 
 Upgrade
 -------
@@ -147,6 +84,111 @@ gives a full list of update options. For instance additional Firedrake
 packages can be installed into an existing Firedrake installation using
 ``firedrake-update``.
 
+System requirements
+-------------------
+
+Firedrake requires Python 3.6 or later. The installation script is
+tested on Ubuntu and MacOS X. On Ubuntu 18.04 or later, the system
+installed Python 3 is supported and tested. On MacOS, the homebrew_
+installed Python 3 is supported and tested::
+
+  brew install python3
+
+Installation is likely to work well on other Linux platforms, although
+the script may stop to ask you to install some dependency packages.
+Installation on other Unix platforms may work but is untested. On Linux
+systems that do not use the Debian package management system, it will be
+necessary to pass the `--no-package-manager` option to the install
+script. In this case, it is the user's responsibilty to ensure that
+they have the system dependencies:
+
+* A C and C++ compiler (for example gcc/g++ or clang), GNU make
+* A Fortran compiler (for PETSc)
+* Blas and Lapack
+* Git, Mercurial
+* Python version >=3.6
+* The Python headers
+* autoconf, automake, libtool
+* CMake
+* zlib
+* flex, bison
+
+Firedrake has been successfully installed on Windows 10 using the
+Windows Subsystem for Linux. There are more detailed
+`instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
+Installation on previous versions of Windows is unlikely to work.
+
+System anti-requirements
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+We strive to make Firedrake work on as many platforms as we can. Some
+tools, however, make this challenging or impossible for end users.
+
+**Anaconda.** The Anaconda Python distribution and package manager are
+often recommended in introductory data science courses because it does
+effectively handle many aggravating problems of dependency management.
+Unfortunately, Anaconda does a poor job of isolating itself from the
+rest of your system and assumes that it will be both the only Python
+installation and the only supplier of any dependent packages. Anaconda
+will install compilers and MPI compiler wrappers and put its compilers
+right at the top of your ``PATH``. This is a problem because Firedrake
+needs to build and use its own MPI. (We keep our MPI isolated from the
+rest of your system through virtual environments.) When installed on a
+platform with Anaconda, Firedrake can accidentally try to link to the
+incompatible Anaconda installation of MPI.
+
+There are three ways to work around this problem.
+
+1. Remove Anaconda entirely.
+2. Modify your ``PATH`` environment variable to remove any traces of
+   Anaconda, then install Firedrake. If you need Anaconda later, you
+   can re-enable it with a shell script that will add those directories
+   back onto your path.
+3. Use a `Docker image <https://hub.docker.com/r/firedrakeproject/firedrake>`_
+   that we've built with Firedrake and its dependencies already installed.
+
+**MacOS system Python.** The official MacOS installer on the Python
+website does not have a working SSL by default. A working SSL is
+necessary to securely fetch dependent packages from the internet. You
+can enable SSL with the system Python, but we strongly recommend using
+a Python version installed via Homebrew instead.
+
+**MacPorts.**
+Mac OS has multiple competing package managers which sometimes cause
+issues for users attempting to install Firedrake. In particular, the
+assembler provided by MacPorts is incompatible with the Mac system
+compilers in a manner which causes Firedrake to fail to install. For
+this reason, if you are installing Firedrake on a Mac which also has
+MacPorts installed, you should ensure that ``/opt/local/bin`` and
+``/opt/local/sbin`` are removed from your ``PATH`` when installing or
+using Firedrake. This should ensure that no MacPorts installed tools
+are found.
+
+Debugging install problems
+--------------------------
+
+If ``firedrake-install`` fails, the following flowchart describes some
+common build problems and how to solve them. If you understand the
+prognosis and feel comfortable making these fixes yourself then great!
+If not, feel free to ask for more help in our
+:doc:`Slack channel </contact>`.
+
+.. graphviz:: install-debug.dot
+
+If you don't see the issue you're experiencing in this chart, please
+ask us on Slack or report a bug by creating a new `github issue
+<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
+diagnose what's going wrong, **please include the following log files**:
+
+* ``firedrake-install.log`` from Firedrake, which you can find in the
+  directory where you invoked ``firedrake-install`` from
+* ``configure.log`` and ``make.log`` from PETSc, which you can find in
+  ``src/petsc/`` inside the directory where Firedrake virtual
+  environment was created
+
+Likewise, if it's ``firedrake-update`` that fails, please include the
+file ``firedrake-update.log``. You can find this in the Firedrake
+virtual environment.
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -164,7 +206,6 @@ type::
   ./scripts/firedrake-install --rebuild-script
 
 You should now be able to run ``firedrake-update``.
-
 
 Visualisation software
 ----------------------
