@@ -633,7 +633,7 @@ class MixedFunctionSpace(object):
             self._mesh = _mesh[0]
             # MixedElement on a single cell
             self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s in spaces])
-            self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), self._ufl_element)
+            self._ufl_function_space = ufl.FunctionSpace(self._mesh.ufl_mesh(), self._ufl_element)
         else:
             # Mixed mesh_topology
             self._mesh = _mesh
