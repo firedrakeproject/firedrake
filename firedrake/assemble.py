@@ -330,7 +330,7 @@ def collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
     return (rlgmap, clgmap), unroll
 
 
-def matrix_arg(access, get_map, row, col, *,
+def matrix_arg(access, get_map, row, col, domain_type, *,
                all_bcs=(), matrix=None, Vrow=None, Vcol=None):
     """Obtain an op2.Arg for insertion into the given matrix.
 
@@ -363,7 +363,7 @@ def matrix_arg(access, get_map, row, col, *,
         print("Assuming test_domain = 'cell'.")
         test_fs = Vrow.topological
         trial_fs = Vcol.topological
-        test_domain = 'cell'
+        test_domain = domain_type
         maps = test_fs.sparsity_map(trial_fs, row, col, test_domain)
         lgmaps, unroll = collect_lgmaps(matrix, all_bcs,
                                         Vrow, Vcol, row, col)
@@ -596,11 +596,13 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
 
             def get_map(x):
                 return x.cell_node_map()
+            domain_type = 'cell'
         elif integral_type in ("exterior_facet", "exterior_facet_vert"):
             extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
             def get_map(x):
                 return x.exterior_facet_node_map()
+            domain_type = 'exterior_facet'
         elif integral_type in ("exterior_facet_top", "exterior_facet_bottom"):
             # In the case of extruded meshes with horizontal facet integrals, two
             # parallel loops will (potentially) get created and called based on the
@@ -610,22 +612,25 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
 
             def get_map(x):
                 return x.cell_node_map()
+            domain_type = 'cell'
         elif integral_type in ("interior_facet", "interior_facet_vert"):
             extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
             def get_map(x):
                 return x.interior_facet_node_map()
+            domain_type = 'interior_facet'
         elif integral_type == "interior_facet_horiz":
             kwargs["iterate"] = op2.ON_INTERIOR_FACETS
 
             def get_map(x):
                 return x.cell_node_map()
+            domain_type = 'cell'
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
         # Output argument
         if assembly_rank == AssemblyRank.MATRIX:
-            tensor_arg = create_op2arg(op2.INC, get_map, i, j)
+            tensor_arg = create_op2arg(op2.INC, get_map, i, j, domain_type)
         elif assembly_rank == AssemblyRank.VECTOR:
             tensor_arg = create_op2arg(op2.INC, get_map, i)
         else:
