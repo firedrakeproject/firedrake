@@ -352,6 +352,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg name: name of the mesh
         """
 
+        # Parent
+        self._submesh_parent = None
+
         utils._init()
 
         self.name = name
@@ -632,6 +635,108 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
+    @property
+    def submesh_parent(self):
+        return self._submesh_parent
+
+    @submesh_parent.setter
+    def submesh_parent(self, p):
+        self._submesh_parent = p
+
+    #@utils.cached_property
+    @property
+    def submesh_parents(self):
+        if self.submesh_parent is None:
+            return [self, ]
+        return [self, ] + self.submesh_parent.submesh_parents
+
+    def submesh_get_base(self):
+        if self.submesh_parent is None:
+            return self
+        else:
+            return self.submesh_parent.submesh_get_base()
+
+    def submesh_get_depth(self):
+        if self.submesh_parent is None:
+            return 0
+        else:
+            return self.submesh_parent.submesh_get_depth() + 1
+
+    #@utils.cached_property
+    def submesh_sub_super_map(self, dim):
+        """Return the self-to-parent map if self._submesh_parent is not None
+
+          :arg dim: Dimension of the entities to create mapping for.
+
+          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
+        """
+        #self.interior_facets.set
+        if self.submesh_parent is None:
+            raise RuntimeError("Must have a submesh_parent.")
+        #TODO: generalize for facet_set etc..
+        return op2.Map(self.cell_set, self.submesh_parent.cell_set, 1,
+                       dmcommon.submesh_create_sub_super_map(self, dim),
+                       "sub_to_super_map")
+
+    #@utils.cached_property
+    def submesh_super_sub_map(self, dim):
+        """Return the parent-to-child map if self._submesh_parent is not None
+
+          :arg dim: Dimension of the entities to create mapping for.
+
+          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
+        """
+        if self.submesh_parent is None:
+            raise RuntimeError("`submesh_super_sub_map` must not be called if submesh_parent is None")
+        pStart, pEnd = self.submesh_parent._topology_dm.getDepthStratum(dim)
+        super_sub_map = np.empty((pEnd - pStart, 1), dtype=IntType)
+        super_sub_map.fill(-1)
+        sub_super_map = dmcommon.submesh_create_sub_super_map(self, dim)
+        # Generate the reverse map
+        if len(sub_super_map) > 0:
+            for i, v in enumerate(np.nditer(sub_super_map)):
+                super_sub_map[v] = i
+        #TODO: generalize for facet_set etc..
+        return op2.Map(self.submesh_parent.cell_set, self.cell_set, 1,
+                       super_sub_map,
+                       "super_to_sub_map")
+
+    #@utils.cached_property
+    def submesh_component_maps(self, other, dim):
+        """Return a list of :class:`pyop2.Map`s to map indices from submesh to mesh
+
+          :arg other: The other mesh.
+          :dim: Dimension to create map for.
+
+          :returns: A list of :class:`pyop2.Map`s that, when composed by
+             :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim)
+             from "other" to "self".
+        """
+        self_parents = self.submesh_parents
+        other_parents = other.submesh_parents
+        if self_parents[-1] is not other_parents[-1]:
+            raise NotImplementedError("Currently, `self` and `other` must share the same base mesh")
+        # Find the shortest path from self to other.
+        #
+        #  self --- m --- m --- m --- m --- m --- base    self_parents
+        #                      /
+        #           other --- m                           other_parents
+        while self_parents[-1] is other_parents[-1]:
+            self_parents = self_parents[:-1]
+            other_parents = other_parents[:-1]
+            if len(self_parents) == 0 or len(other_parents) == 0:
+                break
+        #if self.submesh_get_depth() < other.submesh_get_depth():
+        #    return self.submesh_component_maps(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
+        #else:
+        #    return []
+        map_list = []
+        for m in self_parents:
+            map_list.append(m.submesh_super_sub_map(dim))
+        for m in reversed(other_parents):
+            map_list.append(m.submesh_sub_super_map(dim))
+        return map_list
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -647,9 +752,6 @@ class MeshTopology(AbstractMeshTopology):
             distribution, see :func:`Mesh` for details.
         """
         super().__init__(name)
-
-        # Parent
-        self._submesh_parent = None
 
         # Do some validation of the input mesh
         distribute = distribution_parameters.get("partition")
@@ -1021,108 +1123,6 @@ class MeshTopology(AbstractMeshTopology):
                                                     all_integer_subdomain_ids)
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
-
-    @property
-    def submesh_parent(self):
-        return self._submesh_parent
-
-    @submesh_parent.setter
-    def submesh_parent(self, p):
-        self._submesh_parent = p
-
-    #@utils.cached_property
-    @property
-    def submesh_parents(self):
-        if self.submesh_parent is None:
-            return [self, ]
-        return [self, ] + self.submesh_parent.submesh_parents
-
-    def submesh_get_base(self):
-        if self.submesh_parent is None:
-            return self
-        else:
-            return self.submesh_parent.submesh_get_base()
-
-    def submesh_get_depth(self):
-        if self.submesh_parent is None:
-            return 0
-        else:
-            return self.submesh_parent.submesh_get_depth() + 1
-
-    #@utils.cached_property
-    def submesh_sub_super_map(self, dim):
-        """Return the self-to-parent map if self._submesh_parent is not None
-
-          :arg dim: Dimension of the entities to create mapping for.
-
-          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
-        """
-        #self.interior_facets.set
-        if self.submesh_parent is None:
-            raise RuntimeError("Must have a submesh_parent.")
-        #TODO: generalize for facet_set etc..
-        return op2.Map(self.cell_set, self.submesh_parent.cell_set, 1,
-                       dmcommon.submesh_create_sub_super_map(self, dim),
-                       "sub_to_super_map")
-
-    #@utils.cached_property
-    def submesh_super_sub_map(self, dim):
-        """Return the parent-to-child map if self._submesh_parent is not None
-
-          :arg dim: Dimension of the entities to create mapping for.
-
-          :returns: A :class:`pyop2.Map` to be used with :class:`pyop2.ComposedMap`.
-        """
-        if self.submesh_parent is None:
-            raise RuntimeError("`submesh_super_sub_map` must not be called if submesh_parent is None")
-        pStart, pEnd = self.submesh_parent._topology_dm.getDepthStratum(dim)
-        super_sub_map = np.empty((pEnd - pStart, 1), dtype=IntType)
-        super_sub_map.fill(-1)
-        sub_super_map = dmcommon.submesh_create_sub_super_map(self, dim)
-        # Generate the reverse map
-        if len(sub_super_map) > 0:
-            for i, v in enumerate(np.nditer(sub_super_map)):
-                super_sub_map[v] = i
-        #TODO: generalize for facet_set etc..
-        return op2.Map(self.submesh_parent.cell_set, self.cell_set, 1,
-                       super_sub_map,
-                       "super_to_sub_map")
-
-    #@utils.cached_property
-    def submesh_component_maps(self, other, dim):
-        """Return a list of :class:`pyop2.Map`s to map indices from submesh to mesh
-
-          :arg other: The other mesh.
-          :dim: Dimension to create map for.
-
-          :returns: A list of :class:`pyop2.Map`s that, when composed by
-             :class:`pyop2.ComposedMap`, yield an entity map (for dimension = dim)
-             from "other" to "self".
-        """
-        self_parents = self.submesh_parents
-        other_parents = other.submesh_parents
-        if self_parents[-1] is not other_parents[-1]:
-            raise NotImplementedError("Currently, `self` and `other` must share the same base mesh")
-        # Find the shortest path from self to other.
-        #
-        #  self --- m --- m --- m --- m --- m --- base    self_parents
-        #                      /
-        #           other --- m                           other_parents
-        while self_parents[-1] is other_parents[-1]:
-            self_parents = self_parents[:-1]
-            other_parents = other_parents[:-1]
-            if len(self_parents) == 0 or len(other_parents) == 0:
-                break
-        #if self.submesh_get_depth() < other.submesh_get_depth():
-        #    return self.submesh_component_maps(other.submesh_parent, dim) + [other.submesh_sub_super_map(dim)]
-        #else:
-        #    return []
-        map_list = []
-        for m in self_parents:
-            map_list.append(m.submesh_super_sub_map(dim))
-        for m in reversed(other_parents):
-            map_list.append(m.submesh_sub_super_map(dim))
-        return map_list
 
     def __iter__(self):
         yield self
