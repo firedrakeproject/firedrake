@@ -360,7 +360,6 @@ def matrix_arg(access, get_map, row, col, domain_type, *,
         #mapcol = get_map(Vcol[col])
         #maps = (maprow, mapcol)
         print("Assuming test_domain == trial_domain")
-        print("Assuming test_domain = 'cell'.")
         test_fs = Vrow.topological
         trial_fs = Vcol.topological
         test_domain = domain_type
@@ -413,7 +412,8 @@ def vector_arg(access, get_map, i, *, function=None, V=None):
         map_ = get_map(V[i])
         #return function.dat[i](access, map_)
         if map_:
-            map_ = op2.ComposedMap([map_, ])
+            #map_ = op2.ComposedMap([map_, ])
+            pass
         else:
             # RealFunctionSpace has no map
             pass
@@ -641,14 +641,21 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
             coords = mm.coordinates
             jmesh = coords.function_space().mesh().topology
             jdim = jmesh._topology_dm.getDimension()
-            m_ = op2.ComposedMap([get_map(coords), ] + jmesh.submesh_component_maps(m.topology, jdim))
+            #m_ = op2.ComposedMap([get_map(coords), ] + jmesh.submesh_component_maps(m.topology, jdim))
+            comp_maps = jmesh.submesh_component_maps(m.topology, jdim)
+            if len(comp_maps) == 0:
+                m_ = get_map(coords)
+            else:
+                m_ = op2.ComposedMap([get_map(coords), ] + comp_maps)
             args.append(coords.dat(op2.READ, m_))
         if needs_orientations:
             o = m.cell_orientations()
-            args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
+            #args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
+            args.append(o.dat(op2.READ, get_map(o)))
         if needs_cell_sizes:
             o = m.cell_sizes
-            args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
+            #args.append(o.dat(op2.READ, op2.ComposedMap([get_map(o), ])))
+            args.append(o.dat(op2.READ, get_map(o)))
         for i, n in enumerate(coeff_map):
             c = coefficients[n]
             enabled_parts = coeff_parts[i]
@@ -666,7 +673,12 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                     jmesh = c_.function_space().mesh().topology
                     jdim = jmesh._topology_dm.getDimension()
                     if get_map(c_):
-                        m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_component_maps(m.topology, jdim))
+                        #m_ = op2.ComposedMap([get_map(c_), ] + jmesh.submesh_component_maps(m.topology, jdim))
+                        comp_maps = jmesh.submesh_component_maps(m.topology, jdim)
+                        if len(comp_maps) == 0:
+                            m_ = get_map(c_)
+                        else:
+                            m_ = op2.ComposedMap([get_map(c_), ] + comp_maps)
                     else:
                         # RealFunctionSpace has no map.
                         m_ = get_map(c_)
