@@ -70,7 +70,7 @@ def test_mismatching_meshes_constant(mesh1, mesh3):
 
 def test_mismatching_topologies(mesh1, mesh3, vol):
     v = assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))
-    assert v == vol
+    assert abs(v - vol) < 2e-15
 
 
 def test_functional(mesh1, mesh2):
