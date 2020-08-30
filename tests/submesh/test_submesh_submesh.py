@@ -6,7 +6,7 @@ import math
 import pytest
 
 from firedrake import *
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from pyop2.datatypes import IntType
 import ufl
@@ -39,15 +39,15 @@ def test_submesh_submesh_mark_subdomain():
     msh.markSubdomain("custom_facet", 333, "facet", None, geometric_expr = lambda x: x[1] < 0.0001)
     msh.markSubdomain("custom_facet", 444, "facet", None, geometric_expr = lambda x: x[1] > 0.9999)
 
-    plex = msh._plex
-    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 1) > 0:
-        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 111).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 1).getIndices())))
-    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 2) > 0:
-        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 222).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 2).getIndices())))
-    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 3) > 0:
-        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 333).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 3).getIndices())))
-    if plex.getStratumSize(dmplex.FACE_SETS_LABEL, 4) > 0:
-        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmplex.FACE_SETS_LABEL, 4).getIndices())))
+    plex = msh._topology_dm
+    if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, 1) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 111).getIndices(), plex.getStratumIS(dmcommon.FACE_SETS_LABEL, 1).getIndices())))
+    if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, 2) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 222).getIndices(), plex.getStratumIS(dmcommon.FACE_SETS_LABEL, 2).getIndices())))
+    if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, 3) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 333).getIndices(), plex.getStratumIS(dmcommon.FACE_SETS_LABEL, 3).getIndices())))
+    if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, 4) > 0:
+        assert(np.all(np.equal(plex.getStratumIS("custom_facet", 444).getIndices(), plex.getStratumIS(dmcommon.FACE_SETS_LABEL, 4).getIndices())))
 
 
 @pytest.mark.parallel
@@ -75,8 +75,8 @@ def test_submesh_submesh_cell_closure_order(quadrilateral):
 
     submsh = SubMesh(msh, "half_domain", 222, "cell")
     submsh.init()
-    plex = msh.topology._plex
-    subplex = submsh.topology._plex
+    plex = msh.topology._topology_dm
+    subplex = submsh.topology._topology_dm
 
 
     cell_numbering = msh._cell_numbering

@@ -3,13 +3,12 @@ import weakref
 from collections import OrderedDict, defaultdict
 from functools import singledispatch
 
-import firedrake
 import gem
 import loopy
+import numpy
 import ufl
-from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 from gem.impero_utils import compile_gem, preprocess_gem
-from gem.node import Memoizer
+from gem.node import MemoizerArg
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
 from pyop2.sequential import Arg
@@ -22,6 +21,9 @@ from ufl.classes import (Coefficient, ComponentTensor, ConstantValue, Expr,
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
+
+import firedrake
+from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
 def extract_coefficients(expr):
@@ -118,35 +120,55 @@ class IndexRelabeller(MultiFunction):
                              for i in o.indices()))
 
 
+def flatten(shape):
+    if shape == ():
+        return shape
+    else:
+        return (numpy.prod(shape, dtype=int), )
+
+
+def reshape(expr, shape):
+    if numpy.prod(expr.ufl_shape, dtype=int) != numpy.prod(shape, dtype=int):
+        raise ValueError(f"Can't reshape from {expr.ufl_shape} to {shape}")
+    if shape == expr.ufl_shape:
+        return expr
+    if shape == ():
+        return expr
+    else:
+        expr = numpy.asarray([expr[i] for i in numpy.ndindex(expr.ufl_shape)])
+        return ufl.as_tensor(expr.reshape(shape))
+
+
 @singledispatch
-def _split(o, self):
+def _split(o, self, inct):
     raise AssertionError(f"Unhandled expression type {type(o)} in splitting")
 
 
 @_split.register(Expr)
-def _split_expr(o, self):
+def _split_expr(o, self, inct):
     return tuple(ufl_reuse_if_untouched(o, *ops)
-                 for ops in zip(*(self(op) for op in o.ufl_operands)))
+                 for ops in zip(*(self(op, inct) for op in o.ufl_operands)))
 
 
 @_split.register(Coefficient)
-def _split_coefficient(o, self):
+def _split_coefficient(o, self, inct):
     if isinstance(o, firedrake.Constant):
         return tuple(o for _ in range(self.n))
     else:
         split = o.split()
         assert len(split) == self.n
-        return split
+        # Reshaping to handle tensor/vector confusion.
+        return tuple(reshape(s, flatten(s.ufl_shape)) for s in split)
 
 
 @_split.register(Terminal)
-def _split_terminal(o, self):
+def _split_terminal(o, self, inct):
     return tuple(o for _ in range(self.n))
 
 
 @_split.register(ComponentTensor)
-def _split_component_tensor(o, self):
-    expressions, multiindices = (self(op) for op in o.ufl_operands)
+def _split_component_tensor(o, self, inct):
+    expressions, multiindices = (self(op, True) for op in o.ufl_operands)
     result = []
     shape_indices = set(i.count() for i in multiindices[0].indices())
     for expression, multiindex in zip(expressions, multiindices):
@@ -158,19 +180,25 @@ def _split_component_tensor(o, self):
 
 
 @_split.register(Indexed)
-def _split_indexed(o, self):
+def _split_indexed(o, self, inct):
     aggregate, multiindex = o.ufl_operands
     indices = multiindex.indices()
     result = []
-    for agg in self(aggregate):
+    for agg in self(aggregate, False):
         ncmp = len(agg.ufl_shape)
-        idx = indices[:ncmp]
-        indices = indices[ncmp:]
         if ncmp == 0:
             result.append(agg)
-        else:
+        elif not inct:
+            idx = indices[:ncmp]
+            indices = indices[ncmp:]
             mi = multiindex if multiindex.indices() == idx else MultiIndex(idx)
             result.append(ufl_reuse_if_untouched(o, agg, mi))
+        else:
+            # shape and inct
+            aggshape = (flatten(agg.ufl_shape)
+                        + tuple(itertools.repeat(1, len(aggregate.ufl_shape) - 1)))
+            agg = reshape(agg, aggshape)
+            result.append(ufl_reuse_if_untouched(o, agg, multiindex))
     return tuple(result)
 
 
@@ -192,7 +220,7 @@ class Assign(object):
         self.rvalue = ufl.as_ufl(rvalue)
         n = len(self.lvalue.function_space())
         if n > 1:
-            self.splitter = Memoizer(_split)
+            self.splitter = MemoizerArg(_split)
             self.splitter.n = n
 
     def __str__(self):
@@ -239,7 +267,7 @@ class Assign(object):
                         # Check that there were no unindexed coefficients
                         raise ValueError("Saw indexed coefficients in rvalue, "
                                          "perhaps you meant to index the lvalue with .sub(...)")
-                    rvalues = self.splitter(self.rvalue)
+                    rvalues = self.splitter(self.rvalue, False)
                     return tuple(type(self)(lvalue, rvalue)
                                  for lvalue, rvalue in zip(self.lvalue.split(), rvalues))
                 elif indices & set([None]):
@@ -340,7 +368,10 @@ def compile_to_gem(expr, translator):
     rvalue = expr.rvalue
     broadcast = isinstance(rvalue, (firedrake.Constant, ConstantValue)) and rvalue.ufl_shape == ()
     if not broadcast and lvalue.ufl_shape != rvalue.ufl_shape:
-        raise ValueError("Mismatching shapes between lvalue and rvalue in pointwise assignment")
+        try:
+            rvalue = reshape(rvalue, lvalue.ufl_shape)
+        except ValueError:
+            raise ValueError("Mismatching shapes between lvalue and rvalue in pointwise assignment")
     rvalue, = map_expr_dags(LowerCompoundAlgebra(), [rvalue])
     try:
         lvalue, rvalue = map_expr_dags(translator, [lvalue, rvalue])

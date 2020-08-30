@@ -29,16 +29,17 @@ class FunctionMixin(FloatingType):
 
             annotate = annotate_tape(kwargs)
 
-            with stop_annotating():
-                output = project(self, b, *args, **kwargs)
-
             if annotate:
-                bcs = kwargs.pop("bcs", [])
-                block = ProjectBlock(b, self.function_space(), output, bcs)
+                bcs = kwargs.get("bcs", [])
+                block = ProjectBlock(b, self.function_space(), self, bcs)
 
                 tape = get_working_tape()
                 tape.add_block(block)
 
+            with stop_annotating():
+                output = project(self, b, *args, **kwargs)
+
+            if annotate:
                 block.add_output(output.create_block_variable())
 
             return output

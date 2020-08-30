@@ -26,7 +26,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh '../scripts/firedrake-install --disable-ssh --package-branch petsc dmplex_submesh_upstream --package-branch petsc4py dmplex-submesh --package-branch firedrake dmplex-submesh --package-branch PyOP2 dmplex-submesh --package-branch ufl mixed_element_general --package-branch tsfc mixed_element_general --minimal-petsc --documentation-dependencies --install thetis --install gusto --install icepack --no-package-manager || (cat firedrake-install.log && /bin/false)'
+            sh '../scripts/firedrake-install --disable-ssh --package-branch petsc dmplex_submesh_upstream --package-branch petsc4py dmplex-submesh --package-branch firedrake dmplex-submesh --package-branch PyOP2 dmplex-submesh --package-branch ufl mixed_element_general --package-branch tsfc mixed_element_general --minimal-petsc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
           }
         }
       }

@@ -151,7 +151,14 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
 
-    args = form.arguments()
+    mesh = form.ufl_domains()
+    if not mesh:
+        raise ValueError("Expression to be differentiated has no ufl domain."
+                         "\nDo you need to add a domain to your Constant?")
+    try:
+        args = form.arguments()
+    except AttributeError:
+        args = extract_arguments(form)
 
     def argument(V):
         if du is None:
@@ -160,7 +167,6 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         else:
             return du
 
-    mesh = form.ufl_domains()
     coords_tuple = tuple(m.coordinates for m in mesh)
     if u_is_x or u in coords_tuple:
         if u_is_x:

@@ -33,7 +33,6 @@ class SCPC(SCBase):
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
-        from firedrake.interpolation import interpolate
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
         A, P = pc.getOperators()
@@ -72,12 +71,7 @@ class SCPC(SCBase):
         for bc in cxt_bcs:
             if bc.function_space().index != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            if isinstance(bc.function_arg, Function):
-                bc_arg = interpolate(bc.function_arg, Vc)
-            else:
-                # Constants don't need to be interpolated
-                bc_arg = bc.function_arg
-            bcs.append(DirichletBC(Vc, bc_arg, bc.sub_domain))
+            bcs.append(DirichletBC(Vc, bc.function_arg, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 

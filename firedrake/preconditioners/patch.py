@@ -687,7 +687,7 @@ class PatchBase(PCSNESBase):
             bcs = ctx._problem.bcs
 
         mesh = J.ufl_domain()
-        self.plex = mesh._plex
+        self.plex = mesh._topology_dm
         # We need to attach the mesh to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
         # constructors) can use firedrake's opinion of what

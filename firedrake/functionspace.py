@@ -34,7 +34,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     .. note::
 
        As a side effect, this function finalises the initialisation of
-       the provided mesh, by calling :meth:`.MeshTopology.init` (or
+       the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
        :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
