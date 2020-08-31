@@ -8,7 +8,7 @@ from ufl.classes import ListTensor
 import firedrake
 from firedrake import utils
 from firedrake.function import Function
-from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, ScalarSubspace
+from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace
 
 import functools
 
@@ -283,7 +283,7 @@ def Masked(form_argument, subspace):
     if isinstance(subspace, Subspaces):
         ms = tuple(Masked(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (Subspace, ufl.classes.ListTensor, Function)):
+    elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor, Function)):
         return _Masked(form_argument, subspace)
     else:
-        raise TypeError("Must be `Subspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
+        raise TypeError("Must be `AbstractSubspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)

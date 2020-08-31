@@ -20,8 +20,8 @@ __all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces',
            'BoundarySubspace', 'BCRotatedSubspace']
 
 
-class Subspace(ufl.Subspace):
-    r"""Wrapper base for `ufl.Subspace`.
+class AbstractSubspace(object):
+    r"""Wrapper base for Firedrake subspaces.
 
     :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`.
     :arg val: The subspace values that are multiplied to basis functions.
@@ -53,7 +53,7 @@ class Subspace(ufl.Subspace):
                 self._data = CoordinatelessFunction(V.topological,
                                                     val=val, name=name, dtype=dtype)
         self._function_space = V
-        super().__init__(V)
+        #super().__init__(V)
 
     def __getattr__(self, name):
         val = getattr(self._data, name)
@@ -72,14 +72,16 @@ class Subspace(ufl.Subspace):
         return ComplementSubspace(self)
 
 
-class ScalarSubspace(Subspace):
-    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
-        super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
+class ScalarSubspace(ufl.Subspace, AbstractSubspace):
+    def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
+        ufl.Subspace.__init__(self, V)
+        AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
 
-class RotatedSubspace(Subspace):
-    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
-        super().__init__(function_space, val=val, subdomain=subdomain, name=name, dtype=dtype)
+class RotatedSubspace(ufl.RotatedSubspace, AbstractSubspace):
+    def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
+        ufl.RotatedSubspace.__init__(self, V)
+        AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
 
 class Subspaces(object):
@@ -104,8 +106,8 @@ class ComplementSubspace(object):
     r"""Complement of :class:`.Subspace` or :class:`.Subspaces`."""
 
     def __init__(self, subspace):
-        if not isinstance(subspace, (Subspace, Subspaces)):
-            raise TypeError("Expecting `Subspace` or `Subspaces`,"
+        if not isinstance(subspace, (AbstractSubspace, Subspaces)):
+            raise TypeError("Expecting `AbstractSubspace` or `Subspaces`,"
                             " not %s." % subspace.__class__.__name__)
         self._subspace = subspace
 

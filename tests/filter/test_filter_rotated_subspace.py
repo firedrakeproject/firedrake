@@ -48,7 +48,7 @@ def _poisson(n, el_type, degree, perturb):
     yprime = -sin(theta) * x + cos(theta) * y
 
     # 
-    if False:
+    if True:
         g = cos(2 * pi * xprime) * cos(2 * pi * yprime)
         f = 8.0 * pi * pi * cos(2 * pi * xprime) * cos(2 * pi * yprime)
     else:
