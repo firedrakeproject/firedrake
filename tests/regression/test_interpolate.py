@@ -83,16 +83,16 @@ def test_vector():
 def test_tensor():
     mesh = UnitSquareMesh(2, 2)
     x = SpatialCoordinate(mesh)
-    U = TensorFunctionSpace(mesh, 'P', 2)
-    V = TensorFunctionSpace(mesh, 'CG', 3)
+    U = TensorFunctionSpace(mesh, 'P', 1)
+    V = TensorFunctionSpace(mesh, 'CG', 2)
 
     c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
 
-    f = interpolate(c, U)
+    f = project(c, U)
     g = interpolate(f, V)
 
     # g shall be equivalent to:
-    h = interpolate(c, V)
+    h = project(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -151,11 +151,11 @@ def test_hdiv_2d():
     V = FunctionSpace(mesh, 'RTCF', 2)
     c = as_vector([x[1], -x[0], 0.0])
 
-    f = interpolate(c, U)
+    f = project(c, U)
     g = interpolate(f, V)
 
     # g shall be equivalent to:
-    h = interpolate(f, V)
+    h = project(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -170,11 +170,11 @@ def test_hcurl_2d():
     V = FunctionSpace(mesh, 'RTCE', 2)
     c = as_vector([-x[1], x[0], 0.0])
 
-    f = interpolate(c, U)
+    f = project(c, U)
     g = interpolate(f, V)
 
     # g shall be equivalent to:
-    h = interpolate(f, V)
+    h = project(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
