@@ -48,7 +48,7 @@ def _poisson(n, el_type, degree, perturb):
     yprime = -sin(theta) * x + cos(theta) * y
 
     # 
-    if True:
+    if False:
         g = cos(2 * pi * xprime) * cos(2 * pi * yprime)
         f = 8.0 * pi * pi * cos(2 * pi * xprime) * cos(2 * pi * yprime)
     else:
@@ -81,8 +81,10 @@ def _poisson(n, el_type, degree, perturb):
     # Postprocess
     err = sqrt(assemble(dot(sol - g, sol - g) * dx))
     berr = sqrt(assemble(dot(sol - gV, sol - gV) * ds))
+    berr2 = sqrt(assemble(dot(sol, sol) * ds))
     print("error            : ", err)
     print("error on boundary: ", berr)
+    print("error on boundary2: ", berr2)
     """
     # Plot solution
     import matplotlib.pyplot as plt
