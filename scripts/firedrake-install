@@ -199,8 +199,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install creates a venv in ./firedrake and installs inside
-that venv.
+The install creates a venv in ./firedrake (or in ./name where name is the
+parameter given to --venv-name) and installs inside that venv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -259,7 +259,7 @@ honoured.""",
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
-                        help="Name of the venv to create (default is 'firedrake')")
+                        help="Name of the venv to create and the name of the install directory relative to this install script (default is 'firedrake' with directory ./firedrake)")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
     parser.add_argument("--pip-install", action="append", dest="pip_packages",
@@ -1323,32 +1323,23 @@ petsc_dir, petsc_arch = get_petsc_dir()
 should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
 
 # Set up the MPI wrappers
-for opt in ["mpicc", "mpicxx", "mpif90"]:
+for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
     if options.get(opt):
         name = options[opt]
         src = shutil.which(name)
     else:
         src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
     dest = os.path.join(firedrake_env, "bin", opt)
+    # Remove old symlinks
     if os.path.lexists(dest):
         os.remove(dest)
+    elif os.path.exists(dest):
+        os.remove(dest)
     if should_link:
-        log.debug("Creating a symlink from %s to %s" % (src, dest))
-        os.symlink(src, dest)
-
-if options.get("mpiexec"):
-    mpiexec_loc = shutil.which(options.get("mpiexec"))
-else:
-    mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
-mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-if os.path.exists(mpiexecf):
-    os.remove(mpiexecf)
-if should_link:
-    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
-    with open(mpiexecf, "w") as mpiexec:
-        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
-        mpiexec.write(contents)
-    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+        log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
+        with open(dest, "w") as f:
+            f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
+        os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
