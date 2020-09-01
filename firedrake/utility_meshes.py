@@ -860,6 +860,103 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
                     comm=comm)
 
 
+def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a periodic mesh of a unit cube
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nz: The number of cells in the z direction
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters,
+                   comm=comm)
+
+
+def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a periodic mesh of a 3D box.
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nz: The number of cells in the z direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :arg Lz: The extent in the z direction
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    for n in (nx, ny, nz):
+        if n < 3:
+            raise ValueError("3D periodic meshes with fewer than 3 cells are not currently supported")
+
+    xcoords = np.arange(0., Lx, Lx/nx, dtype=np.double)
+    ycoords = np.arange(0., Ly, Ly/ny, dtype=np.double)
+    zcoords = np.arange(0., Lz, Lz/nz, dtype=np.double)
+    coords = np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+    i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
+                          np.arange(ny, dtype=np.int32),
+                          np.arange(nz, dtype=np.int32))
+    v0 =          k*nx*ny +          j*nx + i
+    v1 =          k*nx*ny +          j*nx + (i+1)%nx
+    v2 =          k*nx*ny + ((j+1)%ny)*nx + i
+    v3 =          k*nx*ny + ((j+1)%ny)*nx + (i+1)%nx
+    v4 = ((k+1)%nz)*nx*ny +          j*nx + i
+    v5 = ((k+1)%nz)*nx*ny +          j*nx + (i+1)%nx
+    v6 = ((k+1)%nz)*nx*ny + ((j+1)%ny)*nx + i
+    v7 = ((k+1)%nz)*nx*ny + ((j+1)%ny)*nx + (i+1)%nx
+
+    cells = [v0, v1, v3, v7,
+             v0, v1, v7, v5,
+             v0, v5, v7, v4,
+             v0, v3, v2, v7,
+             v0, v6, v4, v7,
+             v0, v2, v6, v7]
+    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    plex = mesh._from_cell_list(3, cells, coords, comm)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
+
+    old_coordinates = m.coordinates
+    new_coordinates = Function(VectorFunctionSpace(m, FiniteElement('DG', tetrahedron, 1, variant="equispaced")))
+
+    domain = ""
+    instructions = """
+    <float64> x_max = fmax(fmax(fmax(old_coords[0, 0], old_coords[1, 0]), old_coords[2, 0]), old_coords[3, 0])
+    <float64> y_max = fmax(fmax(fmax(old_coords[0, 1], old_coords[1, 1]), old_coords[2, 1]), old_coords[3, 1])
+    <float64> z_max = fmax(fmax(fmax(old_coords[0, 2], old_coords[1, 2]), old_coords[2, 2]), old_coords[3, 2])
+
+    new_coords[0, 0] = x_max+hx[0]  if (x_max > 1.5*hx[0] and old_coords[0, 0] == 0.) else old_coords[0, 0]
+    new_coords[0, 1] = y_max+hy[0]  if (y_max > 1.5*hy[0] and old_coords[0, 1] == 0.) else old_coords[0, 1]
+    new_coords[0, 2] = z_max+hz[0]  if (z_max > 1.5*hz[0] and old_coords[0, 2] == 0.) else old_coords[0, 2]
+
+    new_coords[1, 0] = x_max+hx[0]  if (x_max > 1.5*hx[0] and old_coords[1, 0] == 0.) else old_coords[1, 0]
+    new_coords[1, 1] = y_max+hy[0]  if (y_max > 1.5*hy[0] and old_coords[1, 1] == 0.) else old_coords[1, 1]
+    new_coords[1, 2] = z_max+hz[0]  if (z_max > 1.5*hz[0] and old_coords[1, 2] == 0.) else old_coords[1, 2]
+
+    new_coords[2, 0] = x_max+hx[0]  if (x_max > 1.5*hx[0] and old_coords[2, 0] == 0.) else old_coords[2, 0]
+    new_coords[2, 1] = y_max+hy[0]  if (y_max > 1.5*hy[0] and old_coords[2, 1] == 0.) else old_coords[2, 1]
+    new_coords[2, 2] = z_max+hz[0]  if (z_max > 1.5*hz[0] and old_coords[2, 2] == 0.) else old_coords[2, 2]
+
+    new_coords[3, 0] = x_max+hx[0]  if (x_max > 1.5*hx[0] and old_coords[3, 0] == 0.) else old_coords[3, 0]
+    new_coords[3, 1] = y_max+hy[0]  if (y_max > 1.5*hy[0] and old_coords[3, 1] == 0.) else old_coords[3, 1]
+    new_coords[3, 2] = z_max+hz[0]  if (z_max > 1.5*hz[0] and old_coords[3, 2] == 0.) else old_coords[3, 2]
+    """
+    hx = Constant(Lx/nx)
+    hy = Constant(Ly/ny)
+    hz = Constant(Lz/nz)
+
+    par_loop((domain, instructions), dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "hx": (hx, READ),
+              "hy": (hy, READ),
+              "hz": (hz, READ)},
+             is_loopy_kernel=True)
+    m1 = mesh.Mesh(new_coordinates)
+    return m1
+
+
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                           distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the surface of the
