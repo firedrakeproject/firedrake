@@ -6,7 +6,7 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate, FiniteElement, interval
+    par_loop, dx, WRITE, READ, interpolate, FiniteElement, interval, tetrahedron
 from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
