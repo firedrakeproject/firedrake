@@ -885,14 +885,14 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
                           np.arange(ny, dtype=np.int32),
                           np.arange(nz, dtype=np.int32))
-    v0 =          k*nx*ny +          j*nx + i
-    v1 =          k*nx*ny +          j*nx + (i+1)%nx
-    v2 =          k*nx*ny + ((j+1)%ny)*nx + i
-    v3 =          k*nx*ny + ((j+1)%ny)*nx + (i+1)%nx
-    v4 = ((k+1)%nz)*nx*ny +          j*nx + i
-    v5 = ((k+1)%nz)*nx*ny +          j*nx + (i+1)%nx
-    v6 = ((k+1)%nz)*nx*ny + ((j+1)%ny)*nx + i
-    v7 = ((k+1)%nz)*nx*ny + ((j+1)%ny)*nx + (i+1)%nx
+    v0 = k*nx*ny + j*nx + i
+    v1 = k*nx*ny + j*nx + (i+1) % nx
+    v2 = k*nx*ny + ((j+1) % ny)*nx + i
+    v3 = k*nx*ny + ((j+1) % ny)*nx + (i+1) % nx
+    v4 = ((k+1) % nz)*nx*ny + j*nx + i
+    v5 = ((k+1) % nz)*nx*ny + j*nx + (i+1) % nx
+    v6 = ((k+1) % nz)*nx*ny + ((j+1) % ny)*nx + i
+    v7 = ((k+1) % nz)*nx*ny + ((j+1) % ny)*nx + (i+1) % nx
 
     cells = [v0, v1, v3, v7,
              v0, v1, v7, v5,
@@ -954,8 +954,7 @@ def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
-    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters,
-                   comm=comm)
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
 
 
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
