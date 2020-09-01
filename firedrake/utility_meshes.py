@@ -24,6 +24,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'CircleManifoldMesh', 'UnitDiskMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
+           'PeriodicBoxMesh', 'PeriodicUnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
@@ -860,20 +861,6 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
                     comm=comm)
 
 
-def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
-    """Generate a periodic mesh of a unit cube
-
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg nz: The number of cells in the z direction
-    :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
-    """
-    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters,
-                   comm=comm)
-
-
 def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of a 3D box.
 
@@ -955,6 +942,20 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
              is_loopy_kernel=True)
     m1 = mesh.Mesh(new_coordinates)
     return m1
+
+
+def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a periodic mesh of a unit cube
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nz: The number of cells in the z direction
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters,
+                   comm=comm)
 
 
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
