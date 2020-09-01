@@ -40,7 +40,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --package-branch tsfc dual_base_fiat --package-branch FInAT dual_base_fiat || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --package-branch tsfc 0d-mesh-interpolation --package-branch FInAT 0d-mesh-interpolation || (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
