@@ -26,7 +26,7 @@ class ASMPatchPC(PCBase):
     @property
     @abc.abstractmethod
     def _prefix(self):
-        "Options prefix for the solver"
+        "Options prefix for the solver (should end in an underscore)"
 
     def initialize(self, pc):
         # Get context from pc
