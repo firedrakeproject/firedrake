@@ -157,11 +157,11 @@ def test_box():
 
 
 def test_periodic_unit_cube():
-    assert abs(integrate_one(PeriodicUnitCubeMesh(3,3,3)) - 1) < 1e-3
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
 def test_periodic_box():
-    assert abs(integrate_one(PeriodicBoxMesh(3,3,3,2.,3.,4.)) - 24.0) < 1e-3
+    assert abs(integrate_one(PeriodicBoxMesh(3, 3, 3, 2., 3., 4.)) - 24.0) < 1e-3
 
 
 def test_unit_triangle():
@@ -209,7 +209,7 @@ def test_unit_cube_parallel():
 
 @pytest.mark.parallel
 def test_periodic_unit_cube_parallel():
-    assert abs(integrate_one(PeriodicUnitCubeMesh(3,3,3)) - 1) < 1e-3
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
 def assert_num_exterior_facets_equals_zero(m):
