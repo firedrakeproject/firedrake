@@ -49,11 +49,6 @@ class ASMPatchPC(PCBase):
         if "sub_pc_factor_shift_type" not in opts:
             opts["sub_pc_factor_shift_type"] = "NONE"
 
-        # Try to do this programatically
-        # ksp = asmpc.getASMSubKSP()
-        # ksp.pc.setType(PETSc.PC.Type.LU)
-        # ksp.pc.setFactorShift(shift_type=PETSc.Mat.FactorShiftType.NONZERO)
-
         asmpc.setFromOptions()
         self.asmpc = asmpc
 
