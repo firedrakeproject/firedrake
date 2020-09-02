@@ -15,7 +15,7 @@ from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
-from loopy.transform.callable import inline_callable_kernel, register_callable_kernel
+from loopy.transform.callable import register_callable_kernel
 import itertools
 
 
@@ -243,42 +243,6 @@ def slate2gem(expression):
     return mapper(expression), mapper.var2terminal
 
 
-def eigen_tensor(expr, temporary, index):
-    """Returns an appropriate assignment statement for populating a particular
-    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
-    :meth:`block` of the eigen tensor is provided. Otherwise, no block
-    information is needed and the tensor is returned as is.
-
-    :arg expr: a `slate.Tensor` node.
-    :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column
-                information. This is provided by the SplitKernel
-                associated with the expr.
-    """
-    if expr.is_mixed:
-        try:
-            row, col = index
-        except ValueError:
-            row = index[0]
-            col = 0
-        rshape = expr.shapes[0][row]
-        rstart = sum(expr.shapes[0][:row])
-        try:
-            cshape = expr.shapes[1][col]
-            cstart = sum(expr.shapes[1][:col])
-        except KeyError:
-            cshape = 1
-            cstart = 0
-
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                             rshape, cshape,
-                                                             rstart, cstart))
-    else:
-        tensor = temporary
-
-    return tensor
-
-
 def depth_first_search(graph, node, visited, schedule):
     """A recursive depth-first search (DFS) algorithm for
     traversing a DAG consisting of Slate expressions.
@@ -318,7 +282,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
@@ -333,12 +297,11 @@ def merge_loopy(slate_loopy, builder, var2terminal):
                                     for terminal in terminal_tensors)))
 
     # Construct args
-    args = slate_loopy.args.copy() + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
-
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
-    insns += builder.slate_call(slate_loopy)
+    insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains
@@ -347,12 +310,9 @@ def merge_loopy(slate_loopy, builder, var2terminal):
     slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
                                      seq_dependencies=True, target=lp.CTarget())
 
-    # Generate program from kernel, so that one can register and inline kernels
+    # Generate program from kernel, so that one can register kernels
     prg = make_program(slate_wrapper)
     for tsfc_loopy in tsfc_kernels:
         prg = register_callable_kernel(prg, tsfc_loopy)
-        prg = inline_callable_kernel(prg, tsfc_loopy.name)
     prg = register_callable_kernel(prg, slate_loopy)
-    prg = inline_callable_kernel(prg, slate_loopy.name)
-
     return prg

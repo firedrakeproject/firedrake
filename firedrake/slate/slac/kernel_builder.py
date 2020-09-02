@@ -1,9 +1,10 @@
 import numpy as np
+from itertools import count
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
 
-from firedrake.slate.slac.utils import traverse_dags, eigen_tensor, Transformer
+from firedrake.slate.slac.utils import traverse_dags, Transformer
 from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
@@ -17,8 +18,7 @@ from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
-from firedrake.parameters import parameters
-from tsfc.loopy import create_domains
+from tsfc.loopy import create_domains, assign_dtypes
 
 from pytools import UniqueNameGenerator
 
@@ -262,7 +262,6 @@ class LocalKernelBuilder(object):
                 coords = coordinates
 
             for split_kernel in cxt_kernel.tsfc_kernels:
-                indices = split_kernel.indices
                 kinfo = split_kernel.kinfo
                 kint_type = kinfo.integral_type
                 needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
@@ -283,9 +282,8 @@ class LocalKernelBuilder(object):
                     args.append(self.cell_size_sym)
 
                 # Assembly calls within the macro kernel
-                tensor = eigen_tensor(exp, self.temps[exp], indices)
                 call = ast.FunCall(kinfo.kernel.name,
-                                   tensor,
+                                   self.temps[exp],
                                    self.coord_sym,
                                    *args)
 
@@ -437,13 +435,14 @@ class LocalLoopyKernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.bag = None
+        self.kernel_counter = count()
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
 
-        return compile_terminal_form(terminal, prefix="subkernel%s_" % terminal._output_string,
+        return compile_terminal_form(terminal, prefix=f"subkernel{next(self.kernel_counter)}_",
                                      tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
@@ -605,7 +604,9 @@ class LocalLoopyKernelBuilder(object):
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
+            (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
+                                                   dtype=dtype,
                                                    shape=gem_tensor.shape,
                                                    address_space=loopy.AddressSpace.LOCAL)
             tensor2temp[slate_tensor] = loopy_tensor
@@ -638,18 +639,24 @@ class LocalLoopyKernelBuilder(object):
 
         return inits, tensor2temp
 
-    def slate_call(self, kernel):
+    def slate_call(self, kernel, temporaries):
         # Slate kernel call
-        call = pym.Call(pym.Variable(kernel.name), tuple())
+        reads = []
+        for t in temporaries:
+            shape = t.shape
+            name = t.name
+            idx = self.bag.index_creator(shape)
+            reads.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
+        call = pym.Call(pym.Variable(kernel.name), tuple(reads))
         output_var = pym.Variable(kernel.args[0].name)
         slate_kernel_call_output = self.generate_lhs(self.expression, output_var)
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
-        return [insn]
+        return insn
 
     def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
-                                dtype=parameters["form_compiler"]["scalar_type"])]
+                                dtype=self.tsfc_parameters["scalar_type"])]
 
         for loopy_inner in templated_subkernels:
             for arg in loopy_inner.args[1:]:
@@ -662,12 +669,12 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
-                                          dtype=parameters["form_compiler"]["scalar_type"])
+                                          dtype=self.tsfc_parameters["scalar_type"])
                     args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
-                                      dtype=parameters["form_compiler"]["scalar_type"])
+                                      dtype=self.tsfc_parameters["scalar_type"])
                 args.append(arg)
 
         if self.bag.needs_cell_facets:
