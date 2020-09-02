@@ -159,7 +159,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
-    code.replace('void slate_kernel', 'static void slate_kernel')
+    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
     loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
