@@ -30,7 +30,7 @@ def test_mtw():
     sp = {"ksp_type": "preonly",
           "mat_type": "aij",
           "pc_type": "lu",
-          "pc_factor_mat_solver_type": "mumps"}
+          "pc_factor_mat_solver_type": "umfpack"}
 
     l2_u = []
     l2_p = []
