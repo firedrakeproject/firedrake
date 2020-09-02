@@ -353,7 +353,7 @@ class PointsolveOperator(AbstractExternalOperator):
         if operator_data['point_solve'].__code__.co_argcount != len(operands) + 1:
             error("Expecting %s operands" % (operator_data['point_solve'].__code__.co_argcount-1))
         if operator_data['solver_name'] not in ('newton', 'secant', 'halley'):
-            error("Expecting of the following method : %s" % (('newton', 'secant', 'halley')))
+            error("Expecting of the following method : (%s, %s, %s) " % ('newton', 'secant', 'halley'))
         if not isinstance(operator_data['solver_params'], dict):
             error("Expecting a dict with the solver arguments instead of %s" % operator_data['solver_params'])
 
