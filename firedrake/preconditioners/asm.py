@@ -171,7 +171,6 @@ class ASMVankaPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh._topology_dm
-        lgmap = V.dof_dset.lgmap
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
