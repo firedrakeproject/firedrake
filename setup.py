@@ -36,7 +36,7 @@ if "clean" in sys.argv[1:]:
                 or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
-cythonfiles = [("dmplex", ["petsc"]),
+cythonfiles = [("dmcommon", ["petsc"]),
                ("extrusion_numbering", ["petsc"]),
                ("hdf5interface", ["petsc"]),
                ("mgimpl", ["petsc"]),

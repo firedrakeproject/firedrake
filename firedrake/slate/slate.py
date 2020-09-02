@@ -65,28 +65,38 @@ class BlockIndexer(object):
         self.block_cache = {}
 
     def __getitem__(self, key):
-
-        key = list(as_tuple(key))
-
+        key = as_tuple(key)
         # Make indexing with too few indices legal.
-        key += [slice(None) for i in range(self.tensor.rank - len(key))]
-
+        key = key + tuple(slice(None) for i in range(self.tensor.rank - len(key)))
         if len(key) > self.tensor.rank:
             raise ValueError("Attempting to index a rank-%s tensor with %s indices."
                              % (self.tensor.rank, len(key)))
 
+        block_shape = tuple(len(V) for V in self.tensor.arg_function_spaces)
         # Convert slice indices to tuple of indices.
-        blocks = tuple(range(n)[k] if isinstance(k, slice) else k
-                       for k, n in zip(key, self.tensor.shape))
+        blocks = tuple(as_tuple(range(k.stop)[k] if isinstance(k, slice) else k)
+                       for k, n in zip(key, block_shape))
 
+        if blocks == tuple(tuple(range(n)) for n in block_shape):
+            return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]
         except KeyError:
             block = Block(tensor=self.tensor, indices=blocks)
             self.block_cache[blocks] = block
-
         return block
+
+
+class MockCellIntegral(object):
+    def integral_type(self):
+        return "cell"
+
+    def __iter__(self):
+        yield self
+
+    def __call__(self):
+        return self
 
 
 class TensorBase(object, metaclass=ABCMeta):
@@ -99,6 +109,10 @@ class TensorBase(object, metaclass=ABCMeta):
        the appropriate subclasses.
     """
 
+    integrals = MockCellIntegral()
+    """A mock object that provides enough compatibility with ufl.Form
+    that one can assemble a tensor."""
+
     _id = count()
 
     @cached_property
@@ -108,6 +122,10 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def _metakernel_cache(self):
         return {}
+
+    @property
+    def children(self):
+        return self.operands
 
     @cached_property
     def expression_hash(self):
@@ -149,7 +167,7 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         shapes = OrderedDict()
         for i, fs in enumerate(self.arg_function_spaces):
-            shapes[i] = tuple(V.finat_element.space_dimension() * V.value_size
+            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
                               for V in fs)
         return shapes
 
@@ -350,6 +368,10 @@ class AssembledVector(TensorBase):
 
     :arg function: A firedrake function.
     """
+
+    @property
+    def integrals(self):
+        raise ValueError("AssembledVector has no integrals")
 
     operands = ()
 

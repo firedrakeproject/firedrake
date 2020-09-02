@@ -52,7 +52,9 @@ scripts in your path.
 
    This file could, for example, contain DOIs of any archived
    simulation code that you used over and above the core Firedrake
-   components.
+   components.  It can also be a single python script or a tarball (or
+   other archive) of your code and any data required to reproduce your
+   results.
 
    This will create a file ``firedrake.json`` containing the required
    information.
@@ -111,16 +113,21 @@ of Firedrake components you used. This covers your bases as far as
 concerns Firedrake, but doesn't cover your code which uses
 Firedrake. Best practice in computational science also demands that
 you provide the code which you used to conduct your experiments. You
-could attach a tarball as a supplement to your paper, or you could
-also use Zenodo. Using Zenodo in combination with GitHub for this
-purpose is documented `by github here
+could attach a tarball as a supplement to your paper, embed a tarball
+(or single script) in the Zenodo release generated to record your
+Firedrake components, or you could also use Zenodo to generate a DOI
+directly from your GitHub source repository. Using Zenodo in
+combination with GitHub for this purpose is documented `by github here
 <https://guides.github.com/activities/citable-code/>`_.
 
 .. note::
 
    If you archive your code before running ``firedrake-zenodo``, you
    can ensure that the eventual release also references these DOIs by
-   providing them as part of the ``--info-file`` argument.
+   providing them in a text file via the ``--info-file`` argument.
+   You can also directly attach your code (either a single script or a
+   single archive containing it) to the Firedrake Zenodo release using
+   the same argument.
 
 Cite your sources
 ~~~~~~~~~~~~~~~~~

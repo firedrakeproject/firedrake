@@ -156,6 +156,14 @@ def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
 
 
+def test_periodic_unit_cube():
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+def test_periodic_box():
+    assert abs(integrate_one(PeriodicBoxMesh(3, 3, 3, 2., 3., 4.)) - 24.0) < 1e-3
+
+
 def test_unit_triangle():
     assert abs(integrate_one(UnitTriangleMesh()) - 0.5) < 1e-3
 
@@ -197,6 +205,11 @@ def test_unit_square_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_periodic_unit_cube_parallel():
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
 def assert_num_exterior_facets_equals_zero(m):
@@ -421,3 +434,11 @@ def test_changing_default_reorder_works(reorder):
         assert m._did_reordering == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
+
+
+@pytest.mark.parametrize("kind, num_cells",
+                         [("default", 6), ("crossed", 5)])
+def test_boxmesh_kind(kind, num_cells):
+    m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
+    m.init()
+    assert m.num_cells() == num_cells
