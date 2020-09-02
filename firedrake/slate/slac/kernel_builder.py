@@ -517,7 +517,8 @@ class LocalLoopyKernelBuilder(object):
         layer = pym.Variable(self.layer_arg)
 
         # TODO: Variable layers
-        nlayer = pym.Variable(self.layer_count)
+        idx = self.bag.index_creator(())
+        nlayer = pym.Subscript(pym.Variable(self.layer_count), idx)
         which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer),
                  "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
                  "exterior_facet_top": pym.Comparison(layer, "==", nlayer),
@@ -691,7 +692,7 @@ class LocalLoopyKernelBuilder(object):
                                         initializer=np.arange(self.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
-            args.append(loopy.GlobalArg(self.layer_count, shape=(),
+            args.append(loopy.GlobalArg(self.layer_count, shape=(1,),
                         dtype=np.int32))
             args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
                         dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
