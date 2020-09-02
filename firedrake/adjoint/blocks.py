@@ -267,14 +267,12 @@ class PointwiseOperatorBlock(Block, Backend):
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         return ufl.replace(self.point_op, self._replace_map())
 
-    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, N=None):
         if self.point_op.coefficient == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
 
         q_rep = block_variable.saved_output
-        N = prepared
-
         if isinstance(N, self.backend.PointnetOperator) and hasattr(q_rep.dat, '_dat_version'):
             N._weights_version['version'] = q_rep.dat._dat_version
 
@@ -356,4 +354,3 @@ class InterpolateBlock(Block, Backend):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return self.backend.interpolate(prepared, self.V)
-

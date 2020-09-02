@@ -255,6 +255,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         self._function_space = V
         ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
+
         if cachetools:
             # LRU cache for expressions assembled onto this function
             self._expression_cache = cachetools.LRUCache(maxsize=50)
