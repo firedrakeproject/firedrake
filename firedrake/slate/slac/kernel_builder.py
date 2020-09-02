@@ -693,7 +693,7 @@ class LocalLoopyKernelBuilder(object):
                                         initializer=np.arange(self.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
-            args.append(loopy.GlobalArg(self.layer_count, shape=(),
+            args.append(loopy.GlobalArg(self.layer_count, shape=(1,),
                         dtype=np.int32))
             args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
