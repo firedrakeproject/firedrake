@@ -49,6 +49,7 @@ def test_any_pc_fine():
     uh = Function(V)
 
     solve(u*v*dx == v*dx, uh,
-          solver_parameters={"pc_type": "python",
+          solver_parameters={"ksp_type": "cg",
+                             "pc_type": "python",
                              "pc_python_type": __name__ + "." + "AnyPC"})
     assert numpy.allclose(uh.dat.data_ro, 1)
