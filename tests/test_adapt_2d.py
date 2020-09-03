@@ -1,6 +1,7 @@
 from __future__ import absolute_import, print_function, division
 
 import numpy as np
+from os.path import abspath, join, dirname
 
 from firedrake import *
 
@@ -12,6 +13,7 @@ x, y = SpatialCoordinate(mesh)
 metric.interpolate(as_tensor([[1+500*x, 0], [0, 1+500*y]]))
 
 # test adapt function
+
 newmesh = adapt(mesh, metric)
 f = Function(VectorFunctionSpace(newmesh, 'CG', 1)).interpolate(SpatialCoordinate(newmesh))
 
@@ -47,9 +49,8 @@ for i in range(bdLabelSizenew):
     size = plexnew.getStratumSize("Face Sets", bdLabelValnew[i])
     assert(size > 0)
 
-# test that interior facet tags don't break everything
+# test preservation of cell labels
 
-from os.path import abspath, join, dirname
 cwd = abspath(dirname(__file__))
 mesh = Mesh(join(cwd, "meshes", "circle_in_square.msh"))
 Vc = mesh.coordinates.function_space()
@@ -64,5 +65,12 @@ metric.interpolate(as_tensor([[1+500*x, 0], [0, 1+500*y]]))
 adaptor = AnisotropicAdaptation(mesh, metric)
 newmesh = adaptor.adapted_mesh
 num_vertices_mesh2 = newmesh.num_vertices()
-
 assert(abs(num_vertices_mesh2 - num_vertices_mesh1) < 0.05*num_vertices_mesh1)
+_ = FunctionSpace(newmesh, "CG", 1)  # Make something on the mesh
+
+for i in [3, 4]:
+    assert len(mesh.cell_subset(i).indices) > 0
+    assert len(newmesh.cell_subset(i).indices) > 0
+assert len(mesh.exterior_facets.unique_markers) > 0
+assert len(newmesh.exterior_facets.unique_markers) > 0
+assert np.allclose(mesh.exterior_facets.unique_markers, newmesh.exterior_facets.unique_markers)
