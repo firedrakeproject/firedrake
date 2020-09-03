@@ -36,6 +36,21 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 
+# Read c files  for linear algebra callables in on import
+import os
+from pyop2.mpi import COMM_WORLD
+if COMM_WORLD.rank == 0:
+    with open(os.path.dirname(__file__)+"/c/inverse.c", "r") as myfile:
+        inverse_preamble = myfile.read()
+    with open(os.path.dirname(__file__)+"/c/solve.c", "r") as myfile:
+        solve_preamble = myfile.read()
+else:
+    solve_preamble = None
+    inverse_preamble = None
+
+inverse_preamble = COMM_WORLD.bcast(inverse_preamble, root=0)
+solve_preamble = COMM_WORLD.bcast(solve_preamble, root=0)
+
 
 class Bag(object):
     pass
@@ -160,11 +175,7 @@ class INVCallable(LACallable):
     """
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
-        import os
-        with open(os.path.dirname(__file__)+"/c/inverse.c", "r") as myfile:
-            inverse_preamble = myfile.read()
-            yield ("inverse", inverse_preamble)
-        return
+        yield ("inverse", inverse_preamble)
 
 
 def inv_fn_lookup(target, identifier):
@@ -181,11 +192,7 @@ class SolveCallable(LACallable):
     """
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
-        import os
-        with open(os.path.dirname(__file__)+"/c/solve.c", "r") as myfile:
-            solve_preamble = myfile.read()
-            yield ("solve", solve_preamble)
-        return
+        yield ("solve", solve_preamble)
 
 
 def solve_fn_lookup(target, identifier):
