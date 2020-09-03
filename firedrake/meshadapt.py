@@ -76,9 +76,8 @@ class AnisotropicAdaptation(AdaptationBase):
         metric_local.array[:] = np.reshape(self.metric.dat.data_ro_with_halos, metric_local.array.shape)
         reordered_metric = dmplex.to_petsc_local_numbering(metric_local, self.metric.function_space())
 
-        # TODO inner facets tags will be lost. Do we want a test and/or a warning ?
-
-        new_plex = plex.adaptMetric(reordered_metric, "Face Sets")
+        # Adapt mesh, preserving boundary tags as "Face Sets" and cell tags as "Cell Sets"
+        new_plex = plex.adaptMetric(reordered_metric, "Face Sets", "Cell Sets")
         new_mesh = Mesh(new_plex, distribute=False)
         return new_mesh
 
