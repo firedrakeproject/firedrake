@@ -27,10 +27,18 @@ def test_mtw():
     for msh, coord in zip(mh, coords):
         msh.coordinates.assign(coord)
 
-    sp = {"ksp_type": "preonly",
-          "mat_type": "aij",
-          "pc_type": "lu",
-          "pc_factor_mat_solver_type": "umfpack"}
+    params = {"snes_type": "newtonls",
+              "snes_linesearch_type": "basic",
+              "snes_monitor": None,
+              "mat_type": "aij",
+              "snes_max_it": 10,
+              "snes_lag_jacobian": -2,
+              "snes_lag_preconditioner": -2,
+              "ksp_type": "preonly",
+              "pc_type": "lu",
+              "pc_factor_shift_type": "inblocks",
+              "snes_rtol": 1e-16,
+              "snes_atol": 1e-25}
 
     l2_u = []
     l2_p = []
@@ -51,7 +59,7 @@ def test_mtw():
         F = (inner(u, v) * dx - inner(p, div(v)) * dx
              + inner(div(u), w) * dx - inner(f, w) * dx)
 
-        solve(F == 0, up, solver_parameters=sp)
+        solve(F == 0, up, solver_parameters=params)
 
         u, p = up.split()
         l2_u.append(errornorm(uex, u))

@@ -86,13 +86,18 @@ def test_aw(stress_element):
             - inner(dot(tau, n), uex)*ds
             )  # noqa: E123
 
-        params = {"snes_type": "ksponly",
+        params = {"snes_type": "newtonls",
+                  "snes_linesearch_type": "basic",
                   "snes_monitor": None,
-                  "snes_converged_reason": None,
+                  "mat_type": "aij",
+                  "snes_max_it": 10,
+                  "snes_lag_jacobian": -2,
+                  "snes_lag_preconditioner": -2,
                   "ksp_type": "preonly",
                   "pc_type": "lu",
-                  "pc_factor_mat_solver_type": "umfpack",
-                  "mat_type": "aij"}
+                  "pc_factor_shift_type": "inblocks",
+                  "snes_rtol": 1e-16,
+                  "snes_atol": 1e-25}
 
         solve(F == 0, Uh, solver_parameters=params)
 
