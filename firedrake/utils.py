@@ -10,6 +10,7 @@ from firedrake_configuration import get_config
 _current_uid = 0
 
 ScalarType_c = as_cstr(ScalarType)
+IntType_c = as_cstr(IntType)
 
 complex_mode = get_config()["options"].get("complex", False)
 

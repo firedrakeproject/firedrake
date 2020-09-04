@@ -13,6 +13,7 @@ from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
+from firedrake.utils import ScalarType_c, IntType_c
 import firedrake
 
 
@@ -352,12 +353,12 @@ class StandaloneInterpolationMatrix(object):
         restrict_code = f"""
         {element_kernel}
 
-        void restriction(double *restrict Rc, const double *restrict Rf, const double *restrict w)
+        void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w)
         {{
-            double Afc[{dimf}*{dimc}] = {{0}};
+            {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
             expression_kernel(Afc);
-            for (int32_t i = 0; i < {dimf}; i++)
-               for (int32_t j = 0; j < {dimc}; j++)
+            for ({IntType_c} i = 0; i < {dimf}; i++)
+               for ({IntType_c} j = 0; j < {dimc}; j++)
                    Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
         }}
         """
@@ -405,15 +406,14 @@ class StandaloneInterpolationMatrix(object):
         # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
         # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
         kronmxv_code = """
-        extern void dgemm_(char *TRANSA, char *TRANSB, int *m, int *n, int *k,
-              double *alpha, double *A, int *lda, double *B, int *ldb,
-              double *beta , double *C, int *ldc);
+        #include <petscsys.h>
+        #include <petscblaslapack.h>
 
         static void kronmxv(int tflag,
-            int mx, int my, int mz,
-            int nx, int ny, int nz, int nel,
-            double *A1, double *A2, double *A3,
-            double *x , double *y){
+            PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
+            PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
+            PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
+            PetscScalar  *x , PetscScalar *y){
 
         /*
         Kronecker matrix-vector product
@@ -433,10 +433,10 @@ class StandaloneInterpolationMatrix(object):
         Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
         */
 
-        int m,n,k,s,p,lda;
+        PetscBLASInt m,n,k,s,p,lda;
         char TA1, TA2, TA3;
         char tran='T', notr='N';
-        double zero=0.0E0, one=1.0E0;
+        PetscScalar zero=0.0E0, one=1.0E0;
 
         if(tflag>0){
            TA1 = tran;
@@ -449,13 +449,14 @@ class StandaloneInterpolationMatrix(object):
 
         m = mx;  k = nx;  n = ny*nz*nel;
         lda = (tflag>0)? nx : mx;
-        dgemm_(&TA1, &notr, &m,&n,&k, &one, A1,&lda, x,&k, &zero, y,&m);
+
+        BLASgemm_(&TA1, &notr, &m,&n,&k, &one, A1,&lda, x,&k, &zero, y,&m);
 
         p = 0;  s = 0;
         m = mx;  k = ny;  n = my;
         lda = (tflag>0)? ny : my;
-        for(int i=0; i<nz*nel; i++){
-           dgemm_(&notr, &TA2, &m,&n,&k, &one, y+p,&m, A2,&lda, &zero, x+s,&m);
+        for(PetscBLASInt i=0; i<nz*nel; i++){
+           BLASgemm_(&notr, &TA2, &m,&n,&k, &one, y+p,&m, A2,&lda, &zero, x+s,&m);
            p += m*k;
            s += m*n;
         }
@@ -463,8 +464,8 @@ class StandaloneInterpolationMatrix(object):
         p = 0;  s = 0;
         m = mx*my;  k = nz;  n = mz;
         lda = (tflag>0)? nz : mz;
-        for(int i=0; i<nel; i++){
-           dgemm_(&notr, &TA3, &m,&n,&k, &one, x+p,&m, A3,&lda, &zero, y+s,&m);
+        for(PetscBLASInt i=0; i<nel; i++){
+           BLASgemm_(&notr, &TA3, &m,&n,&k, &one, x+p,&m, A3,&lda, &zero, y+s,&m);
            p += m*k;
            s += m*n;
         }
@@ -482,19 +483,19 @@ class StandaloneInterpolationMatrix(object):
         prolong_code = f"""
         {kronmxv_code}
 
-        void prolongation(double *restrict y, const double *restrict x){{
-            double JX[{mx}*{nx}] = {{ {JX} }};
-            double t0[{lwork}], t1[{lwork}];
-            double one=1.0E0;
+        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
+            PetscScalar JX[{mx}*{nx}] = {{ {JX} }};
+            PetscScalar t0[{lwork}], t1[{lwork}];
+            PetscScalar one=1.0E0;
 
-            for(int j=0; j<{nxyz}; j++)
-                for(int i=0; i<{nscal}; i++)
+            for({IntType_c} j=0; j<{nxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
                     t0[j + {nxyz}*i] = x[i + {nscal}*j];
 
             kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for(int j=0; j<{mxyz}; j++)
-                for(int i=0; i<{nscal}; i++)
+            for({IntType_c} j=0; j<{mxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
                    y[i + {nscal}*j] = t1[j + {mxyz}*i];
             return;
         }}
@@ -503,26 +504,26 @@ class StandaloneInterpolationMatrix(object):
         restrict_code = f"""
         {kronmxv_code}
 
-        void restriction(double *restrict y, const double *restrict x,
-        const double *restrict w){{
-            double JX[{mx}*{nx}] = {{ {JX} }};
-            double t0[{lwork}], t1[{lwork}];
-            double one=1.0E0;
+        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
+        const PetscScalar *restrict w){{
+            PetscScalar JX[{mx}*{nx}] = {{ {JX} }};
+            PetscScalar t0[{lwork}], t1[{lwork}];
+            PetscScalar one=1.0E0;
 
-            for(int j=0; j<{mxyz}; j++)
-                for(int i=0; i<{nscal}; i++)
+            for({IntType_c} j=0; j<{mxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
                     t0[j + {mxyz}*i] = x[i + {nscal}*j] * w[i + {nscal}*j];
 
             kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for(int j=0; j<{nxyz}; j++)
-                for(int i=0; i<{nscal}; i++)
+            for({IntType_c} j=0; j<{nxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
                     y[i + {nscal}*j] += t1[j + {nxyz}*i];
             return;
         }}
         """
-        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", ldargs=["-lblas"])
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction", ldargs=["-lblas"])
+        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", ldargs=["-lpetsc"])
+        self.restrict_kernel = op2.Kernel(restrict_code, "restriction", ldargs=["-lpetsc"])
 
     @staticmethod
     def get_nodes_1d(V):
