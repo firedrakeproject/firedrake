@@ -1,3 +1,4 @@
+import functools
 import numpy as np
 import ufl
 
@@ -13,14 +14,16 @@ from pyop2.utils import as_tuple
 
 from finat.point_set import PointSet
 from finat.quadrature import QuadratureRule
+from tsfc.finatinterface import create_element
 
-import functools
+import gem
+
 
 __all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces',
            'BoundarySubspace', 'BCRotatedSubspace']
 
 
-class AbstractSubspace(object):
+class AbstractSubspace(ufl.Subspace):
     r"""Wrapper base for Firedrake subspaces.
 
     :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`.
@@ -35,6 +38,9 @@ class AbstractSubspace(object):
         elif not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Subspace defined on a "
                                       + str(type(function_space)))
+
+        super().__init__(V)
+
         if subdomain:
             if not val:
                 raise RuntimeError("Must provide val if providing subdomain.")
@@ -53,7 +59,6 @@ class AbstractSubspace(object):
                 self._data = CoordinatelessFunction(V.topological,
                                                     val=val, name=name, dtype=dtype)
         self._function_space = V
-        #super().__init__(V)
 
     def __getattr__(self, name):
         val = getattr(self._data, name)
@@ -71,17 +76,98 @@ class AbstractSubspace(object):
     def complement(self):
         return ComplementSubspace(self)
 
+    @staticmethod
+    def transform_matrix(elem, expression, dtype):
+        r"""Construct transformation matrix.
 
-class ScalarSubspace(ufl.Subspace, AbstractSubspace):
+        :arg elem: UFL element: `self.ufl_function_space().ufl_element`
+            or its subelement (in case of `MixedElement`).
+        :arg expression: GEM expression representing local subspace data array
+            associated with elem.
+        :arg dtype: data type (= KernelBuilder.scalar_type).
+
+        Classical implementation of functions/function spaces.
+        Linear combination of basis:
+        
+        u = \sum [ u_i * \phi_i ]
+              i
+        
+        u     : function
+        u_i   : ith coefficient
+        \phi_i: ith basis
+        """
+        raise NotImplementedError("Must implement `transform_matrix` method.")
+
+
+class ScalarSubspace(AbstractSubspace):
     def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
-        ufl.Subspace.__init__(self, V)
         AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
+    @staticmethod
+    def transform_matrix(elem, expression, dtype):
+        r"""Basic subspace.
 
-class RotatedSubspace(ufl.RotatedSubspace, AbstractSubspace):
+        Linear combination of weighted basis:
+
+        u = \sum [ u_i * (w_i * \phi_i) ]
+              i
+
+        u     : function
+        u_i   : ith coefficient
+        \phi_i: ith basis
+        w_i   : ith weight (stored in the subspace object)
+                w_i = 0 to deselect the associated basis.
+                w_i = 1 to select.
+        """
+        shape = expression.shape
+        ii = tuple(gem.Index(extent=extent) for extent in shape)
+        jj = tuple(gem.Index(extent=extent) for extent in shape)
+        eye = gem.Literal(1)
+        for i, j in zip(ii, jj):
+            eye = gem.Product(eye, gem.Delta(i, j))
+        mat = gem.ComponentTensor(gem.Product(eye, expression[ii]), ii + jj)
+        return mat
+
+
+class RotatedSubspace(AbstractSubspace):
     def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
-        ufl.RotatedSubspace.__init__(self, V)
         AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
+
+    @staticmethod
+    def transform_matrix(elem, expression, dtype):
+        r"""Rotation subspace.
+
+        u = \sum [ u_i * \sum [ \psi(e)_i * \sum [ \psi(e)_k * \phi(e)_k ] ] ]
+              i            e                  k
+
+        u       : function
+        u_i     : ith coefficient
+        \phi(e) : basis vector whose elements not associated with
+                  entity e are set zero.
+        \psi(e) : rotation vector whose elements not associated with
+                  entity e are set zero.
+        """
+        shape = expression.shape
+        finat_element = create_element(elem)
+        if len(shape) == 1:
+            entity_dofs = finat_element.entity_dofs()
+        else:
+            entity_dofs = finat_element.base_element.entity_dofs()
+        ii = tuple(gem.Index(extent=extent) for extent in shape)
+        jj = tuple(gem.Index(extent=extent) for extent in shape)
+        comp = gem.Zero()
+        for dim in entity_dofs:
+            for _, dofs in entity_dofs[dim].items():
+                if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
+                    continue
+                ind = np.zeros(shape, dtype=dtype)
+                for dof in dofs:
+                    for ndind in np.ndindex(shape[1:]):
+                        ind[(dof, ) + ndind] = 1.
+                comp = gem.Sum(comp, gem.Product(gem.Product(gem.Literal(ind)[ii], expression[ii]),
+                                                 gem.Product(gem.Literal(ind)[jj], expression[jj])))
+        mat = gem.ComponentTensor(comp, ii + jj)
+        return mat
 
 
 class Subspaces(object):

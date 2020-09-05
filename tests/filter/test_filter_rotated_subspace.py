@@ -113,6 +113,8 @@ def test_subspace_transformedsubspace_poisson_zany():
         print(conv)
         #assert (np.array(conv) > convrate).all()
     """
+    import time
+    a=time.time()
     for el, deg, convrate in [('Hermite', 3, 4.0),]:
         errs = []
         for i in range(4, 9):
@@ -123,3 +125,5 @@ def test_subspace_transformedsubspace_poisson_zany():
         conv = np.log2(errs[:-1] / errs[1:])
         print(conv)
         assert (np.array(conv) > convrate).all()
+    b=time.time()
+    print("time consumed:", b-a)
