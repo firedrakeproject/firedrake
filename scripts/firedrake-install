@@ -59,7 +59,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade",
+                           "opencascade", "tinyasm",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files"]
 
 
@@ -212,6 +212,8 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--tinyasm", action="store_true",
+                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -338,6 +340,8 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
+                        help="Install TinyASM as backend for ASMPatchPC.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        default=config["options"].get("honour_petsc_dir", False),
@@ -485,6 +489,10 @@ if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
 If you really want to use your own Python packages, please run again with the
 --honour-pythonpath option.
 """)
+
+petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
+
+petsc_opts += "--with-fortran-bindings=0 "
 
 petsc_options = {"--with-fortran-bindings=0",
                  "--with-debugging=0",
@@ -953,6 +961,32 @@ def build_and_install_libsupermesh():
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild libsupermesh")
+
+
+def build_and_install_tinyasm():
+    log.info("Installing TinyASM")
+    if os.path.exists("TinyASM"):
+        log.info("Updating the git repository for TinyASM")
+        with directory("TinyASM"):
+            check_call(["git", "fetch"])
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
+            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            tinyasm_changed = git_sha != git_sha_new
+            if tinyasm_changed:
+                check_call(["git", "reset", "--hard"])
+                check_call(["git", "pull"])
+    else:
+        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
+        tinyasm_changed = True
+
+    if tinyasm_changed:
+        with directory("TinyASM"):
+            # Clean source directory
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            run_pip_install(["-e", "."])
+    else:
+        log.info("No need to rebuild TinyASM")
 
 
 def build_and_install_pythonocc():
@@ -1560,6 +1594,9 @@ with environment(**compiler_env):
 
         if options["opencascade"]:
             build_and_install_pythonocc()
+
+        if options["tinyasm"]:
+            build_and_install_tinyasm()
 
     if args.documentation_dependencies:
         install_documentation_dependencies()

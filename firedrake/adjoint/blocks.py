@@ -118,14 +118,37 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        J = self.problem_J
-        if J is not None:
-            J = self._replace_form(J, func)
-        problem = self.backend.NonlinearVariationalProblem(lhs, func, bcs, J=J)
-        solver = self.backend.NonlinearVariationalSolver(problem, **self.solver_kwargs)
-        solver.parameters.update(self.solver_params)
-        solver.solve()
-        return func
+        self._ad_nlvs_replace_forms()
+        self._ad_nlvs.parameters.update(self.solver_params)
+        self._ad_nlvs.solve()
+        return self._ad_nlvs._problem.u
+
+    def _ad_assign_map(self, form):
+        count_map = self._ad_nlvs._problem._ad_count_map
+        assign_map = {}
+        form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
+        for block_variable in self.get_dependencies():
+            coeff = block_variable.output
+            if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
+                coeff_count = coeff.count()
+                if coeff_count in form_ad_count_map:
+                    assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
+        return assign_map
+
+    def _ad_assign_coefficients(self, form, func=None):
+        assign_map = self._ad_assign_map(form)
+        if func is not None and self._ad_nlvs._problem.u in assign_map:
+            self.backend.Function.assign(func, assign_map[self._ad_nlvs._problem.u])
+            assign_map[self._ad_nlvs._problem.u] = func
+
+        for coeff, value in assign_map.items():
+            coeff.assign(value)
+
+    def _ad_nlvs_replace_forms(self):
+        problem = self._ad_nlvs._problem
+        func = self.backend.Function(problem.u.function_space())
+        self._ad_assign_coefficients(problem.F, func)
+        self._ad_assign_coefficients(problem.J)
 
 
 class ProjectBlock(SolveVarFormBlock):
