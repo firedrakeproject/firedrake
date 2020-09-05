@@ -84,7 +84,7 @@ def test_filter_stokes():
 
     flux = as_vector([get_gbar(y), 0])
     bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)),
-           DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
+           DirichletBC(W.sub(0).sub(1), 0, (3, 4))]
     a = (nu * inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx
     L = inner(Constant((0, 0)), v) * dx
     sol_target = Function(W)
@@ -195,7 +195,7 @@ def test_filter_stokes2():
 
     value = as_vector([get_gbar(y), 0])
     bcs = [DirichletBC(W.sub(0), interpolate(value, V), (1, 2)),
-           DirichletBC(W.sub(0).sub(1), zero(1), (3, 4))]
+           DirichletBC(W.sub(0).sub(1), 0, (3, 4))]
     a = (nu * inner(grad(u), grad(v)) - p * div(v) - q * div(u)) * dx
     L = inner(Constant((0, 0)), v) * dx
     wh0 = Function(W)
