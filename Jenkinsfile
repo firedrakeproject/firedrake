@@ -39,7 +39,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --package-branch PyOP2 ReubenHill/complex-fixes || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --package-branch PyOP2 ReubenHill/complex-fixes --package-branch tinyasm fw/complex || (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
