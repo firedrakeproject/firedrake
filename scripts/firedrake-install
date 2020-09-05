@@ -13,6 +13,8 @@ import atexit
 import json
 import pprint
 import shlex
+from glob import iglob
+from itertools import chain
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
@@ -57,8 +59,8 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade",
-                           "petsc_int_type", "cache_dir"]
+                           "opencascade", "tinyasm",
+                           "petsc_int_type", "cache_dir", "remove_build_files"]
 
 
 def deep_update(this, that):
@@ -197,8 +199,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install creates a venv in ./firedrake and installs inside
-that venv.
+The install creates a venv in ./firedrake (or in ./name where name is the
+parameter given to --venv-name) and installs inside that venv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -210,6 +212,8 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--tinyasm", action="store_true",
+                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -257,7 +261,7 @@ honoured.""",
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
-                        help="Name of the venv to create (default is 'firedrake')")
+                        help="Name of the venv to create and the name of the install directory relative to this install script (default is 'firedrake' with directory ./firedrake)")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
     parser.add_argument("--pip-install", action="append", dest="pip_packages",
@@ -269,6 +273,8 @@ honoured.""",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
+    parser.add_argument("--remove-build-files", action="store_true",
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
@@ -332,6 +338,8 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
+                        help="Install TinyASM as backend for ASMPatchPC.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--honour-petsc-dir", action="store_true",
                        default=config["options"].get("honour_petsc_dir", False),
@@ -356,6 +364,8 @@ else:
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--show-dependencies", action="store_true",
                         help="Print out the package manager used and packages installed/required.")
+    parser.add_argument("--remove-build-files", action="store_true",
+                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
 
     args = parser.parse_args()
 
@@ -839,6 +849,14 @@ def build_and_install_petsc():
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
+        if args.remove_build_files and not args.honour_petsc_dir:
+            log.info("Cleaning up PETSc build artifacts")
+            check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch, "externalpackages")])
+            check_call(["rm", "-rf", os.path.join(petsc_dir, "src", "docs")])
+            tutorial_output = os.path.join(petsc_dir, "src", "**", "tutorials", "output", "*")
+            test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
+            for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
+                check_call(["rm", "-f", deletefile])
 
 
 def build_and_install_h5py():
@@ -920,6 +938,32 @@ def build_and_install_libsupermesh():
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild libsupermesh")
+
+
+def build_and_install_tinyasm():
+    log.info("Installing TinyASM")
+    if os.path.exists("TinyASM"):
+        log.info("Updating the git repository for TinyASM")
+        with directory("TinyASM"):
+            check_call(["git", "fetch"])
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
+            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            tinyasm_changed = git_sha != git_sha_new
+            if tinyasm_changed:
+                check_call(["git", "reset", "--hard"])
+                check_call(["git", "pull"])
+    else:
+        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
+        tinyasm_changed = True
+
+    if tinyasm_changed:
+        with directory("TinyASM"):
+            # Clean source directory
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            run_pip_install(["-e", "."])
+    else:
+        log.info("No need to rebuild TinyASM")
 
 
 def build_and_install_pythonocc():
@@ -1181,6 +1225,8 @@ if mode == "install" or not args.update_script:
         if args.opencascade:
             required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
+        if args.documentation_dependencies:
+            required_packages.append("graphviz")
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
@@ -1302,46 +1348,28 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
 
-    # If Python 3.8 or later install VTK from custom wheel
-    if sys.version_info >= (3, 8):
-        log.info("Pip installing VTK for Python3.8")
-        if osname == "Darwin":
-            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-macosx_10_14_x86_64.whl"])
-        elif osname == "Linux":
-            run_pip_install(["https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20200224/vtk-8.1.2-cp38-cp38-linux_x86_64.whl"])
-
-
 petsc_dir, petsc_arch = get_petsc_dir()
 
 should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
 
 # Set up the MPI wrappers
-for opt in ["mpicc", "mpicxx", "mpif90"]:
+for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
     if options.get(opt):
         name = options[opt]
         src = shutil.which(name)
     else:
         src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
     dest = os.path.join(firedrake_env, "bin", opt)
+    # Remove old symlinks
     if os.path.lexists(dest):
         os.remove(dest)
+    elif os.path.exists(dest):
+        os.remove(dest)
     if should_link:
-        log.debug("Creating a symlink from %s to %s" % (src, dest))
-        os.symlink(src, dest)
-
-if options.get("mpiexec"):
-    mpiexec_loc = shutil.which(options.get("mpiexec"))
-else:
-    mpiexec_loc = os.path.join(petsc_dir, petsc_arch, "bin", "mpiexec")
-mpiexecf = os.path.join(firedrake_env, "bin", "mpiexec")
-if os.path.exists(mpiexecf):
-    os.remove(mpiexecf)
-if should_link:
-    log.debug("Creating an mpiexec wrapper for %s" % mpiexec_loc)
-    with open(mpiexecf, "w") as mpiexec:
-        contents = '#!/bin/bash' + os.linesep + mpiexec_loc + ' "$@"'
-        mpiexec.write(contents)
-    os.chmod(mpiexecf, os.stat(mpiexecf).st_mode | stat.S_IEXEC)
+        log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
+        with open(dest, "w") as f:
+            f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
+        os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
@@ -1543,6 +1571,9 @@ with environment(**compiler_env):
 
         if options["opencascade"]:
             build_and_install_pythonocc()
+
+        if options["tinyasm"]:
+            build_and_install_tinyasm()
 
     if args.documentation_dependencies:
         install_documentation_dependencies()

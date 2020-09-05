@@ -1,6 +1,7 @@
 *.[ao]
 *.dat
 .deps/
+.vscode/
 *.l[ao]
 *.log
 *.pyc
@@ -8,12 +9,14 @@
 *.pvtu
 *.so
 *.vtu
+.DS_Store
 __pycache__/
 /demos/**/*.py
 /demos/immersed_fem/immersed_domain.msh
 /docs/build/
 /docs/notebooks/.ipynb_checkpoints/
 /docs/source/firedrake.rst
+/docs/source/firedrake.adjoint.rst
 /docs/source/firedrake.cython.rst
 /docs/source/firedrake.matrix_free.rst
 /docs/source/firedrake.mg.rst
@@ -26,7 +29,7 @@ __pycache__/
 /docs/source/teamgrid.rst
 /docs/source/teaminactive.rst
 /docs/source/demos
-/firedrake/cython/dmplex.c
+/firedrake/cython/dmcommon.c
 /firedrake/cython/extrusion_numbering.c
 /firedrake/cython/hdf5interface.c
 /firedrake/cython/mgimpl.c

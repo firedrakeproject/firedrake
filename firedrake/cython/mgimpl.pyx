@@ -3,7 +3,7 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from pyop2.datatypes import IntType
 
@@ -294,44 +294,31 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def filter_exterior_facet_labels(PETSc.DM plex):
-    """Remove exterior facet labels from things that aren't facets.
-
+def filter_labels(PETSc.DM dm, keep, *label_names):
+    """Remove labels from points that are not in keep.
+    :arg dm: DM object with labels.
+    :arg keep: subsection of the DMs chart on which to retain label values.
+    :arg label_names: names of labels (strings) to clear.
     When refining, every point "underneath" the refined entity
-    receives its label.  But we want the facet label to really only
-    apply to facets, so clear the labels from everything else."""
+    receives its label. But we typically have labels applied only to
+    entities of a given stratum height (and rely on that elsewhere),
+    so clear the labels from everything else.
+    """
     cdef:
-        PetscInt pStart, pEnd, fStart, fEnd, p, value
-        PetscBool has_bdy_ids, has_bdy_faces
-        DMLabel exterior_facets = NULL
-        DMLabel boundary_ids = NULL
-        DMLabel boundary_faces = NULL
+        PetscInt pStart, pEnd, kStart, kEnd, p, value
+        DMLabel dmlabel = NULL
 
-    pStart, pEnd = plex.getChart()
-    fStart, fEnd = plex.getHeightStratum(1)
+    pStart, pEnd = dm.getChart()
+    kStart, kEnd = keep
 
-    # Plex will always have an exterior_facets label (maybe
-    # zero-sized), but may not always have boundary_ids or
-    # boundary_faces.
-    has_bdy_ids = plex.hasLabel(dmplex.FACE_SETS_LABEL)
-    has_bdy_faces = plex.hasLabel("boundary_faces")
-
-    CHKERR(DMGetLabel(plex.dm, <const char*>b"exterior_facets", &exterior_facets))
-    if has_bdy_ids:
-        label = dmplex.FACE_SETS_LABEL.encode()
-        CHKERR(DMGetLabel(plex.dm, <const char*>label, &boundary_ids))
-    if has_bdy_faces:
-        CHKERR(DMGetLabel(plex.dm, <const char*>b"boundary_faces", &boundary_faces))
-    for p in range(pStart, pEnd):
-        if p < fStart or p >= fEnd:
-            CHKERR(DMLabelGetValue(exterior_facets, p, &value))
-            if value >= 0:
-                CHKERR(DMLabelClearValue(exterior_facets, p, value))
-            if has_bdy_ids:
-                CHKERR(DMLabelGetValue(boundary_ids, p, &value))
+    for label in label_names:
+        if not dm.hasLabel(label):
+            # Nothing to clear here.
+            continue
+        label = label.encode()
+        CHKERR(DMGetLabel(dm.dm, <const char*>label, &dmlabel))
+        for p in range(pStart, pEnd):
+            if p < kStart or p >= kEnd:
+                CHKERR(DMLabelGetValue(dmlabel, p, &value))
                 if value >= 0:
-                    CHKERR(DMLabelClearValue(boundary_ids, p, value))
-            if has_bdy_faces:
-                CHKERR(DMLabelGetValue(boundary_faces, p, &value))
-                if value >= 0:
-                    CHKERR(DMLabelClearValue(boundary_faces, p, value))
+                    CHKERR(DMLabelClearValue(dmlabel, p, value))

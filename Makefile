@@ -15,10 +15,10 @@ lint:
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
-	@echo "    RM firedrake/cython/dmplex.*.so"
-	-@rm -f firedrake/cython/dmplex.so > /dev/null 2>&1
-	@echo "    RM firedrake/cython/dmplex.c"
-	-@rm -f firedrake/cython/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmcommon.*.so"
+	-@rm -f firedrake/cython/dmcommon.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmcommon.c"
+	-@rm -f firedrake/cython/dmcommon.c > /dev/null 2>&1
 	@echo "    RM firedrake/cython/extrusion_numbering.*.so"
 	-@rm -f firedrake/cython/extrusion_numbering.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/extrusion_numbering.c"

@@ -1,7 +1,10 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+from ufl.algorithms.analysis import extract_arguments_and_coefficients
+from ufl import replace
 
+import firedrake
 import firedrake.utils as utils
 
 
@@ -115,14 +118,37 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        J = self.problem_J
-        if J is not None:
-            J = self._replace_form(J, func)
-        problem = self.backend.NonlinearVariationalProblem(lhs, func, bcs, J=J)
-        solver = self.backend.NonlinearVariationalSolver(problem, **self.solver_kwargs)
-        solver.parameters.update(self.solver_params)
-        solver.solve()
-        return func
+        self._ad_nlvs_replace_forms()
+        self._ad_nlvs.parameters.update(self.solver_params)
+        self._ad_nlvs.solve()
+        return self._ad_nlvs._problem.u
+
+    def _ad_assign_map(self, form):
+        count_map = self._ad_nlvs._problem._ad_count_map
+        assign_map = {}
+        form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
+        for block_variable in self.get_dependencies():
+            coeff = block_variable.output
+            if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
+                coeff_count = coeff.count()
+                if coeff_count in form_ad_count_map:
+                    assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
+        return assign_map
+
+    def _ad_assign_coefficients(self, form, func=None):
+        assign_map = self._ad_assign_map(form)
+        if func is not None and self._ad_nlvs._problem.u in assign_map:
+            self.backend.Function.assign(func, assign_map[self._ad_nlvs._problem.u])
+            assign_map[self._ad_nlvs._problem.u] = func
+
+        for coeff, value in assign_map.items():
+            coeff.assign(value)
+
+    def _ad_nlvs_replace_forms(self):
+        problem = self._ad_nlvs._problem
+        func = self.backend.Function(problem.u.function_space())
+        self._ad_assign_coefficients(problem.F, func)
+        self._ad_assign_coefficients(problem.J)
 
 
 class ProjectBlock(SolveVarFormBlock):
@@ -247,3 +273,61 @@ class MeshOutputBlock(Block):
         mesh = vector.function_space().mesh()
         mesh.coordinates.assign(vector, annotate=False)
         return mesh._ad_create_checkpoint()
+
+
+class InterpolateBlock(Block, Backend):
+    def __init__(self, interpolator, *functions, **kwargs):
+        super().__init__()
+
+        self.expr = interpolator.expr
+        self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
+
+        if isinstance(interpolator.V, firedrake.Function):
+            self.V = interpolator.V.function_space()
+        else:
+            self.V = interpolator.V
+
+        for coefficient in self.coefficients:
+            self.add_dependency(coefficient, no_duplicates=True)
+
+        for function in functions:
+            self.add_dependency(function, no_duplicates=True)
+
+    def _replace_map(self):
+        # Replace the dependencies with checkpointed values
+        replace_map = {}
+        args = 0
+        for block_variable in self.get_dependencies():
+            output = block_variable.output
+            if output in self.coefficients:
+                replace_map[output] = block_variable.saved_output
+            else:
+                replace_map[self.arguments[args]] = block_variable.saved_output
+                args += 1
+        return replace_map
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        dJdm = self.backend.derivative(prepared, inputs[idx])
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True)
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        dJdm = 0.
+
+        for i, input in enumerate(inputs):
+            if tlm_inputs[i] is None:
+                continue
+            dJdm += self.backend.derivative(prepared, input, tlm_inputs[i])
+
+        return self.backend.Interpolator(dJdm, self.V).interpolate()
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        return self.backend.interpolate(prepared, self.V)
