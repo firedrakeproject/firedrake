@@ -120,7 +120,7 @@ def test_subspace_rotated_subspace_poisson_zany():
         for i in range(4, 9):
             err, berr = _poisson(i, el, deg, True)
             errs.append(err)
-            assert(berr < 1e-12)
+            assert(berr < 1.05e-12)
         errs = np.array(errs)
         conv = np.log2(errs[:-1] / errs[1:])
         print(conv)
