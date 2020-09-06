@@ -100,7 +100,7 @@ def _poisson(n, el_type, degree, perturb):
     return err, berr
 
 
-def test_subspace_transformedsubspace_poisson_zany():
+def test_subspace_rotated_subspace_poisson_zany():
     """
     for el, deg, convrate in [('CG', 3, 4),
                               ('CG', 4, 5),
@@ -126,4 +126,71 @@ def test_subspace_transformedsubspace_poisson_zany():
         print(conv)
         assert (np.array(conv) > convrate).all()
     b=time.time()
-    print("time consumed:", b-a)
+    print("time consumed:", b - a)
+
+
+def test_subspace_rotated_subspace_stokes():
+
+
+    mesh = Mesh("./docs/notebooks/stokes-control.msh")
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    vq = TestFunction(W)
+    up = TrialFunction(W)
+
+    v, q = split(vq)
+    u, p = split(up)
+    
+    """
+    v0, q0 = v, q
+    u0, p0 = u, p
+    """
+
+    normal = FacetNormal(mesh)
+    V4 = BoundaryComponentSubspace(W.sub(0), 4, normal)
+
+    vq4 = Masked(vq, V4)
+    up4 = Masked(up, V4)
+
+    v4, q4 = split(vq4)
+    u4, p4 = split(up4)
+
+    v0, q0 = v - v4, q - q4
+    u0, p0 = u - u4, p - p4
+
+
+    nu = Constant(1)     # Viscosity coefficient
+
+    x, y = SpatialCoordinate(mesh)
+    u_inflow = as_vector([y * (10 - y) / 25.0, 0])
+
+    bcs = [DirichletBC(W.sub(0), (0, 0), (3, 5)),
+           DirichletBC(W.sub(0), interpolate(u_inflow, V), 1), ]
+           #DirichletBC(W.sub(0), (0, 0), (4, ))]
+
+    a = nu * inner(grad(u0), grad(v0)) * dx - inner(p0, div(v0)) * dx - inner(q0, div(u0)) * dx + inner(u4, v4) * ds(4)
+    L = Constant(0) * q0 * dx
+
+    w = Function(W)
+    solve(a == L, w, bcs=bcs, solver_parameters={"pc_type": "lu", "mat_type": "aij",
+                                                 "pc_factor_shift_type": "inblocks"})
+
+    # Plot solution
+    u, p = w.split()
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(nrows=2, sharex=True, sharey=True)
+    arrows = quiver(u, axes=axes[0])
+    axes[0].set_xlim(-0.5, 30.5)
+    axes[0].set_aspect("equal")
+    axes[0].set_title("Velocity")
+    fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
+    triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
+    axes[1].set_xlim(-0.5, 30.5)
+    axes[1].set_aspect("equal")
+    axes[1].set_title("Pressure")
+    fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+
+    plt.savefig('test_subspace_rotated_subspace_stokes.pdf')
