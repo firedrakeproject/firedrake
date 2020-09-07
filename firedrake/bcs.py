@@ -5,8 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, SpatialCoordinate, UFLException, as_tensor, VectorElement
-from ufl.algorithms.analysis import has_type
+from ufl import as_ufl, UFLException, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
@@ -14,16 +13,13 @@ from pyop2.profiling import timed_function
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
 
-import firedrake.expression as expression
-import firedrake.function as function
+import firedrake
 import firedrake.matrix as matrix
-import firedrake.projection as projection
 import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
-from firedrake.formmanipulation import ExtractSubBlock
-from firedrake import replace
 from firedrake import solving
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
@@ -276,17 +272,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
                              "Apply to the components by indexing the space with .sub(...)")
-        # Save the original value the user passed in.  If the user
-        # passed in an Expression that has user-defined variables in
-        # it, we need to remember it so that we can re-interpolate it
-        # onto the function_arg if its state has changed.  Note that
-        # the function_arg assignment is actually a property setter
-        # which in the case of expressions interpolates it onto a
-        # function and then throws the expression away.
-        self._original_val = g
         self.function_arg = g
-        self._original_arg = self.function_arg
-        self._currently_zeroed = False
+        self._original_arg = g
         self.is_linear = True
         self.Jp_eq_J = True
 
@@ -296,13 +283,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @property
     def function_arg(self):
         '''The value of this boundary condition.'''
-        if isinstance(self._original_val, expression.Expression):
-            if not self._currently_zeroed and \
-               self._original_val._state != self._expression_state:
-                # Expression values have changed, need to reinterpolate
-                self.function_arg = self._original_val
-                # Remember "new" value of original arg, to work with zero/restore pair.
-                self._original_arg = self.function_arg
+        if hasattr(self, "_function_arg_update"):
+            self._function_arg_update()
         return self._function_arg
 
     def reconstruct(self, field=None, V=None, g=None, sub_domain=None, method=None, use_split=False):
@@ -333,30 +315,35 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, function.Function) and g.function_space() != self._function_space:
-            raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
-        if not isinstance(g, expression.Expression):
+        if isinstance(g, firedrake.Function):
+            if g.function_space() != self.function_space():
+                raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
+            self._function_arg = g
+        elif isinstance(g, ufl.classes.Zero):
+            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
+                raise ValueError(f"Provided boundary value {g} does not match shape of space")
+            # Special case. Scalar zero for direct Function.assign.
+            self._function_arg = ufl.zero()
+        elif isinstance(g, ufl.classes.Expr):
+            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+                raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                # Bare constant?
-                as_ufl(g)
+                self._function_arg = firedrake.Function(self.function_space())
+                self._function_arg_update = firedrake.Interpolator(g, self._function_arg).interpolate
+            except (NotImplementedError, AttributeError):
+                # Element doesn't implement interpolation
+                self._function_arg = firedrake.Function(self.function_space()).project(g)
+                self._function_arg_update = firedrake.Projector(g, self._function_arg).project
+        else:
+            try:
+                g = as_ufl(g)
+                self._function_arg = g
             except UFLException:
                 try:
-                    # List of bare constants? Convert to UFL expression
-                    g = as_ufl(as_tensor(g))
-                    if g.ufl_shape != self._function_space.shape:
-                        raise ValueError("%r doesn't match the shape of the function space." % (g,))
+                    # Recurse to handle this through interpolation.
+                    self.function_arg = as_ufl(as_tensor(g))
                 except UFLException:
-                    raise ValueError("%r is not a valid DirichletBC expression" % (g,))
-        if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
-            if isinstance(g, expression.Expression):
-                self._expression_state = g._state
-            try:
-                g = function.Function(self._function_space).interpolate(g)
-            # Not a point evaluation space, need to project onto V
-            except NotImplementedError:
-                g = projection.project(g, self._function_space)
-        self._function_arg = g
-        self._currently_zeroed = False
+                    raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
         '''Convert this boundary condition into a homogeneous one.
@@ -365,14 +352,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
         '''
         self.function_arg = 0
-        self._currently_zeroed = True
 
     def restore(self):
         '''Restore the original value of this boundary condition.
 
         This uses the value passed on instantiation of the object.'''
-        self._function_arg = self._original_arg
-        self._currently_zeroed = False
+        self.function_arg = self._original_arg
 
     def set_value(self, val):
         '''Set the value of this boundary condition.
@@ -381,8 +366,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             :class:`.DirichletBC` for valid values.
         '''
         self.function_arg = val
-        self._original_arg = self.function_arg
-        self._original_val = val
+        self._original_arg = val
 
     @timed_function('ApplyBC')
     @DirichletBCMixin._ad_annotate_apply
@@ -615,7 +599,7 @@ class EquationBCSplit(BCBase):
             elif rank == 2:
                 form = splitter.split(self.f, argument_indices=(row_field, col_field))
             if u is not None:
-                form = replace(form, {self.u: u})
+                form = firedrake.replace(form, {self.u: u})
         if action_x is not None:
             assert len(form.arguments()) == 2, "rank of self.f must be 2 when using action_x parameter"
             form = ufl_expr.action(form, action_x)

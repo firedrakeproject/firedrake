@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+import numpy as np
 
 
 @pytest.fixture(scope='module')
@@ -59,10 +60,7 @@ def test_pointwise_solve_operator(mesh):
     assert p2.derivatives == (0, 0, 0)
     assert p2.ufl_shape == ()
 
-    assemble_a1 = assemble(a1)
-    assemble_a2 = assemble(a2)
-
-    assert abs(assemble_a1 - assemble_a2) < 1.0e-7
+    assert np.isclose(assemble(a1), assemble(a2))
     assemble(p2*dx)
 
     u = Function(V)
@@ -108,10 +106,7 @@ def test_compute_derivatives(mesh):
 
     a4 = 2*b*dx  # dp2/db
 
-    assemble_a3 = assemble(a3)
-    assemble_a4 = assemble(a4)
-
-    assert abs(assemble_a3 - assemble_a4) < 1.0e-7
+    assert np.isclose(assemble(a3), assemble(a4))
 
 
 def test_scalar_check_equality(mesh):
@@ -211,33 +206,6 @@ def test_sym_grad_check_equality(mesh):
 
     err = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err < 1.0e-09
-
-
-"""
-def test_different_shapes(mesh):
-
-    V1 = FunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
-
-    w = TestFunction(V1)
-    u = Function(V1)
-    f = Function(V1).interpolate(cos(x)*sin(y))
-
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
-    solve(F == 0, u)
-
-    a = Constant(1.)
-    b = Constant(1.)
-    u2 = Function(V1)
-    ps = point_solve(lambda x, a, y, b: a*x - y*b, function_space=V1, solver_params={'maxiter': 50})
-    tau2 = ps(a, u2, b)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2)
-
-    err_point_solve = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_solve < 1.0e-09
-"""
 
 
 def test_glen_flow_law():

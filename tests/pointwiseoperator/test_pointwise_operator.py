@@ -25,17 +25,15 @@ def test_abstract_pointwise_operator(mesh):
 
         _external_operator_type = 'LOCAL'
 
-        def __init__(self, *operands, function_space, derivatives=None, count=None, val=None, name=None, dtype=ScalarType, operator_data):
-            AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, count=count, val=val, name=name, dtype=dtype, operator_data=operator_data)
+        def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data):
+            AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
 
     f = lambda x, y: x*y
-    p = TestAbstract(u, w, g, function_space=V, derivatives=(0, 0, 1), count=9999,
-                     name='abstract_po', operator_data=f)
+    p = TestAbstract(u, w, g, function_space=V, derivatives=(0, 0, 1), name='abstract_po', operator_data=f)
 
     _check_extop_attributes_(p, (u, w, g), V, (0, 0, 1), ())
 
     assert p.operator_data == f
-    assert p._count == 9999
     assert p._name == 'abstract_po'
 
 

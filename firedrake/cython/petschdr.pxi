@@ -24,6 +24,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
+    int DMPlexGetChart(PETSc.PetscDM,PetscInt*,PetscInt*)
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
@@ -49,6 +50,9 @@ cdef extern from "petscdmlabel.h" nogil:
 
 cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
+
+cdef extern from "petscdmswarm.h" nogil:
+    int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
 
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -117,6 +121,9 @@ cdef extern from "petscmat.h" nogil:
     int MatAssemblyBegin(PETSc.PetscMat, PetscInt)
     int MatAssemblyEnd(PETSc.PetscMat, PetscInt)
     PetscInt MAT_FINAL_ASSEMBLY = 0
+
+cdef extern from * nogil:
+    int PetscObjectTypeCompare(PETSc.PetscObject, char[], PetscBool*)
 
 # --- Error handling taken from petsc4py (src/PETSc.pyx) -------------
 

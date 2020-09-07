@@ -62,9 +62,7 @@ def annotate_solve(solve):
                     if coeff in extops_coeff_form:
                         block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **sb_kwargs)
                         tape.add_block(block_extops)
-
-                        block_variable = coeff.block_variable
-                        block_extops.add_output(block_variable)
+                        block_extops.add_output(coeff.block_variable)
 
             tape.add_block(block)
 
