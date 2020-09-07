@@ -702,8 +702,6 @@ class WrapperBuilder(object):
     def _layer_index(self):
         if self.constant_layers:
             return FixedIndex(0)
-        if self.subset:
-            return self._loop_index
         else:
             return self.loop_index
 

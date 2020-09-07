@@ -181,7 +181,9 @@ class Compiler(object):
         self.comm = compilation_comm(comm)
         self._cc = os.environ.get(ccenv, cc)
         self._ld = os.environ.get('LDSHARED', ld)
-        self._cppargs = cppargs + configuration['cflags'].split() + self.workaround_cflags
+        self._cppargs = cppargs + configuration['cflags'].split()
+        if configuration["use_safe_cflags"]:
+            self._cppargs += self.workaround_cflags
         self._ldargs = ldargs + configuration['ldflags'].split()
 
     @property
