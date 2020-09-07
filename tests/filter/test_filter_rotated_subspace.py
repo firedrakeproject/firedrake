@@ -130,7 +130,8 @@ def test_subspace_rotated_subspace_poisson_zany():
 
 
 def test_subspace_rotated_subspace_stokes():
-
+    # Modified a demo problem at:
+    # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
 
     mesh = Mesh("./docs/notebooks/stokes-control.msh")
 
