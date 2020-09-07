@@ -18,7 +18,6 @@ def problem_type(request):
 def backend(request):
     return request.param
 
-
 def test_star_equivalence(problem_type, backend):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
@@ -61,6 +60,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_pc_type": "jacobi"}
 
     elif problem_type == "vector":
+        if utils.complex_mode:
+            pytest.skip("SLATE doesn't work in complex mode yet")
         base = UnitCubeMesh(2, 2, 2, distribution_parameters=distribution_parameters)
         mh = MeshHierarchy(base, 2, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -183,6 +184,7 @@ def test_star_equivalence(problem_type, backend):
     assert star_its == comp_its
 
 
+@pytest.mark.skipif(utils.complex_mode and problem_type == "vector", reason="SLATE doesn't work in complex mode yet")
 def test_vanka_equivalence(problem_type):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
@@ -240,6 +242,9 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
     elif problem_type == "vector":
+        #TODO: can we do this before the test?
+        if utils.complex_mode:
+            pytest.skip("SLATE doesn't work in complex mode yet")
         base = UnitSquareMesh(2, 2, distribution_parameters=distribution_parameters)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
