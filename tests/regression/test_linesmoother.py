@@ -49,7 +49,7 @@ def backend(request):
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
-def test_linesmoother(mesh, S1family, expected):
+def test_linesmoother(mesh, S1family, expected, backend):
     nits = []
     for degree in range(2):
         S1 = FiniteElement(S1family, mesh._base_mesh.ufl_cell(), degree+1)
