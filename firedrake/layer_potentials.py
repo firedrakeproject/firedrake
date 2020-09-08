@@ -1,4 +1,5 @@
 from firedrake.pointwise_operators import AbstractExternalOperator
+from firedrake import FunctionSpace, interpolate
 
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
@@ -62,7 +63,13 @@ class VolumePotential(AbstractExternalOperator):
 
     _external_operator_type = 'GLOBAL'
 
-    def __init__(self, operand, function_space, operator_data, **kwargs):
+    def __init__(self, orig_operand, operator_data, **kwargs):
+        orig_function_space = orig_operand.function_space()
+        function_space = FunctionSpace(
+            orig_function_space.mesh(),
+            "DG", orig_function_space.ufl_element().degree())
+        operand = interpolate(orig_operand, function_space)
+
         AbstractExternalOperator.__init__(self,
                                           operand,
                                           function_space=function_space,
@@ -266,9 +273,7 @@ class VolumePotential(AbstractExternalOperator):
         # get meshmode data back as firedrake fntn
         self.meshmode_connection.from_meshmode(
             meshmode_pot_vals,
-            out=self.fd_pot,
-            assert_fdrake_discontinuous=False,
-            continuity_tolerance=continuity_tolerance)
+            out=self.fd_pot)
         self.dat.data[:] = self.fd_pot.dat.data[:]
 
         return self
