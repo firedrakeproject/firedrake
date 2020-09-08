@@ -65,6 +65,7 @@ supported_elements = {
     "SminusF": FIAT.TrimmedSerendipityFace,
     "SminusDiv": FIAT.TrimmedSerendipityDiv,
     "SminusE": FIAT.TrimmedSerendipityEdge,
+    "SminusCurl": FIAT.TrimmedSerendipityCurl,
     "DPC L2": FIAT.DPC,
     "Discontinuous Lagrange L2": FIAT.DiscontinuousLagrange,
     "Gauss-Legendre L2": FIAT.GaussLegendre,

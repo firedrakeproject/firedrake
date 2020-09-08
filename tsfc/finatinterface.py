@@ -70,6 +70,7 @@ supported_elements = {
     "SminusF": finat.TrimmedSerendipityFace,
     "SminusDiv": finat.TrimmedSerendipityDiv,
     "SminusE": finat.TrimmedSerendipityEdge,
+    "SminusCurl": finat.TrimmedSerendipityCurl,
     "DPC L2": finat.DPC,
     "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
     "Gauss-Legendre L2": finat.GaussLegendre,
