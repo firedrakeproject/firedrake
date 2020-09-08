@@ -149,7 +149,7 @@ setup(name='PyOP2',
       test_requires=test_requires,
       packages=['pyop2', 'pyop2.codegen'],
       package_data={
-          'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx']},
+          'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx', 'codegen/c/*.c']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.sparsity', sparsity_sources,

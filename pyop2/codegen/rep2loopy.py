@@ -36,6 +36,21 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 
+# Read c files  for linear algebra callables in on import
+import os
+from pyop2.mpi import COMM_WORLD
+if COMM_WORLD.rank == 0:
+    with open(os.path.dirname(__file__)+"/c/inverse.c", "r") as myfile:
+        inverse_preamble = myfile.read()
+    with open(os.path.dirname(__file__)+"/c/solve.c", "r") as myfile:
+        solve_preamble = myfile.read()
+else:
+    solve_preamble = None
+    inverse_preamble = None
+
+inverse_preamble = COMM_WORLD.bcast(inverse_preamble, root=0)
+solve_preamble = COMM_WORLD.bcast(solve_preamble, root=0)
+
 
 class Bag(object):
     pass
@@ -160,34 +175,7 @@ class INVCallable(LACallable):
     """
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
-        inverse_preamble = """
-            #define Inverse_HPP
-            #define BUF_SIZE 30
-
-            static PetscBLASInt ipiv_buffer[BUF_SIZE];
-            static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
-            static void inverse(PetscScalar* __restrict__ Aout, const PetscScalar* __restrict__ A, PetscBLASInt N)
-            {
-                PetscBLASInt info;
-                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
-                PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
-                memcpy(Aout, A, N*N*sizeof(PetscScalar));
-                LAPACKgetrf_(&N, &N, Aout, &N, ipiv, &info);
-                if(info == 0){
-                    LAPACKgetri_(&N, Aout, &N, ipiv, Awork, &N, &info);
-                }
-                if(info != 0){
-                    fprintf(stderr, \"Getri throws nonzero info.\");
-                    abort();
-                }
-                if ( N > BUF_SIZE ) {
-                    free(Awork);
-                    free(ipiv);
-                }
-            }
-        """
-        yield ("inverse", "#include <petscsys.h>\n#include <petscblaslapack.h>\n" + inverse_preamble)
-        return
+        yield ("inverse", inverse_preamble)
 
 
 def inv_fn_lookup(target, identifier):
@@ -204,39 +192,7 @@ class SolveCallable(LACallable):
     """
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
-        code = """
-            #define Solve_HPP
-            #define BUF_SIZE 30
-
-            static PetscBLASInt ipiv_buffer[BUF_SIZE];
-            static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
-            static void solve(PetscScalar* __restrict__ out, const PetscScalar* __restrict__ A, const PetscScalar* __restrict__ B, PetscBLASInt N)
-            {
-                PetscBLASInt info;
-                PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
-                memcpy(out,B,N*sizeof(PetscScalar));
-                PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
-                memcpy(Awork,A,N*N*sizeof(PetscScalar));
-                PetscBLASInt NRHS = 1;
-                const char T = 'T';
-                LAPACKgetrf_(&N, &N, Awork, &N, ipiv, &info);
-                if(info == 0){
-                    LAPACKgetrs_(&T, &N, &NRHS, Awork, &N, ipiv, out, &N, &info);
-                }
-                if(info != 0){
-                    fprintf(stderr, \"Gesv throws nonzero info.\");
-                    abort();
-                }
-
-                if ( N > BUF_SIZE ) {
-                    free(ipiv);
-                    free(Awork);
-                }
-            }
-        """
-
-        yield ("solve", "#include <petscsys.h>\n#include <petscblaslapack.h>\n" + code)
-        return
+        yield ("solve", solve_preamble)
 
 
 def solve_fn_lookup(target, identifier):
