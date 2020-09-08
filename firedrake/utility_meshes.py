@@ -7,10 +7,12 @@ from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ, interpolate, FiniteElement, interval
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+
+from pyadjoint.tape import no_annotations
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -62,16 +64,16 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
     plex = mesh._from_cell_list(1, cells, coords, comm)
     # Apply boundary IDs
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     coordinates = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
     vStart, vEnd = plex.getDepthStratum(0)  # vertices
     for v in range(vStart, vEnd):
         vcoord = plex.vecGetClosure(coord_sec, coordinates, v)
         if vcoord[0] == coords[0]:
-            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 1)
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 1)
         if vcoord[0] == coords[-1]:
-            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 2)
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
     return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
 
@@ -388,7 +390,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -399,13 +401,13 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[2] - Lx) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
 
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
@@ -673,12 +675,12 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
     plex = mesh._from_cell_list(2, cells, vertices, comm)
 
     # mark boundary facets
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
         for face in boundary_faces:
-            plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
 
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
@@ -784,7 +786,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     plex = mesh._from_cell_list(3, cells, coords, comm)
 
     # Apply boundary IDs
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -796,17 +798,17 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[3] - Lx) < xtol and abs(face_coords[6] - Lx) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[4]) < ytol and abs(face_coords[7]) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[4] - Ly) < ytol and abs(face_coords[7] - Ly) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
             if abs(face_coords[2]) < ztol and abs(face_coords[5]) < ztol and abs(face_coords[8]) < ztol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 5)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 6)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
 
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
@@ -957,6 +959,9 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                                  degree=degree, reorder=reorder, comm=comm)
 
 
+# mesh is mainly used as a utility, so it's unnecessary to annotate the construction
+# in this case.
+@no_annotations
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
                          z0=0.8,
@@ -1420,7 +1425,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
     plex = mesh._from_cell_list(2, cells, vertices, comm)
 
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -1435,10 +1440,10 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
             j = i + 3
             if abs(face_coords[i]) < eps and abs(face_coords[j]) < eps:
                 # bottom of cylinder
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
                 # top of cylinder
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m

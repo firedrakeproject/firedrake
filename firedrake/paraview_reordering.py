@@ -1,18 +1,36 @@
-from tsfc.fiatinterface import create_element
+import os
+import importlib
+
+from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
-import importlib
+
 """
-This requires an explentation.
-Vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
-However, we only need vtkCommonKitPython, which, according to ldd, only cares about
-things that we should expect: libc, libdl.so, libstdc++, libm, libgcc_s.
-Thus, we hackily import the module that lives in vtkCommonKitPython.so
+This requires some explanation:
+VTK has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
+However, we only need vtkCommonDataModel (previously vtkCommonKitPython),
+which, according to ldd, only cares about things that we should expect:
+libc, libdl.so, libstdc++, libm, libgcc_s,
+as well as "vtkCommon" libs and "vtkPython" libs.
+Thus, we hackily import the module that lives in vtkCommonDataModel.so
+However, since VTK9 this library name is now polluted with the Python version
+and othe system information hence we fish out the exact name by trawling
+through the VTK library directory.
 """
-vtkSoLoc = importlib.util.find_spec("vtk").submodule_search_locations[0]
-vtkSoLoc += "/vtkCommonKitPython.so"
-loader = importlib.machinery.ExtensionFileLoader("vtkCommonKitPython", vtkSoLoc)
-mod = loader.load_module("vtkCommonKitPython")
+vtkSoLoc = importlib.util.find_spec("vtkmodules").submodule_search_locations[0]
+findStr = "vtkCommonDataModel"
+# Find the module name as this is system dependent in VTK9
+contents = os.listdir(vtkSoLoc)
+for item in contents:
+    if (findStr in item) and ("lib" not in item):
+        vtkSoName = "/" + item
+        break
+
+moduleName = "vtkCommonDataModel"
+loader = importlib.machinery.ExtensionFileLoader(moduleName,
+                                                 vtkSoLoc+vtkSoName)
+mod = loader.load_module(moduleName)
+
 vtkLagrangeTetra = mod.vtkLagrangeTetra
 vtkLagrangeHexahedron = mod.vtkLagrangeHexahedron
 vtkLagrangeTriangle = mod.vtkLagrangeTriangle
@@ -25,7 +43,8 @@ def firedrake_local_to_cart(element):
     :arg element: a ufl element.
     :returns: a list of arrays of floats where each array is a node.
     """
-    fiat_element = create_element(element, vector_is_mixed=False)
+    # TODO: Revise this when FInAT gets dual evaluation
+    fiat_element = create_base_element(element).fiat_equivalent
     # TODO: Surely there is an easier way that I've forgotten?
     return [np.array(list(phi.get_point_dict().keys())[0])
             for phi in fiat_element.dual_basis()]

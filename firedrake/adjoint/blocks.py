@@ -1,7 +1,10 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+from ufl.algorithms.analysis import extract_arguments_and_coefficients
+from ufl import replace
 
+import firedrake
 import firedrake.utils as utils
 
 import ufl
@@ -264,14 +267,12 @@ class PointwiseOperatorBlock(Block, Backend):
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         return ufl.replace(self.point_op, self._replace_map())
 
-    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, N=None):
         if self.point_op.coefficient == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
 
         q_rep = block_variable.saved_output
-        N = prepared
-
         if isinstance(N, self.backend.PointnetOperator) and hasattr(q_rep.dat, '_dat_version'):
             N._weights_version['version'] = q_rep.dat._dat_version
 
@@ -295,3 +296,61 @@ class PointwiseOperatorBlock(Block, Backend):
         p = prepared
         q = type(p).copy(p)
         return q.evaluate()
+
+
+class InterpolateBlock(Block, Backend):
+    def __init__(self, interpolator, *functions, **kwargs):
+        super().__init__()
+
+        self.expr = interpolator.expr
+        self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
+
+        if isinstance(interpolator.V, firedrake.Function):
+            self.V = interpolator.V.function_space()
+        else:
+            self.V = interpolator.V
+
+        for coefficient in self.coefficients:
+            self.add_dependency(coefficient, no_duplicates=True)
+
+        for function in functions:
+            self.add_dependency(function, no_duplicates=True)
+
+    def _replace_map(self):
+        # Replace the dependencies with checkpointed values
+        replace_map = {}
+        args = 0
+        for block_variable in self.get_dependencies():
+            output = block_variable.output
+            if output in self.coefficients:
+                replace_map[output] = block_variable.saved_output
+            else:
+                replace_map[self.arguments[args]] = block_variable.saved_output
+                args += 1
+        return replace_map
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        dJdm = self.backend.derivative(prepared, inputs[idx])
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True)
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        dJdm = 0.
+
+        for i, input in enumerate(inputs):
+            if tlm_inputs[i] is None:
+                continue
+            dJdm += self.backend.derivative(prepared, input, tlm_inputs[i])
+
+        return self.backend.Interpolator(dJdm, self.V).interpolate()
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return replace(self.expr, self._replace_map())
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        return self.backend.interpolate(prepared, self.V)

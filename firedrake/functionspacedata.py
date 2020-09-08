@@ -24,7 +24,7 @@ from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -125,7 +125,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._topology_dm.getStratumSize(kind, 1) > 0:
-        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
+        return dmcommon.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
@@ -150,10 +150,14 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
     class magic(dict):
         def __missing__(self, key):
-            return self.setdefault(key,
-                                   {mesh.cell_set: lambda: cell_node_list,
-                                    mesh.interior_facets.set: interior_facet_node_list,
-                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+            if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list}[key]())
+            else:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list,
+                                        mesh.interior_facets.set: interior_facet_node_list,
+                                        mesh.exterior_facets.set: exterior_facet_node_list}[key]())
 
     return magic()
 
@@ -168,10 +172,13 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    return {mesh.cell_set: None,
-            mesh.interior_facets.set: None,
-            mesh.exterior_facets.set: None,
-            "boundary_node": None}
+    if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+        return {mesh.cell_set: None}
+    else:
+        return {mesh.cell_set: None,
+                mesh.interior_facets.set: None,
+                mesh.exterior_facets.set: None,
+                "boundary_node": None}
 
 
 @cached
@@ -315,7 +322,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 @cached
 def get_boundary_nodes(mesh, key, V):
     _, sub_domain, method = key
-    indices = dmplex.boundary_nodes(V, sub_domain, method)
+    indices = dmcommon.boundary_nodes(V, sub_domain, method)
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)
@@ -488,8 +495,8 @@ def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
-    if not isinstance(mesh, mesh_mod.MeshTopology):
-        raise ValueError("%s is not a MeshTopology" % mesh)
+    if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
+        raise ValueError("%s is not an AbstractMeshTopology" % mesh)
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))

@@ -120,7 +120,6 @@ class TSFCKernel(Cached):
         :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
-
         if self._initialized:
             return
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
