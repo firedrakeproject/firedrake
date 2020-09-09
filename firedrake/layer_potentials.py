@@ -1,5 +1,5 @@
 from firedrake.pointwise_operators import AbstractExternalOperator
-from firedrake import FunctionSpace, interpolate
+from firedrake import Function, FunctionSpace, interpolate
 
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
@@ -63,18 +63,19 @@ class VolumePotential(AbstractExternalOperator):
 
     _external_operator_type = 'GLOBAL'
 
-    def __init__(self, orig_operand, operator_data, **kwargs):
+    #def __init__(self, orig_operand, operator_data, **kwargs):
+    def __init__(self, *operands, **kwargs):
+        orig_operand = operands[0]
         orig_function_space = orig_operand.function_space()
         function_space = FunctionSpace(
             orig_function_space.mesh(),
             "DG", orig_function_space.ufl_element().degree())
-        operand = interpolate(orig_operand, function_space)
+        new_operand = interpolate(orig_operand, function_space)
 
-        AbstractExternalOperator.__init__(self,
-                                          operand,
-                                          function_space=function_space,
-                                          operator_data=operator_data,
-                                          **kwargs)
+        operator_data = kwargs["operator_data"]
+        
+        AbstractExternalOperator.__init__(self, *operands, **kwargs, function_space=function_space)
+
         # Validate input
         assert self.derivatives == (0,), \
             "Derivatives of volume potential not currently supported"
