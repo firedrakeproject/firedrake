@@ -81,7 +81,7 @@ def sniff_compiler_version(cc):
         compiler = "unknown"
 
     ver = version.LooseVersion("unknown")
-    if compiler in ["gcc", "icc"]:
+    if compiler == "gcc":
         try:
             ver = subprocess.check_output([cc, "-dumpversion"],
                                           stderr=subprocess.DEVNULL).decode("utf-8")
