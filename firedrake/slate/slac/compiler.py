@@ -103,8 +103,10 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
-    if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"]
+    params = parameters["form_compiler"].copy()
+    if tsfc_parameters is not None:
+        params.update(tsfc_parameters)
+    tsfc_parameters = params
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
@@ -143,18 +145,21 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     gem_expr, var2terminal = slate_to_gem(slate_expr)
-    slate_loopy = gem_to_loopy(gem_expr)
+
+    scalar_type = tsfc_parameters["scalar_type"]
+    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
-    loopy_merged = merge_loopy(slate_loopy, builder, var2terminal)
 
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
-    code.replace('void slate_kernel', 'static void slate_kernel')
+    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
     loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
@@ -602,16 +607,19 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return slate_loopy: loopy kernel for slate operations.
+    :return slate_loopy: 2-tuple of loopy kernel for slate operations
+        and loopy GlobalArg for the output variable.
     """
     # Creation of return variables for outer loopy
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    arg = [loopy.GlobalArg("output", shape=shape)]
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)]
+            + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
+               for var in var2terminal.keys()])
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
@@ -623,7 +631,7 @@ def gem_to_loopy(gem_expr):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    return generate_loopy(impero_c, arg, parameters["form_compiler"]["scalar_type"], "slate_loopy", [])
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), args[0].copy()
 
 
 def slate_to_cpp(expr, temps, prec=None):
