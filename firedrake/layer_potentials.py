@@ -74,7 +74,7 @@ class VolumePotential(AbstractExternalOperator):
 
         operator_data = kwargs["operator_data"]
         
-        AbstractExternalOperator.__init__(self, *operands, **kwargs, function_space=function_space)
+        AbstractExternalOperator.__init__(self, *operands, function_space, **kwargs)
 
         # Validate input
         assert self.derivatives == (0,), \
