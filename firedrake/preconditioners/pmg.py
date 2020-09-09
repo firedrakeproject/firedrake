@@ -154,12 +154,11 @@ class PMGPC(PCBase):
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
 
-        if isinstance(fV.ufl_element(), MixedElement) and not isinstance(fV.ufl_element(), (VectorElement, TensorElement)):
-            cu = firedrake.Function(cV)
-            for (i, _) in enumerate(fV):
-                firedrake.interpolate(fu.split()[i], cu.split()[i])
-        else:
-            cu = firedrake.interpolate(fu, cV)
+        cu = firedrake.Function(cV)
+        interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
+        def inject_state(interpolators):
+            for interpolator in interpolators:
+                interpolator.interpolate()
 
         parent = get_parent(fdm)
         assert parent is not None
@@ -207,6 +206,7 @@ class PMGPC(PCBase):
 
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
+        add_hook(parent, setup=partial(inject_state, interpolators), call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
