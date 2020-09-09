@@ -156,6 +156,7 @@ class PMGPC(PCBase):
 
         cu = firedrake.Function(cV)
         interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
+
         def inject_state(interpolators):
             for interpolator in interpolators:
                 interpolator.interpolate()
