@@ -31,7 +31,7 @@ import ufl
 from tsfc.fiatinterface import as_fiat_cell
 
 
-__all__ = ("create_element", "supported_elements", "as_fiat_cell")
+__all__ = ("create_element", "supported_elements", "as_fiat_cell", "create_base_element")
 
 
 supported_elements = {
@@ -308,3 +308,14 @@ def _create_element(ufl_element, **kwargs):
 
     # Forward result
     return finat_element, deps
+
+
+def create_base_element(ufl_element, **kwargs):
+    """Create a "scalar" base FInAT element given a UFL element.
+    Takes a UFL element and an unspecified set of parameter options,
+    and returns the converted element.
+    """
+    finat_element = create_element(ufl_element, **kwargs)
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+        return finat_element
