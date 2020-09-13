@@ -124,7 +124,8 @@ class ScalarSubspace(AbstractSubspace):
         jj = tuple(gem.Index(extent=extent) for extent in shape)
         eye = gem.Literal(1)
         for i, j in zip(ii, jj):
-            eye = gem.Product(eye, gem.Delta(i, j))
+            #eye = gem.Product(eye, gem.Delta(i, j))
+            eye = gem.Product(eye, gem.Indexed(gem.Identity(i.extent), (i, j)))
         mat = gem.ComponentTensor(gem.Product(eye, expression[ii]), ii + jj)
         return mat
 
