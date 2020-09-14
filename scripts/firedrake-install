@@ -17,7 +17,7 @@ from glob import iglob
 from itertools import chain
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -60,7 +60,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade",
-                           "petsc_int_type", "cache_dir", "remove_build_files"]
+                           "petsc_int_type", "cache_dir", "remove_build_files", "blas_location"]
 
 
 def deep_update(this, that):
@@ -351,6 +351,8 @@ else:
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install-help.")
+    parser.add_argument("--pip-install", action="append", dest="pip_packages",
+                        help="Pip install additional packages into the venv")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
     parser.add_argument("--cache-dir", type=str,
@@ -696,8 +698,9 @@ def run_pip_install(pipargs):
     # Make pip verbose when logging, so we see what the
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
-    pipargs = ["-vvv"] + pipargs
-    check_call(pipinstall + pipargs)
+    with environment(**blas):
+        pipargs = ["-vvv"] + pipargs
+        check_call(pipinstall + pipargs)
 
 
 def run_cmd(args):
@@ -1172,7 +1175,8 @@ if mode == "install" or not args.update_script:
                              "automake",
                              "cmake",
                              "libtool",
-                             "boost"]
+                             "boost",
+                             "openblas"]
     elif osname == "Linux":
         package_manager = "apt-get"
         required_packages = ["build-essential",
@@ -1183,8 +1187,7 @@ if mode == "install" or not args.update_script:
                              "cmake",
                              "gfortran",
                              "git",
-                             "libblas-dev",
-                             "liblapack-dev",
+                             "libopenblas-dev",
                              "libtool",
                              "python3-dev",
                              "python3-pip",
@@ -1223,6 +1226,17 @@ if mode == "install" or not args.update_script:
                 log.info("\nIn addition, the command line tools will be installed using xcode")
         sys.exit(0)
 
+    # See if BLAS is defined in the environment
+    blas_location = None
+    if "BLAS" in os.environ or "OPENBLAS" in os.environ:
+        if "BLAS" in os.environ and "OPENBLAS" in os.environ and os.environ["BLAS"] != os.environ["OPENBLAS"]:
+            log.warning("""$BLAS and $OPENBLAS set in environment, but don't match, this will probably cause issues.
+    Taking the value of $OPENBLAS as location of libraries""")
+        try:
+            blas_location = os.environ["OPENBLAS"]
+        except KeyError:
+            blas_location = os.environ["BLAS"]
+
     if osname == "Darwin":
         if options["package_manager"]:
 
@@ -1257,6 +1271,7 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
+            blas_location = "/where/openblas/is/on/a/mac"#!!FIX ME
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
@@ -1275,7 +1290,14 @@ if mode == "install" or not args.update_script:
         except (subprocess.CalledProcessError, InstallError):
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
+else:
+    blas_location = config["blas_location"]
 
+# Dict to store BLAS and OPENBLAS environment variables
+blas = dict()
+if blas_location is not None:
+    blas["BLAS"] = blas_location
+    blas["OPENBLAS"] = blas_location
 
 if mode == "install":
     if os.path.exists(firedrake_env):
