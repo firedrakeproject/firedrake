@@ -29,7 +29,7 @@ particular integral type.
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
+def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
@@ -48,28 +48,26 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
         "Only terminal tensors have forms associated with them!"
     )
     # Sets a default name for the subkernel prefix.
-    # NOTE: the builder will choose a prefix independent of
-    # the tensor name for code idempotency reasons, but is not
-    # strictly required.
-    prefix = prefix or "subkernel%s_" % tensor.__str__()
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),
                     tensor.form.integrals())
 
     transformed_integrals = transform_integrals(integrals)
     cxt_kernels = []
+    assert prefix is not None
     for orig_it_type, integrals in transformed_integrals.items():
         subkernel_prefix = prefix + "%s_to_" % orig_it_type
         form = Form(integrals)
         kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters,
-                               coffee=True)
-        cxt_k = ContextKernel(tensor=tensor,
-                              coefficients=form.coefficients(),
-                              original_integral_type=orig_it_type,
-                              tsfc_kernels=kernels)
-        cxt_kernels.append(cxt_k)
+                               coffee=coffee, split=False)
+        if kernels:
+            cxt_k = ContextKernel(tensor=tensor,
+                                  coefficients=form.coefficients(),
+                                  original_integral_type=orig_it_type,
+                                  tsfc_kernels=kernels)
+            cxt_kernels.append(cxt_k)
 
     cxt_kernels = tuple(cxt_kernels)
 

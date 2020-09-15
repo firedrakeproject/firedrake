@@ -9,7 +9,7 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from ufl import Cell
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_base_element
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
@@ -648,7 +648,9 @@ def _calculate_values(function, points, dimension, cell_mask=None):
     function_space = function.function_space()
     keys = {1: (0,),
             2: (0, 0)}
-    fiat_element = create_element(function_space.ufl_element(), vector_is_mixed=False)
+    # Such tabulation could be done with FInAT, but that would be more
+    # complicated, and there is no clear benefit to changing.
+    fiat_element = create_base_element(function_space.ufl_element()).fiat_equivalent
     elem = fiat_element.tabulate(0, points)[keys[dimension]]
     cell_node_list = function_space.cell_node_list
     if cell_mask is not None:
@@ -760,8 +762,9 @@ def _bezier_calculate_points(function):
     """
     deg = function.function_space().ufl_element().degree()
     M = np.empty([deg + 1, deg + 1], dtype=float)
-    fiat_element = create_element(function.function_space().ufl_element(), vector_is_mixed=False)
-    basis = fiat_element.dual_basis()
+    finat_element = create_base_element(function.function_space().ufl_element())
+    # TODO: Revise this when FInAT gets dual evaluation
+    basis = finat_element.fiat_equivalent.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
             M[i, j] = _bernstein(list(basis[j].get_point_dict().keys())[0][0],
