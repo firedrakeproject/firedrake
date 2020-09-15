@@ -43,25 +43,26 @@ Here :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` a
 
 We solve the above weak formulation using the finite element method.
 
-In time, we use simple central scheme that is formally 2nd order accurate.
+In time, we use a central scheme that is formally 2nd order accurate.
 
 .. note::
     Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted and thus result in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme.
 
 In the work of :cite:`Kong:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Here we implemented eight of them for use within the Firedrake computing environment (e.g., five triangular elements :math:`p \le 5` and three tetrahdrals up to :math:`p \le 3`). We honorifically refer to the elements as `KMV` elements (i.e., Kong-Mulder-Veldhuizen).
 
-We can then start our Python script loading Firedrake *and* fiat/finat, which is used to build the special quadrature rules::
+We can then start our Python script loading Firedrake *and* fiat/finat, which the latter is used to build the special quadrature rules to produce the diagonal mass matrix::
 
     from firedrake import *
     import FIAT
     import finat
+
     import math
 
 A simple triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space, and set up the
+We choose a degree 2 `KMV` continuous function space, set up the
 function space, the function to hold the seismic velocity, and some functions used in timestepping::
 
     V = FunctionSpace(mesh, "KMV", 2)
@@ -69,7 +70,7 @@ function space, the function to hold the seismic velocity, and some functions us
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    c = Function(V) # Acoustic wave velocity
+    c = Function(V) # Scalar wave velocity
 
     u_np1 = Function(V)  # timestep n+1
     u_n = Function(V)    # timestep n
@@ -78,18 +79,18 @@ function space, the function to hold the seismic velocity, and some functions us
 .. note::
     The user can select orders up to P=5 for triangles and up to P=3 for tetrahedral.
 
-Output file to hold the simulation results::
+We create an output file to hold the simulation results::
 
     outfile = File("out.pvd")
 
-Now we set the time-stepping variables::
+Now we set the time-stepping variables performing a simulation for 1 second::
 
     T = 1.0
     dt = 0.001
     t = 0
     step = 0
 
-In seismology, often [Ricker wavelets](https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet) are used to force the domain, which have only one parameter: a peak frequency :math:`freq`. Here we inject a Ricker forcing function into the domain. We also specify the seismic velocity in the domain :math:`c` to be a constant however this is arbitrary::
+In seismology, often [Ricker wavelets](https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet) are used to excite the domain, which have only one free parameter: a peak frequency :math:`freq`. Here we inject a Ricker forcing function into the domain with a frequncy of 6 Hz. We also specify the seismic velocity in the domain :math:`c` to be a constant for simplicity::
 
     freq = 6
     c = Function(V).assign(1.5)
@@ -98,7 +99,7 @@ The following two functions are used to inject the Ricker wavelet source into th
 
     # Source function
     def RickerWavelet(t, freq, amp=1.0):
-        # shift so the entire waveform is injected
+        # Shift in time so the entire wavelet is injected
         t = t - (math.sqrt(6.0) / (math.pi * freq))
         return amp * (
             1.0 - (1.0 / 2.0) * (2.0 * math.pi * freq) * (2.0 * math.pi * freq) * t * t
@@ -115,15 +116,16 @@ In order to achieve a diagonal mass matrix, a custom quadrature rule must be use
     Tria = FIAT.reference_element.UFCTriangle()
     qr_rule = finat.quadrature.make_quadrature(Tria, 2, "KMV")
 
-Here we set up the mass matrix and specify the special quadrature rule to render the matrix diagonal::
+Now we specify the variational form. First, we set up the mass matrix and specify the special quadrature rule to render the matrix diagonal
+by passing a kwarg `rule` to the `dx` object::
 
     m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dx(rule=qr_rule)
 
-The stiffness matrix is treated explictly::
+The stiffness matrix using a standard quadrature rule and is treated explictly::
 
     a = dot(grad(u_n), grad(v)) * dx
 
-The source term is injected into the central of the unit square::
+The source term is injected into the central of the unit square. We use an `Interpolator` object, which could be used to efficiently force different source locations::
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
@@ -131,9 +133,12 @@ The source term is injected into the central of the unit square::
     ricker = Constant(0.0)
     expr = Function(delta.interpolate()) * ricker
     ricker.assign(RickerWavelet(t, freq))
+
+The time varying function is assigned to `f`, which will be updated in the timestepping loop::
+
     f = Function(V).assign(expr)
 
-Finally, we define our variational form :math:`F`, assemble it, and then create a cached PETSc solver object to efficiently timestep with::
+Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 
     F = m + a - f * v * dx
     a, r = lhs(F), rhs(F)
@@ -141,7 +146,7 @@ Finally, we define our variational form :math:`F`, assemble it, and then create 
     solver = LinearSolver(A, P=None, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})
 
 .. note::
-    We inform PETSc to not solve anything by passing an dictionary of options! These options tell PETSc to only do a simple Jacobi pre-conditioning step, which for our case solves our diagonal system exactly.
+    We inform PETSc to not solve anything by passing an dictionary of options. These options tell PETSc to only do a simple Jacobi pre-conditioning step, which for our case solves our diagonal system exactly.
 
 Now we are ready to start the time-stepping loop::
 
@@ -149,18 +154,18 @@ Now we are ready to start the time-stepping loop::
     while t < T:
         step += 1
 
-        # Update the RHS vector accordingly
+        # Update the RHS vector according to the current simulation time `t`
 
         ricker.assign(RickerWavelet(t, freq))
         f.assign(expr)
 
         R = assemble(r)
 
-        # Call the solver object to do pointwise division and solve the system.
+        # Call the solver object to do pointwise division to solve the system.
 
         solver.solve(u_np1, R)
 
-        # Exchange the solution at the timestepping levels.
+        # Exchange the solution at the two timestepping levels.
 
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
