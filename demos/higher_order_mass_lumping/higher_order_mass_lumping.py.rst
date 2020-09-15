@@ -111,17 +111,17 @@ The following two functions are used to inject the Ricker wavelet source into th
         sigma_x = Constant(sigma_x)
         return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
 
-In order to achieve a diagonal mass matrix, a custom quadrature rule must be used (note we specify the degree here too)::
+In order to achieve a diagonal mass matrix, a custom quadrature rule must be created and used to assemble the mass matrix (Note: we specify the same degree when forming the quadrature rule)::
 
     Tria = FIAT.reference_element.UFCTriangle()
     qr_rule = finat.quadrature.make_quadrature(Tria, 2, "KMV")
+    dxlump=dx(rule=qr_rule)
 
-Now we specify the variational form. First, we set up the mass matrix and specify the special quadrature rule to render the matrix diagonal
-by passing a kwarg `rule` to the `dx` object::
+Now we specify the variational form. First, we set up the mass matrix and specify the special quadrature rule to render the matrix diagonal::
 
-    m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dx(rule=qr_rule)
+    m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
-The stiffness matrix using a standard quadrature rule and is treated explictly::
+The stiffness matrix is formed however using a standard quadrature rule and is treated explictly::
 
     a = dot(grad(u_n), grad(v)) * dx
 
@@ -134,16 +134,17 @@ The source term is injected into the central of the unit square. We use an `Inte
     expr = Function(delta.interpolate()) * ricker
     ricker.assign(RickerWavelet(t, freq))
 
-The time varying function is assigned to `f`, which will be updated in the timestepping loop::
+The time varying function is assigned to `f`, which will be updated in the timestepping loop. We also create a function `R` to save the assembled RHS vector::
 
     f = Function(V).assign(expr)
+    R = Function(V)
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 
     F = m + a - f * v * dx
     a, r = lhs(F), rhs(F)
     A = assemble(a)
-    solver = LinearSolver(A, P=None, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})
+    solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})
 
 .. note::
     We inform PETSc to not solve anything by passing an dictionary of options. These options tell PETSc to only do a simple Jacobi pre-conditioning step, which for our case solves our diagonal system exactly.
@@ -159,7 +160,7 @@ Now we are ready to start the time-stepping loop::
         ricker.assign(RickerWavelet(t, freq))
         f.assign(expr)
 
-        R = assemble(r)
+        R = assemble(r, tensor=R)
 
         # Call the solver object to do pointwise division to solve the system.
 
