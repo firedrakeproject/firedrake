@@ -3,17 +3,17 @@ Scalar wave equation with higher-order mass lumping
 ===================================================
 
 
-    **Here we focus on solving the scalar wave equation with a
-    fully-explicit, higher-order (e.g., :math:`p < 5`) mass
+    **Here we solve the scalar wave equation with a
+    fully explicit, higher-order (e.g., :math:`p < 5`) mass
     lumping technique. This scalar wave equation is widely used
     in seismology to model seismic waves and is especially popular
     in algorithms for geophysical exploration such as Full Waveform
     Inversion and Reverse Time Migration. This tutorial demonstrates how to
     use the mass-lumped triangular elements originally discovered in
-    :cite:`Kong:1999` and later improved in :cite:`Geevers` into the
-    Firedrake environment.**
+    :cite:`Kong:1999` and later improved upon in :cite:`Geevers` into the
+    Firedrake computing environment.**
 
-    **The tutorial was prepared by `Keith J. Roberts
+    **The short tutorial was prepared by `Keith J. Roberts
     <mailto:krober@usp.br>`__**
 
 
@@ -46,11 +46,11 @@ We solve the above weak formulation using the finite element method.
 In time, we use a central scheme that is formally 2nd order accurate.
 
 .. note::
-    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted and thus result in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme.
+    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting ina in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme.
 
-In the work of :cite:`Kong:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Here we implemented eight of them for use within the Firedrake computing environment (e.g., five triangular elements :math:`p \le 5` and three tetrahdrals up to :math:`p \le 3`). We honorifically refer to the elements as `KMV` elements (i.e., Kong-Mulder-Veldhuizen).
+In the work of :cite:`Kong:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Here we implemented eight of them for use within the Firedrake computing environment (e.g., five triangular elements :math:`p \le 5` and three tetrahedrals up to :math:`p \le 3`). We honorifically refer to the elements as `KMV` elements (i.e., Kong-Mulder-Veldhuizen).
 
-We can then start our Python script loading Firedrake *and* fiat/finat, which the latter is used to build the special quadrature rules to produce the diagonal mass matrix::
+We can then start our Python script loading Firedrake *and* fiat/finat. Fiat/finat are used to build the special quadrature rules that result in a diagonal mass matrix::
 
     from firedrake import *
     import FIAT
@@ -62,8 +62,7 @@ A simple triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space, set up the
-function space, the function to hold the seismic velocity, and some functions used in timestepping::
+We choose a degree 2 `KMV` continuous function space and set it up, create a function to hold the seismic velocity, and then some functions used in time-stepping::
 
     V = FunctionSpace(mesh, "KMV", 2)
 
@@ -77,7 +76,7 @@ function space, the function to hold the seismic velocity, and some functions us
     u_nm1 = Function(V)  # timestep n-1
 
 .. note::
-    The user can select orders up to P=5 for triangles and up to P=3 for tetrahedral.
+    The user can select orders up to P=5 for triangles and up to P=3 for tetrahedral!
 
 We create an output file to hold the simulation results::
 
@@ -90,7 +89,7 @@ Now we set the time-stepping variables performing a simulation for 1 second::
     t = 0
     step = 0
 
-In seismology, often [Ricker wavelets](https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet) are used to excite the domain, which have only one free parameter: a peak frequency :math:`freq`. Here we inject a Ricker forcing function into the domain with a frequncy of 6 Hz. We also specify the seismic velocity in the domain :math:`c` to be a constant for simplicity::
+In seismology, often [Ricker wavelets](https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet) are used to excite the domain, which have only one free parameter: a peak frequency :math:`freq`. Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. We also specify the seismic velocity in the domain :math:`c` to be a constant for simplicity::
 
     freq = 6
     c = Function(V).assign(1.5)
@@ -117,15 +116,15 @@ In order to achieve a diagonal mass matrix, a custom quadrature rule must be cre
     qr_rule = finat.quadrature.make_quadrature(Tria, 2, "KMV")
     dxlump=dx(rule=qr_rule)
 
-Now we specify the variational form. First, we set up the mass matrix and specify the special quadrature rule to render the matrix diagonal::
+Now we specify the variational form. First, we specify the mass matrix and tell it to use the special quadrature rule to render the matrix diagonal::
 
     m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
-The stiffness matrix is formed however using a standard quadrature rule and is treated explictly::
+The stiffness matrix is formed however using a standard quadrature rule and is treated explicitly::
 
     a = dot(grad(u_n), grad(v)) * dx
 
-The source term is injected into the central of the unit square. We use an `Interpolator` object, which could be used to efficiently force different source locations::
+The source is injected into the center of the unit square. We use an `Interpolator` object, which could be used to efficiently force different source locations::
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
@@ -134,7 +133,7 @@ The source term is injected into the central of the unit square. We use an `Inte
     expr = Function(delta.interpolate()) * ricker
     ricker.assign(RickerWavelet(t, freq))
 
-The time varying function is assigned to `f`, which will be updated in the timestepping loop. We also create a function `R` to save the assembled RHS vector::
+The time varying function is assigned to `f`, which will be updated in the time-stepping loop. We also create a function `R` to save the assembled RHS vector::
 
     f = Function(V).assign(expr)
     R = Function(V)
@@ -147,7 +146,7 @@ Finally, we define the whole variational form :math:`F`, assemble it, and then c
     solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})
 
 .. note::
-    We inform PETSc to not solve anything by passing an dictionary of options. These options tell PETSc to only do a simple Jacobi pre-conditioning step, which for our case solves our diagonal system exactly.
+    We inform PETSc to not solve the system by passing a dictionary of options. These options tell PETSc to only do a Jacobi pre-conditioning step, which for our case inverts the mass matrix.
 
 Now we are ready to start the time-stepping loop::
 
@@ -162,16 +161,16 @@ Now we are ready to start the time-stepping loop::
 
         R = assemble(r, tensor=R)
 
-        # Call the solver object to do pointwise division to solve the system.
+        # Call the solver object to do point-wise division to solve the system.
 
         solver.solve(u_np1, R)
 
-        # Exchange the solution at the two timestepping levels.
+        # Exchange the solution at the two time-stepping levels.
 
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
 
-        # Write the solution to the file for visualization in ParaView.
+        # Increment the time and write the solution to the file for visualization in ParaView.
 
         t += dt
         if step % 10 == 0:
