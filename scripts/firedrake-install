@@ -60,7 +60,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade",
-                           "petsc_int_type", "cache_dir", "remove_build_files", "blas_location"]
+                           "petsc_int_type", "cache_dir", "remove_build_files", "with_blas"]
 
 
 def deep_update(this, that):
@@ -273,6 +273,8 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
+    parser.add_argument("--with-blas", default=None,
+                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
 
     args = parser.parse_args()
 
@@ -529,6 +531,12 @@ if options.get("mpiexec") is not None:
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
+
+if options.get("with_blas") == "download":
+    # Download openblas if the user specifies.
+    petsc_options.add("--download-openblas")
+elif options.get("with_blas") is not None:
+    petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
 
 petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
@@ -1175,8 +1183,9 @@ if mode == "install" or not args.update_script:
                              "automake",
                              "cmake",
                              "libtool",
-                             "boost",
-                             "openblas"]
+                             "boost"]
+        if args.with_blas is None:
+            required_packages.append("openblas")
     elif osname == "Linux":
         package_manager = "apt-get"
         required_packages = ["build-essential",
@@ -1198,6 +1207,8 @@ if mode == "install" or not args.update_script:
         if args.opencascade:
             required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
+        if args.with_blas is None:
+            required_packages.append("libopenblas-dev")
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
@@ -1226,16 +1237,7 @@ if mode == "install" or not args.update_script:
                 log.info("\nIn addition, the command line tools will be installed using xcode")
         sys.exit(0)
 
-    # See if BLAS is defined in the environment
-    blas_location = None
-    if "BLAS" in os.environ or "OPENBLAS" in os.environ:
-        if "BLAS" in os.environ and "OPENBLAS" in os.environ and os.environ["BLAS"] != os.environ["OPENBLAS"]:
-            log.warning("""$BLAS and $OPENBLAS set in environment, but don't match, this will probably cause issues.
-    Taking the value of $OPENBLAS as location of libraries""")
-        try:
-            blas_location = os.environ["OPENBLAS"]
-        except KeyError:
-            blas_location = os.environ["BLAS"]
+    blas_location = args.with_blas
 
     if osname == "Darwin":
         if options["package_manager"]:
@@ -1271,7 +1273,7 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
-            blas_location = "/where/openblas/is/on/a/mac"#!!FIX ME
+            blas_location = "/usr/local/opt/openblas/"
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
@@ -1291,13 +1293,7 @@ if mode == "install" or not args.update_script:
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 else:
-    blas_location = config["blas_location"]
-
-# Dict to store BLAS and OPENBLAS environment variables
-blas = dict()
-if blas_location is not None:
-    blas["BLAS"] = blas_location
-    blas["OPENBLAS"] = blas_location
+    blas_location = config["with_blas"]
 
 if mode == "install":
     if os.path.exists(firedrake_env):
@@ -1385,6 +1381,14 @@ with open(config_location, "w") as f:
     f.write(json_output)
 log.info("Configuration saved to " + config_location)
 
+# Dict to store BLAS and OPENBLAS environment variables
+blas = dict()
+if blas_location == "download":
+    blas["BLAS"] = os.path.join(petsc_dir, petsc_arch)
+    blas["OPENBLAS"] = os.path.join(petsc_dir, petsc_arch)
+elif blas_location is not None:
+    blas["BLAS"] = blas_location
+    blas["OPENBLAS"] = blas_location
 
 if mode == "install":
     os.mkdir("src")
