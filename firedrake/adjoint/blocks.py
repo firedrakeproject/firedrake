@@ -225,10 +225,15 @@ class FunctionMergeBlock(Block, Backend):
         super().__init__()
         self.add_dependency(func)
         self.idx = idx
+        for output in func._ad_outputs:
+            self.add_dependency(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        return adj_inputs[0]
+        if idx == 0:
+            return adj_inputs[0].split()[self.idx]
+        else:
+            return adj_inputs[0]
 
     def evaluate_tlm(self):
         tlm_input = self.get_dependencies()[0].tlm_value
@@ -245,9 +250,12 @@ class FunctionMergeBlock(Block, Backend):
         return hessian_inputs[0]
 
     def recompute(self):
-        dep = self.get_dependencies()[0].checkpoint
-        output = self.get_outputs()[0].checkpoint
-        self.backend.Function.assign(self.backend.Function.sub(output, self.idx), dep)
+        deps = self.get_dependencies()
+        sub_func = deps[0].checkpoint
+        parent_in = deps[1].checkpoint
+        parent_out = self.get_outputs()[0].checkpoint
+        self.backend.Function.assign(parent_out, parent_in)
+        self.backend.Function.assign(self.backend.Function.sub(parent_out, self.idx), sub_func)
 
 
 class MeshOutputBlock(Block):
