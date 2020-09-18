@@ -273,7 +273,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
                              "Apply to the components by indexing the space with .sub(...)")
         self.function_arg = g
-        self._original_arg = self.function_arg
+        self._original_arg = g
         self.is_linear = True
         self.Jp_eq_J = True
 
@@ -366,7 +366,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             :class:`.DirichletBC` for valid values.
         '''
         self.function_arg = val
-        self._original_arg = self.function_arg
+        self._original_arg = val
 
     @timed_function('ApplyBC')
     @DirichletBCMixin._ad_annotate_apply

@@ -39,7 +39,7 @@ def is_form_consistent(is_linear, bcs):
         raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
 
 
-class NonlinearVariationalProblem(object):
+class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
     @NonlinearVariationalProblemMixin._ad_annotate_init
