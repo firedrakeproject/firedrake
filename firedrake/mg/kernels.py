@@ -532,7 +532,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
     coarse_builder.set_coordinates(Vc.mesh())
     argument_multiindices = (Vce.get_indices(), )
     argument_multiindex, = argument_multiindices
-    return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
+    kernel_config = {}
+    coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices, kernel_config)
+    local_tensor = kernel_config['local_tensor']
+    (return_variable, ) = kernel_config['return_variables']
 
     integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
@@ -614,7 +617,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
     body = generate_coffee(impero_c, index_names, ScalarType_c)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
-    local_tensor = coarse_builder.local_tensor
     local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType_c))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
