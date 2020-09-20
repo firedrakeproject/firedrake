@@ -528,12 +528,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
+    coarse_builder = firedrake_interface.KernelBuilder("cell", ScalarType_c)
     coarse_builder.set_coordinates(Vc.mesh())
     argument_multiindices = (Vce.get_indices(), )
     argument_multiindex, = argument_multiindices
-    kernel_config = {}
-    coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices, kernel_config)
+    kernel_config = dict(arguments=(ufl.TestFunction(Vc), ),
+                         fem_config=dict(argument_multiindices=argument_multiindices))
+    coarse_builder.set_arguments(kernel_config)
     local_tensor = kernel_config['local_tensor']
     (return_variable, ) = kernel_config['return_variables']
 
