@@ -84,7 +84,7 @@ def _poisson(n, el_type, degree, perturb):
     berr2 = sqrt(assemble(dot(sol, sol) * ds))
     print("error            : ", err)
     print("error on boundary: ", berr)
-    print("error on boundary2: ", berr2)
+    #print("error on boundary2: ", berr2)
     """
     # Plot solution
     import matplotlib.pyplot as plt
