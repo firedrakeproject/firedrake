@@ -279,7 +279,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=True):
+                 constant_jacobian=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -292,8 +292,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             compiler (optional)
         :param constant_jacobian: (optional) flag indicating that the
                  Jacobian is constant (i.e. does not depend on
-                 varying fields).  If your Jacobian can change, set
-                 this flag to ``False``.
+                 varying fields).  If your Jacobian does not change, set
+                 this flag to ``True``.
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
