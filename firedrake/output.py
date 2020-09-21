@@ -199,7 +199,7 @@ def get_topology(coordinates):
             def vrange(cell_layers):
                 return numpy.repeat(cell_layers - cell_layers.cumsum(),
                                     cell_layers) + numpy.arange(cell_layers.sum())
-            offsets = numpy.outer(vrange(cell_layers), offsetMap)
+            offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
             num_cells = cell_layers.sum()
         else:
             cell_layers = mesh.cell_set.layers - 1

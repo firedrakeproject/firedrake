@@ -249,7 +249,7 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   difference = assemble(psi_lin - psi_non)
 
   try:
-      fig, axes = plt.supblots()
+      fig, axes = plt.subplots()
       colors = tripcolor(difference, axes=axes)
       fig.colorbar(colors)
   except Exception as e:
