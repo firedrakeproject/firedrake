@@ -142,6 +142,10 @@ class Arg(object):
             self.map_tuple = (map, )
         else:
             self.map_tuple = tuple(map)
+
+        if data is not None and hasattr(data, "dtype"):
+            if data.dtype.kind == "c" and (access == MIN or access == MAX):
+                raise ValueError("MIN and MAX access descriptors are undefined on complex data.")
         self._access = access
 
         self.unroll_map = unroll_map
