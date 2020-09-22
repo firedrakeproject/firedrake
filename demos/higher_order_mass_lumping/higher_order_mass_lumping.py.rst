@@ -2,26 +2,26 @@
 Scalar wave equation with higher-order mass lumping
 ===================================================
 
+Introduction
+************
 
-    **Here we solve the scalar wave equation with a
-    fully explicit, higher-order (e.g., :math:`p < 5`) mass
-    lumping technique. This scalar wave equation is widely used
-    in seismology to model seismic waves and is especially popular
-    in algorithms for geophysical exploration such as Full Waveform
-    Inversion and Reverse Time Migration. This tutorial demonstrates how to
-    use the mass-lumped triangular elements originally discovered in
-    :cite:`Kong:1999` and later improved upon in :cite:`Geevers` into the
-    Firedrake computing environment.**
+In this demo, we solve the scalar wave equation with a fully explicit, higher-order
+(up to degree 5) mass lumping technique for triangular and tetrahedral meshes.
+This scalar wave equation is widely used in seismology to model seismic waves and is especially popular
+in algorithms for geophysical exploration such as Full Waveform
+Inversion and Reverse Time Migration. This tutorial demonstrates how to
+use the mass-lumped triangular elements originally discovered in
+:cite:`Chin:1999` and later improved upon in :cite:`Geevers:2018` into the
+Firedrake computing environment.**
 
-    **The short tutorial was prepared by `Keith J. Roberts
-    <mailto:krober@usp.br>`__**
+*The short tutorial was prepared by `Keith J. Roberts <mailto:krober@usp.br>`__*
 
 
-The scalar wave equation solved here is:
+The scalar wave equation is:
 
 .. math::
 
-    \rho \partial_{t}^2 u = \nabla \cdot c \nabla u + f
+    \frac{1}{c^2} \partial_{t}^2 u = \nabla \cdot c \nabla u + f
 
     u = 0
 
@@ -29,13 +29,15 @@ The scalar wave equation solved here is:
 
     \partial_{t} u \vert_{t=0} = v_0
 
+where :math:`c` is the scalar wave speed.
+
 The weak formulation is finding :math:`u \in V` such that:
 
 .. math::
 
-    <\partial_t(\rho \partial_t u), v> + a(u,v) = (f,w)
+    <\partial_t(\frac{1}{c^2} \partial_t u), v> + a(u,v) = (f,w)
 
-Here :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptical operator given by:
+where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptic operator given by:
 
 .. math::
 
@@ -43,22 +45,16 @@ Here :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` a
 
 We solve the above weak formulation using the finite element method.
 
-In time, we use a central scheme that is formally 2nd order accurate.
+In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "KMV" finite element.
 
-.. note::
-    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting ina in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme.
-
-In the work of :cite:`Kong:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Here we implemented eight of them for use within the Firedrake computing environment (e.g., five triangular elements :math:`p \le 5` and three tetrahedrals up to :math:`p \le 3`). We honorifically refer to the elements as `KMV` elements (i.e., Kong-Mulder-Veldhuizen).
-
-We can then start our Python script loading Firedrake *and* fiat/finat. Fiat/finat are used to build the special quadrature rules that result in a diagonal mass matrix::
+In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.::
 
     from firedrake import *
-    import FIAT
     import finat
 
     import math
 
-A simple triangular mesh is created::
+A simple uniform triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
@@ -76,27 +72,29 @@ We choose a degree 2 `KMV` continuous function space and set it up, create a fun
     u_nm1 = Function(V)  # timestep n-1
 
 .. note::
-    The user can select orders up to P=5 for triangles and up to P=3 for tetrahedral!
+    The user can select orders up to p=5 for triangles and up to p=3 for tetrahedra.
 
 We create an output file to hold the simulation results::
 
     outfile = File("out.pvd")
 
-Now we set the time-stepping variables performing a simulation for 1 second::
+Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds::
 
     T = 1.0
     dt = 0.001
     t = 0
     step = 0
 
-In seismology, often [Ricker wavelets](https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet) are used to excite the domain, which have only one free parameter: a peak frequency :math:`freq`. Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. We also specify the seismic velocity in the domain :math:`c` to be a constant for simplicity::
+Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :mathf_\text{peak}.
+
+Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant::
 
     freq = 6
-    c = Function(V).assign(1.5)
+    c = Constant(1.5)
 
-The following two functions are used to inject the Ricker wavelet source into the domain::
+The following two functions are used to inject the Ricker wavelet source into the domain. We
+create a time-varying function to model the time evolution of the Ricker wavelet::
 
-    # Source function
     def RickerWavelet(t, freq, amp=1.0):
         # Shift in time so the entire wavelet is injected
         t = t - (math.sqrt(6.0) / (math.pi * freq))
@@ -104,49 +102,67 @@ The following two functions are used to inject the Ricker wavelet source into th
             1.0 - (1.0 / 2.0) * (2.0 * math.pi * freq) * (2.0 * math.pi * freq) * t * t
         )
 
+The spatial distribution of the source function is a Guassian kernel with a standard deviation
+of 2,000.0 so that it's sufficiently localized to emulate a Dirac delta function::
 
-    # Kernel function to apply the source function
     def delta_expr(x0, x, y, sigma_x=2000.0):
         sigma_x = Constant(sigma_x)
         return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
 
-In order to achieve a diagonal mass matrix, a custom quadrature rule must be created and used to assemble the mass matrix (Note: we specify the same degree when forming the quadrature rule)::
+To assemble the diagonal mass matrix, we need to create the matching colocated quadrature rule.
+FInAT implements custom "KMV" quadrature rules to do this. We obtain the appropriate cell from the function
+space, along with the degree of the element and construct the quadrature rule::
 
-    Tria = FIAT.reference_element.UFCTriangle()
-    qr_rule = finat.quadrature.make_quadrature(Tria, 2, "KMV")
-    dxlump=dx(rule=qr_rule)
+    quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "KMV")
 
-Now we specify the variational form. First, we specify the mass matrix and tell it to use the special quadrature rule to render the matrix diagonal::
+Then we make a new Measure object that uses this rule::
+
+    dxlump=dx(rule=quad_rule)
+
+To discretize :math:`\partial_{t}^2 u` we use a central scheme which is formally 2nd order accurate
+
+.. math::
+
+    \partial_{t}^2 u = \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}
+
+Substituting the above into the time derivative term in the variational form leads to
+
+.. math::
+
+    <\partial_t(\frac{1}{c^2} \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}), v> + a(u,v) = (f,w)
+
+Using Firedrake, we specify the mass matrix specifying the special quadrature rule with the Measure object we created above like so::
 
     m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
-The stiffness matrix is formed however using a standard quadrature rule and is treated explicitly::
+.. note::
+    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as detailed in :cite:chin:1999 .
+
+
+The stiffness matrix :math:`a(u,v)` is formed however using a standard quadrature rule and is treated explicitly::
 
     a = dot(grad(u_n), grad(v)) * dx
 
-The source is injected into the center of the unit square. We use an `Interpolator` object, which could be used to efficiently force different source locations::
+The source is injected at the center of the unit square at the coordinate x,y=(0.5, 0.5) ::
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
-    delta = Interpolator(delta_expr(source, x, y), V)
     ricker = Constant(0.0)
-    expr = Function(delta.interpolate()) * ricker
     ricker.assign(RickerWavelet(t, freq))
 
 The time varying function is assigned to `f`, which will be updated in the time-stepping loop. We also create a function `R` to save the assembled RHS vector::
 
-    f = Function(V).assign(expr)
     R = Function(V)
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 
-    F = m + a - f * v * dx
+    F = m + a -  delta_expr(source, x, y)*ricker * v * dx
     a, r = lhs(F), rhs(F)
     A = assemble(a)
     solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})
 
 .. note::
-    We inform PETSc to not solve the system by passing a dictionary of options. These options tell PETSc to only do a Jacobi pre-conditioning step, which for our case inverts the mass matrix.
+    Since we have arranged that the matrix A is diagonal, we can invert it with a single application of Jacobi iteration. We select this here using    appropriate solver parameters, which tell PETSc to construct a solver which just applies a single step of Jacobi preconditioning.
 
 Now we are ready to start the time-stepping loop::
 
