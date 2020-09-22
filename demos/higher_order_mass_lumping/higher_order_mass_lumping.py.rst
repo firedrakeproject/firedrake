@@ -21,7 +21,7 @@ The scalar wave equation is:
 
 .. math::
 
-    \frac{1}{c^2} \partial_{t}^2 u = \nabla \cdot c \nabla u + f
+    \rho \partial_{t}^2 u = \nabla \cdot c^2 \nabla u + f
 
     u = 0
 
@@ -35,7 +35,7 @@ The weak formulation is finding :math:`u \in V` such that:
 
 .. math::
 
-    <\partial_t(\frac{1}{c^2} \partial_t u), v> + a(u,v) = (f,w)
+    <\partial_t(\rho \partial_t u), v> + a(u,v) = (f,w)
 
 where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptic operator given by:
 
@@ -125,7 +125,7 @@ To discretize :math:`\partial_{t}^2 u` we use a central scheme which is formally
 
     \partial_{t}^2 u = \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}
 
-Substituting the above into the time derivative term in the variational form leads to
+Substituting the above into the time derivative term (and dividing by :math:`c^2`)in the variational form leads to
 
 .. math::
 
