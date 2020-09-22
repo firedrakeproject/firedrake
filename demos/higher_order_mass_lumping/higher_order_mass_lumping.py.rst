@@ -29,7 +29,7 @@ The scalar wave equation is:
 
     \partial_{t} u \vert_{t=0} = v_0
 
-where :math:`c` is the scalar wave speed.
+where :math:`c` is the scalar wave speed and :math:`rho` is the density.
 
 The weak formulation is finding :math:`u \in V` such that:
 
@@ -41,7 +41,7 @@ where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` 
 
 .. math::
 
-    a(u, v) := \int_{\Omega} c \nabla u \cdot \nabla v  \mathrm d x
+    a(u, v) := \int_{\Omega} c^2 \nabla u \cdot \nabla v  \mathrm d x
 
 We solve the above weak formulation using the finite element method.
 
@@ -58,14 +58,12 @@ A simple uniform triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space and set it up, create a function to hold the seismic velocity, and then some functions used in time-stepping::
+We choose a degree 2 `KMV` continuous function space and set it up and then some functions used in time-stepping::
 
     V = FunctionSpace(mesh, "KMV", 2)
 
     u = TrialFunction(V)
     v = TestFunction(V)
-
-    c = Function(V) # Scalar wave velocity
 
     u_np1 = Function(V)  # timestep n+1
     u_n = Function(V)    # timestep n
@@ -129,11 +127,11 @@ Substituting the above into the time derivative term (and dividing by :math:`c^2
 
 .. math::
 
-    <\partial_t(\frac{1}{c^2} \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}), v> + a(u,v) = (f,w)
+    \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}), v> + a(u,v) = (f,w)
 
 Using Firedrake, we specify the mass matrix specifying the special quadrature rule with the Measure object we created above like so::
 
-    m = (1.0 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
+    m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
 .. note::
     Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as detailed in :cite:chin:1999 .
@@ -141,7 +139,7 @@ Using Firedrake, we specify the mass matrix specifying the special quadrature ru
 
 The stiffness matrix :math:`a(u,v)` is formed however using a standard quadrature rule and is treated explicitly::
 
-    a = dot(grad(u_n), grad(v)) * dx
+    a = c*c*dot(grad(u_n), grad(v)) * dx
 
 The source is injected at the center of the unit square at the coordinate x,y=(0.5, 0.5) ::
 
@@ -173,7 +171,6 @@ Now we are ready to start the time-stepping loop::
         # Update the RHS vector according to the current simulation time `t`
 
         ricker.assign(RickerWavelet(t, freq))
-        f.assign(expr)
 
         R = assemble(r, tensor=R)
 
