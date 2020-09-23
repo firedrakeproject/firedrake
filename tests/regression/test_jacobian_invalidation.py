@@ -16,7 +16,7 @@ def test_jac_invalid():
     L = f*v*dx
 
     out = Function(V)
-    problem = LinearVariationalProblem(a, L, out)
+    problem = LinearVariationalProblem(a, L, out, constant_jacobian=True)
     solver = LinearVariationalSolver(problem)
     solver.solve()
 
