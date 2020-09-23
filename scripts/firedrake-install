@@ -370,6 +370,8 @@ else:
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
+    parser.add_argument("--with-blas", default=None,
+                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
 
     args = parser.parse_args()
 
@@ -378,6 +380,8 @@ else:
     petsc_int_type_changed = False
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
+        args.rebuild = True
+    if config["options"].get("with_blas") != args.with_blas:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
@@ -1327,7 +1331,7 @@ if mode == "install" or not args.update_script:
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 else:
-    blas_location = config["with_blas"]
+    blas_location = config["options"].get("with_blas")
 
 if mode == "install":
     if os.path.exists(firedrake_env):
