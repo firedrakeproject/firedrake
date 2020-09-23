@@ -266,6 +266,7 @@ class ImplicitMatrixContext(object):
                 self._x += self._xbc
         else:
             # No DirichletBC/EquationBC
+            # There is only a single element in the list (for the domain equation).
             # Save to self._x directly
             self._assemble_actionT[0]()
 
