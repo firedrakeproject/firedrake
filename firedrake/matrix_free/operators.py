@@ -268,8 +268,8 @@ class ImplicitMatrixContext(object):
             # No DirichletBC/EquationBC
             # There is only a single element in the list (for the domain equation).
             # Save to self._x directly
-            assert len(self._assemble_actionT) == 1
-            self._assemble_actionT[0]()
+            aT, = self._assemble_actionT
+            aT()
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
