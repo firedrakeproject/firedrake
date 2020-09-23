@@ -1,5 +1,10 @@
 import pytest
 from firedrake import *
+try:
+    import tinyasm  # noqa: F401
+    marks = ()
+except ImportError:
+    marks = pytest.mark.skip(reason="No tinyasm")
 
 
 @pytest.fixture(params=["scalar", "vector", "mixed"])
@@ -7,7 +12,12 @@ def problem_type(request):
     return request.param
 
 
-def test_star_equivalence(problem_type):
+@pytest.fixture(params=["petscasm", pytest.param("tinyasm", marks=marks)])
+def backend(request):
+    return request.param
+
+
+def test_star_equivalence(problem_type, backend):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
 
@@ -157,6 +167,7 @@ def test_star_equivalence(problem_type):
                        "mg_coarse_assembled_pc_type": "lu",
                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
+    star_params["mg_levels_pc_star_backend"] = backend
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=star_params, nullspace=nsp)
     star_solver.solve()
