@@ -129,6 +129,7 @@ def test_subspace_rotated_subspace_poisson_zany():
     print("time consumed:", b - a)
 
 
+#@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_stokes():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
@@ -195,3 +196,99 @@ def test_subspace_rotated_subspace_stokes():
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
     plt.savefig('test_subspace_rotated_subspace_stokes.pdf')
+
+
+def test_subspace_rotated_subspace_swe():
+    # Modified a demo problem at:
+    # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
+
+    len_x = 30
+    len_y = 10
+    mesh = Mesh("./docs/notebooks/stokes-control.msh")
+    #mesh = RectangleMesh(30, 10, len_x, len_y)
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    vq = TestFunction(W)
+    uh = Function(W)
+    uh_ = Function(W)
+
+    v, q = split(vq)
+    u, h = split(uh)
+    u_, h_ = split(uh_)
+    
+    normal = FacetNormal(mesh)
+    V4 = BoundaryComponentSubspace(W.sub(0), (3, 5), normal)
+
+    vq4 = Masked(vq, V4)
+    uh4 = Masked(uh, V4)
+    v4, q4 = split(vq4)
+    u4, h4 = split(uh4)
+    v0, q0 = v - v4, q - q4
+    u0, h0 = u - u4, h - h4
+
+    nu = Constant(1)     # Viscosity coefficient
+    g = Constant(1)
+    CD = Constant(1)
+    H = Constant(1)
+    dt = 0.1
+    eps = Constant(1e-12)
+
+    T = 2 * nu * sym(grad(u)) - 2 / 3 * nu * div(u) * Identity(2)
+
+    F = inner(u - u_, v0) / dt * dx + \
+        inner(dot(u, grad(u)), v0) * dx + \
+        inner(g * grad(h), v0) * dx + \
+        inner(T, grad(v0)) * dx + \
+        inner(CD * sqrt(dot(u, u) + eps) * u / (H + h), v0) * dx + \
+        inner(h - h_, q0) / dt * dx - \
+        inner((H + h) * u, grad(q0)) * dx + \
+        inner(u, v4) * ds((3, 5))
+
+    x, y = SpatialCoordinate(mesh)
+    u_inflow = as_vector([y * (10 - y) / 25.0, 0])
+
+    #bcs = [DirichletBC(W.sub(0), interpolate(u_inflow, V), 1), ]
+
+    
+    bcs = [DirichletBC(W.sub(1), 0, (1, 2, 3, 4, 5))]
+
+
+    uh.sub(1).assign(Function(Q).interpolate(0.001 * x * (5 - x) * conditional(real(x) < 5, 1, 0) * y * (len_y - y)))
+
+
+
+    
+    #import matplotlib.pyplot as plt
+
+    t = 0
+    while t < 5:
+        """
+        # Plot solution
+        fig, axes = plt.subplots(nrows=2, sharex=True, sharey=True)
+        uplot, hplot = uh.split()
+        arrows = quiver(uplot, axes=axes[0], clim=[-0.1, 0.1])
+        axes[0].set_xlim(-0.5, 30.5)
+        axes[0].set_aspect("equal")
+        axes[0].set_title("Velocity")
+        fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
+        triangles = tripcolor(hplot, axes=axes[1], cmap='coolwarm', vmin=-0.02, vmax=0.02)
+        axes[1].set_xlim(-0.5, 30.5)
+        axes[1].set_aspect("equal")
+        axes[1].set_title("Pressure")
+        fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+        plt.savefig('test_subspace_rotated_subspace_swe_%05.2f.png' % t)
+        """
+
+        uh_.assign(uh)
+        solve(F == 0, uh, bcs=bcs, solver_parameters={"ksp_type": "gmres"})
+        t += dt
+        print(t)
+
+
+
+
+
+
