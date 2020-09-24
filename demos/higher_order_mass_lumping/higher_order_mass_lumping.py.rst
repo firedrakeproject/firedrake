@@ -11,7 +11,7 @@ This scalar wave equation is widely used in seismology to model seismic waves an
 in algorithms for geophysical exploration such as Full Waveform
 Inversion and Reverse Time Migration. This tutorial demonstrates how to
 use the mass-lumped triangular elements originally discovered in
-:cite:`Chin:1999` and later improved upon in :cite:`Geevers:2018` into the
+:cite:`Chin:1999` and later improved upon in :cite:`Geevers:2018` in the
 Firedrake computing environment.**
 
 *The short tutorial was prepared by `Keith J. Roberts <mailto:krober@usp.br>`__*
@@ -29,7 +29,7 @@ The scalar wave equation is:
 
     \partial_{t} u \vert_{t=0} = v_0
 
-where :math:`c` is the scalar wave speed and :math:`rho` is the density.
+where :math:`c` is the scalar wave speed and :math:`rho` is the density (assumed to be 1 for simplicity).
 
 The weak formulation is finding :math:`u \in V` such that:
 
@@ -45,7 +45,7 @@ where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` 
 
 We solve the above weak formulation using the finite element method.
 
-In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "KMV" finite element.
+In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. These elements have enriched function spaces in the interior of the element that lead to more degree-of-freedom per element than the standard Lagrange element. However, this additional computational cost is offset by the fact that these elements produce diagonal matrices that are comparatively quick to solve, which improve simulation throughput especially at scale. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "KMV" finite element.
 
 In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.::
 
@@ -58,7 +58,7 @@ A simple uniform triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space and set it up and then some functions used in time-stepping::
+We choose a degree 2 `KMV` continuous function space, set it up and then create some functions used in time-stepping::
 
     V = FunctionSpace(mesh, "KMV", 2)
 
@@ -101,7 +101,7 @@ create a time-varying function to model the time evolution of the Ricker wavelet
         )
 
 The spatial distribution of the source function is a Guassian kernel with a standard deviation
-of 2,000.0 so that it's sufficiently localized to emulate a Dirac delta function::
+of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::
 
     def delta_expr(x0, x, y, sigma_x=2000.0):
         sigma_x = Constant(sigma_x)
@@ -117,38 +117,37 @@ Then we make a new Measure object that uses this rule::
 
     dxlump=dx(rule=quad_rule)
 
-To discretize :math:`\partial_{t}^2 u` we use a central scheme which is formally 2nd order accurate
+To discretize :math:`\partial_{t}^2 u` we use a central scheme
 
 .. math::
 
     \partial_{t}^2 u = \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}
 
-Substituting the above into the time derivative term (and dividing by :math:`c^2`)in the variational form leads to
+Substituting the above into the time derivative term in the variational form leads to
 
 .. math::
 
     \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}), v> + a(u,v) = (f,w)
 
-Using Firedrake, we specify the mass matrix specifying the special quadrature rule with the Measure object we created above like so::
+Using Firedrake, we specify the mass matrix using the special quadrature rule with the Measure object we created above like so::
 
     m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
 .. note::
-    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as detailed in :cite:chin:1999 .
+    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as those detailed in :cite:Chin:1999 .
 
-
-The stiffness matrix :math:`a(u,v)` is formed however using a standard quadrature rule and is treated explicitly::
+The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule and is treated explicitly::
 
     a = c*c*dot(grad(u_n), grad(v)) * dx
 
-The source is injected at the center of the unit square at the coordinate x,y=(0.5, 0.5) ::
+The source is injected at the center of the unit square::
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
     ricker = Constant(0.0)
     ricker.assign(RickerWavelet(t, freq))
 
-The time varying function is assigned to `f`, which will be updated in the time-stepping loop. We also create a function `R` to save the assembled RHS vector::
+We also create a function `R` to save the assembled RHS vector::
 
     R = Function(V)
 
