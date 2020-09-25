@@ -14,7 +14,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
                          CellOrigin, CellVertices, CellVolume,
                          Coefficient, FacetArea, FacetCoordinate,
-                         GeometricQuantity, Jacobian,
+                         GeometricQuantity, Jacobian, JacobianDeterminant,
                          NegativeRestricted, QuadratureWeight,
                          PositiveRestricted, ReferenceCellVolume,
                          ReferenceCellEdgeVectors,
@@ -23,6 +23,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
 
 
 from FIAT.reference_element import make_affine_mapping
+from FIAT.reference_element import UFCSimplex
 
 import gem
 from gem.node import traversal
@@ -30,7 +31,7 @@ from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
-from finat.physically_mapped import PhysicalGeometry, PhysicallyMappedElement
+from finat.physically_mapped import PhysicalGeometry, NeedsCoordinateMappingElement
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 
@@ -139,7 +140,9 @@ class CoordinateMapping(PhysicalGeometry):
         return self.interface.cell_size(self.mt.restriction)
 
     def jacobian_at(self, point):
+        ps = PointSingleton(point)
         expr = Jacobian(self.mt.terminal.ufl_domain())
+        assert ps.expression.shape == (expr.ufl_domain().topological_dimension(), )
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -150,10 +153,33 @@ class CoordinateMapping(PhysicalGeometry):
         expr = preprocess_expression(expr, complex_mode=context.complex_mode)
         return map_expr_dag(context.translator, expr)
 
+    def detJ_at(self, point):
+        expr = JacobianDeterminant(self.mt.terminal.ufl_domain())
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+        expr = preprocess_expression(expr)
+
+        config = {"point_set": PointSingleton(point)}
+        config.update(self.config)
+        context = PointSetContext(**config)
+        return map_expr_dag(context.translator, expr)
+
     def reference_normals(self):
+        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
+                self.interface.fiat_cell.get_spatial_dimension() == 2):
+            raise NotImplementedError("Only works for triangles for now")
         return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
 
+    def reference_edge_tangents(self):
+        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_edge_tangent(i) for i in range(3)]))
+
     def physical_tangents(self):
+        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
+                self.interface.fiat_cell.get_spatial_dimension() == 2):
+            raise NotImplementedError("Only works for triangles for now")
+
         rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
         jac = self.jacobian_at([1/3, 1/3])
 
@@ -181,13 +207,41 @@ class CoordinateMapping(PhysicalGeometry):
         expr = preprocess_expression(expr, complex_mode=context.complex_mode)
         return map_expr_dag(context.translator, expr)
 
+    def physical_points(self, point_set, entity=None):
+        """Converts point_set from reference to physical space"""
+        expr = SpatialCoordinate(self.mt.terminal.ufl_domain())
+        point_shape, = point_set.expression.shape
+        if entity is not None:
+            e, _ = entity
+            assert point_shape == e
+        else:
+            assert point_shape == expr.ufl_domain().topological_dimension()
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+        expr = preprocess_expression(expr)
+        config = {"point_set": point_set}
+        config.update(self.config)
+        if entity is not None:
+            config.update({name: getattr(self.interface, name)
+                           for name in ["integration_dim", "entity_ids"]})
+        context = PointSetContext(**config)
+        mapped = map_expr_dag(context.translator, expr)
+        indices = tuple(gem.Index() for _ in mapped.shape)
+        return gem.ComponentTensor(gem.Indexed(mapped, indices), point_set.indices + indices)
+
+    def physical_vertices(self):
+        vs = PointSet(self.interface.fiat_cell.vertices)
+        return self.physical_points(vs)
+
 
 def needs_coordinate_mapping(element):
     """Does this UFL element require a CoordinateMapping for translation?"""
     if element.family() == 'Real':
         return False
     else:
-        return isinstance(create_element(element), PhysicallyMappedElement)
+        return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
 class PointSetContext(ContextBase):

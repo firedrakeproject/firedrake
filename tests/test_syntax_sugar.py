@@ -21,8 +21,14 @@ def test_expressions():
     assert xij + 1 == gem.Sum(xij, gem.Literal(1))
     assert 1 + xij == gem.Sum(gem.Literal(1), xij)
 
-    with pytest.raises(AssertionError):
-        xij + y
+    assert (xij + y).shape == (4, )
+
+    assert (x @ y).shape == (3, )
+
+    assert x.T.shape == (4, 3)
+
+    with pytest.raises(ValueError):
+        xij.T @ y
 
     with pytest.raises(ValueError):
         xij + "foo"

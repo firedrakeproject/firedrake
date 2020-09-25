@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-#
 # This file was modified from FFC
 # (http://bitbucket.org/fenics-project/ffc), copyright notice
 # reproduced below.
@@ -24,18 +22,18 @@
 from functools import singledispatch, partial
 import weakref
 
+import FIAT
 import finat
-
 import ufl
 
-from tsfc.fiatinterface import as_fiat_cell
 
-
-__all__ = ("create_element", "supported_elements", "as_fiat_cell", "create_base_element")
+__all__ = ("as_fiat_cell", "create_base_element",
+           "create_element", "supported_elements")
 
 
 supported_elements = {
     # These all map directly to FInAT elements
+    "Bernstein": finat.Bernstein,
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
@@ -48,8 +46,11 @@ supported_elements = {
     "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
     "HDiv Trace": finat.HDivTrace,
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
+    "Nonconforming Arnold-Winther": finat.ArnoldWintherNC,
+    "Conforming Arnold-Winther": finat.ArnoldWinther,
     "Hermite": finat.Hermite,
     "Argyris": finat.Argyris,
+    "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
@@ -75,6 +76,7 @@ supported_elements = {
     "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
     "Gauss-Legendre L2": finat.GaussLegendre,
     "DQ L2": None,
+    "Direct Serendipity": finat.DirectSerendipity,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -82,12 +84,13 @@ element is supported, but must be handled specially because it doesn't
 have a direct FInAT equivalent."""
 
 
-def fiat_compat(element):
-    from tsfc.fiatinterface import create_element
-    from finat.fiat_elements import FiatElement
+def as_fiat_cell(cell):
+    """Convert a ufl cell to a FIAT cell.
 
-    assert element.cell().is_simplex()
-    return FiatElement(create_element(element))
+    :arg cell: the :class:`ufl.Cell` to convert."""
+    if not isinstance(cell, ufl.AbstractCell):
+        raise ValueError("Expecting a UFL Cell")
+    return FIAT.ufc_cell(cell)
 
 
 @singledispatch
@@ -114,8 +117,6 @@ def convert_finiteelement(element, **kwargs):
             raise ValueError("Quadrature scheme and degree must be specified!")
 
         return finat.QuadratureElement(cell, degree, scheme), set()
-    elif element.family() == "Bernstein":
-        return fiat_compat(element), set()
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":
@@ -191,6 +192,13 @@ def convert_enrichedelement(element, **kwargs):
     return finat.EnrichedElement(elements), set.union(*deps)
 
 
+@convert.register(ufl.NodalEnrichedElement)
+def convert_nodalenrichedelement(element, **kwargs):
+    elements, deps = zip(*[_create_element(elem, **kwargs)
+                           for elem in element._elements])
+    return finat.NodalEnrichedElement(elements), set.union(*deps)
+
+
 @convert.register(ufl.MixedElement)
 def convert_mixedelement(element, **kwargs):
     elements, deps = zip(*[_create_element(elem, **kwargs)
@@ -250,11 +258,6 @@ def convert_hcurlelement(element, **kwargs):
 def convert_restrictedelement(element, **kwargs):
     finat_elem, deps = _create_element(element._element, **kwargs)
     return finat.RestrictedElement(finat_elem, element.restriction_domain()), deps
-
-
-@convert.register(ufl.NodalEnrichedElement)
-def convert_nodalenrichedelement(element, **kwargs):
-    return fiat_compat(element), set()
 
 
 hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
@@ -318,4 +321,4 @@ def create_base_element(ufl_element, **kwargs):
     finat_element = create_element(ufl_element, **kwargs)
     if isinstance(finat_element, finat.TensorFiniteElement):
         finat_element = finat_element.base_element
-        return finat_element
+    return finat_element
