@@ -15,7 +15,7 @@ from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.program import make_program
-from loopy.transform.callable import register_callable_kernel
+from loopy.transform.callable import register_callable_kernel, inline_callable_kernel
 import itertools
 
 
@@ -314,5 +314,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     prg = make_program(slate_wrapper)
     for tsfc_loopy in tsfc_kernels:
         prg = register_callable_kernel(prg, tsfc_loopy)
+        prg = inline_callable_kernel(prg, tsfc_loopy.name)
     prg = register_callable_kernel(prg, slate_loopy)
+    prg = inline_callable_kernel(prg, slate_loopy.name)
     return prg
