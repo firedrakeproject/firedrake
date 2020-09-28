@@ -762,12 +762,13 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-    elif package not in ["petsc4py/", "slepc4py/"]:
-        run_pip_install(["-e", package])
+    elif package in ["petsc4py/", "slepc4py/"]:
+        run_pip_install(["--ignore-installed", package])
     elif package == "h5py/":
+    # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
     else:
-        run_pip_install(["--ignore-installed", package])
+        run_pip_install(["-e", package])
 
 
 def clean(package):
