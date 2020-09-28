@@ -193,7 +193,7 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    return Solve(*map(self, expr.children))
+    return Solve(*map(self, expr.children), expr._matfree)
 
 
 @_slate2gem.register(sl.Transpose)
