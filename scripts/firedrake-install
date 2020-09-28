@@ -381,8 +381,8 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
-    if config["options"].get("with_blas") is not None
-        and config["options"].get("with_blas") != args.with_blas:
+    if config["options"].get("with_blas") is not None and \
+       config["options"].get("with_blas") != args.with_blas:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
