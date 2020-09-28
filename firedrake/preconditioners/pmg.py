@@ -88,7 +88,9 @@ class PMGPC(PCBase):
         elements = [ele]
         while True:
             try:
-                ele = self.coarsen_element(ele)
+                ele_ = self.coarsen_element(ele)
+                assert ele_.value_shape() == ele.value_shape()
+                ele = ele_
             except ValueError:
                 break
             elements.append(ele)
@@ -152,7 +154,13 @@ class PMGPC(PCBase):
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
+
         cu = firedrake.Function(cV)
+        interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
+
+        def inject_state(interpolators):
+            for interpolator in interpolators:
+                interpolator.interpolate()
 
         parent = get_parent(fdm)
         assert parent is not None
@@ -200,6 +208,7 @@ class PMGPC(PCBase):
 
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
+        add_hook(parent, setup=partial(inject_state, interpolators), call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)

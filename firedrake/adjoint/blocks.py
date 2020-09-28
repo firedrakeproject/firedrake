@@ -121,7 +121,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_nlvs_replace_forms()
         self._ad_nlvs.parameters.update(self.solver_params)
         self._ad_nlvs.solve()
-        return self._ad_nlvs._problem.u
+        func.assign(self._ad_nlvs._problem.u)
+        return func
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
@@ -135,19 +136,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                     assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
         return assign_map
 
-    def _ad_assign_coefficients(self, form, func=None):
+    def _ad_assign_coefficients(self, form):
         assign_map = self._ad_assign_map(form)
-        if func is not None and self._ad_nlvs._problem.u in assign_map:
-            self.backend.Function.assign(func, assign_map[self._ad_nlvs._problem.u])
-            assign_map[self._ad_nlvs._problem.u] = func
-
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
     def _ad_nlvs_replace_forms(self):
         problem = self._ad_nlvs._problem
-        func = self.backend.Function(problem.u.function_space())
-        self._ad_assign_coefficients(problem.F, func)
+        self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
 

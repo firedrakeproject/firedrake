@@ -109,7 +109,7 @@ class ImplicitMatrixContext(object):
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
-        if len(self.row_bcs) > 0:
+        if len(self.bcs) > 0:
             self._xbc = function.Function(trial_space)
         if len(self.col_bcs) > 0:
             self._ybc = function.Function(test_space)
@@ -150,12 +150,12 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
                 self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
-                                              tensor=self._x,
+                                              tensor=self._xbc,
                                               bcs=None,
                                               form_compiler_parameters=self.fc_params))
         # Domain last
         self._assemble_actionT.append(create_assembly_callable(self.actionT,
-                                                               tensor=self._x,
+                                                               tensor=self._x if len(self.bcs) == 0 else self._xbc,
                                                                bcs=None,
                                                                form_compiler_parameters=self.fc_params))
 
@@ -251,18 +251,25 @@ class ImplicitMatrixContext(object):
         * = can be any number
 
         """
-        # accumulate values in self._xbc for convenience
-        self._xbc.dat.zero()
         with self._y.dat.vec_wo as v:
             Y.copy(v)
 
-        # Apply actionTs in sorted order
-        for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
-            # zero columns associated with DirichletBCs/EquationBCs
-            for obc in obj.bcs:
-                obc.zero(self._y)
+        if len(self.bcs) > 0:
+            # Accumulate values in self._x
+            self._x.dat.zero()
+            # Apply actionTs in sorted order
+            for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
+                # zero columns associated with DirichletBCs/EquationBCs
+                for obc in obj.bcs:
+                    obc.zero(self._y)
+                aT()
+                self._x += self._xbc
+        else:
+            # No DirichletBC/EquationBC
+            # There is only a single element in the list (for the domain equation).
+            # Save to self._x directly
+            aT, = self._assemble_actionT
             aT()
-            self._xbc += self._x
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
@@ -270,12 +277,12 @@ class ImplicitMatrixContext(object):
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
-                    bc.set(self._xbc, self._ybc)
+                    bc.set(self._x, self._ybc)
         else:
             for bc in self.col_bcs:
-                bc.zero(self._xbc)
+                bc.zero(self._x)
 
-        with self._xbc.dat.vec_ro as v:
+        with self._x.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):

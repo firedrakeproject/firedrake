@@ -6,6 +6,7 @@ import pytest
                          [{
                              # Newton
                              "snes_type": "newtonls",
+                             "snes_linesearch_type": "bt",
                              "ksp_type": "cg",
                              # Fieldsplit PC
                              "pc_type": "fieldsplit",
@@ -26,7 +27,7 @@ import pytest
                           {
                               # Newton
                               "snes_type": "newtonls",
-                              "snes_view": None,
+                              "snes_linesearch_type": "bt",
                               "ksp_type": "cg",
                               # Same as before, just with a recursive split, so we need an aij matrix
                               "mat_type": "aij",
