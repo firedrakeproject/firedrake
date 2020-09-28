@@ -381,7 +381,8 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
-    if config["options"].get("with_blas") != args.with_blas:
+    if config["options"].get("with_blas") is not None
+        and config["options"].get("with_blas") != args.with_blas:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
@@ -763,6 +764,8 @@ def install(package):
     # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
     elif package not in ["petsc4py/", "slepc4py/"]:
         run_pip_install(["-e", package])
+    elif package == "h5py/":
+        run_pip_install(["--no-build-isolation", package])
     else:
         run_pip_install(["--ignore-installed", package])
 
