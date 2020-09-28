@@ -493,7 +493,8 @@ petsc_options = {"--with-fortran-bindings=0",
                  "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
-                 "--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
+                 #"--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
+                 "--download-hdf5",
                  # AMG
                  "--download-hypre",
                  # Sparse direct solver
@@ -885,7 +886,8 @@ def build_and_install_h5py():
         log.info("Removing old h5py.tar.gz")
         os.remove("h5py.tar.gz")
 
-    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
+    #url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
+    url = "git+https://github.com/h5py/h5py.git#egg=h5py"
     if os.path.exists("h5py"):
         changed = False
         with directory("h5py"):
@@ -910,7 +912,8 @@ def build_and_install_h5py():
     if changed or args.rebuild:
         log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
         with environment(HDF5_DIR=hdf5_dir,
-                         HDF5_MPI="ON"):
+                         HDF5_MPI="ON",
+                         **blas):
             # Only uninstall if things changed.
             pip_uninstall("h5py")
             # Pip installing from dirty directory is potentially unsafe.
