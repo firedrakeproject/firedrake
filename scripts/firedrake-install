@@ -459,7 +459,9 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
 python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the venv
 pip = python + ["-m", "pip"]
-pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
+pipinstall = pip + ["install",
+                    "--no-build-isolation",
+                    "--no-binary", ",".join(wheel_blacklist)]
 
 
 # This context manager should be used whenever arguments should be temporarily added to pipinstall.
@@ -494,7 +496,6 @@ petsc_options = {"--with-fortran-bindings=0",
                  "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
-                 #"--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
                  "--download-hdf5",
                  # AMG
                  "--download-hypre",
@@ -761,11 +762,11 @@ def install(package):
         build_and_install_petsc()
     elif package == "slepc/":
         build_and_install_slepc()
-    # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
     elif package in ["petsc4py/", "slepc4py/"]:
+        # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", package])
     elif package == "h5py/":
-    # h5py tries to build against ancient version of numpy additional flag avoids this
+        # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
     else:
         run_pip_install(["-e", package])
