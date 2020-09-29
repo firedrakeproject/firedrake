@@ -14,18 +14,12 @@ class HypreAMS(firedrake.PCSNESBase):
             raise ValueError("Not a PC or SNES?")
 
         prefix = obj.getOptionsPrefix()
-        appctx = self.get_appctx(obj) 
+        appctx = self.get_appctx(obj)
 
         f = appctx['state']
         element = str(f.function_space().ufl_element().family()) #not sure this is right
         mesh = f.function_space().mesh()
         V = FunctionSpace(mesh, element, 1)
-
-        print("element:", element)
-        print("mesh:", mesh)
-        print("f:", f)
-        print("A:", A.getValuesCSR())
-        print("P:", P.getValuesCSR())
 
         # build gradient matrix G
         P1 = FunctionSpace(mesh, "Lagrange", 1)
@@ -49,12 +43,12 @@ class HypreAMS(firedrake.PCSNESBase):
         # Build constants basis for the Nedelec space
         constants = []
         cvecs = []
-        for i in range(3):
-            direction = [1.0 if i == j else 0.0 for j in range(3)]
+        for i in range(mesh.cell_dimension()):
+            direction = [1.0 if i == j else 0.0 for j in range(mesh.cell_dimension())]
             c = project(Constant(direction), V)
             with c.vector().dat.vec_ro as cvec:
                 cvecs.append(cvec)
-        pc.setHYPRESetEdgeConstantVectors(cvecs[0], cvecs[1], cvecs[2])
+        pc.setHYPRESetEdgeConstantVectors(*cvecs)
         pc.setUp()
 
         self.pc = pc
