@@ -24,7 +24,8 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G = Interpolator(grad(TestFunction(P1)), V).callable().handle
 
-        pc = PETSc.PC().create()
+        pc = PETSc.PC().create(comm=obj.comm)
+        pc.incrementTabLevel(1, parent=obj)
         pc.setOptionsPrefix(prefix + "hypre_ams_")
         pc.setOperators(A, P)
 
@@ -59,11 +60,9 @@ class HypreAMS(PCBase):
 
     def view(self, pc, viewer=None):
         super(HypreAMS, self).view(pc, viewer)
-        viewer.pushASCIITab()
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
-        viewer.popASCIITab()
 
     def update(self, pc):
-        pass
+        self.pc.setUp()

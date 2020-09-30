@@ -11,20 +11,13 @@ def test_homogeneous_field_linear():
     v = TestFunction(V)
 
     a = inner(curl(u),curl(v))*dx
-    L = inner(Constant((0.,0.,0.)),v)*dx
+    L = inner(Constant((0., 0., 0.)),v)*dx
 
-    class ConstantField(Expression):
-      def __init__(self, B0):
-        self._B0 = B0
-        super().__init__()
-      def eval(self, value, X):
-        value[0] = -0.5*self._B0*(X[1]-0.5)
-        value[1] =  0.5*self._B0*(X[0]-0.5)
-        value[2] = 0.0
-      def value_shape(self):
-        return (3,)
+    x, y, z = SpatialCoordinate(mesh)
+    B0 = 1
+    constant_field = as_vector([-0.5*B0*(y - 0.5), 0.5*B0*(x - 0.5), 0])
 
-    bc = DirichletBC(V, ConstantField(1.), (1,2,3,4))
+    bc = DirichletBC(V, constant_field, (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'ksp_type': 'cg',
@@ -39,7 +32,7 @@ def test_homogeneous_field_linear():
     A = Function(V)
     solve(a == L, A, bc, solver_parameters=params)
     B = project(curl(A), V0)
-    assert numpy.allclose(B.dat.data_ro, numpy.array((0.,0.,1.)), atol=1e-6)
+    assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(5,5,5)
@@ -52,18 +45,11 @@ def test_homogeneous_field_matfree():
     a = inner(curl(u),curl(v))*dx
     L = inner(Constant((0.,0.,0.)),v)*dx
 
-    class ConstantField(Expression):
-      def __init__(self, B0):
-        self._B0 = B0
-        super().__init__()
-      def eval(self, value, X):
-        value[0] = -0.5*self._B0*(X[1]-0.5)
-        value[1] =  0.5*self._B0*(X[0]-0.5)
-        value[2] = 0.0
-      def value_shape(self):
-        return (3,)
+    x, y, z = SpatialCoordinate(mesh)
+    B0 = 1
+    constant_field = as_vector([-0.5*B0*(y - 0.5), 0.5*B0*(x - 0.5), 0])
 
-    bc = DirichletBC(V, ConstantField(1.), (1,2,3,4))
+    bc = DirichletBC(V, constant_field, (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'mat_type': 'matfree',
@@ -81,7 +67,7 @@ def test_homogeneous_field_matfree():
     A = Function(V)
     solve(a == L, A, bc, solver_parameters=params)
     B = project(curl(A), V0)
-    assert numpy.allclose(B.dat.data_ro, numpy.array((0.,0.,1.)), atol=1e-6)
+    assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
 def test_homogeneous_field_nonlinear():
@@ -95,18 +81,11 @@ def test_homogeneous_field_nonlinear():
     a = inner(curl(u),curl(v))*dx
     L = inner(Constant((0.,0.,0.)),v)*dx
 
-    class ConstantField(Expression):
-      def __init__(self, B0):
-        self._B0 = B0
-        super().__init__()
-      def eval(self, value, X):
-        value[0] = -0.5*self._B0*(X[1]-0.5)
-        value[1] =  0.5*self._B0*(X[0]-0.5)
-        value[2] = 0.0
-      def value_shape(self):
-        return (3,)
+    x, y, z = SpatialCoordinate(mesh)
+    B0 = 1
+    constant_field = as_vector([-0.5*B0*(y - 0.5), 0.5*B0*(x - 0.5), 0])
 
-    bc = DirichletBC(V, ConstantField(1.), (1,2,3,4))
+    bc = DirichletBC(V, constant_field, (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'ksp_type': 'cg',
@@ -121,4 +100,4 @@ def test_homogeneous_field_nonlinear():
     A = Function(V)
     solve(a - L == 0, A, bc, solver_parameters=params)
     B = project(curl(A), V0)
-    assert numpy.allclose(B.dat.data_ro, numpy.array((0.,0.,1.)), atol=1e-6)
+    assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
