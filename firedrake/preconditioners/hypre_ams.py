@@ -1,6 +1,7 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake import FunctionSpace, Constant, project, Interpolator, grad, TestFunction
+from firedrake import FunctionSpace, Constant, Interpolator, grad, TestFunction
+from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
 
 __all__ = ("HypreAMS",)
