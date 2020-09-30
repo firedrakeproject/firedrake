@@ -81,7 +81,7 @@ def run_test(family, degree, n):
     # the MMS source term:
     F += -inner(v, source)*dx
 
-    solver_parameters = {'ksp_converged_reason': True,
+    solver_parameters = {'ksp_converged_reason': None,
                          'ksp_type': 'preonly',
                          'pc_type': 'lu',
                          'mat_type': 'nest'}

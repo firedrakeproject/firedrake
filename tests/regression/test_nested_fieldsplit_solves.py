@@ -159,7 +159,7 @@ def test_matrix_types(W):
         assemble(a, mat_type="baij")
 
     A = assemble(a)
-    assert A.M.handle.getType() == parameters["default_matrix_type"]
+    assert A.M.handle.getType() == "seq" + parameters["default_matrix_type"]
 
     A = assemble(a, mat_type="aij")
 
