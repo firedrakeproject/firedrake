@@ -1,40 +1,38 @@
+from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake import FunctionSpace, Constant, project, Interpolator, grad, TestFunction
-from firedrake.assemble import allocate_matrix, create_assembly_callable
+from firedrake.dmhooks import get_function_space
 
-__all__ = ("HypreAMS")
+__all__ = ("HypreAMS",)
 
-class HypreAMS(firedrake.PCSNESBase):
+class HypreAMS(PCBase):
     def initialize(self, obj):
+        print("obj", obj)
         if isinstance(obj, PETSc.PC):
             A, P = obj.getOperators()
-        elif isinstance(obj, PETSc.SNES):
-            A, P = obj.ksp.pc.getOperators()
         else:
-            raise ValueError("Not a PC or SNES?")
+            raise ValueError("Not a PC?")
+        prefix  = obj.getOptionsPrefix()
+        V = get_function_space(obj.getDM())
+        mesh = V.mesh()
 
-        prefix = obj.getOptionsPrefix()
-        appctx = self.get_appctx(obj)
+        family = str(V.ufl_element().family())
+        degree = V.ufl_element().degree()
+        if family != 'Nedelec 1st kind H(curl)' or degree != 1:
+                raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
-        f = appctx['state']
-        element = str(f.function_space().ufl_element().family()) #not sure this is right
-        mesh = f.function_space().mesh()
-        V = FunctionSpace(mesh, element, 1)
-
-        # build gradient matrix G
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        Q = FunctionSpace(mesh, "N1curl", 1)
-        G = Interpolator(grad(TestFunction(P1)), Q).callable().handle
+        G = Interpolator(grad(TestFunction(P1)), V).callable().handle
 
         pc = PETSc.PC().create()
-        pc.setOptionsPrefix(prefix + "HypreAMS_")
+        pc.setOptionsPrefix(prefix + "hypre_ams_")
         pc.setOperators(A, P)
 
         pc.setType('hypre')
         pc.setHYPREType('ams')
         pc.setHYPREDiscreteGradient(G)
-        zero_beta = PETSc.Options(prefix).getBool("pc_HypreAMS_zero_beta_poisson", default=False)
-        if zero_beta == True:
+        zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
+        if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
 #        pc.setCoordinates(np.reshape(
 #            mesh._plex.getCoordinates().getArray(),
