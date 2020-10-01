@@ -129,7 +129,7 @@ def test_subspace_rotated_subspace_poisson_zany():
     print("time consumed:", b - a)
 
 
-#@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_stokes():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
@@ -181,6 +181,7 @@ def test_subspace_rotated_subspace_stokes():
                                                  "pc_factor_shift_type": "inblocks"})
 
     # Plot solution
+    """
     u, p = w.split()
     import matplotlib.pyplot as plt
     fig, axes = plt.subplots(nrows=2, sharex=True, sharey=True)
@@ -196,6 +197,7 @@ def test_subspace_rotated_subspace_stokes():
     fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
 
     plt.savefig('test_subspace_rotated_subspace_stokes.pdf')
+    """
 
 
 def test_subspace_rotated_subspace_swe():
@@ -205,6 +207,9 @@ def test_subspace_rotated_subspace_swe():
     len_x = 30
     len_y = 10
     mesh = Mesh("./docs/notebooks/stokes-control.msh")
+    # Rotate mesh
+    theta = pi / 6
+    mesh = _rotate_mesh(mesh, theta)
     #mesh = RectangleMesh(30, 10, len_x, len_y)
 
     V = VectorFunctionSpace(mesh, "CG", 2)
@@ -220,7 +225,7 @@ def test_subspace_rotated_subspace_swe():
     u_, h_ = split(uh_)
     
     normal = FacetNormal(mesh)
-    V4 = BoundaryComponentSubspace(W.sub(0), (3, 5), normal)
+    V4 = BoundaryComponentSubspace(W.sub(0), (3, 4, 5), normal)
 
     vq4 = Masked(vq, V4)
     uh4 = Masked(uh, V4)
@@ -233,7 +238,7 @@ def test_subspace_rotated_subspace_swe():
     g = Constant(1)
     CD = Constant(1)
     H = Constant(1)
-    dt = 0.1
+    dt = 0.2
     eps = Constant(1e-12)
 
     T = 2 * nu * sym(grad(u)) - 2 / 3 * nu * div(u) * Identity(2)
@@ -245,7 +250,7 @@ def test_subspace_rotated_subspace_swe():
         inner(CD * sqrt(dot(u, u) + eps) * u / (H + h), v0) * dx + \
         inner(h - h_, q0) / dt * dx - \
         inner((H + h) * u, grad(q0)) * dx + \
-        inner(u, v4) * ds((3, 5))
+        inner(u, v4) * ds((3, 4, 5))
 
     x, y = SpatialCoordinate(mesh)
     u_inflow = as_vector([y * (10 - y) / 25.0, 0])
@@ -256,39 +261,80 @@ def test_subspace_rotated_subspace_swe():
     bcs = [DirichletBC(W.sub(1), 0, (1, 2, 3, 4, 5))]
 
 
-    uh.sub(1).assign(Function(Q).interpolate(0.001 * x * (5 - x) * conditional(real(x) < 5, 1, 0) * y * (len_y - y)))
+    xprime = cos(theta) * x + sin(theta) * y
+    yprime = -sin(theta) * x + cos(theta) * y
+    uh.sub(1).assign(Function(Q).interpolate(0.0005 * xprime * (5 - xprime) * conditional(real(xprime) < 5, 1, 0) *  \
+                                                      yprime * (10 - yprime) ))
 
 
-
-    
-    #import matplotlib.pyplot as plt
 
     t = 0
-    while t < 5:
-        """
-        # Plot solution
-        fig, axes = plt.subplots(nrows=2, sharex=True, sharey=True)
-        uplot, hplot = uh.split()
-        arrows = quiver(uplot, axes=axes[0], clim=[-0.1, 0.1])
-        axes[0].set_xlim(-0.5, 30.5)
-        axes[0].set_aspect("equal")
-        axes[0].set_title("Velocity")
-        fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
-        triangles = tripcolor(hplot, axes=axes[1], cmap='coolwarm', vmin=-0.02, vmax=0.02)
-        axes[1].set_xlim(-0.5, 30.5)
-        axes[1].set_aspect("equal")
-        axes[1].set_title("Pressure")
-        fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
-        plt.savefig('test_subspace_rotated_subspace_swe_%05.2f.png' % t)
-        """
+    while t < 25:
+        #uplot, hplot = uh.split()
+        #plot_velocity(uplot, 'swe_velocity_%05.2f.pdf' % t, t)
+        #plot_surface(uplot, 'swe_surface_%05.2f.pdf' % t, t)
 
         uh_.assign(uh)
         solve(F == 0, uh, bcs=bcs, solver_parameters={"ksp_type": "gmres"})
         t += dt
-        print(t)
+        #print(t)
 
 
+"""
+import matplotlib.pyplot as plt
 
 
+def plot_velocity(uplot, name, t=None):
+    len_x=30
+    len_y=10
+    theta = pi/6
+    x0 = 0
+    x1 = len_x * cos(theta)
+    x3 = -len_y * sin(theta)
+    x2 = x1 + x3
+    y0 = 0
+    y1 = len_x * sin(theta)
+    y3 = len_y * cos(theta)
+    y2 = y1 + y3
+
+    fig, axes = plt.subplots(figsize=(16, 12), nrows=1, sharex=True, sharey=True)
+    axes.plot([x0, x1, x2, x3, x0], [y0, y1, y2, y3, y0], color='gainsboro')
+    arrows = quiver(uplot, axes=axes, clim=[0, 0.01], scale=0.05)
+    axes.set_xlim(-5, 27)
+    axes.set_aspect("equal")
+    #plt.xticks(fontsize=28)
+    #plt.yticks(fontsize=28)
+    if t:
+        axes.set_title("t = %05.2f: Velocity" % t, fontsize=36)
+    else:
+        axes.set_title("Velocity", fontsize=36)
+    plt.axis('off')
+    cbar = fig.colorbar(arrows, ax=axes, fraction=0.032, pad=0.02)
+    cbar.ax.tick_params(labelsize=36)
+    plt.savefig(name, transparent=True)
+    plt.close(fig)
 
 
+def plot_height():
+    pass
+    #triangles = tripcolor(hplot, axes=axes[1], cmap='coolwarm', vmin=-0.02, vmax=0.02)
+    #axes[0].set_xlim(-5, 27)
+    #axes[1].set_aspect("equal")
+    #axes[1].set_title("t = %05.2f: Relative height" % t)
+    #fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+
+def plot_surface(hplot, name, t=None):
+    fig = plt.figure(figsize=(12, 8))
+    axes = fig.add_subplot(111, projection='3d')
+    triangles = trisurf(hplot, axes=axes, cmap='coolwarm', vmin=-0.005, vmax=0.005)
+    axes.set_xlim(5, 20)
+    axes.set_zlim(-0.05, 0.05)
+    axes.view_init(elev=30., azim=-20)
+    plt.axis('off')
+    if t:
+        axes.set_title("t = %05.2f: Relative height" % t, fontsize=20)
+    cbar = fig.colorbar(triangles, ax=axes, fraction=0.032, pad=0.02)
+    cbar.ax.tick_params(labelsize=20)
+    plt.savefig(name)
+    plt.close(fig)
+"""
