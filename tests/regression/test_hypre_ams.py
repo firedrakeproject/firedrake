@@ -97,7 +97,6 @@ def test_homogeneous_field_nonlinear():
               'pc_hypre_ams_zero_beta_poisson': True,
              }
 
-    A = Function(V)
-    solve(a - L == 0, A, bc, solver_parameters=params)
-    B = project(curl(A), V0)
+    solve(a - L == 0, u, bc, solver_parameters=params)
+    B = project(curl(u), V0)
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)

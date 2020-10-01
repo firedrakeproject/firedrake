@@ -1,6 +1,7 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake import FunctionSpace, Constant, grad, TestFunction
+from firedrake.functionspace import FunctionSpace
+from firedrake import Constant, grad, TestFunction
 from firedrake.interpolation import Interpolator
 from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
