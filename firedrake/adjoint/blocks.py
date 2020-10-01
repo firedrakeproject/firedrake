@@ -254,8 +254,8 @@ class FunctionMergeBlock(Block, Backend):
         sub_func = deps[0].checkpoint
         parent_in = deps[1].checkpoint
         parent_out = self.get_outputs()[0].checkpoint
-        self.backend.Function.assign(parent_out, parent_in)
-        self.backend.Function.assign(self.backend.Function.sub(parent_out, self.idx), sub_func)
+        parent_out.assign(parent_in)
+        parent_out.sub(self.idx).assign(sub_func)
 
 
 class MeshOutputBlock(Block):
