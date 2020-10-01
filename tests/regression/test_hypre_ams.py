@@ -25,7 +25,7 @@ def test_homogeneous_field_linear():
               'ksp_rtol': '1e-15',
               'ksp_atol': '1e-15',
               'pc_type': 'python',
-              'pc_python_type': 'HypreAMS_preconditioner.HypreAMS',
+              'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True,
              }
 
@@ -60,7 +60,7 @@ def test_homogeneous_field_matfree():
               'pc_type': 'python',
               'pc_python_type': 'firedrake.AssembledPC',
               'assembled_pc_type': 'python',
-              'assembled_pc_python_type': 'HypreAMS_preconditioner.HypreAMS',
+              'assembled_pc_python_type': 'firedrake.HypreAMS',
               'assembled_pc_hypre_ams_zero_beta_poisson': True,
              }
 
@@ -93,7 +93,7 @@ def test_homogeneous_field_nonlinear():
               'ksp_rtol': '1e-15',
               'ksp_atol': '1e-15',
               'pc_type': 'python',
-              'pc_python_type': 'HypreAMS_preconditioner.HypreAMS',
+              'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True,
              }
 
