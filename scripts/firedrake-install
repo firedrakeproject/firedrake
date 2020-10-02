@@ -768,6 +768,10 @@ def install(package):
     elif package == "h5py/":
         # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
+    elif package == "loopy/" and osname == "Darwin":
+        # On MacOS loopy won't build unless additional flags are passed to the compiler
+        with environment(CFLAGS="-Wno-implicit-function-declaration"):
+            run_pip_install(["-e", package])
     else:
         run_pip_install(["-e", package])
 
@@ -1222,11 +1226,12 @@ if mode == "install" or not args.update_script:
         required_packages = ["gcc",
                              "python3",
                              "autoconf",
+                             "make",
                              "automake",
                              "cmake",
                              "libtool",
                              "boost"]
-        if args.with_blas is None:
+        if args.with_blas is None and mode == "install":
             required_packages.append("openblas")
     elif osname == "Linux":
         package_manager = "apt-get"
@@ -1249,7 +1254,7 @@ if mode == "install" or not args.update_script:
             required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
 
-        if args.with_blas is None:
+        if args.with_blas is None and mode == "install":
             required_packages.append("libopenblas-dev")
 
         if args.documentation_dependencies:
@@ -1367,18 +1372,13 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
-    # Ensure pip and setuptools are at the latest version.
+    # Ensure pip, setuptools and wheel are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
+    run_pip(["install", "-U", "wheel"])
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
-
-    # Pre-install requested packages
-    if args.pip_packages is not None:
-        for package in args.pip_packages:
-            log.info("Pip installing %s to venv" % package)
-            run_pip_install(package.split())
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
@@ -1439,6 +1439,12 @@ if mode == "install":
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
