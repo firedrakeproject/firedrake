@@ -135,6 +135,8 @@ def test_subspace_rotated_subspace_stokes():
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
 
     mesh = Mesh("./docs/notebooks/stokes-control.msh")
+    theta = pi / 6
+    mesh = _rotate_mesh(mesh, theta)
 
     V = VectorFunctionSpace(mesh, "CG", 2)
     Q = FunctionSpace(mesh, "CG", 1)
@@ -146,13 +148,8 @@ def test_subspace_rotated_subspace_stokes():
     v, q = split(vq)
     u, p = split(up)
     
-    """
-    v0, q0 = v, q
-    u0, p0 = u, p
-    """
-
     normal = FacetNormal(mesh)
-    V4 = BoundaryComponentSubspace(W.sub(0), 4, normal)
+    V4 = BoundaryComponentSubspace(W.sub(0), (3, 4, 5), normal)
 
     vq4 = Masked(vq, V4)
     up4 = Masked(up, V4)
@@ -163,41 +160,28 @@ def test_subspace_rotated_subspace_stokes():
     v0, q0 = v - v4, q - q4
     u0, p0 = u - u4, p - p4
 
-
     nu = Constant(1)     # Viscosity coefficient
 
     x, y = SpatialCoordinate(mesh)
-    u_inflow = as_vector([y * (10 - y) / 25.0, 0])
+    yprime = -sin(theta) * x + cos(theta) * y
+    gbar = yprime * (10 - yprime) / 25.0
+    u_inflow = as_vector([cos(theta) * gbar, sin(theta) * gbar])
 
-    bcs = [DirichletBC(W.sub(0), (0, 0), (3, 5)),
-           DirichletBC(W.sub(0), interpolate(u_inflow, V), 1), ]
-           #DirichletBC(W.sub(0), (0, 0), (4, ))]
+    bcs = [DirichletBC(W.sub(0), interpolate(u_inflow, V), 1), ]
 
-    a = nu * inner(grad(u0), grad(v0)) * dx - inner(p0, div(v0)) * dx - inner(div(u0), q0) * dx + inner(u4, v4) * ds(4)
+    a = nu * inner(grad(u0), grad(v0)) * dx \
+        - inner(p0, div(v0)) * dx \
+        - inner(div(u0), q0) * dx \
+        + inner(u4, v4) * ds((3, 4, 5))
     L = inner(Constant(0), q0) * dx
 
     w = Function(W)
     solve(a == L, w, bcs=bcs, solver_parameters={"pc_type": "lu", "mat_type": "aij",
                                                  "pc_factor_shift_type": "inblocks"})
 
-    # Plot solution
-    """
-    u, p = w.split()
-    import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(nrows=2, sharex=True, sharey=True)
-    arrows = quiver(u, axes=axes[0])
-    axes[0].set_xlim(-0.5, 30.5)
-    axes[0].set_aspect("equal")
-    axes[0].set_title("Velocity")
-    fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
-    triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
-    axes[1].set_xlim(-0.5, 30.5)
-    axes[1].set_aspect("equal")
-    axes[1].set_title("Pressure")
-    fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
-
-    plt.savefig('test_subspace_rotated_subspace_stokes.pdf')
-    """
+    # Plot
+    #uplot, pplot = w.split()
+    #plot_velocity("test_subspace_rotated_subspace_stokes.pdf", uplot, theta, [-5, 27], None, [0, 1.], 20.)
 
 
 def test_subspace_rotated_subspace_swe():
@@ -279,15 +263,13 @@ def test_subspace_rotated_subspace_swe():
         t += dt
         #print(t)
 
-
 """
 import matplotlib.pyplot as plt
 
 
-def plot_velocity(uplot, name, t=None):
+def plot_velocity(name, uplot, theta, xlim, ylim, clim, scale, t=None, fontsize=36):
     len_x=30
     len_y=10
-    theta = pi/6
     x0 = 0
     x1 = len_x * cos(theta)
     x3 = -len_y * sin(theta)
@@ -297,20 +279,25 @@ def plot_velocity(uplot, name, t=None):
     y3 = len_y * cos(theta)
     y2 = y1 + y3
 
-    fig, axes = plt.subplots(figsize=(16, 12), nrows=1, sharex=True, sharey=True)
-    axes.plot([x0, x1, x2, x3, x0], [y0, y1, y2, y3, y0], color='gainsboro')
-    arrows = quiver(uplot, axes=axes, clim=[0, 0.01], scale=0.05)
-    axes.set_xlim(-5, 27)
+    #fig, axes = plt.subplots(figsize=(16, 12), nrows=1, sharex=True, sharey=True)
+    fig, axes = plt.subplots(figsize=(8, 6), nrows=1, sharex=True, sharey=True)
+    axes.plot([x0, x1, x2, x3, x0], [y0, y1, y2, y3, y0], color='gray')
+    arrows = quiver(uplot, axes=axes, clim=clim, scale=scale)
+    if xlim:
+        axes.set_xlim(*xlim)
+    if ylim:
+        axes.set_ylim(*ylim)
     axes.set_aspect("equal")
     #plt.xticks(fontsize=28)
     #plt.yticks(fontsize=28)
-    if t:
-        axes.set_title("t = %05.2f: Velocity" % t, fontsize=36)
+    if t is not None:
+        axes.set_title("u: t = %05.2f" % t, fontsize=fontsize)
     else:
-        axes.set_title("Velocity", fontsize=36)
+        pass
+        #axes.set_title("Velocity", fontsize=36)
     plt.axis('off')
     cbar = fig.colorbar(arrows, ax=axes, fraction=0.032, pad=0.02)
-    cbar.ax.tick_params(labelsize=36)
+    cbar.ax.tick_params(labelsize=12)
     plt.savefig(name, transparent=True)
     plt.close(fig)
 
