@@ -173,8 +173,8 @@ def test_subspace_rotated_subspace_stokes():
            DirichletBC(W.sub(0), interpolate(u_inflow, V), 1), ]
            #DirichletBC(W.sub(0), (0, 0), (4, ))]
 
-    a = nu * inner(grad(u0), grad(v0)) * dx - inner(p0, div(v0)) * dx - inner(q0, div(u0)) * dx + inner(u4, v4) * ds(4)
-    L = Constant(0) * q0 * dx
+    a = nu * inner(grad(u0), grad(v0)) * dx - inner(p0, div(v0)) * dx - inner(div(u0), q0) * dx + inner(u4, v4) * ds(4)
+    L = inner(Constant(0), q0) * dx
 
     w = Function(W)
     solve(a == L, w, bcs=bcs, solver_parameters={"pc_type": "lu", "mat_type": "aij",
