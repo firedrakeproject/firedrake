@@ -1,6 +1,7 @@
 from operator import iadd, isub, imul, itruediv
 from functools import partial
 from itertools import permutations
+from firedrake.assemble_expressions import Assign, evaluate_expression
 
 import pytest
 
@@ -442,3 +443,48 @@ def test_assign_mixed_multiple_shaped():
     q = assemble(z1 - z2)
     for q, p1, p2 in zip(q.split(), z1.split(), z2.split()):
         assert np.allclose(q.dat.data_ro, p1.dat.data_ro - p2.dat.data_ro)
+
+
+def test_expression_cache():
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = TensorFunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = Function(V)
+    w = Function(W)
+
+    i, j = indices(2)
+    exprA = Assign(u, as_vector(2*u[i], i))
+    exprB = Assign(u, as_vector(2*u[j], j))
+
+    assert len(u._expression_cache) == 0
+
+    evaluate_expression(exprA)
+
+    assert exprA.fast_key in u._expression_cache
+    assert exprA.slow_key in u._expression_cache
+    assert exprB.fast_key not in u._expression_cache
+    assert exprB.slow_key in u._expression_cache
+
+    evaluate_expression(exprB)
+    assert exprB.fast_key in u._expression_cache
+    assert exprA.fast_key in u._expression_cache
+
+    assert exprB.slow_key == exprA.slow_key
+
+    assert len(u._expression_cache) == 3
+
+    u.assign(as_vector([1, 2]))
+    u.assign(as_vector(2*u[i], i))
+    v.assign(as_vector(2*u[j], j))
+    w.assign(as_tensor([[1, 2], [0, 3]]))
+    w.assign(as_tensor(w[i, j]+w[j, i], (i, j)))
+
+    u -= as_vector([2, 4])
+    assert u.dat.norm < 1e-15
+    v -= as_vector([4, 8])
+    assert v.dat.norm < 1e-15
+    w -= as_tensor([[2, 2], [2, 6]])
+    assert w.dat.norm < 1e-15
+
+    assert len(u._expression_cache) == 5
