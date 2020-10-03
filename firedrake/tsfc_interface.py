@@ -18,7 +18,6 @@ import ufl
 from ufl import Form
 from .ufl_expr import TestFunction
 
-from tsfc import compile_form as tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 
 from pyop2.caching import Cached
@@ -136,7 +135,7 @@ class TSFCKernel(Cached):
         """
         if self._initialized:
             return
-        tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
+        tree = compile_local_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
         kernels = []
         for kernel in tree:
             # Set optimization options
@@ -164,6 +163,76 @@ class TSFCKernel(Cached):
 
 SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
+
+
+def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
+    import time
+    from ufl.log import GREEN
+    from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, set_quad_rule, replace_argument_multiindices_dummy
+    from tsfc.driver import compile_integral as tsfc_compile_integral
+    from tsfc.parameters import default_parameters, is_complex
+    from tsfc import ufl_utils
+    from tsfc.logging import logger
+
+    cpu_time = time.time()
+
+    assert isinstance(form, Form)
+
+    parameters = preprocess_parameters(parameters)
+
+    # Determine whether in complex mode:
+    complex_mode = parameters and is_complex(parameters.get("scalar_type"))
+
+    form_data = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
+    if interface:
+        interface = partial(interface, function_replace_map=form_data.function_replace_map)
+    tsfc_form_data = TSFCFormData((form_data, ), form_data.original_form, diagonal)
+
+    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
+
+    # Pick interface
+    if interface is None:
+        if coffee:
+            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
+            interface = firedrake_interface_coffee.KernelBuilder
+        else:
+            # Delayed import, loopy is a runtime dependency
+            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+            interface = firedrake_interface_loopy.KernelBuilder
+
+    kernels = []
+    for tsfc_integral_data in tsfc_form_data.integral_data:
+        start = time.time()
+        # The same builder (in principle) can be used to compile different forms.
+        builder = interface(tsfc_integral_data.integral_type,
+                            parameters["scalar_type_c"] if coffee else parameters["scalar_type"],
+                            domain=tsfc_integral_data.domain,
+                            coefficients=tsfc_integral_data.coefficients,
+                            diagonal=diagonal,
+                            integral_data=tsfc_integral_data)#REMOVE this when we move subspace.
+        # All form specific variables (such as arguments) are stored in kernel_config (not in KernelBuilder instance).
+        kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
+        kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
+        kernel_config = create_kernel_config(kernel_name, tsfc_form_data, tsfc_integral_data, parameters, builder, diagonal)
+        # The followings are specific for the concrete form representation, so
+        # not to be saved in KernelBuilders.
+        builder.set_arguments(kernel_config)
+        functions = list(kernel_config['arguments']) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
+
+        for integral in tsfc_integral_data.integrals:
+            params = parameters.copy()
+            params.update(integral.metadata())  # integral metadata overrides
+            set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
+            expressions = builder.compile_ufl(integral.integrand(), params, kernel_config)
+            expressions = replace_argument_multiindices_dummy(expressions, kernel_config)
+            reps = builder.construct_integrals(expressions, params, kernel_config)
+            builder.stash_integrals(reps, params, kernel_config)
+        kernel = builder.construct_kernel(kernel_config)
+        if kernel is not None:
+            kernels.append(kernel)
+        logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
+    logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
+    return kernels
 
 
 def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
