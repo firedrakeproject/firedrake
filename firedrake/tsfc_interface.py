@@ -166,6 +166,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
 
 
 def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
+    from functools import partial
     import time
     from ufl.log import GREEN
     from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, set_quad_rule, replace_argument_multiindices_dummy
