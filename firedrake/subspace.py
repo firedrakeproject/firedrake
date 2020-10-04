@@ -356,8 +356,8 @@ def _boundary_subspace_functions(V, subdomain):
                 corner_list.append(a.intersection(b))
         corners = functools.reduce(lambda a, b: a.union(b), corner_list)
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_deriv))
-        v1 = firedrake.Masked(v, g1)
-        u1 = firedrake.Masked(u, g1)
+        v1 = firedrake.Masked(v, ScalarSubspace(V, val=g1))
+        u1 = firedrake.Masked(u, ScalarSubspace(V, val=g1))
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
 
         normal = FacetNormal(V.mesh())
@@ -414,8 +414,8 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         #corners = functools.reduce(lambda a, b: a.union(b), corner_list)
         #g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_deriv))
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        v1 = firedrake.Masked(v, g1)
-        u1 = firedrake.Masked(u, g1)
+        v1 = firedrake.Masked(v, ScalarSubspace(V, g1))
+        u1 = firedrake.Masked(u, ScalarSubspace(V, g1))
         #quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [0.5, ], [1, ]]), [0.25, 0.50, 0.25])
 

@@ -289,7 +289,8 @@ def Masked(form_argument, subspace):
     if isinstance(subspace, Subspaces):
         ms = tuple(Masked(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor, Function)):
+    #elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor, Function)):
+    elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor)):
         return _Masked(form_argument, subspace)
     else:
         raise TypeError("Must be `AbstractSubspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
