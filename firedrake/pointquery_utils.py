@@ -192,8 +192,6 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
-    //const int space_dim = %(geometric_dimension)d;
-
     /*
      * Mapping coordinates from physical to reference space
      */
