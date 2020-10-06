@@ -26,8 +26,7 @@ def direction(request):
 def quadrilateral(request):
     return request.param
 
-
-@pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
+@pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
     l2error = []
@@ -107,7 +106,7 @@ def test_periodic_rectangle_advection(degree, threshold,
     assert np.all(convergence > threshold)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=3)
 def test_parallel_periodic_rectangle_advection():
     test_periodic_rectangle_advection(1, 1.8, "x", False)

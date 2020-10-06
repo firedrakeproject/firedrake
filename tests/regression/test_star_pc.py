@@ -8,7 +8,7 @@ except ImportError:
 
 
 @pytest.fixture(params=["scalar",
-                        pytest.param("vector", marks=pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")),
+                        pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
                         "mixed"])
 def problem_type(request):
     return request.param
