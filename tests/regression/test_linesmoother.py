@@ -48,7 +48,7 @@ def backend(request):
     return request.param
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="SLATE doesn't work in complex mode yet")
+@pytest.mark.skipcomplexnoslate
 def test_linesmoother(mesh, S1family, expected, backend):
     nits = []
     for degree in range(2):
