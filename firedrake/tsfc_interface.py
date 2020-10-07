@@ -5,6 +5,9 @@ passing to the backends.
 
 """
 import pickle
+import itertools
+from functools import partial
+import time
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
@@ -13,18 +16,28 @@ import os
 import zlib
 import tempfile
 import collections
+import numpy as np
 
 import ufl
 from ufl import Form
+from ufl.log import GREEN
 from .ufl_expr import TestFunction
 
+from tsfc import ufl_utils
+from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, set_quad_rule, replace_argument_multiindices_dummy
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
+from tsfc.parameters import default_parameters, is_complex
+from tsfc.logging import logger
+
+import gem
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form
+from firedrake.projected import extract_subspaces, ExtractProjectedSubBlock
+from firedrake.subspace import make_subspace_numbers_and_parts
 
 from firedrake.parameters import parameters as default_parameters
 from firedrake import utils
@@ -44,6 +57,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "coefficient_map",
                                      "subspace_map",
                                      "subspace_parts",
+                                     "subspace_map_",
+                                     "subspace_parts_",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes"])
@@ -110,7 +125,7 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, subspace_number_map, interface, coffee=False, diagonal=False):
+    def _cache_key(cls, form, name, parameters, number_map, subspace_number_map, subspace_number_map_, interface, coffee=False, diagonal=False, idx=None):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
@@ -119,11 +134,13 @@ class TSFCKernel(Cached):
                     + str(sorted(parameters.items()))
                     + str(number_map)
                     + str(subspace_number_map)
+                    + str(subspace_number_map_)
                     + str(type(interface))
                     + str(coffee)
+                    + str(idx)
                     + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, subspace_number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, subspace_number_map, subspace_number_map_, interface, coffee=False, diagonal=False, idx=None):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
@@ -135,16 +152,19 @@ class TSFCKernel(Cached):
         """
         if self._initialized:
             return
+        parameters = preprocess_parameters(parameters)
         tree = compile_local_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
         kernels = []
         for kernel in tree:
             # Set optimization options
             opts = default_parameters["coffee"]
             ast = kernel.ast
-            # Unwind coefficient/topological coefficient numbering
+            # Unwind function/subspace numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             subspace_numbers = tuple(subspace_number_map[c] for c in kernel.subspace_numbers)
             subspace_parts = kernel.subspace_parts
+            subspace_numbers_ = tuple(subspace_number_map_[c] for c in kernel.external_data_numbers)
+            subspace_parts_ = kernel.external_data_parts
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
                                                     requires_zeroed_output_arguments=True),
                                       integral_type=kernel.integral_type,
@@ -154,6 +174,8 @@ class TSFCKernel(Cached):
                                       coefficient_map=numbers,
                                       subspace_map=subspace_numbers,
                                       subspace_parts=subspace_parts,
+                                      subspace_map_=subspace_numbers_,
+                                      subspace_parts_=subspace_parts_,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes))
@@ -166,33 +188,38 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
 
 
 def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
-    from functools import partial
-    import time
-    from ufl.log import GREEN
-    from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, set_quad_rule, replace_argument_multiindices_dummy
-    from tsfc.driver import compile_integral as tsfc_compile_integral
-    from tsfc.parameters import default_parameters, is_complex
-    from tsfc import ufl_utils
-    from tsfc.logging import logger
 
     cpu_time = time.time()
 
     assert isinstance(form, Form)
 
-    parameters = preprocess_parameters(parameters)
-
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
 
-    form_data = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
-    if interface:
-        interface = partial(interface, function_replace_map=form_data.function_replace_map)
-    tsfc_form_data = TSFCFormData((form_data, ), form_data.original_form, diagonal)
-
+    # Build `TSFCFormData`.
+    # -- Call compute_form_data for each subform corresponding to
+    # -- a combination of test/trial subspaces.
+    nargs = len(form.arguments())
+    # -- None for 
+    subspaces_list = tuple((None, ) + extract_subspaces(form, number=i) for i in range(nargs))
+    # -- Decompose form according to test/trial subspaces.
+    splitter = ExtractProjectedSubBlock()
+    form_data_tuple = ()
+    form_data_subspace_map = {}
+    for subspace_tuple in itertools.product(*subspaces_list):
+        subform = splitter.split(form, subspace_tuple)
+        if subform.integrals() == ():
+            continue
+        form_data = ufl_utils.compute_form_data(subform, complex_mode=complex_mode)
+        form_data_tuple += (form_data, )
+        form_data_subspace_map[form_data] = subspace_tuple
+    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
-    if interface is None:
+    if interface:
+        interface = partial(interface, function_replace_map=tsfc_form_data.function_replace_map)
+    else:
         if coffee:
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
             interface = firedrake_interface_coffee.KernelBuilder
@@ -201,7 +228,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
 
+    # Loop over `TSFCIntegralData`s and construct a kernel for each.
     kernels = []
+    original_subspaces = extract_subspaces(form)
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
         # The same builder (in principle) can be used to compile different forms.
@@ -218,14 +247,53 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # The followings are specific for the concrete form representation, so
         # not to be saved in KernelBuilders.
         builder.set_arguments(kernel_config)
+        argument_multiindices = kernel_config['fem_config']['argument_multiindices']
+        argument_multiindices_dummy = kernel_config['fem_config']['argument_multiindices_dummy']
         functions = list(kernel_config['arguments']) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
 
+        # Gather all subspaces in this TSFCIntegralData
+        subspaces = set()
         for integral in tsfc_integral_data.integrals:
+            form_data = tsfc_integral_data.integral_to_form_data(integral)
+            subspaces.update(form_data_subspace_map[form_data])
+        subspaces = subspaces.difference(set((None, )))
+        subspaces = sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
+                                                     s.index if s.index else -1))
+        # Make:
+        # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
+        # -- subspace_parts_  : which components are used if mixed (otherwise None).
+        subspace_numbers_, subspace_parts_ = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        # Remember for assembler's use.
+        kernel_config['external_data_numbers'] = subspace_numbers_
+        kernel_config['external_data_parts'] = subspace_parts_
+        # Make:
+        # -- subspace_exprs   : gem expressions associated with enabled (split) subspaces.
+        subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
+        # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
+        subspace_expr_map = {s:e for s, e in zip(subspaces, subspace_exprs)}
+        # Compile integrals
+        # -- Compile ufl -> gem.
+        # -- Apply subspace transformation.
+        # -- 
+        for integral in tsfc_integral_data.integrals:
+            form_data = tsfc_integral_data.integral_to_form_data(integral)
+            subspace_tuple = form_data_subspace_map[form_data]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
             set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
             expressions = builder.compile_ufl(integral.integrand(), params, kernel_config)
-            expressions = replace_argument_multiindices_dummy(expressions, kernel_config)
+            assert len(subspace_tuple) == len(argument_multiindices)
+            for iarg, subspace in enumerate(subspace_tuple):
+                i = argument_multiindices[iarg]
+                i_dummy = argument_multiindices_dummy[iarg]
+                if subspace is None:
+                    # Apply no transformation.
+                    expressions = replace_argument_multiindices_dummy(expressions, kernel_config, i, i_dummy)
+                else:
+                    subspace_expr = subspace_expr_map[subspace]
+                    mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
+                    expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
+                                        for expression in expressions)
             reps = builder.construct_integrals(expressions, params, kernel_config)
             builder.stash_integrals(reps, params, kernel_config)
         kernel = builder.construct_kernel(kernel_config)
@@ -289,6 +357,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     # A map from all form coefficients/subspaces to their number.
     coefficient_numbers = dict((c, n) for (n, c) in enumerate(form.coefficients()))
     subspace_numbers = dict((f, n) for (n, f) in enumerate(form.subspaces()))
+    _subspace_numbers = dict((s, n) for (n, s) in enumerate(extract_subspaces(form)))
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -299,15 +368,17 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
-        # Map local coefficient/topological coefficient numbers (as seen inside the
-        # compiler) to the global coefficient/topological coefficient numbers
+        # Map local function/subspace numbers (as seen inside the
+        # compiler) to the global function/subspace numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
         subspace_number_map = dict((n, subspace_numbers[f])
                                      for (n, f) in enumerate(f.subspaces()))
+        subspace_number_map_ = dict((n, _subspace_numbers[s])
+                                     for (n, s) in enumerate(extract_subspaces(f)))
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
-                            number_map, subspace_number_map, interface, coffee, diagonal).kernels
+                            number_map, subspace_number_map, subspace_number_map_, interface, coffee, diagonal, idx=idx).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)

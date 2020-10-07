@@ -13,6 +13,7 @@ from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
+from firedrake.projected import extract_subspaces
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
@@ -505,6 +506,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
     :returns: a generator of op2.ParLoop objects."""
     coefficients = expr.coefficients()
     subspaces = expr.subspaces()
+    subspaces_ = extract_subspaces(expr)
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
@@ -531,6 +533,8 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         coeff_map = kinfo.coefficient_map
         topo_coeff_map = kinfo.subspace_map
         topo_coeff_parts = kinfo.subspace_parts
+        subspace_map_ = kinfo.subspace_map_
+        subspace_parts_ = kinfo.subspace_parts_
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -617,6 +621,16 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         for i, n in enumerate(topo_coeff_map):
             c = subspaces[n]
             enabled_parts = topo_coeff_parts[i]
+            if enabled_parts:
+                _split = tuple(c.split()[part] for part in enabled_parts)
+            else:
+                _split = c.split()
+            for c_ in _split:
+                m_ = get_map(c_)
+                args.append(c_.dat(op2.READ, m_))
+        for i, n in enumerate(subspace_map_):
+            c = subspaces_[n]
+            enabled_parts = subspace_parts_[i]
             if enabled_parts:
                 _split = tuple(c.split()[part] for part in enabled_parts)
             else:

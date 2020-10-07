@@ -10,6 +10,8 @@ from ufl.corealg.map_dag import MultiFunction, map_expr_dags, map_expr_dag
 
 from firedrake.ufl_expr import Argument, Masked
 from firedrake.function import Function
+from firedrake.subspace import IndexedSubspace
+from firedrake.projected import FiredrakeProjected
 
 
 class ExtractSubBlockMasked(MultiFunction):
@@ -163,6 +165,23 @@ class ExtractSubBlock(MultiFunction):
             return self._arg_cache[o]
         rules = ExtractSubBlockMasked(o.ufl_operands[1], self.blocks[t.number()])
         return self._arg_cache.setdefault(o, map_expr_dag(rules, o.ufl_operands[0]))
+
+    def firedrake_projected(self, o):
+        t = set()
+        t.update(extract_type(o.ufl_operands[0], Argument))
+        t.update(extract_type(o.ufl_operands[0], Function))
+        t = tuple(t)
+        if len(t) != 1:
+            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
+        t, _ = t
+        if not isinstance(t, Argument):
+            # Only split subspace if argument.
+            return o
+        if o in self._arg_cache:
+            return self._arg_cache[o]
+        subspace = o.subspace()
+        indexed_subspace = IndexedSubspace(subspace, self.blocks[t.number()])
+        return self._arg_cache.setdefault(o, FiredrakeProjected(o.ufl_operands[0], indexed_subspace))
 
     def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
         # If we're only taking a derivative wrt part of an argument in

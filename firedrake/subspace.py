@@ -59,6 +59,8 @@ class AbstractSubspace(ufl.Subspace):
                 self._data = CoordinatelessFunction(V.topological,
                                                     val=val, name=name, dtype=dtype)
         self._function_space = V
+        self.parent = None
+        self.index = None
 
     def __getattr__(self, name):
         val = getattr(self._data, name)
@@ -70,6 +72,9 @@ class AbstractSubspace(ufl.Subspace):
             that this :class:`Subspace` is a subspace of.
         """
         return self._function_space
+
+    def ufl_element(self):
+        return self.function_space().ufl_element()
 
     #@utils.cached_property
     @property
@@ -97,6 +102,21 @@ class AbstractSubspace(ufl.Subspace):
         \phi_i: ith basis
         """
         raise NotImplementedError("Must implement `transform_matrix` method.")
+
+
+class IndexedSubspace(object):
+    def __init__(self, parent, index):
+        self.parent = parent
+        self.index = index
+
+    def function_space(self):
+        return self.parent.function_space().split()[self.index]
+
+    def ufl_element(self):
+        return self.function_space().ufl_element()
+
+    def transform_matrix(self, elem, expression, dtype):
+        return self.parent.transform_matrix(elem, expression, dtype)
 
 
 class ScalarSubspace(AbstractSubspace):
@@ -487,3 +507,26 @@ def _normalise_subspace2(old_subspace, subdomain):
               "old_subspace": (old_subspace, READ)},
              is_loopy_kernel=True)
     return new_subspace
+
+
+def make_subspace_numbers_and_parts(subspaces, original_subspaces):
+    # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
+    # -- subspace_parts_  : which components are used if mixed (otherwise None).
+    subspaces_and_parts_dict = {}
+    for subspace in subspaces:
+        if subspace.parent:
+            subspaces_and_parts_dict.setdefault(subspace.parent, set()).update((subspace.index, ))
+        else:
+            subspaces_and_parts_dict[subspace] = None
+    subspace_numbers = []
+    subspace_parts = []
+    for i, subspace in enumerate(original_subspaces):
+        if subspace in subspaces_and_parts_dict:
+            subspace_numbers.append(i)
+            parts = subspaces_and_parts_dict[subspace]
+            if parts is None:
+                subspace_parts.append(None)
+            else:
+                parts = sorted(parts)
+                subspace_parts.append(parts)
+    return subspace_numbers, subspace_parts

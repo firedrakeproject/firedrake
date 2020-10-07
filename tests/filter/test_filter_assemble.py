@@ -17,7 +17,7 @@ def test_filter_one_form_lagrange():
     Vsub = BoundarySubspace(V, 1)
 
     rhs0 = assemble(f * v * dx)
-    rhs1 = assemble(f * Masked(v, Vsub) * dx)
+    rhs1 = assemble(f * Projected(v, Vsub) * dx)
 
     expected = np.multiply(rhs0.dat.data, Vsub.dat.data)
 

@@ -274,9 +274,6 @@ class _Masked(ufl.Masked):
     :arg subspace: the :class:`~.Subspace` (or :class:`~.Function`).
     """
     def __init__(self, form_argument, subspace):
-        if isinstance(subspace, Function):
-            f = subspace
-            subspace = ScalarSubspace(f.function_space(), val=f)
         super().__init__(form_argument, subspace)
 
 
@@ -289,7 +286,6 @@ def Masked(form_argument, subspace):
     if isinstance(subspace, Subspaces):
         ms = tuple(Masked(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
-    #elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor, Function)):
     elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor)):
         return _Masked(form_argument, subspace)
     else:
