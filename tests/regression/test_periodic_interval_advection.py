@@ -80,6 +80,7 @@ def run_test(degree):
 
     return np.asarray(l2error)
 
+
 @pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)

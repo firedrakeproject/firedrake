@@ -26,6 +26,7 @@ def direction(request):
 def quadrilateral(request):
     return request.param
 
+
 @pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):

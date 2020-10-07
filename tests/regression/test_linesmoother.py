@@ -47,6 +47,7 @@ def expected(mesh_type):
 def backend(request):
     return request.param
 
+
 @pytest.mark.skipcomplexnoslate
 def test_linesmoother(mesh, S1family, expected, backend):
     nits = []
