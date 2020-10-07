@@ -1,16 +1,16 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace
-from firedrake import Constant, grad, TestFunction
+from firedrake import Constant, TestFunction
 from firedrake.interpolation import Interpolator
 from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
+from ufl import grad
 
 __all__ = ("HypreAMS",)
 
 class HypreAMS(PCBase):
     def initialize(self, obj):
-        print("obj", obj)
         if isinstance(obj, PETSc.PC):
             A, P = obj.getOperators()
         else:
