@@ -129,7 +129,7 @@ pipeline {
             when {
               allOf {
                 branch 'master'
-                environment name: 'SCALAR_TYPE', value: 'complex'
+                environment name: 'SCALAR_TYPE', value: 'real'
               }
             }
             steps {
@@ -149,7 +149,7 @@ pipeline {
           stage('DockerComplex'){
             when {
               allOf {
-                branch 'wence/complex'
+                branch 'master'
                 environment name: 'SCALAR_TYPE', value: 'complex'
               }
             }
@@ -158,7 +158,7 @@ pipeline {
       sudo docker login -u $DOCKER_CREDENTIALS_USR -p $DOCKER_CREDENTIALS_PSW
       sudo docker build -t firedrakeproject/firedrake-env:latest -f docker/Dockerfile.env .
       sudo docker build --no-cache --build-arg PETSC_CONFIGURE_OPTIONS -t firedrakeproject/firedrake-complex:latest -f docker/Dockerfile.complex .
-      sudo docker push firedrakeproject/firedrake:latest
+      sudo docker push firedrakeproject/firedrake-complex:latest
       '''
             }
           }
