@@ -1324,7 +1324,10 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
-            blas_location = "/usr/local/opt/openblas/"
+
+            if args.with_blas is None and mode == "install":
+                blas_location = "/usr/local/opt/openblas/"
+                petsc_options.add("--with-blaslapack-dir={}".format(blas_location))
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
