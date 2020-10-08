@@ -34,6 +34,7 @@ def test_homogeneous_field_linear():
     B = project(curl(A), V0)
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
+
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -79,7 +80,7 @@ def test_homogeneous_field_nonlinear():
     v = TestFunction(V)
 
     a = inner(curl(u), curl(v))*dx
-    L = inner(Constant((0.,0.,0.)), v)*dx
+    L = inner(Constant((0., 0., 0.)), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
     B0 = 1
