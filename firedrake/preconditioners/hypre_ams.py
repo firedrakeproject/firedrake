@@ -21,7 +21,7 @@ class HypreAMS(PCBase):
         family = str(V.ufl_element().family())
         degree = V.ufl_element().degree()
         if family != 'Nedelec 1st kind H(curl)' or degree != 1:
-                raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
+            raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G = Interpolator(grad(TestFunction(P1)), V).callable().handle
