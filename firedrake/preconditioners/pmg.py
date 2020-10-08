@@ -419,11 +419,11 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     # P1 to remind you that P1 is of lower degree
     # than Pk
     from tsfc import compile_expression_dual_evaluation
-    from tsfc.finatinterface import create_base_element
+    from tsfc.finatinterface import create_element
     from firedrake import TestFunction
 
     expr = TestFunction(P1)
-    to_element = create_base_element(Pk.ufl_element())
+    to_element = create_element(Pk.ufl_element())
 
     kernel = compile_expression_dual_evaluation(expr, to_element)
     ast = kernel.ast
@@ -585,8 +585,8 @@ class StandaloneInterpolationMatrix(object):
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
         from tsfc import compile_expression_dual_evaluation
-        from tsfc.finatinterface import create_base_element
-        to_element = create_base_element(Vf.ufl_element())
+        from tsfc.finatinterface import create_element
+        to_element = create_element(Vf.ufl_element())
         kernel = compile_expression_dual_evaluation(expr, to_element)
         ast = kernel.ast
         name = kernel.name
