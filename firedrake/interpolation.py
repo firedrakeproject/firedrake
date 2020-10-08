@@ -140,6 +140,7 @@ class Interpolator(object):
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
+    print("expr:", expr)
     if isinstance(expr, firedrake.Expression):
         arguments = ()
     else:
@@ -162,6 +163,8 @@ def make_interpolator(expr, V, subset, access):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
 
+        print("argument:", arguments[0], dir( arguments[0]))
+        print("function_space:", arguments[0].function_space())
         argfs = arguments[0].function_space()
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs.cell_node_map()),),
