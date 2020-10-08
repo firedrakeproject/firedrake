@@ -10,13 +10,11 @@ from ufl import grad
 
 __all__ = ("HypreAMS",)
 
+
 class HypreAMS(PCBase):
     def initialize(self, obj):
-        if isinstance(obj, PETSc.PC):
-            A, P = obj.getOperators()
-        else:
-            raise ValueError("Not a PC?")
-        prefix  = obj.getOptionsPrefix()
+        A, P = obj.getOperators()
+        prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
@@ -44,7 +42,6 @@ class HypreAMS(PCBase):
 #            (-1,mesh.geometric_dimension())))
 
         # Build constants basis for the Nedelec space
-        constants = []
         cvecs = []
         for i in range(mesh.cell_dimension()):
             direction = [1.0 if i == j else 0.0 for j in range(mesh.cell_dimension())]
