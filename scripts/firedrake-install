@@ -1429,9 +1429,9 @@ if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
     if osname == "Darwin":
-        blas["DYLD_INSERT_LIBRARIES"] = blas_location
-                                        + "/lib/libblas.dylib:"
-                                        + blas_location
+        blas["DYLD_INSERT_LIBRARIES"] = blas_location \
+                                        + "/lib/libblas.dylib:" \
+                                        + blas_location \
                                         + "/lib/liblapack.dylib"
 
 if mode == "install":
