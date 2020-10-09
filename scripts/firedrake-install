@@ -1424,11 +1424,15 @@ log.info("Configuration saved to " + config_location)
 # Dict to store BLAS and OPENBLAS environment variables
 blas = dict()
 if blas_location == "download":
-    blas["BLAS"] = os.path.join(petsc_dir, petsc_arch)
-    blas["OPENBLAS"] = os.path.join(petsc_dir, petsc_arch)
-elif blas_location is not None:
+    blas_location = os.path.join(petsc_dir, petsc_arch)
+if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
+    if osname == "Darwin":
+        blas["DYLD_INSERT_LIBRARIES"] = blas_location
+                                        + "/lib/libblas.dylib:"
+                                        + blas_location
+                                        + "/lib/liblapack.dylib"
 
 if mode == "install":
     os.mkdir("src")
