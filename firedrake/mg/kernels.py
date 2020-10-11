@@ -139,7 +139,7 @@ def compile_element(expression, dual_space=None, parameters=None,
                   ufl_cell=cell,
                   point_indices=(),
                   point_expr=point,
-                  argument_multiindices_dummy=argument_multiindices,
+                  argument_multiindices=argument_multiindices,
                   scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 

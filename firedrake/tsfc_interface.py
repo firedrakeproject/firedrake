@@ -259,12 +259,13 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                             parameters["scalar_type_c"] if coffee else parameters["scalar_type"],
                             domain=tsfc_integral_data.domain,
                             coefficients=tsfc_integral_data.coefficients,
+                            arguments=tsfc_form_data.arguments,
                             diagonal=diagonal,
+                            fem_scalar_type = parameters["scalar_type"],
                             integral_data=tsfc_integral_data)#REMOVE this when we move subspace.
         # All form specific variables (such as arguments) are stored in kernel_config (not in KernelBuilder instance).
         # The followings are specific for the concrete form representation, so
         # not to be saved in KernelBuilders.
-        builder.set_arguments(tsfc_form_data.arguments)
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
         kernel_config = create_kernel_config(kernel_name, tsfc_integral_data, parameters, builder)
@@ -300,7 +301,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             subspace_tuple = form_data_subspace_map[form_data]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
-            expressions = builder.compile_ufl(integral.integrand(), params, kernel_config)
+            expressions = builder.compile_ufl(integral.integrand(), params, kernel_config, argument_multiindices=argument_multiindices_dummy)
             assert len(subspace_tuple) == len(argument_multiindices)
             for iarg, subspace in enumerate(subspace_tuple):
                 i = argument_multiindices[iarg]
