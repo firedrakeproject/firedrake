@@ -24,7 +24,7 @@ from ufl.log import GREEN
 from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
-from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, set_quad_rule, replace_argument_multiindices_dummy
+from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, create_kernel_config, replace_argument_multiindices_dummy
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.logging import logger
@@ -35,8 +35,12 @@ from pyop2.caching import Cached
 from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
+from firedrake.ufl_expr import Argument
 from firedrake.formmanipulation import split_form
-from firedrake.projected import extract_subspaces, ExtractProjectedSubBlock
+from firedrake.projected import extract_subspaces, extract_indexed_subspaces, sort_indexed_subspaces, ExtractProjectedSubBlock, \
+                                propagate_firedrake_projected, extract_projected_functions, \
+                                split_form_no_projected_function, \
+                                split_form_projected_function
 from firedrake.subspace import make_subspace_numbers_and_parts
 
 from firedrake.parameters import parameters as default_parameters
@@ -201,19 +205,36 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # -- a combination of test/trial subspaces.
     nargs = len(form.arguments())
     # -- None for 
-    subspaces_list = tuple((None, ) + extract_subspaces(form, number=i) for i in range(nargs))
+    subspaces_list = tuple((None, ) + extract_indexed_subspaces(form, number=i) for i in range(nargs))
+    form = propagate_firedrake_projected(form)
     # -- Decompose form according to test/trial subspaces.
     splitter = ExtractProjectedSubBlock()
     form_data_tuple = ()
     form_data_subspace_map = {}
+    form_data_function_map = {}
     for subspace_tuple in itertools.product(*subspaces_list):
         subform = splitter.split(form, subspace_tuple)
         if subform.integrals() == ():
             continue
-        form_data = ufl_utils.compute_form_data(subform, complex_mode=complex_mode)
+        # Further split subform if projected functions are found.
+        function_subspaces, projected_functions = extract_projected_functions(subform)
+        if len(projected_functions) > 0:
+            subsubform = split_form_no_projected_function(subform)
+        else:
+            subsubform = subform
+        form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
         form_data_tuple += (form_data, )
         form_data_subspace_map[form_data] = subspace_tuple
-    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal)
+        form_data_function_map[form_data] = ()
+        #for now assume functions are scalar
+        for s, f in zip(function_subspaces, projected_functions):
+            # Replace f with a new argument.
+            subsubform = split_form_projected_function(subform, s, f)
+            form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
+            form_data_tuple += (form_data, )
+            form_data_subspace_map[form_data] = subspace_tuple + (s, )
+            form_data_function_map[form_data] = (f, )
+    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_function_map)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
@@ -241,15 +262,15 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                             diagonal=diagonal,
                             integral_data=tsfc_integral_data)#REMOVE this when we move subspace.
         # All form specific variables (such as arguments) are stored in kernel_config (not in KernelBuilder instance).
-        kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
-        kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel_config = create_kernel_config(kernel_name, tsfc_form_data, tsfc_integral_data, parameters, builder, diagonal)
         # The followings are specific for the concrete form representation, so
         # not to be saved in KernelBuilders.
-        builder.set_arguments(kernel_config)
-        argument_multiindices = kernel_config['fem_config']['argument_multiindices']
-        argument_multiindices_dummy = kernel_config['fem_config']['argument_multiindices_dummy']
-        functions = list(kernel_config['arguments']) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
+        builder.set_arguments(tsfc_form_data.arguments)
+        kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
+        kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
+        kernel_config = create_kernel_config(kernel_name, tsfc_integral_data, parameters, builder)
+        argument_multiindices = builder.argument_multiindices
+        argument_multiindices_dummy = builder.argument_multiindices_dummy
+        functions = list(builder.arguments) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
 
         # Gather all subspaces in this TSFCIntegralData
         subspaces = set()
@@ -257,8 +278,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             form_data = tsfc_integral_data.integral_to_form_data(integral)
             subspaces.update(form_data_subspace_map[form_data])
         subspaces = subspaces.difference(set((None, )))
-        subspaces = sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
-                                                     s.index if s.index else -1))
+        subspaces = sort_indexed_subspaces(subspaces)
         # Make:
         # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
         # -- subspace_parts_  : which components are used if mixed (otherwise None).
@@ -280,7 +300,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             subspace_tuple = form_data_subspace_map[form_data]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
-            set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
             expressions = builder.compile_ufl(integral.integrand(), params, kernel_config)
             assert len(subspace_tuple) == len(argument_multiindices)
             for iarg, subspace in enumerate(subspace_tuple):

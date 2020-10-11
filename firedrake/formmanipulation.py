@@ -166,14 +166,14 @@ class ExtractSubBlock(MultiFunction):
         rules = ExtractSubBlockMasked(o.ufl_operands[1], self.blocks[t.number()])
         return self._arg_cache.setdefault(o, map_expr_dag(rules, o.ufl_operands[0]))
 
-    def firedrake_projected(self, o):
+    def firedrake_projected(self, o, A):
         t = set()
-        t.update(extract_type(o.ufl_operands[0], Argument))
-        t.update(extract_type(o.ufl_operands[0], Function))
+        t.update(extract_type(A, Argument))
+        t.update(extract_type(A, Function))
         t = tuple(t)
         if len(t) != 1:
             raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        t, _ = t
+        t = t[0]
         if not isinstance(t, Argument):
             # Only split subspace if argument.
             return o
@@ -181,7 +181,7 @@ class ExtractSubBlock(MultiFunction):
             return self._arg_cache[o]
         subspace = o.subspace()
         indexed_subspace = IndexedSubspace(subspace, self.blocks[t.number()])
-        return self._arg_cache.setdefault(o, FiredrakeProjected(o.ufl_operands[0], indexed_subspace))
+        return self._arg_cache.setdefault(o, FiredrakeProjected(A, indexed_subspace))
 
     def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
         # If we're only taking a derivative wrt part of an argument in

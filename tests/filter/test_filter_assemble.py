@@ -24,6 +24,25 @@ def test_filter_one_form_lagrange():
     assert np.allclose(rhs1.dat.data, expected)
 
 
+def test_filter_one_form_lagrange_action():
+
+    mesh = UnitSquareMesh(2, 2)
+
+    V = FunctionSpace(mesh, 'CG', 1)
+    v = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
+
+    Vsub = BoundarySubspace(V, 1)
+    fsub = np.multiply(f.dat.data, Vsub.dat.data)
+
+    rhs0 = assemble(fsub * Projected(v, Vsub) * dx)
+    rhs1 = assemble(Projected(f, Vsub) * Projected(v, Vsub) * dx)
+
+    assert np.allclose(rhs1.dat.data, rhs0.dat.data)
+
+
 def test_filter_one_form_bdm():
 
     mesh = UnitSquareMesh(2, 2)
@@ -38,7 +57,7 @@ def test_filter_one_form_bdm():
     Vsub = ScalarSubspace(V, Function(V).project(as_vector([1., 2.])), 1)
 
     rhs0 = assemble(inner(f, v) * dx)
-    rhs1 = assemble(inner(f, Masked(v, Vsub)) * dx)
+    rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
 
     expected = np.multiply(rhs0.dat.data, Vsub.dat.data)
 
@@ -67,7 +86,7 @@ def test_filter_one_form_mixed():
     Vsub = ScalarSubspace(V, g)
 
     rhs0 = assemble(inner(f, v) * dx)
-    rhs1 = assemble(inner(f, Masked(v, Vsub)) * dx)
+    rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
 
     for i in range(len(V)):
         expected = np.multiply(rhs0.dat.data[i], Vsub.dat.data[i])
@@ -86,10 +105,10 @@ def test_filter_two_form_lagrange():
     Vsub_b = ScalarSubspace(V, Constant(1.), subdomain1)
     Vsub_d = ScalarSubspace(V, Constant(1.), V.node_set.difference(subdomain1))
 
-    v_b = Masked(v, Vsub_b)
-    u_b = Masked(u, Vsub_b)
-    v_d = Masked(v, Vsub_d)  # equivalent to v - v_b.
-    u_d = Masked(u, Vsub_d)  # equivalent to u - u_b, but ufl_expr.derivative(a, u_, du=u_d) only works with Masked(...).
+    v_b = Projected(v, Vsub_b)
+    u_b = Projected(u, Vsub_b)
+    v_d = Projected(v, Vsub_d)  # equivalent to v - v_b.
+    u_d = Projected(u, Vsub_d)  # equivalent to u - u_b, but ufl_expr.derivative(a, u_, du=u_d) only works with Masked(...).
 
     # Mass matrix
     a = inner(grad(u), grad(v)) * dx
