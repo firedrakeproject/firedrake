@@ -253,11 +253,9 @@ class SplitFormProjectedFunction(MultiFunction):
         return f
 
 
-def split_form_projected_function(form, subspace, function):
+def split_form_projected_function(form, subspace, function, function_arg):
     """Split form according to the projected function."""
-    V = function.function_space()
-    function_arg = Argument(V, nargs)
-    dummy_function = Function(V)
+    dummy_function = Function(function.function_space())
     splitter = SplitFormProjectedFunction()
     subform = splitter.split(form, subspace, function, dummy_function)
     subform = derivative(subform, dummy_function, function_arg)

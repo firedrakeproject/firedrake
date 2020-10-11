@@ -211,6 +211,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     splitter = ExtractProjectedSubBlock()
     form_data_tuple = ()
     form_data_subspace_map = {}
+    form_data_extraarg_map = {}
     form_data_function_map = {}
     for subspace_tuple in itertools.product(*subspaces_list):
         subform = splitter.split(form, subspace_tuple)
@@ -225,16 +226,19 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
         form_data_tuple += (form_data, )
         form_data_subspace_map[form_data] = subspace_tuple
+        form_data_extraarg_map[form_data] = ()
         form_data_function_map[form_data] = ()
         #for now assume functions are scalar
         for s, f in zip(function_subspaces, projected_functions):
             # Replace f with a new argument.
-            subsubform = split_form_projected_function(subform, s, f)
+            f_arg = Argument(f.function_space(), nargs)
+            subsubform = split_form_projected_function(subform, s, f, f_arg)
             form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
             form_data_tuple += (form_data, )
             form_data_subspace_map[form_data] = subspace_tuple + (s, )
+            form_data_extraarg_map[form_data] = (f_arg, )
             form_data_function_map[form_data] = (f, )
-    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_function_map)
+    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_extraarg_map, form_data_function_map)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
@@ -302,10 +306,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
             expressions = builder.compile_ufl(integral.integrand(), params, kernel_config, argument_multiindices=argument_multiindices_dummy)
-            assert len(subspace_tuple) == len(argument_multiindices)
-            for iarg, subspace in enumerate(subspace_tuple):
-                i = argument_multiindices[iarg]
-                i_dummy = argument_multiindices_dummy[iarg]
+            for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple):
                 if subspace is None:
                     # Apply no transformation.
                     expressions = replace_argument_multiindices_dummy(expressions, kernel_config, i, i_dummy)
