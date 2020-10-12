@@ -108,10 +108,10 @@ class IndexRelabeller(MultiFunction):
     def __init__(self):
         super().__init__()
         self._reset()
-        self.index_cache = defaultdict(lambda: Index(next(self.count)))
 
     def _reset(self):
-        self.count = itertools.count()
+        count = itertools.count()
+        self.index_cache = defaultdict(lambda: Index(next(count)))
 
     expr = MultiFunction.reuse_if_untouched
 
@@ -466,6 +466,7 @@ def evaluate_expression(expr, subset=None):
             slow_key = expr.slow_key
             try:
                 arguments = cache[slow_key]
+                cache[fast_key] = arguments
             except KeyError:
                 arguments = None
         if arguments is not None:
