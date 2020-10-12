@@ -4,7 +4,7 @@ from ufl.constantvalue import Zero
 from ufl.core.ufl_type import ufl_type
 from ufl.core.operator import Operator
 from ufl.precedence import parstr
-from firedrake.ufl_expr import Argument
+from firedrake.ufl_expr import Argument, derivative
 from firedrake.function import Function
 from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace
 
@@ -88,7 +88,7 @@ from ufl.algorithms.traversal import iter_expressions
 from ufl.corealg.traversal import unique_pre_traversal
 
 
-# Propagate FiredrakeProjected to directly wrap FormArguments
+# -- Propagate FiredrakeProjected to directly wrap FormArguments
 
 
 class FiredrakeProjectedRuleset(MultiFunction):
@@ -120,7 +120,7 @@ class FiredrakeProjectedRuleDispatcher(MultiFunction):
         return map_expr_dag(rules, A)
 
 
-def propagate_firedrake_projected(expression):
+def propagate_projection(expression):
     "Propagate FiredrakeProjected nodes to wrap form arguments directly."
     rules = FiredrakeProjectedRuleDispatcher()
     return map_integrand_dags(rules, expression)
@@ -129,7 +129,7 @@ def propagate_firedrake_projected(expression):
 # -- SplitFormProjectedArgument
 
 
-class ExtractProjectedSubBlock(MultiFunction):
+class SplitFormProjectedArgument(MultiFunction):
     def __init__(self):
         MultiFunction.__init__(self)
 
@@ -187,6 +187,114 @@ class ExtractProjectedSubBlock(MultiFunction):
         return f
 
 
+def split_form_projected_argument(form):
+
+
+
+
+# -- SplitFormProjectedFunction
+
+
+class ProjectedFunctionReplacer(MultiFunction):
+    def __init__(self, subspace):
+        MultiFunction.__init__(self, function, dummy_function)
+        self._function = function
+        self._dummy_function = dummy_function
+
+    def terminal(self, o):
+        return o
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def coefficient(self, o):
+        assert o is self._function
+        return self._dummy_function
+
+
+class SplitFormProjectedFunction(MultiFunction):
+    def __init__(self):
+        MultiFunction.__init__(self)
+
+    def terminal(self, o):
+        return o
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def firedrake_projected(self, o, A):
+        a = set()
+        a.update(extract_type(o.ufl_operands[0], Argument))
+        a.update(extract_type(o.ufl_operands[0], Function))
+        a = tuple(a)
+        if len(a) != 1:
+            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
+        a = a[0]
+        if isinstance(a, Argument):
+            raise RuntimeError("Projected arguments must have been removed.")
+        elif o.subspace() is self._subspace and a is self._function:
+            rules = ProjectedFunctionReplacer(self._function, self._dummy_function)
+            return map_expr_dag(rules, A)
+        else:
+            shape = o.ufl_shape
+            fi = o.ufl_free_indices
+            fid = o.ufl_index_dimensions
+            return Zero(shape=shape, free_indices=fi, index_dimensions=fid)
+
+    def split(self, form, subspace, function, dummy_function):
+        self._subspace = subspace
+        self._function = function
+        self._dummy_function = dummy_function
+        f = map_integrand_dags(self, form)
+        return f
+
+
+def split_form_projected_function(form, subspace, function, function_arg):
+    """Split form according to the projected function."""
+    dummy_function = Function(function.function_space())
+    splitter = SplitFormProjectedFunction()
+    subform = splitter.split(form, subspace, function, dummy_function)
+    subform = derivative(subform, dummy_function, du=function_arg)
+    return subform
+
+
+# -- Split form removing all projected functions.
+
+
+class SplitFormNonProjectedFunction(MultiFunction):
+    def __init__(self):
+        MultiFunction.__init__(self)
+
+    def terminal(self, o):
+        return o
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def firedrake_projected(self, o, A):
+        a = set()
+        a.update(extract_type(o.ufl_operands[0], Argument))
+        a.update(extract_type(o.ufl_operands[0], Function))
+        a = tuple(a)
+        if len(a) != 1:
+            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
+        a = a[0]
+        if isinstance(a, Argument):
+            raise RuntimeError("Projected arguments must have been removed.")
+        shape = o.ufl_shape
+        fi = o.ufl_free_indices
+        fid = o.ufl_index_dimensions
+        return Zero(shape=shape, free_indices=fi, index_dimensions=fid)
+
+    def split(self, form):
+        return map_integrand_dags(self, form)
+
+
+def split_form_non_projected_function(form):
+    splitter = SplitFormNonProjectedFunction()
+    return splitter.split(form)
+
+
+# -- Helper functions
+
+
 def extract_subspaces(a):
     subspaces = extract_indexed_subspaces(a)
     subspaces = set(s if s.parent is None else s.parent for s in subspaces)
@@ -214,85 +322,3 @@ def extract_projected_functions(form):
     return (), ()
 
 
-# -- SplitFormProjectedFunction
-
-
-class SplitFormProjectedFunction(MultiFunction):
-    def __init__(self):
-        MultiFunction.__init__(self)
-
-    def terminal(self, o):
-        return o
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def firedrake_projected(self, o, A):
-        a = set()
-        a.update(extract_type(o.ufl_operands[0], Argument))
-        a.update(extract_type(o.ufl_operands[0], Function))
-        a = tuple(a)
-        if len(a) != 1:
-            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        a = a[0]
-        if isinstance(a, Argument):
-            raise RuntimeError("Projected argument must have been removed.")
-        elif o.subspace() is self.subspace and a is self.function:
-            return self.dummy_function
-        else:
-            shape = o.ufl_shape
-            fi = o.ufl_free_indices
-            fid = o.ufl_index_dimensions
-            return Zero(shape=shape, free_indices=fi, index_dimensions=fid)
-
-    def split(self, form, subspace, function, dummy_function):
-        args = form.arguments()
-        self.subspace = subspace
-        self.function = function
-        self.dummy_function = dummy_function
-        f = map_integrand_dags(self, form)
-        return f
-
-
-def split_form_projected_function(form, subspace, function, function_arg):
-    """Split form according to the projected function."""
-    dummy_function = Function(function.function_space())
-    splitter = SplitFormProjectedFunction()
-    subform = splitter.split(form, subspace, function, dummy_function)
-    subform = derivative(subform, dummy_function, function_arg)
-    return subform
-
-
-# -- Split form removing all projected functions.
-
-
-class SplitFormNoProjectedFunction(MultiFunction):
-    def __init__(self):
-        MultiFunction.__init__(self)
-
-    def terminal(self, o):
-        return o
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def firedrake_projected(self, o, A):
-        a = set()
-        a.update(extract_type(o.ufl_operands[0], Argument))
-        a.update(extract_type(o.ufl_operands[0], Function))
-        a = tuple(a)
-        if len(a) != 1:
-            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        a = a[0]
-        if isinstance(a, Argument):
-            raise RuntimeError("Projected argument must have been removed.")
-        shape = o.ufl_shape
-        fi = o.ufl_free_indices
-        fid = o.ufl_index_dimensions
-        return Zero(shape=shape, free_indices=fi, index_dimensions=fid)
-
-    def split(self, form):
-        return map_integrand_dags(self, form)
-
-
-def split_form_no_projected_function(form):
-    splitter = SplitFormNoProjectedFunction()
-    return splitter.split(form)
