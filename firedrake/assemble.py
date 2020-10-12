@@ -411,7 +411,7 @@ def get_scalar(arguments, *, tensor=None):
     if tensor is not None:
         raise ValueError("Can't assemble 0-form into existing tensor")
 
-    tensor = op2.Global(1, [0.0])
+    tensor = op2.Global(1, [0.0], dtype=utils.ScalarType)
     return tensor, (), lambda: tensor.data[0]
 
 

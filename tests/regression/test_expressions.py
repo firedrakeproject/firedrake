@@ -119,7 +119,7 @@ def evaluate(v, x):
         assert len(v) == len(x)
     except TypeError:
         x = (x,) * len(v)
-    return all(np.all(v_ == x_) for v_, x_ in zip(v, x))
+    return all(np.all(abs(v_ - x_) < 1.e-14) for v_, x_ in zip(v, x))
 
 
 def ioptest(f, expr, x, op):
@@ -157,7 +157,7 @@ scalar_tests = common_tests + [
     'assigntest(f, sqrt(one), 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
-    'exprtest(ufl.sign(minusthree), -1)',
+    'exprtest(ufl.sign(real(minusthree)), -1)',
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [
@@ -407,7 +407,7 @@ def test_minmax(fn):
 
     h = Function(V)
 
-    h.assign(fn(f, g))
+    h.assign(fn(real(f), real(g)))
 
     if fn == min_value:
         expect = 1

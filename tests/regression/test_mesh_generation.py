@@ -80,9 +80,9 @@ def run_one_element_advection():
     # advection equation
     q = TrialFunction(Vdg)
     p = TestFunction(Vdg)
-    a_mass = p*q*dx
-    a_int = (dot(grad(p), -u0*q))*dx
-    a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')))*(dS_v + dS_h)
+    a_mass = inner(q, p)*dx
+    a_int = (inner(-u0*q, grad(p)))*dx
+    a_flux = (inner(un('+')*q('+') - un('-')*q('-'), jump(p)))*(dS_v + dS_h)
     arhs = a_mass-dt*(a_int + a_flux)
     q_problem = LinearVariationalProblem(a_mass, action(arhs, q1), dq1)
     q_solver = LinearVariationalSolver(q_problem,
@@ -102,7 +102,7 @@ def run_one_element_advection():
         q_solver.solve()
         q0.assign(q0/3 + 2*dq1/3)
         t += Dt
-    assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
+    assert(assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005)
 
 
 def test_one_element_advection():
@@ -127,19 +127,19 @@ def run_one_element_mesh():
     # then check if projecting to CG returns the same DG function.
     r.interpolate(sin(2*pi*x[0]))
     u.project(r)
-    assert(assemble((u-r)*(u-r)*dx) < 1.0e-4)
+    assert(assemble(inner(u-r, u-r)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[1])
     u.project(r)
-    assert(assemble((u-0.5)*(u-0.5)*dx) < 1.0e-4)
+    assert(assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[0])
     u.project(r)
-    err = assemble((u-r)*(u-r)*dx)
+    err = assemble(inner(u-r, u-r)*dx)
     assert(err > 1.0e-3)
 
 

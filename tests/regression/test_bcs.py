@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -24,7 +24,7 @@ def u(V):
 @pytest.fixture
 def a(u, V):
     v = TestFunction(V)
-    return inner(grad(v), grad(u)) * dx
+    return inner(grad(u), grad(v)) * dx
 
 
 @pytest.fixture
@@ -53,15 +53,16 @@ def test_init_bcs_illegal(mesh, v):
 @pytest.mark.parametrize('measure', [dx, ds])
 def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
-    u, v = TestFunction(V), TrialFunction(V)
+    u, v = TrialFunction(V), TestFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
+
     with pytest.raises(RuntimeError):
-        assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
+        assemble(inner(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
 
 
 def test_assemble_bcs_wrong_fs_interior(V):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
-    u, v = TestFunction(V), TrialFunction(V)
+    u, v = TrialFunction(V), TestFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
     n = FacetNormal(V.mesh())
     with pytest.raises(RuntimeError):
@@ -197,11 +198,11 @@ def test_update_bc_constant(a, u, V, f):
 def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(u, v)*dx
+    a = inner(u, v)*dx
     bc = DirichletBC(V, f, 1)
 
     A = assemble(a, bcs=[bc])
-    L = dot(v, f)*dx
+    L = inner(f, v)*dx
     b = assemble(L)
 
     b_vals = b.vector().array()
@@ -220,7 +221,7 @@ def test_preassembly_bcs_caching(V):
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    a = dot(u, v)*dx
+    a = inner(u, v)*dx
 
     Aboth = assemble(a, bcs=[bc1, bc2])
     Aneither = assemble(a)
@@ -255,9 +256,9 @@ def test_assemble_mass_bcs_2d(V):
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-    solve(dot(u, v)*dx == dot(f, v)*dx, w, bcs=bcs)
+    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
 
-    assert assemble(dot((w - f), (w - f))*dx) < 1e-12
+    assert assemble(inner((w - f), (w - f))*dx) < 1e-12
 
 
 @pytest.mark.parametrize("quad",
@@ -270,7 +271,7 @@ def test_overlapping_bc_nodes(quad):
     v = TestFunction(V)
     bcs = [DirichletBC(V, 0, (1, 2, 3)),
            DirichletBC(V, 1, 4)]
-    A = assemble(u*v*dx, bcs=bcs).M.values
+    A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
     assert np.allclose(A, np.identity(V.dof_dset.size))
 

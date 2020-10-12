@@ -3,8 +3,6 @@ from operator import itemgetter
 import ufl
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType
-
 import firedrake.utils as utils
 
 
@@ -106,12 +104,12 @@ class Expression(ufl.Coefficient):
             # Save the argument for later reconstruction
             self._kwargs[slot] = val
             # Scalar arguments have to be treated specially
-            val = np.array(val, dtype=np.float64)
+            val = np.array(val, dtype=utils.ScalarType)
             shape = val.shape
             rank = len(shape)
             if rank == 0:
                 shape = 1
-            val = op2.Global(shape, val, dtype=ScalarType, name=slot)
+            val = op2.Global(shape, val, dtype=utils.ScalarType, name=slot)
             # Record the Globals in a known order (for later passing
             # to a par_loop).  Remember their "name" too, so we can
             # construct a kwarg dict when applying python expressions.

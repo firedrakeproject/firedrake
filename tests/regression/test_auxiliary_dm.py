@@ -1,5 +1,6 @@
 from firedrake.petsc import *
 from firedrake import *
+import pytest
 distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
 
@@ -44,6 +45,7 @@ class BiharmonicProblem(object):
         return f
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
 def test_auxiliary_dm():
     problem = BiharmonicProblem(5, 1)
     mesh = problem.mesh()

@@ -37,8 +37,8 @@ def helmholtz(n, el_type, degree, perturb):
     v = TestFunction(V)
     f = Function(V)
     f.project((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     # Compute solution
     assemble(a)
@@ -48,7 +48,7 @@ def helmholtz(n, el_type, degree, perturb):
 
     # Analytical solution
     f.project(cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    return sqrt(assemble(dot(sol - f, sol - f) * dx))
+    return sqrt(assemble(inner(sol - f, sol - f) * dx))
 
 
 # Test convergence on Hermite, Bell, and Argyris

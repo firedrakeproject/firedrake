@@ -37,7 +37,7 @@ struct Function {
 typedef int (*inside_predicate)(void *data_,
 				struct Function *f,
 				int cell,
-				PetscScalar *x);
+				double *x);
 
 typedef int (*inside_predicate_xtr)(void *data_,
 				struct Function *f,
@@ -46,14 +46,14 @@ typedef int (*inside_predicate_xtr)(void *data_,
 				double *x);
 
 extern int locate_cell(struct Function *f,
-		       PetscScalar *x,
+		       double *x,
 		       int dim,
 		       inside_predicate try_candidate,
 		       inside_predicate_xtr try_candidate_xtr,
 		       void *data_);
 
 extern int evaluate(struct Function *f,
-		    PetscScalar *x,
+		    double *x,
 		    PetscScalar *result);
 
 #ifdef __cplusplus

@@ -79,11 +79,11 @@ def test_aw(stress_element):
         # Hellinger--Reissner residual, incorporating MMS residuals
         F = (
             + inner(A(sigh), tau)*dx
-            + inner(div(tau), uh)*dx
+            + inner(uh, div(tau))*dx
             + inner(div(sigh), v)*dx
             - inner(comp_r, tau)*dx
             - inner(cons_r, v)*dx
-            - inner(dot(tau, n), uex)*ds
+            - inner(uex, dot(tau, n))*ds
             )  # noqa: E123
 
         params = {"snes_type": "newtonls",

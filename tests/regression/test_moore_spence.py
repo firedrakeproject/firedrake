@@ -16,7 +16,7 @@ def test_moore_spence():
 
     # elastica residual
     def residual(theta, lmbda, ttheta):
-        return inner(grad(theta), grad(ttheta))*dx - lmbda**2*sin(theta)*ttheta*dx
+        return inner(grad(theta), grad(ttheta))*dx - inner(lmbda**2*sin(theta), ttheta) * dx
 
     th = Function(V)
     x = SpatialCoordinate(msh)[0]
@@ -32,7 +32,7 @@ def test_moore_spence():
     # Want eigenmode phi with minimal eigenvalue r
     B = derivative(residual(th, lm, TestFunction(V)), th, TrialFunction(V))
 
-    petsc_M = assemble(inner(TestFunction(V), TrialFunction(V))*dx, bcs=bcs).petscmat
+    petsc_M = assemble(inner(TrialFunction(V), TestFunction(V))*dx, bcs=bcs).petscmat
     petsc_B = assemble(B, bcs=bcs).petscmat
 
     num_eigenvalues = 1
@@ -67,7 +67,7 @@ def test_moore_spence():
     ttheta, tlmbda, tphi = TestFunctions(Z)
     F1 = residual(theta, lmbda, ttheta)
     F2 = derivative(residual(theta, lmbda, tphi), z, as_vector([phi, 0, 0]))
-    F3 = (inner(phi, phi) - 1)*tlmbda*dx
+    F3 = inner(dot(phi, phi) - 1, tlmbda)*dx
 
     F = F1 + F2 + F3
 

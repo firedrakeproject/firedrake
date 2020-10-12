@@ -1,5 +1,5 @@
 from firedrake import *
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 import pytest
 import numpy
 
@@ -26,16 +26,16 @@ def test_variable_layers_bcs_application(measure, subdomain):
 
     selector = interpolate(
         conditional(
-            x < 0.2,
+            real(x) < 0.2,
             as_vector([0, 3]),
-            conditional(x > 0.8,
+            conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
         V)
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
-    layers[:] = selector.dat.data_ro
+    layers[:] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
@@ -45,7 +45,7 @@ def test_variable_layers_bcs_application(measure, subdomain):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*measure
+    a = inner(grad(u), grad(v))*measure
 
     bcs = DirichletBC(V, 0, subdomain)
 
@@ -84,16 +84,16 @@ def test_variable_layers_bcs_application_interior(measure, subdomain):
 
     selector = interpolate(
         conditional(
-            x < 0.2,
+            real(x) < 0.2,
             as_vector([0, 3]),
-            conditional(x > 0.8,
+            conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
         V)
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
-    layers[:] = selector.dat.data_ro
+    layers[:] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
@@ -103,7 +103,7 @@ def test_variable_layers_bcs_application_interior(measure, subdomain):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(avg(grad(u)), avg(grad(v)))*measure
+    a = inner(avg(grad(u)), avg(grad(v)))*measure
 
     bcs = DirichletBC(V, 0, subdomain)
 

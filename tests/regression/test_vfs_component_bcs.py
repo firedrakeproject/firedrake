@@ -74,7 +74,7 @@ def test_poisson_in_components(V):
 
     a = inner(grad(u), grad(v))*dx
 
-    L = dot(f, v)*dx
+    L = inner(f, v)*dx
 
     solve(a == L, g, bcs=bcs)
 
@@ -119,11 +119,11 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
     a = inner(grad(u), grad(v))*dx + \
         inner(grad(r), grad(s))*dx + \
-        dot(grad(p), grad(q))*dx
+        inner(grad(p), grad(q))*dx
 
-    L = dot(Constant((0, 0)), v)*dx + \
-        Constant(0)*q*dx + \
-        dot(Constant((0, 0)), s)*dx
+    L = inner(Constant((0, 0)), v) * dx + \
+        inner(Constant(0), q) * dx + \
+        inner(Constant((0, 0)), s) * dx
 
     solve(a == L, g, bcs=bcs, solver_parameters={'mat_type': mat_type})
 
@@ -176,17 +176,18 @@ def test_stokes_component_all():
     (u, p) = TrialFunctions(W)
     (v, q) = TestFunctions(W)
     f = Constant((0.0, 0.0))
-    a = inner(grad(u), grad(v))*dx + div(v)*p*dx + q*div(u)*dx
+    a = inner(grad(u), grad(v))*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(f, v)*dx
 
+    params = {"mat_type": "aij",
+              "pc_type": "lu",
+              "pc_factor_mat_solver_type": "mumps",
+              "pc_factor_shift_type": "nonzero"}
+
     Uall = Function(W)
-    solve(a == L, Uall, bcs=bcs_all, solver_parameters={"mat_type": "aij",
-                                                        "pc_type": "lu",
-                                                        "pc_factor_shift_type": "nonzero"})
+    solve(a == L, Uall, bcs=bcs_all, solver_parameters=params)
     Ucmp = Function(W)
-    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters={"mat_type": "aij",
-                                                        "pc_type": "lu",
-                                                        "pc_factor_shift_type": "nonzero"})
+    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters=params)
 
     for a, b in zip(Uall.split(), Ucmp.split()):
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)

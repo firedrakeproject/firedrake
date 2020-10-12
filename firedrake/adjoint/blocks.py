@@ -155,8 +155,8 @@ class ProjectBlock(SolveVarFormBlock):
         dx = self.backend.dx(mesh)
         w = self.backend.TestFunction(V)
         Pv = self.backend.TrialFunction(V)
-        a = self.backend.inner(w, Pv) * dx
-        L = self.backend.inner(w, v) * dx
+        a = self.backend.inner(Pv, w) * dx
+        L = self.backend.inner(v, w) * dx
 
         super().__init__(a == L, output, bcs, *args, **kwargs)
 

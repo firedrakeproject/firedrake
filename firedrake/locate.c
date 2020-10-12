@@ -23,7 +23,7 @@ int locate_cell(struct Function *f,
             return -1;
         }
         if (f->extruded == 0) {
-            for (int i = 0; i < nids; i++) {
+            for (uint64_t i = 0; i < nids; i++) {
                 if ((*try_candidate)(data_, f, ids[i], x)) {
                     cell = ids[i];
                     break;
@@ -31,7 +31,7 @@ int locate_cell(struct Function *f,
             }
         }
         else {
-            for (int i = 0; i < nids; i++) {
+            for (uint64_t i = 0; i < nids; i++) {
                 int nlayers = f->n_layers;
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;

@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+from firedrake.utils import RealType
 
 
 def integrate_unit_square(family, degree):
@@ -22,9 +23,9 @@ def integrate_unit_square(family, degree):
 
     domain = ""
     instructions = """
-    <float64> area = (x[1,1]-x[0,1])*(x[2,0]-x[0,0])
+    <{0}> area = (real(x[1,1])-real(x[0,1]))*(real(x[2,0])-real(x[0,0]))
     A[0] = A[0] + abs(area)
-    """
+    """.format(RealType)
     par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)},
              is_loopy_kernel=True)
 

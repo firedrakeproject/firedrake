@@ -46,13 +46,13 @@ def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    return u*v*dx
+    return inner(u, v) * dx
 
 
 @pytest.fixture
 def L(V):
     v = TestFunction(V)
-    return v*dx
+    return conj(v) * dx
 
 
 @pytest.fixture
@@ -159,8 +159,8 @@ def test_options_database_cleared():
     V = FunctionSpace(mesh, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
-    A = assemble(u*v*dx)
-    b = assemble(v*dx)
+    A = assemble(inner(u, v) * dx)
+    b = assemble(conj(v) * dx)
     u = Function(V)
     solvers = []
     for i in range(100):
@@ -178,7 +178,7 @@ def test_same_options_prefix_different_solve():
     u = Function(V)
     v = TestFunction(V)
 
-    F = u*v*dx - v*dx
+    F = inner(u, v) * dx - conj(v) * dx
 
     problem = NonlinearVariationalProblem(F, u)
     solver1 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "cg"},

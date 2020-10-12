@@ -19,7 +19,7 @@ def test_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        volume = assemble(u*v*dx).M.values
+        volume = assemble(inner(u, v) * dx).M.values
 
         assert np.allclose(volume, 0.5)
     else:
@@ -35,7 +35,7 @@ def test_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        solve(dot(u, v)*dx == dot(Constant((1, 0)), v)*dx, f)
+        solve(inner(u, v) * dx == inner(Constant((1, 0)), v) * dx, f)
 
         expect = Function(V).interpolate(Constant((1, 0)))
         assert np.allclose(expect.dat.data, f.dat.data)
