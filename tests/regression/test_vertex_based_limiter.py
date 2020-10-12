@@ -16,6 +16,7 @@ def mesh(request):
         return PeriodicUnitSquareMesh(30, 30, quadrilateral=True)
 
 
+@pytest.mark.skipcomplex
 def test_constant_field(mesh):
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
@@ -29,10 +30,11 @@ def test_constant_field(mesh):
     u_old = Function(u)
 
     limiter.apply(u)
-    diff = assemble((u - u_old) ** 2 * dx) ** 0.5
+    diff = assemble(inner(u - u_old, u - u_old) * dx) ** 0.5
     assert diff < 1.0e-10, "Failed on Constant function"
 
 
+@pytest.mark.skipcomplex
 def test_step_function_bounds(mesh):
     x = SpatialCoordinate(mesh)
 
@@ -43,7 +45,7 @@ def test_step_function_bounds(mesh):
     limiter = VertexBasedLimiter(v)
 
     # advecting velocity
-    u0 = conditional(x[0] < 0.5, 1., 0.)
+    u0 = conditional(real(x[0]) < 0.5, 1., 0.)
     u = Function(v).interpolate(u0)
     limiter.apply(u)
 
@@ -51,6 +53,7 @@ def test_step_function_bounds(mesh):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
+@pytest.mark.skipcomplex
 def test_step_function_loop(mesh, iterations=100):
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
@@ -70,9 +73,9 @@ def test_step_function_loop(mesh, iterations=100):
     n = FacetNormal(mesh)
     un = 0.5 * (dot(u, n) + abs(dot(u, n)))  # upwind value
 
-    a_mass = phi * D * dx
-    a_int = dot(grad(phi), -u * D) * dx
-    a_flux = dot(jump(phi), un('+') * D('+') - un('-') * D('-')) * dS
+    a_mass = inner(D, phi) * dx
+    a_int = inner(-u * D, grad(phi)) * dx
+    a_flux = inner(un('+') * D('+') - un('-') * D('-'), jump(phi)) * dS
     arhs = a_mass - dt * (a_int + a_flux)
 
     dD1 = Function(v)
@@ -80,7 +83,7 @@ def test_step_function_loop(mesh, iterations=100):
     x = SpatialCoordinate(mesh)
 
     # Initial Conditions
-    D0 = conditional(x[0] < 0.5, 1., 0.)
+    D0 = conditional(real(x[0]) < 0.5, 1., 0.)
 
     D = Function(v).interpolate(D0)
     D1.assign(D)
@@ -114,6 +117,7 @@ def test_step_function_loop(mesh, iterations=100):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
+@pytest.mark.skipcomplex
 def test_parallel_limiting(tmpdir):
     import pickle
     mesh = RectangleMesh(10, 4, 5000., 1000.)

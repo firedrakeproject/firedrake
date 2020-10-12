@@ -60,7 +60,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm",
-                           "petsc_int_type", "cache_dir", "remove_build_files", "with_blas"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
 
 
 def deep_update(this, that):
@@ -271,6 +271,8 @@ honoured.""",
     parser.add_argument("--cache-dir", type=str,
                         action="store",
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    parser.add_argument("--complex", action="store_true",
+                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
@@ -364,6 +366,11 @@ else:
     parser.add_argument("--cache-dir", type=str,
                         action="store", default=config["options"].get("cache_dir", ""),
                         help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+    complex_group = parser.add_mutually_exclusive_group()
+    complex_group.add_argument("--complex", action="store_true",
+                               help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
+    complex_group.add_argument("--real", action="store_true",
+                               help="Updates to the real version of Firedrake; rebuilds PETSc in real mode.")
     parser.add_argument("--documentation-dependencies", action="store_true",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--show-dependencies", action="store_true",
@@ -384,6 +391,14 @@ else:
     if config["options"].get("with_blas") is not None and \
        config["options"].get("with_blas") != args.with_blas:
         args.rebuild = True
+
+    petsc_complex_type_changed = False
+    previously_complex = config["options"].get("complex", False)
+    now_complex = not args.real and (args.complex or previously_complex)
+    if previously_complex != now_complex:
+        petsc_complex_type_changed = True
+        args.rebuild = True
+    args.complex = now_complex
 
     config = deep_update(config, FiredrakeConfiguration(args))
 
@@ -534,6 +549,11 @@ if options["petsc_int_type"] == "int32":
 else:
     petsc_options.add("--with-64-bit-indices")
 
+if options["complex"]:
+    petsc_options -= {'--download-hypre'}
+    petsc_options -= {'--download-ml'}
+    petsc_options.add('--with-scalar-type=complex')
+
 if options.get("mpiexec") is not None:
     petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
     petsc_options.add("--with-cc={}".format(options["mpicc"]))
@@ -553,6 +573,9 @@ petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGUR
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
+
+if mode == "update" and petsc_complex_type_changed:
+    log.warning("""Force rebuilding all packages because PETSc scalar type changed between real and complex""")
 
 
 def check_call(arguments):

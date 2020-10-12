@@ -111,6 +111,7 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     assert solver.snes.its <= 3
 
 
+@pytest.mark.skipcomplex
 def test_p_multigrid_vector():
     mesh = UnitSquareMesh(2, 2)
 
@@ -172,6 +173,7 @@ class MixedPMG(PMGPC):
         return MixedElement(csubeles)
 
 
+@pytest.mark.skipcomplex
 def test_p_multigrid_mixed():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)

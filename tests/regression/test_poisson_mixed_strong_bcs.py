@@ -45,9 +45,9 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     f = Function(DG).assign(0)
 
     # Define variational form
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
     n = FacetNormal(mesh)
-    L = -f*v*dx + 42*dot(tau, n)*ds(4)
+    L = inner(-f, v)*dx + 42*inner(n, tau)*ds(4)
 
     # Apply dot(sigma, n) == 0 on left and right boundaries strongly
     # (corresponding to Neumann condition du/dn = 0)
@@ -59,7 +59,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 
     # Analytical solution
     f.interpolate(42*x[1])
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])

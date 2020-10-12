@@ -13,9 +13,9 @@ def test_unary_minus():
 
     u = TrialFunction(V)
 
-    A = Tensor(u*v*dx)
+    A = Tensor(inner(u, v)*dx)
 
-    B = Tensor(uh*v*dx)
+    B = Tensor(inner(uh, v)*dx)
 
     uh.assign(1)
 

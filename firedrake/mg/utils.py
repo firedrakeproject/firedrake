@@ -1,7 +1,7 @@
 import numpy
 from fractions import Fraction
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import ufl
 import firedrake

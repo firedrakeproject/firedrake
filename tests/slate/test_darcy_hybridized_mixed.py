@@ -27,8 +27,8 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
     f.interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
     # Define the variational forms
-    a = (dot(sigma, tau) + div(tau) * u + v * div(sigma)) * dx
-    L = -f * v * dx + Constant(0.0) * dot(tau, n) * (ds(3) + ds(4))
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    L = -inner(f, v) * dx + Constant(0.0) * inner(n, tau) * (ds(3) + ds(4))
 
     # Compare hybridized solution with non-hybridized
     w = Function(W)

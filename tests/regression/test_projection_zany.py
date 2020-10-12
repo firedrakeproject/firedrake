@@ -25,13 +25,13 @@ def do_projection(n, el_type, degree):
     x, y = SpatialCoordinate(mesh)
     f = sin(x*pi)*sin(2*pi*y)
     a = inner(u, v) * dx
-    L = f*v*dx
+    L = inner(f, v) * dx
 
     # Compute solution
     x = Function(V)
     solve(a == L, x, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
-    return sqrt(assemble(dot(x - f, x - f) * dx))
+    return sqrt(assemble(inner(x - f, x - f) * dx))
 
 
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),

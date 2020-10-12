@@ -33,7 +33,7 @@ def run_near_to_far(mesh, DG0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[2] > 0.33, xs[2] < 0.67), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[2]) > 0.33, real(xs[2]) < 0.67), 1.0, 0.5)
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -43,12 +43,12 @@ def run_near_to_far(mesh, DG0, W):
     D = TrialFunction(DG0)
     phi = TestFunction(DG0)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(4)  # outflow at far wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un * D, phi) * ds(4)  # outflow at far wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(3)  # inflow at near wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(3)  # inflow at near wall
 
     out = Function(DG0)
     solve(a == L, out)
@@ -80,12 +80,12 @@ def run_up_to_down(mesh, DG1, W):
     D = TrialFunction(DG1)
     phi = TestFunction(DG1)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(5)  # outflow at lower wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un * D, phi) * ds(5)  # outflow at lower wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(6)  # inflow at upper wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(6)  # inflow at upper wall
 
     out = Function(DG1)
     solve(a == L, out)

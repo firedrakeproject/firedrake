@@ -1,13 +1,18 @@
 cimport petsc4py.PETSc as PETSc
 cimport mpi4py.MPI as MPI
+cimport numpy as np
 
 cdef extern from "mpi-compat.h":
     pass
 
+IF COMPLEX:
+   ctypedef np.complex128_t PetscScalar
+ELSE:
+   ctypedef double PetscScalar
+
 cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef double PetscReal
-   ctypedef double PetscScalar
    ctypedef enum PetscBool:
        PETSC_TRUE, PETSC_FALSE
    ctypedef enum PetscCopyMode:
