@@ -2,14 +2,12 @@ from firedrake import FunctionSpace, Function, DirichletBC
 
 __all__ = ['ExtrudedExtendFunction']
 
-def ExtrudedExtendFunction(mesh, base_mesh, fcn, extend_type=None):
+def ExtrudedExtendFunction(mesh, fcn, extend_type=None):
     """On an extruded mesh, extend a function by a constant in the extruded
     direction.  The returned function uses the degree 0 'R' space in the
     extruded direction.
 
     :arg mesh:           the extruded mesh
-
-    :arg base_mesh:      the base mesh from which mesh was extruded
 
     :arg fcn:            the function to extend
 
@@ -27,7 +25,7 @@ def ExtrudedExtendFunction(mesh, base_mesh, fcn, extend_type=None):
 
     # FIXME need to use fcn.function_space() to get element; e.g.
     #     Q3D = FunctionSpace(mesh, fcn.function_space().ufl_element, vfamily='R', vdegree=0)
-    # does not work
+    # does not work; note the base mesh is mesh._base_mesh
     
     Q3D = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)  # FIXME
     f3D = Function(Q3D)
