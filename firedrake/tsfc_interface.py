@@ -5,7 +5,6 @@ passing to the backends.
 
 """
 import pickle
-import itertools
 from functools import partial
 import time
 
@@ -203,7 +202,11 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # Build `TSFCFormData`.
     # -- Call compute_form_data for each subform corresponding to
     # -- a combination of test/trial subspaces.
-    form_data_tuple, form_data_subspace_map, form_data_extraarg_map, form_data_function_map = split_form_projected(form, complex_mode)
+    split_forms, split_subspaces, split_extraargs, split_functions = split_form_projected(form)
+    form_data_tuple = tuple(ufl_utils.compute_form_data(split_form, complex_mode=complex_mode) for split_form in split_forms)
+    form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
+    form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
+    form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
     tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_extraarg_map, form_data_function_map)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
