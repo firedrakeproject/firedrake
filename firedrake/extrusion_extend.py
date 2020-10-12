@@ -1,5 +1,3 @@
-import numpy as np
-import ufl
 from firedrake import FunctionSpace, Function, DirichletBC
 
 __all__ = ['ExtrudedExtendFunction']
