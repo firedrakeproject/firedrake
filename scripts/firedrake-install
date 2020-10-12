@@ -779,7 +779,9 @@ def install(package):
 def clean(package):
     log.info("Cleaning %s" % package)
     with directory(package):
-        check_call(["python", "setup.py", "clean"])
+        with environment(**blas):
+            # loopy needs knowledge of the system BLAS just to run setup.py
+            check_call(["python", "setup.py", "clean"])
 
 
 def pip_uninstall(package):
@@ -1327,7 +1329,8 @@ if mode == "install" or not args.update_script:
 
             if args.with_blas is None and mode == "install":
                 blas_location = "/usr/local/opt/openblas/"
-                petsc_options.add("--with-blaslapack-dir={}".format(blas_location))
+                petsc_options.append("--with-blaslapack-dir={}".format(blas_location))
+                config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
@@ -1412,15 +1415,6 @@ f90 = options["mpif90"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
-# Configuration is now complete, and we have a venv so we dump the
-# config file in order to maximise the chance that firedrake-update
-# can be run on a partial install.
-config_location = os.path.join(firedrake_env, ".configuration.json")
-json_output = json.dumps(config)
-with open(config_location, "w") as f:
-    f.write(json_output)
-log.info("Configuration saved to " + config_location)
-
 # Dict to store BLAS and OPENBLAS environment variables
 blas = dict()
 if blas_location == "download":
@@ -1433,6 +1427,15 @@ if blas_location is not None:
                                         + "/lib/libblas.dylib:" \
                                         + blas_location \
                                         + "/lib/liblapack.dylib"
+
+# Configuration is now complete, and we have a venv so we dump the
+# config file in order to maximise the chance that firedrake-update
+# can be run on a partial install.
+config_location = os.path.join(firedrake_env, ".configuration.json")
+json_output = json.dumps(config)
+with open(config_location, "w") as f:
+    f.write(json_output)
+log.info("Configuration saved to " + config_location)
 
 if mode == "install":
     os.mkdir("src")
