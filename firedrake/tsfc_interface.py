@@ -37,7 +37,7 @@ from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.ufl_expr import Argument
 from firedrake.formmanipulation import split_form
-from firedrake.projected import extract_subspaces, extract_indexed_subspaces, sort_indexed_subspaces, SplitFormProjectedArgument, \
+from firedrake.projected import split_form_projected, extract_subspaces, extract_indexed_subspaces, sort_indexed_subspaces, SplitFormProjectedArgument, \
                                 propagate_projection, extract_projected_functions, \
                                 split_form_non_projected_function, \
                                 split_form_projected_function
@@ -203,42 +203,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # Build `TSFCFormData`.
     # -- Call compute_form_data for each subform corresponding to
     # -- a combination of test/trial subspaces.
-    nargs = len(form.arguments())
-    # -- None for 
-    subspaces_list = tuple((None, ) + extract_indexed_subspaces(form, number=i) for i in range(nargs))
-    form = propagate_projection(form)
-    # -- Decompose form according to test/trial subspaces.
-    splitter = SplitFormProjectedArgument()
-    form_data_tuple = ()
-    form_data_subspace_map = {}
-    form_data_extraarg_map = {}
-    form_data_function_map = {}
-    for subspace_tuple in itertools.product(*subspaces_list):
-        subform = splitter.split(form, subspace_tuple)
-        if subform.integrals() == ():
-            continue
-        # Further split subform if projected functions are found.
-        function_subspaces, projected_functions = extract_projected_functions(subform)
-        if len(projected_functions) > 0:
-            subsubform = split_form_non_projected_function(subform)
-        else:
-            subsubform = subform
-        if subform.integrals():
-            form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
-            form_data_tuple += (form_data, )
-            form_data_subspace_map[form_data] = subspace_tuple
-            form_data_extraarg_map[form_data] = ()
-            form_data_function_map[form_data] = ()
-        #for now assume functions are scalar
-        for s, f in zip(function_subspaces, projected_functions):
-            # Replace f with a new argument.
-            f_arg = Argument(f.function_space(), nargs)
-            subsubform = split_form_projected_function(subform, s, f, f_arg)
-            form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
-            form_data_tuple += (form_data, )
-            form_data_subspace_map[form_data] = subspace_tuple + (s, )
-            form_data_extraarg_map[form_data] = (f_arg, )
-            form_data_function_map[form_data] = (f, )
+    form_data_tuple, form_data_subspace_map, form_data_extraarg_map, form_data_function_map = split_form_projected(form, complex_mode)
     tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_extraarg_map, form_data_function_map)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 

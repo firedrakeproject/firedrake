@@ -1,9 +1,11 @@
+import itertools
 import ufl
 from ufl.algorithms.analysis import extract_type
 from ufl.constantvalue import Zero
 from ufl.core.ufl_type import ufl_type
 from ufl.core.operator import Operator
 from ufl.precedence import parstr
+from tsfc import ufl_utils
 from firedrake.ufl_expr import Argument, derivative
 from firedrake.function import Function
 from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace
@@ -187,9 +189,45 @@ class SplitFormProjectedArgument(MultiFunction):
         return f
 
 
-def split_form_projected_argument(form):
+def split_form_projected(form, complex_mode):
+    nargs = len(form.arguments())
+    # -- None for 
+    subspaces_list = tuple((None, ) + extract_indexed_subspaces(form, number=i) for i in range(nargs))
+    form = propagate_projection(form)
+    # -- Decompose form according to test/trial subspaces.
+    splitter = SplitFormProjectedArgument()
+    form_data_tuple = ()
+    form_data_subspace_map = {}
+    form_data_extraarg_map = {}
+    form_data_function_map = {}
+    for subspace_tuple in itertools.product(*subspaces_list):
+        subform = splitter.split(form, subspace_tuple)
+        if subform.integrals() == ():
+            continue
+        # Further split subform if projected functions are found.
+        function_subspaces, projected_functions = extract_projected_functions(subform)
+        if len(projected_functions) > 0:
+            subsubform = split_form_non_projected_function(subform)
+        else:
+            subsubform = subform
+        if subform.integrals():
+            form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
+            form_data_tuple += (form_data, )
+            form_data_subspace_map[form_data] = subspace_tuple
+            form_data_extraarg_map[form_data] = ()
+            form_data_function_map[form_data] = ()
+        #for now assume functions are scalar
+        for s, f in zip(function_subspaces, projected_functions):
+            # Replace f with a new argument.
+            f_arg = Argument(f.function_space(), nargs)
+            subsubform = split_form_projected_function(subform, s, f, f_arg)
+            form_data = ufl_utils.compute_form_data(subsubform, complex_mode=complex_mode)
+            form_data_tuple += (form_data, )
+            form_data_subspace_map[form_data] = subspace_tuple + (s, )
+            form_data_extraarg_map[form_data] = (f_arg, )
+            form_data_function_map[form_data] = (f, )
 
-
+    return form_data_tuple, form_data_subspace_map, form_data_extraarg_map, form_data_function_map
 
 
 # -- SplitFormProjectedFunction
