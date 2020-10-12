@@ -1,3 +1,4 @@
+/* groovylint-disable NestedBlockDepth */
 pipeline {
   agent none
   environment {
@@ -150,6 +151,8 @@ pipeline {
             when {
               allOf {
                 branch 'master'
+                // Complex docker not working //
+                expression { false }
                 environment name: 'SCALAR_TYPE', value: 'complex'
               }
             }
