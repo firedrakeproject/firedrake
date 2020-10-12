@@ -37,7 +37,7 @@ def test_filter_one_form_lagrange_action():
     Vsub = BoundarySubspace(V, 1)
     fsub = np.multiply(f.dat.data, Vsub.dat.data)
 
-    rhs0 = assemble(fsub * Projected(v, Vsub) * dx)
+    #rhs0 = assemble(fsub * Projected(v, Vsub) * dx)
     rhs1 = assemble(Projected(f, Vsub) * Projected(v, Vsub) * dx)
 
     assert np.allclose(rhs1.dat.data, rhs0.dat.data)

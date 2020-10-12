@@ -212,6 +212,7 @@ class SplitFormProjectedArgument(MultiFunction):
 
 
 def split_form_projected_argument(form, subspace_tuple):
+    nargs = len(form.arguments())
     splitter = SplitFormProjectedArgument()
     subform = splitter.split(form, subspace_tuple)
     subforms = []
@@ -226,7 +227,7 @@ def split_form_projected_argument(form, subspace_tuple):
         subsubform = split_form_non_projected_function(subform)
     else:
         subsubform = subform
-    if subform.integrals():
+    if subsubform.integrals():
         subforms.append(subsubform)
         subspaces.append(subspace_tuple)
         extraargs.append(())
@@ -236,10 +237,11 @@ def split_form_projected_argument(form, subspace_tuple):
         # Replace f with a new argument.
         f_arg = Argument(f.function_space(), nargs)
         subsubform = split_form_projected_function(subform, s, f, f_arg)
-        subforms.append(subsubform)
-        subspaces.append(subspace_tuple + (s, ))
-        extraargs.append((f_arg, ))
-        functions.append((f, ))
+        if subsubform.integrals():
+            subforms.append(subsubform)
+            subspaces.append(subspace_tuple + (s, ))
+            extraargs.append((f_arg, ))
+            functions.append((f, ))
     return subforms, subspaces, extraargs, functions
 
 
@@ -247,8 +249,8 @@ def split_form_projected_argument(form, subspace_tuple):
 
 
 class ProjectedFunctionReplacer(MultiFunction):
-    def __init__(self, subspace):
-        MultiFunction.__init__(self, function, dummy_function)
+    def __init__(self, function, dummy_function):
+        MultiFunction.__init__(self)
         self._function = function
         self._dummy_function = dummy_function
 
