@@ -36,10 +36,7 @@ from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.ufl_expr import Argument
 from firedrake.formmanipulation import split_form
-from firedrake.projected import split_form_projected, extract_subspaces, extract_indexed_subspaces, sort_indexed_subspaces, SplitFormProjectedArgument, \
-                                propagate_projection, extract_projected_functions, \
-                                split_form_non_projected_function, \
-                                split_form_projected_function
+from firedrake.projected import split_form_projected, extract_subspaces, propagate_projection
 from firedrake.subspace import make_subspace_numbers_and_parts
 
 from firedrake.parameters import parameters as default_parameters
@@ -252,11 +249,11 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             form_data = tsfc_integral_data.integral_to_form_data(integral)
             subspaces.update(form_data_subspace_map[form_data])
         subspaces = subspaces.difference(set((None, )))
-        subspaces = sort_indexed_subspaces(subspaces)
         # Make:
+        # return sorted subspaces
         # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
         # -- subspace_parts_  : which components are used if mixed (otherwise None).
-        subspace_numbers_, subspace_parts_ = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        subspaces, subspace_numbers_, subspace_parts_ = make_subspace_numbers_and_parts(subspaces, original_subspaces)
         # Remember for assembler's use.
         kernel_config['external_data_numbers'] = subspace_numbers_
         kernel_config['external_data_parts'] = subspace_parts_

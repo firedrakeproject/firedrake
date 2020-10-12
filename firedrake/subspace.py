@@ -508,7 +508,6 @@ def _normalise_subspace2(old_subspace, subdomain):
              is_loopy_kernel=True)
     return new_subspace
 
-
 def make_subspace_numbers_and_parts(subspaces, original_subspaces):
     # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
     # -- subspace_parts_  : which components are used if mixed (otherwise None).
@@ -529,4 +528,10 @@ def make_subspace_numbers_and_parts(subspaces, original_subspaces):
             else:
                 parts = sorted(parts)
                 subspace_parts.append(parts)
-    return subspace_numbers, subspace_parts
+    subspaces = sort_indexed_subspaces(subspaces)
+    return subspaces, subspace_numbers, subspace_parts
+
+
+def sort_indexed_subspaces(subspaces):
+    return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
+                                                     s.index if s.index else -1))

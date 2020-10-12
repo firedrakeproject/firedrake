@@ -131,10 +131,11 @@ def propagate_projection(expression):
 
 
 def split_form_projected(form):
-    nargs = len(form.arguments())
-    # -- None for 
-    subspaces_list = tuple((None, ) + extract_indexed_subspaces(form, number=i) for i in range(nargs))
     form = propagate_projection(form)
+    nargs = len(form.arguments())
+    # -- None for
+    subspace_argument_set = extract_indexed_subspaces(form, cls=Argument) 
+    subspaces_list = tuple((None, ) + tuple(s for s, a in subspace_argument_set if a.number() == i) for i in range(nargs))
     # -- Decompose form according to test/trial subspaces.
     subforms = []
     subspaces = []
@@ -220,8 +221,8 @@ def split_form_projected_argument(form, subspace_tuple):
     if subform.integrals() == ():
         return [], [], [], []
     # Further split subform if projected functions are found.
-    function_subspaces, projected_functions = extract_projected_functions(subform)
-    if len(projected_functions) > 0:
+    subspace_function_set = extract_indexed_subspaces(subform, cls=Function)
+    if len(subspace_function_set) > 0:
         subsubform = split_form_non_projected_function(subform)
     else:
         subsubform = subform
@@ -231,7 +232,7 @@ def split_form_projected_argument(form, subspace_tuple):
         extraargs.append(())
         functions.append(())
     #for now assume functions are scalar
-    for s, f in zip(function_subspaces, projected_functions):
+    for s, f in subspace_function_set:
         # Replace f with a new argument.
         f_arg = Argument(f.function_space(), nargs)
         subsubform = split_form_projected_function(subform, s, f, f_arg)
@@ -345,30 +346,14 @@ def split_form_non_projected_function(form):
 # -- Helper functions
 
 
-def extract_subspaces(a):
-    subspaces = extract_indexed_subspaces(a)
-    subspaces = set(s if s.parent is None else s.parent for s in subspaces)
+def extract_subspaces(a, cls=object):
+    subspaces_and_objects = extract_indexed_subspaces(a, cls=cls)
+    subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
     return tuple(sorted(subspaces, key=lambda x: x.count()))
 
 
-def extract_indexed_subspaces(a, number=None):
-    if number:
-        subspaces = set(o.subspace() for e in iter_expressions(a)
-                        for o in unique_pre_traversal(e)
-                        if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], Argument) and o.ufl_operands[0].number() == number)
-    else:
-        subspaces = set(o.subspace() for e in iter_expressions(a)
-                        for o in unique_pre_traversal(e)
-                        if isinstance(o, FiredrakeProjected))
-    return tuple(sort_indexed_subspaces(subspaces))
-
-
-def sort_indexed_subspaces(subspaces):
-    return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
-                                                     s.index if s.index else -1))
-
-
-def extract_projected_functions(form):
-    return (), ()
-
-
+def extract_indexed_subspaces(a, cls=object):
+    return set((o.subspace(), o.ufl_operands[0])
+                for e in iter_expressions(a)
+                for o in unique_pre_traversal(e)
+                if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
