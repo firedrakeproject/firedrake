@@ -167,7 +167,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
-    gem_expr, var2terminal = slate_to_gem(slate_expr)
+    gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
     slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
