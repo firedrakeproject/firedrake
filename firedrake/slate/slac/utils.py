@@ -325,3 +325,19 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     prg = register_callable_kernel(prg, slate_loopy)
     prg = inline_callable_kernel(prg, slate_loopy.name)
     return prg
+
+
+def _generate_matfree_solve_callable(shape):
+    lp.set_caching_enabled(False)
+    knl = lp.make_function(
+            ["{[i] : 0 <= i < %d}" % shape],
+            """
+            x[i] = b[i] + 2*b[i]
+            """,
+            [lp.GlobalArg('x', shape=shape),
+             lp.GlobalArg('A', shape=shape+shape),
+             lp.GlobalArg('b', shape=shape)],
+            target=lp.CTarget(),
+            name="solve_matfree")
+
+    return knl
