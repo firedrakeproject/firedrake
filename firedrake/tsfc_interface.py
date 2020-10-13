@@ -238,7 +238,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # not to be saved in KernelBuilders.
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel_config = {}
         argument_multiindices = builder.argument_multiindices
         argument_multiindices_dummy = builder.argument_multiindices_dummy
         functions = list(builder.arguments) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
@@ -254,9 +253,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
         # -- subspace_parts_  : which components are used if mixed (otherwise None).
         subspaces, subspace_numbers_, subspace_parts_ = make_subspace_numbers_and_parts(subspaces, original_subspaces)
-        # Remember for assembler's use.
-        kernel_config['external_data_numbers'] = subspace_numbers_
-        kernel_config['external_data_parts'] = subspace_parts_
         # Make:
         # -- subspace_exprs   : gem expressions associated with enabled (split) subspaces.
         subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
@@ -283,8 +279,11 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                                         for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
             builder.stash_integrals(reps, params)
-        kernel = builder.construct_kernel(kernel_name, kernel_config)
+        kernel = builder.construct_kernel(kernel_name)
         if kernel is not None:
+            # Remember for assembler's use.
+            kernel.external_data_numbers = subspace_numbers_
+            kernel.external_data_parts = subspace_parts_
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
