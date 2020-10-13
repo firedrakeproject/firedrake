@@ -37,7 +37,7 @@ import hashlib
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve']
+           'Add', 'Mul', 'Solve', 'Diagonal']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -1103,6 +1103,42 @@ class Solve(BinaryOp):
     def is_matfree(self):
         return self._matfree
 
+class Diagonal(UnaryOp):
+    """An abstract Slate class representing the diagonal of a tensor.
+
+    .. warning::
+
+       This class will raise an error if the tensor is not square.
+    """
+
+    def __init__(self, A):
+        """Constructor for the Diagonal class."""
+        assert A.rank == 2, "The tensor must be rank 2."
+        assert A.shape[0] == A.shape[1], (
+            "The diagonal can only be computed on square tensors."
+        )
+
+        super(Diagonal, self).__init__(A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return (tensor.arg_function_spaces[::-1][0],)
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        tensor, = self.operands
+        return (tensor.arguments()[::-1][0],)
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the diagonal of a tensor."""
+        tensor, = self.operands
+        return "(%s).diag" % tensor
 
 def space_equivalence(A, B):
     """Checks that two function spaces are equivalent.
@@ -1119,7 +1155,7 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor],
+    [AssembledVector, Block, Factorization, Tensor, Diagonal],
     [Add],
     [Mul, Solve],
     [UnaryOp],

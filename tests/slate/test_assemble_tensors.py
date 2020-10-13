@@ -270,3 +270,8 @@ def test_matrix_subblocks(mesh):
     for tensor, form in items:
         ref = assemble(form).M.values
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
+
+def test_diagonal(mass):
+    diag = assemble(Diagonal(Tensor(mass)))
+    ref = assemble(Tensor(mass)).M.values
+    assert np.allclose(np.diag(ref), diag.dat.data.flatten(), rtol=1e-14)
