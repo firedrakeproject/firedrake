@@ -70,6 +70,7 @@ def _push_block_transpose(expr, self, indices):
 
 @_push_block.register(Add)
 @_push_block.register(Negative)
+@_push_block.register(DiagonalTensor)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
     return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
@@ -179,6 +180,7 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
 @_drop_double_transpose.register(Inverse)
+@_drop_double_transpose.register(DiagonalTensor)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
@@ -202,6 +204,7 @@ def _push_mul_tensor(expr, self, state):
 
 
 @_push_mul.register(AssembledVector)
+@_push_mul.register(DiagonalTensor)
 def _push_mul_vector(expr, self, state):
     """Do not push into AssembledVectors."""
     return expr
