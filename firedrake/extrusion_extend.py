@@ -26,7 +26,7 @@ def ExtrudedExtendFunction(mesh, fcn, extend_type=None):
     # FIXME need to use fcn.function_space() to get element; e.g.
     #     Q3D = FunctionSpace(mesh, fcn.function_space().ufl_element, vfamily='R', vdegree=0)
     # does not work; note the base mesh is mesh._base_mesh
-    
+
     Q3D = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)  # FIXME
     f3D = Function(Q3D)
 
@@ -35,7 +35,7 @@ def ExtrudedExtendFunction(mesh, fcn, extend_type=None):
     else:
         if extend_type in {"top", "bottom"}:
             bc = DirichletBC(fcn.function_space(), 1.0, extend_type)
-            f3D.dat.data[:] = fcn.dat.data_ro[bc.nodes]
+            f3D.dat.data_with_halos[:] = fcn.dat.data_with_halos[bc.nodes]
         else:
             raise ValueError('unknown extend_type')
     return f3D
