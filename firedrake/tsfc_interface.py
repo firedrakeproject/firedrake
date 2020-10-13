@@ -226,21 +226,14 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         start = time.time()
         # The same builder (in principle) can be used to compile different forms.
         builder = interface(tsfc_integral_data,
-                            tsfc_integral_data.integral_type,
                             parameters["scalar_type_c"] if coffee else parameters["scalar_type"],
-                            domain=tsfc_integral_data.domain,
-                            coefficients=tsfc_integral_data.coefficients,
-                            arguments=tsfc_form_data.arguments,
-                            diagonal=diagonal,
-                            fem_scalar_type = parameters["scalar_type"])
+                            parameters["scalar_type"],
+                            diagonal=diagonal)
         # All form specific variables (such as arguments) are stored in kernel_config (not in KernelBuilder instance).
         # The followings are specific for the concrete form representation, so
         # not to be saved in KernelBuilders.
-        kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
-        kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
         argument_multiindices = builder.argument_multiindices
         argument_multiindices_dummy = builder.argument_multiindices_dummy
-        functions = list(builder.arguments) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
 
         # Gather all subspaces in this TSFCIntegralData
         subspaces = set()
@@ -279,6 +272,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                                         for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
             builder.stash_integrals(reps, params)
+        # Construct kernel
+        kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
+        kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
         kernel = builder.construct_kernel(kernel_name)
         if kernel is not None:
             # Remember for assembler's use.
