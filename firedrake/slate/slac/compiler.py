@@ -22,7 +22,7 @@ from hashlib import md5
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy, _generate_matfree_solve_callable
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -37,6 +37,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
+from loopy.transform.callable import register_callable_kernel, inline_callable_kernel
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -163,8 +164,15 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                       tsfc_parameters=tsfc_parameters)
 
     loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
+
+    # register C callable for matrix-explicit inverse and solve calls
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
+
+    # register loopy kernel for matrix-free solve call
+    matfree_solve_loopy = _generate_matfree_solve_callable(output_arg.shape)
+    loopy_merged = register_callable_kernel(loopy_merged, matfree_solve_loopy)
+    loopy_merged = inline_callable_kernel(loopy_merged,  matfree_solve_loopy.name)
 
     loopykernel = op2.Kernel(loopy_merged, loopy_merged.name)
 
