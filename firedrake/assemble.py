@@ -505,7 +505,6 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         compiler.
     :returns: a generator of op2.ParLoop objects."""
     coefficients = expr.coefficients()
-    subspaces = expr.subspaces()
     subspaces_ = extract_subspaces(expr)
     domains = expr.ufl_domains()
 
@@ -531,8 +530,6 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
-        topo_coeff_map = kinfo.subspace_map
-        topo_coeff_parts = kinfo.subspace_parts
         subspace_map_ = kinfo.subspace_map_
         subspace_parts_ = kinfo.subspace_parts_
         pass_layer_arg = kinfo.pass_layer_arg
@@ -616,16 +613,6 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         for n in coeff_map:
             c = coefficients[n]
             for c_ in c.split():
-                m_ = get_map(c_)
-                args.append(c_.dat(op2.READ, m_))
-        for i, n in enumerate(topo_coeff_map):
-            c = subspaces[n]
-            enabled_parts = topo_coeff_parts[i]
-            if enabled_parts:
-                _split = tuple(c.split()[part] for part in enabled_parts)
-            else:
-                _split = c.split()
-            for c_ in _split:
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
         for i, n in enumerate(subspace_map_):
