@@ -530,8 +530,8 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
         domain_number = kinfo.domain_number
         subdomain_id = kinfo.subdomain_id
         coeff_map = kinfo.coefficient_map
-        subspace_map_ = kinfo.subspace_map_
-        subspace_parts_ = kinfo.subspace_parts_
+        subspace_map = kinfo.subspace_map
+        subspace_parts = kinfo.subspace_parts
         pass_layer_arg = kinfo.pass_layer_arg
         needs_orientations = kinfo.oriented
         needs_cell_facets = kinfo.needs_cell_facets
@@ -615,9 +615,9 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
             for c_ in c.split():
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
-        for i, n in enumerate(subspace_map_):
+        for i, n in enumerate(subspace_map):
             c = subspaces_[n]
-            enabled_parts = subspace_parts_[i]
+            enabled_parts = subspace_parts[i]
             if enabled_parts:
                 _split = tuple(c.split()[part] for part in enabled_parts)
             else:
