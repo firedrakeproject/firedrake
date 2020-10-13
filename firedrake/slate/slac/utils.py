@@ -6,7 +6,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 Solve, Inverse, Variable, view)
+                 Solve, Inverse, Variable, view, Delta, Index)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -148,7 +148,7 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-def slate_to_gem(expression):
+def slate_to_gem(expression, options):
     """Convert a slate expression to gem.
 
     :arg expression: A slate expression.
@@ -156,7 +156,7 @@ def slate_to_gem(expression):
         gem variables to UFL "terminal" forms.
     """
 
-    mapper, var2terminal = slate2gem(expression)
+    mapper, var2terminal = slate2gem(expression, options)
     return mapper, var2terminal
 
 
@@ -184,6 +184,18 @@ def _slate2gem_block(expr, self):
     offsets = tuple(sum(shape[:idx]) for shape, (idx, *_)
                     in zip(child_shapes.values(), expr._indices))
     return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offsets, expr.shape)))
+
+
+@_slate2gem.register(sl.DiagonalTensor)
+def _slate2gem_diagonal(expr, self):
+    if not self.matfree:
+        A, = map(self, expr.children)
+        assert A.shape[0] == A.shape[1]
+        idx1, idx2 = (Index(extent=A.shape[0]),), (Index(extent=A.shape[0]),)
+        return ComponentTensor(Product(Indexed(A, idx1+idx1), Delta(idx1[0], idx2[0])), idx1+idx2)
+    else:
+        raise NotImplementedError("Diagonals on Slate expressions are \
+                                   not implemented in a matrix-free manner yet.")
 
 
 @_slate2gem.register(sl.Inverse)
@@ -237,9 +249,10 @@ def _slate2gem_factorization(expr, self):
     return A
 
 
-def slate2gem(expression):
+def slate2gem(expression, options):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
+    mapper.matfree = options["replace_mul"]
     return mapper(expression), mapper.var2terminal
 
 
