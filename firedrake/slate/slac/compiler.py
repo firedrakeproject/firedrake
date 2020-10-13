@@ -22,7 +22,7 @@ from hashlib import md5
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy, _generate_matfree_solve_callable
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
