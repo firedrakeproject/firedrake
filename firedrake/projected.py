@@ -4,6 +4,7 @@ from ufl.algorithms.analysis import extract_type
 from ufl.constantvalue import Zero
 from ufl.core.ufl_type import ufl_type
 from ufl.core.operator import Operator
+from ufl.form import Form
 from ufl.precedence import parstr
 from firedrake.ufl_expr import Argument, derivative
 from firedrake.function import Function
@@ -355,7 +356,18 @@ def extract_subspaces(a, cls=object):
 
 
 def extract_indexed_subspaces(a, cls=object):
-    return set((o.subspace(), o.ufl_operands[0])
-                for e in iter_expressions(a)
-                for o in unique_pre_traversal(e)
-                if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
+    from firedrake.slate.slate import TensorBase, Tensor
+    if isinstance(a, TensorBase):
+        if isinstance(a, Tensor):
+            return extract_indexed_subspaces(a.form, cls=cls)
+        _set = set()
+        for op in a.operands:
+            _set.update(extract_indexed_subspaces(op, cls=cls))
+        return _set
+    elif isinstance(a, Form):
+        return set((o.subspace(), o.ufl_operands[0])
+                    for e in iter_expressions(a)
+                    for o in unique_pre_traversal(e)
+                    if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
+    else:
+        raise TypeError("Unexpected type: %s" % str(type(a)))

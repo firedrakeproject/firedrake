@@ -23,7 +23,7 @@ from ufl.log import GREEN
 from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
-from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters, replace_argument_multiindices_dummy
+from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.logging import logger
@@ -253,16 +253,16 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             subspace_tuple = form_data_subspace_map[form_data]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
-            expressions = builder.compile_ufl(integral.integrand(), params, argument_multiindices=argument_multiindices_dummy)
+            _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
+                                           in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple))
+            expressions = builder.compile_ufl(integral.integrand(), params, argument_multiindices=_argument_multiindices)
             for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple):
                 if subspace is None:
-                    # Apply no transformation.
-                    expressions = replace_argument_multiindices_dummy(expressions, i, i_dummy)
-                else:
-                    subspace_expr = subspace_expr_map[subspace]
-                    mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
-                    expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
-                                        for expression in expressions)
+                    continue
+                subspace_expr = subspace_expr_map[subspace]
+                mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
+                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
+                                    for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
             builder.stash_integrals(reps, params)
         # Construct kernel
