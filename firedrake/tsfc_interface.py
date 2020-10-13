@@ -197,7 +197,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
     form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
     form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
-    tsfc_form_data = TSFCFormData(form_data_tuple, form, diagonal, form_data_extraarg_map, form_data_function_map)
+    tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
