@@ -162,44 +162,6 @@ def test_hcurl_2d():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
-def test_hdiv_2d():
-    mesh = UnitCubedSphereMesh(2)
-    x = SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
-    x = mesh.coordinates
-
-    U = FunctionSpace(mesh, 'RTCF', 1)
-    V = FunctionSpace(mesh, 'RTCF', 2)
-    c = as_vector([x[1], -x[0], 0.0])
-
-    f = interpolate(c, U)
-    g = interpolate(f, V)
-
-    # g shall be equivalent to:
-    h = interpolate(f, V)
-
-    assert np.allclose(g.dat.data, h.dat.data)
-
-
-def test_hcurl_2d():
-    mesh = UnitCubedSphereMesh(2)
-    x = SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
-    x = mesh.coordinates
-
-    U = FunctionSpace(mesh, 'RTCE', 1)
-    V = FunctionSpace(mesh, 'RTCE', 2)
-    c = as_vector([-x[1], x[0], 0.0])
-
-    f = interpolate(c, U)
-    g = interpolate(f, V)
-
-    # g shall be equivalent to:
-    h = interpolate(f, V)
-
-    assert np.allclose(g.dat.data, h.dat.data)
-
-
 def test_cell_orientation():
     m = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(m)
