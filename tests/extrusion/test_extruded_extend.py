@@ -22,8 +22,8 @@ def test_extruded_extend_topbottom():
     f = Function(V).interpolate(cos(2.0 * pi* x) * y)
     fbottom = Function(V).interpolate(0.0 * x)
     ftop = Function(V).interpolate(cos(2.0 * pi* x) * 0.4)
-    fbottomextend = ExtrudedExtendFunction(mesh, f, extend_type='bottom')
-    ftopextend = ExtrudedExtendFunction(mesh, f, extend_type='top')
+    fbottomextend = ExtrudedExtendFunction(mesh, f, extend='bottom')
+    ftopextend = ExtrudedExtendFunction(mesh, f, extend='top')
     assert errornorm(fbottom, fbottomextend) < 1.0e-10
     assert errornorm(ftop, ftopextend) < 1.0e-10
 
