@@ -170,7 +170,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
     # register loopy kernel for matrix-free solve call
-    matfree_solve_loopy = _generate_matfree_solve_callable(output_arg.shape)
+    matfree_solve_loopy = _generate_matfree_solve_callable(loopy_merged)
     loopy_merged = register_callable_kernel(loopy_merged, matfree_solve_loopy)
     loopy_merged = inline_callable_kernel(loopy_merged,  matfree_solve_loopy.name)
 
