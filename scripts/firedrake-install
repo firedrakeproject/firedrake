@@ -16,6 +16,8 @@ import shlex
 from glob import iglob
 from itertools import chain
 
+osname = platform.uname()[0]
+
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 
@@ -501,10 +503,6 @@ If you really want to use your own Python packages, please run again with the
 --honour-pythonpath option.
 """)
 
-petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
-
-petsc_opts += "--with-fortran-bindings=0 "
-
 petsc_options = {"--with-fortran-bindings=0",
                  "--with-debugging=0",
                  "--with-shared-libraries=1",
@@ -531,6 +529,8 @@ if not options["minimal_petsc"]:
     petsc_options.add("--download-pastix")
     # Required by pastix
     petsc_options.add("--download-hwloc")
+    if osname == "Darwin":
+        petsc_options.add("--download-hwloc-configure-arguments='--disable-opencl'")
     # Serial mesh partitioner
     petsc_options.add("--download-metis")
     if options.get("with_parmetis", None):
@@ -562,6 +562,8 @@ if options.get("mpiexec") is not None:
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
+    if osname == "Darwin":
+        petsc_options.add("--download-mpich-configure-arguments='--disable-opencl'")
 
 if options.get("with_blas") == "download":
     # Download openblas if the user specifies.
@@ -1243,7 +1245,6 @@ log.debug("\n\n")
 
 if mode == "install" or not args.update_script:
     # Check operating system.
-    osname = platform.uname()[0]
     required_packages = None
     package_manager = None
     if osname == "Darwin":
@@ -1353,6 +1354,7 @@ if mode == "install" or not args.update_script:
             if args.with_blas is None and mode == "install":
                 blas_location = "/usr/local/opt/openblas/"
                 petsc_options.append("--with-blaslapack-dir={}".format(blas_location))
+                petsc_options.append("--LD_FLAGS='-Wl,-rpath,{}/lib'".format(blas_location))
                 config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1446,10 +1448,7 @@ if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
     if osname == "Darwin":
-        blas["DYLD_INSERT_LIBRARIES"] = blas_location \
-                                        + "/lib/libblas.dylib:" \
-                                        + blas_location \
-                                        + "/lib/liblapack.dylib"
+        petsc_options.append("--LD_FLAGS='-Wl,-rpath,{}/lib'".format(blas_location))
 
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update
