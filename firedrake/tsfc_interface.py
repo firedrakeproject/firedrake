@@ -236,9 +236,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         subspaces = subspaces.difference(set((None, )))
         # Make:
         # return sorted subspaces
-        # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
-        # -- subspace_parts_  : which components are used if mixed (otherwise None).
-        subspaces, subspace_numbers_, subspace_parts_ = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        # -- subspace_numbers: which subspaces are used in this TSFCIntegralData.
+        # -- subspace_parts  : which components are used if mixed (otherwise None).
+        subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
         # Make:
         # -- subspace_exprs   : gem expressions associated with enabled (split) subspaces.
         subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
@@ -268,11 +268,8 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # Construct kernel
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel = builder.construct_kernel(kernel_name)
+        kernel = builder.construct_kernel(kernel_name, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts)
         if kernel is not None:
-            # Remember for assembler's use.
-            kernel.external_data_numbers = subspace_numbers_
-            kernel.external_data_parts = subspace_parts_
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
