@@ -8,7 +8,7 @@ class NonePC(PCBase):
         self.uh = Function(V)
         u = TrialFunction(V)
         v = TestFunction(V)
-        problem = LinearVariationalProblem(u*v*dx, 2*v*dx, self.uh)
+        problem = LinearVariationalProblem(inner(u, v) * dx, 2*conj(v)*dx, self.uh)
         self.solver = LinearVariationalSolver(problem)
 
     def update(self, pc):
