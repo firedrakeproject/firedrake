@@ -125,9 +125,6 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
         if parentmesh.ufl_cell().cellname() == "quadrilateral":
             if not (vfs_fam == "RTCE" or vfs_fam == "RTCF"):
                 pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
-            # TODO: Remove this else when fixed
-            else:
-                pytest.skip(f"Some complex merge related problem for {vfs_fam}, get this from loopy: TypeError: unsupported type for persistent hash keying: <class 'complex'>")
         elif parentmesh.ufl_cell().cellname() == "triangle" or parentmesh.ufl_cell().cellname() == "tetrahedron":
             if (not (vfs_fam == "N1curl" or vfs_fam == "N2curl"
                      or vfs_fam == "N1div" or vfs_fam == "N2div")):
