@@ -2,7 +2,7 @@ from functools import singledispatch
 import ufl
 from firedrake import FunctionSpace, Function, DirichletBC
 
-__all__ = ['ExtrudedExtendFunction']
+__all__ = ['extrude_function']
 
 @singledispatch
 def expand(element):
@@ -82,10 +82,9 @@ def extract_vector(element):
     sub_element = extract(element.sub_elements()[0])
     return type(element)(sub_element)
 
-def ExtrudedExtendFunction(mesh, fcn, extend=None, target=None):
+def extrude_function(mesh, fcn, extend=None, target=None):
     """On an extruded mesh, extend a function by a constant in the extruded
-    direction.  The returned function uses the degree 0 'R' space in the
-    extruded direction.
+    direction.
 
     :arg mesh:           the extruded mesh
 
@@ -95,15 +94,17 @@ def ExtrudedExtendFunction(mesh, fcn, extend=None, target=None):
 
     ``None``
         ``fcn`` is defined on the base mesh and the returned Function has
-        the same values in the extruded direction.
+        the same values in the extruded direction.  The returned function
+        uses the degree 0 'R' space.
 
     ``"top"`` or ``"bottom"``
         ``fcn`` is defined on the extruded mesh.  The values of the returned
         Function come from the values of ``fcn`` on the ``"top"``/``"bottom"``
-        boundary of the extruded mesh.
+        boundary of the extruded mesh.  The returned function has the same
+        layout as the ``fcn``.
 
-    ``target``: If not None, this function must be set up the same way as
-        the returned function.  It will be modified.
+    ``target``: If not None, this function must have the same layout as
+        the returned function, and it will be modified.
     """
 
     if extend is not None:
