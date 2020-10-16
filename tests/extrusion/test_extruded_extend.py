@@ -25,6 +25,17 @@ def test_extruded_extend_scalar():
     fextendedagain = ExtrudedExtendFunction(mesh, fbase, target=fextended)
     assert errornorm(f, fextendedagain) < 1.0e-10
 
+def test_extruded_extend_vector():
+    mesh = standard3d()
+    Vbase = VectorFunctionSpace(mesh._base_mesh,FiniteElement('Q',quadrilateral,1))
+    x,y = SpatialCoordinate(mesh._base_mesh)
+    fbase = Function(Vbase).interpolate(as_vector([cos(2.0 * pi * x),cos(2.0 * pi * y)]))
+    fextended = ExtrudedExtendFunction(mesh, fbase)
+    x,y,z = SpatialCoordinate(mesh)
+    Vextruded = VectorFunctionSpace(mesh,'Q',1, dim=2)
+    f = Function(Vextruded).interpolate(as_vector([cos(2.0 * pi * x),cos(2.0 * pi * y)]))
+    assert errornorm(f, fextended) < 1.0e-10
+
 def test_extruded_extend_topbottom():
     mesh = standard2d()
     x,y = SpatialCoordinate(mesh)
