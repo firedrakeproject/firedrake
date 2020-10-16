@@ -26,7 +26,7 @@ def expand_restricted(element):
 @expand.register(ufl.TensorElement)
 def expand_vector(element):
     shapes = set(element.value_shape())
-    if shapes != {element.ufl_cell().geometric_dimension()}:
+    if shapes != {element.cell().geometric_dimension()}:
         raise NotImplementedError("Can't infer shape of expanded element")
     sub_element = expand(element.sub_elements()[0])
     return type(element)(sub_element)
@@ -47,7 +47,7 @@ def extract(element):
 @extract.register(ufl.TensorProductElement)
 def extract_tpe(element):
     base, extruded = element.sub_elements()
-    assert extruded.ufl_cell() == ufl.interval
+    assert extruded.cell() == ufl.interval
     return ufl.TensorProductElement(base,
                                     ufl.FiniteElement("R", ufl.interval, 0))
 
@@ -77,7 +77,7 @@ def extract_hdivcurl(element):
 @extract.register(ufl.TensorElement)
 def extract_vector(element):
     shapes = set(element.value_shape())
-    if shapes != {element.ufl_cell().geometric_dimension()}:
+    if shapes != {element.cell().geometric_dimension()}:
         raise NotImplementedError("Can't infer shape of extracted element")
     sub_element = extract(element.sub_elements()[0])
     return type(element)(sub_element)
