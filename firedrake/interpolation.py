@@ -250,13 +250,18 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             # expression must be pure function of spatial coordinates so
             # domain has correct cell
             cell = expr.ufl_domain().ufl_cell
-        # TODO: turn this into an appropriate TensorFiniteElement when
-        # we have a vector or tensor element as our target V (check with
-        # V.ufl_element().num_sub_elements() I think.)
-        # See tsfc.finatinterface.convert_vectorelement for example
-        if V.ufl_element().num_sub_elements() > 0:
-            raise NotImplementedError("Cannot interpolate across meshes onto mixed elements yet")
-        to_element = QuadratureElement(cell, None, rule=QuadratureRule(UnknownPointSingleton(point), weights=[1.]))
+        assert to_element.degree == 0
+        from finat.fiat_elements import DiscontinuousLagrange
+        if to_element.value_shape == ():
+            assert isinstance(to_element, DiscontinuousLagrange)
+            to_element = QuadratureElement(cell, None, rule=QuadratureRule(UnknownPointSingleton(point), weights=[1.]))
+        else:
+            from finat.tensorfiniteelement import TensorFiniteElement
+            assert isinstance(to_element, TensorFiniteElement)
+            assert isinstance(to_element.base_element, DiscontinuousLagrange)
+            assert to_element.base_element.value_shape == ()
+            scalar_element = QuadratureElement(cell, None, rule=QuadratureRule(UnknownPointSingleton(point), weights=[1.]))
+            to_element = TensorFiniteElement(scalar_element, to_element.value_shape, to_element._transpose)
         trans_mesh_allowed = True
         # switch domain coords to expression's mesh and mesh coordinates
         dual_eval_domain = expr.ufl_domain()
