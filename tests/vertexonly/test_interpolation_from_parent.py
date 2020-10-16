@@ -61,8 +61,8 @@ def vfs(request):
 
 
 @pytest.fixture(params=[("CG", 2, TensorFunctionSpace),
-                        ("BDM", 2, VectorFunctionSpace),
-                        ("Regge", 1, FunctionSpace)],
+                        pytest.param(("BDM", 2, VectorFunctionSpace), marks=pytest.mark.skip("Interpolating an expression into BDM takes a very long time!")),
+                        ("Regge", 2, FunctionSpace)],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def tfs(request):
     return request.param
@@ -148,29 +148,39 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
 
 
-@pytest.mark.xfail(reason="can't interpolate onto tensor function spaces yet")
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)
-    expr = 2 * as_tensor([x, x])
+    gdim = parentmesh.geometric_dimension()
+    expr = 2 * as_tensor([x]*gdim)
+    assert W.shape == expr.ufl_shape
     w_expr = interpolate(expr, W)
-    result = 2 * np.asarray([[vertexcoords[i], vertexcoords[i]] for i in range(len(vertexcoords))])
+    result = 2 * np.asarray([[vertexcoords[i]]*gdim for i in range(len(vertexcoords))])
+    if len(result) == 0:
+        result = result.reshape(vertexcoords.shape + (gdim,))
     assert np.allclose(w_expr.dat.data_ro, result)
 
 
-@pytest.mark.xfail(reason="can't interpolate onto tensor function spaces yet")
 def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
+    tfs_fam, tfs_deg, tfs_typ = tfs
+    # skip where the element doesn't support the cell type
+    if (tfs_fam != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
+            and parentmesh.ufl_cell().cellname() != "tetrahedron"):
+        pytest.skip(f"{tfs_fam} does not support {parentmesh.ufl_cell()} cells")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
-    tfs_fam, tfs_deg, tfs_typ = tfs
     V = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)
-    expr = 2 * as_tensor([x, x])
+    # use outer product to check Regge works
+    expr = outer(x, x)
+    assert W.shape == expr.ufl_shape
     v = Function(V).interpolate(expr)
-    result = 2 * np.asarray([[vertexcoords[i], vertexcoords[i]] for i in range(len(vertexcoords))])
+    result = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
+    if len(result) == 0:
+        result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, result)
 
