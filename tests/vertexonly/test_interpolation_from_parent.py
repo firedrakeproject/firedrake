@@ -53,8 +53,8 @@ def fs(request):
                         ("N2curl", 2, FunctionSpace),
                         ("N1div", 2, FunctionSpace),
                         ("N2div", 2, FunctionSpace),
-                        ("N1curl", 2, VectorFunctionSpace),
-                        ("N1div", 2, VectorFunctionSpace)],
+                        ("RTCE", 2, FunctionSpace),
+                        ("RTCF", 2, FunctionSpace)],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def vfs(request):
     return request.param
@@ -109,7 +109,6 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
 
 
-@pytest.mark.xfail(reason="can't interpolate onto vector function spaces yet")
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
@@ -119,10 +118,28 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     assert np.allclose(w_expr.dat.data_ro, 2*np.asarray(vertexcoords))
 
 
-@pytest.mark.xfail(reason="can't interpolate onto vector function spaces yet")
 def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vfs_fam, vfs_deg, vfs_typ = vfs
+    # skip where the element doesn't support the cell type
+    if vfs_fam != "CG":
+        if parentmesh.ufl_cell().cellname() == "quadrilateral":
+            if not (vfs_fam == "RTCE" or vfs_fam == "RTCF"):
+                pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
+            # TODO: Remove this else when fixed
+            else:
+                pytest.skip(f"Some complex merge related problem for {vfs_fam}, get this from loopy: TypeError: unsupported type for persistent hash keying: <class 'complex'>")
+        elif parentmesh.ufl_cell().cellname() == "triangle" or parentmesh.ufl_cell().cellname() == "tetrahedron":
+            if (not (vfs_fam == "N1curl" or vfs_fam == "N2curl"
+                     or vfs_fam == "N1div" or vfs_fam == "N2div")):
+                pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
+            # TODO: Remove this else when fixed
+            else:
+                if parentmesh.ufl_cell().cellname() == "tetrahedron" and vfs_fam == "N2div":
+                    pytest.skip("N2div on tetrahedron cells is broken upstream - causes hanging (try tests/regression/test_interpolation_nodes.py and see!)")
+        else:
+            pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
+    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vertexcoords = vm.coordinates.dat.data_ro
     V = vfs_typ(parentmesh, vfs_fam, vfs_deg)
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
