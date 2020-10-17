@@ -198,7 +198,10 @@ class FunctionSplitBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         eval_adj = self.backend.Function(block_variable.output.function_space())
-        eval_adj.sub(self.idx).assign(adj_inputs[0].function)
+        if type(adj_inputs[0]) is self.backend.Function:
+            eval_adj.sub(self.idx).assign(adj_inputs[0])
+        else:
+            eval_adj.sub(self.idx).assign(adj_inputs[0].function)
         return eval_adj.vector()
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
