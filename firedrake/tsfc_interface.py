@@ -198,6 +198,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
     form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
     tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
+    form_data_coefficient_map = {fd:tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fd, fs in form_data_function_map.items()}
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
@@ -217,17 +218,13 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     original_subspaces = extract_subspaces(form)
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
-        # The same builder (in principle) can be used to compile different forms.
         builder = interface(tsfc_integral_data,
                             parameters["scalar_type_c"] if coffee else parameters["scalar_type"],
                             parameters["scalar_type"],
                             diagonal=diagonal)
-        # All form specific variables (such as arguments) are stored in kernel_config (not in KernelBuilder instance).
-        # The followings are specific for the concrete form representation, so
-        # not to be saved in KernelBuilders.
         argument_multiindices = builder.argument_multiindices
         argument_multiindices_dummy = builder.argument_multiindices_dummy
-
+        nargs = len(argument_multiindices)
         # Gather all subspaces in this TSFCIntegralData
         subspaces = set()
         for integral in tsfc_integral_data.integrals:
@@ -251,17 +248,27 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         for integral in tsfc_integral_data.integrals:
             form_data = tsfc_integral_data.integral_to_form_data(integral)
             subspace_tuple = form_data_subspace_map[form_data]
+            coefficient_tuple = form_data_coefficient_map[form_data]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
             _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
-                                           in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple))
-            expressions = builder.compile_ufl(integral.integrand(), params, argument_multiindices=_argument_multiindices)
-            for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple):
+                                           in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]))
+            _extra_multiindices = tuple(builder.create_element(subspace.ufl_element()).get_indices() for subspace in subspace_tuple[nargs:])
+            expressions = builder.compile_ufl(integral.integrand(), params, argument_multiindices=_argument_multiindices+_extra_multiindices)
+            for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]):
                 if subspace is None:
                     continue
                 subspace_expr = subspace_expr_map[subspace]
                 mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
+                                    for expression in expressions)
+            for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
+                subspace_expr = subspace_expr_map[subspace]
+                i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
+                mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
+                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i_coeff + i_extra), expression), i_extra)
+                                    for expression in expressions)
+                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(builder.coefficient_map[coeff], i_coeff), expression), i_coeff)
                                     for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
             builder.stash_integrals(reps, params)

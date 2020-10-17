@@ -134,7 +134,7 @@ def propagate_projection(expression):
 def split_form_projected(form):
     form = propagate_projection(form)
     nargs = len(form.arguments())
-    # -- None for
+    # -- Collect all (subspace, arg) pairs for which form contains Projected(arg, subspace).
     subspace_argument_set = extract_indexed_subspaces(form, cls=Argument) 
     subspaces_list = tuple((None, ) + tuple(s for s, a in subspace_argument_set if a.number() == i) for i in range(nargs))
     # -- Decompose form according to test/trial subspaces.
