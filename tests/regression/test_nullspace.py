@@ -203,3 +203,89 @@ def test_near_nullspace(tmpdir):
 
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
+
+
+def test_near_nullspace_mixed():
+    # test nullspace and nearnullspace for a mixed Stokes system
+    # this is tested on the SOLCX case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
+    PETSc.Sys.popErrorHandler()
+    n = 256
+    mesh = UnitSquareMesh(n, n)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    P = FunctionSpace(mesh, "CG", 1)
+    W = V*P
+
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    x, y = SpatialCoordinate(mesh)
+    inside_box = And(abs(x-0.5)<0.2, abs(y-0.75)<0.2)
+    mu = conditional(x<0.5, 1, 1e8)  # SOLCX
+    #mu = conditional(inside_box, 1e8, 1) # SINKER
+    #mu = 1e6*exp(y) # SOLKY
+    a = inner(mu*grad(u), grad(v))*dx - div(v)*p*dx + q*div(u)*dx
+
+    f = as_vector((0, sin(pi*y)*cos(pi*x))) # SOLCX/SINKER
+    #f = as_vector((0, -9.8*conditional(inside_box, 2, 1))) # SOLKY
+    L = inner(f, v)*dx
+
+    bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
+    bcs = [DirichletBC(W[0], Constant((0., 0.)), (1,2,3,4))]
+
+    rotW = Function(W)
+    rotV, _ = rotW.split()
+    rotV.interpolate(as_vector((-y, x)))
+
+    c0 = Function(W)
+    c0V, _ = c0.split()
+    c1 = Function(W)
+    c1V, _ = c1.split()
+    c0V.interpolate(Constant([1., 0.]))
+    c1V.interpolate(Constant([0., 1.]))
+
+    near_nullmodes = VectorSpaceBasis([c0V, c1V, rotV])
+    near_nullmodes.orthonormalize()
+    near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
+
+    w = Function(W)
+    u, p = w.split()
+
+    solve(a == L, w, bcs=bcs, appctx={'mu': mu}, near_nullspace=near_nullmodes_W,
+          solver_parameters={
+        'mat_type': 'matfree',
+        'pc_type': 'fieldsplit',
+        'ksp_type': 'preonly',
+        #'ksp_view': None,
+        'pc_fieldsplit_type': 'schur',
+        'fieldsplit_schur_fact_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'assembled_pc_gamg_threshold': 0.01,
+            'assembled_pc_mg_distinct_smoothup': None,
+            'assembled_mg_levels_ksp_type': 'richardson',
+            'assembled_mg_levels_ksp_max_it': 1,
+            'assembled_mg_levels_pc_type': 'sor',
+            'assembled_mg_levels_pc_sor_local_forward': None,
+            'assembled_mg_levels_up_ksp_type': 'richardson',
+            'assembled_mg_levels_up_ksp_max_it': 1,
+            'assembled_mg_levels_up_pc_type': 'sor',
+            'assembled_mg_levels_up_pc_sor_local_backward': None,
+            'ksp_rtol': '1e-9',
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'ksp_converged_reason': None,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-5',
+            'ksp_monitor': None,
+        }
+    })
+
+    File('u.pvd').write(u)
