@@ -563,13 +563,20 @@ else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
     if osname == "Darwin":
-        petsc_options.add("--download-mpich-configure-arguments='--disable-opencl'")
+        petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
 
 if options.get("with_blas") == "download":
     # Download openblas if the user specifies.
     petsc_options.add("--download-openblas")
 elif options.get("with_blas") is not None:
     petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
+    petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+elif osname == "Darwin":
+    mac_blas = "/usr/local/opt/openblas"
+    petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
+    petsc_options.add("--CFLAGS=-I{}/include".format(mac_blas))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
 
 petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
@@ -1352,9 +1359,7 @@ if mode == "install" or not args.update_script:
                     brew_install(package)
 
             if args.with_blas is None and mode == "install":
-                blas_location = "/usr/local/opt/openblas/"
-                petsc_options.append("--with-blaslapack-dir={}".format(blas_location))
-                petsc_options.append("--LD-FLAGS='-Wl,-rpath,{}/lib'".format(blas_location))
+                blas_location = "/usr/local/opt/openblas"
                 config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1447,8 +1452,6 @@ if blas_location == "download":
 if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
-    if osname == "Darwin":
-        petsc_options.append("--LD-FLAGS='-Wl,-rpath,{}/lib'".format(blas_location))
 
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update
