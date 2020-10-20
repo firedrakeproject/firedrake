@@ -530,7 +530,7 @@ if not options["minimal_petsc"]:
     # Required by pastix
     petsc_options.add("--download-hwloc")
     if osname == "Darwin":
-        petsc_options.add("--download-hwloc-configure-arguments='--disable-opencl'")
+        petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
     # Serial mesh partitioner
     petsc_options.add("--download-metis")
     if options.get("with_parmetis", None):
@@ -568,14 +568,19 @@ else:
 if options.get("with_blas") == "download":
     # Download openblas if the user specifies.
     petsc_options.add("--download-openblas")
+    if osname == "Darwin":
+        petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
 elif options.get("with_blas") is not None:
     petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-    petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
     petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+    if osname == "Darwin":
+        petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+    else:
+        petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
 elif osname == "Darwin":
     mac_blas = "/usr/local/opt/openblas"
     petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
-    petsc_options.add("--CFLAGS=-I{}/include".format(mac_blas))
+    petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
     petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
 
 petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
