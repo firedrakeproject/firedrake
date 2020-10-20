@@ -21,7 +21,7 @@ def test_homogeneous_field_linear():
 
     params = {'snes_type': 'ksponly',
               'ksp_type': 'cg',
-              'ksp_itmax': '30',
+              'ksp_max_it': '30',
               'ksp_rtol': '1e-15',
               'ksp_atol': '1e-15',
               'pc_type': 'python',
@@ -55,7 +55,7 @@ def test_homogeneous_field_matfree():
     params = {'snes_type': 'ksponly',
               'mat_type': 'matfree',
               'ksp_type': 'cg',
-              'ksp_itmax': '30',
+              'ksp_max_it': '30',
               'ksp_rtol': '1e-15',
               'ksp_atol': '1e-15',
               'pc_type': 'python',
