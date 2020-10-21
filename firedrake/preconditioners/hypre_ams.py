@@ -6,7 +6,8 @@ from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator
 from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
-#from firedrake_citations import Citations
+from firedrake.utils import complex_mode
+from firedrake_citations import Citations
 from ufl import grad
 
 __all__ = ("HypreAMS",)
@@ -14,7 +15,10 @@ __all__ = ("HypreAMS",)
 
 class HypreAMS(PCBase):
     def initialize(self, obj):
-#        Citations().register("Kolev2009")
+        if complex_mode:
+            raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
+
+        Citations().register("Kolev2009")
         A, P = obj.getOperators()
         prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())

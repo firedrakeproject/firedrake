@@ -2,6 +2,7 @@ import numpy
 from firedrake import *
 
 
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -35,6 +36,7 @@ def test_homogeneous_field_linear():
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
+@pytest.mark.skipcomplex
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -71,6 +73,7 @@ def test_homogeneous_field_matfree():
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
+@pytest.mark.skipcomplex
 def test_homogeneous_field_nonlinear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
