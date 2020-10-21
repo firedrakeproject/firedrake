@@ -33,8 +33,8 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     # Compute solution
     assemble(a)
@@ -44,7 +44,7 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
 
     # Analytical solution
     f.interpolate(cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    return sqrt(assemble(dot(sol - f, sol - f) * dx)), sol, f
+    return sqrt(assemble(inner(sol - f, sol - f) * dx)), sol, f
 
 
 def run_firedrake_helmholtz():

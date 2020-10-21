@@ -18,10 +18,10 @@ def run_stokes_mini(mat_type, n):
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    a = inner(grad(u), grad(v))*dx - div(v)*p*dx + q*div(u)*dx
+    a = inner(grad(u), grad(v)) * dx - inner(p, div(v)) * dx + inner(div(u), q) * dx
 
     f = Constant((0, 0))
-    L = inner(f, v)*dx
+    L = inner(f, v) * dx
 
     # No-slip velocity boundary condition on top and bottom,
     # y == 0 and y == 1

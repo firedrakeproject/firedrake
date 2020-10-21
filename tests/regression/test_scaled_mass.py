@@ -58,8 +58,8 @@ def test_math_functions(mesh, expr, value, typ, fs_type):
 
     C = eval(expr)
 
-    a = (C)*u*v*dx
-    L = (C)*v*dx
+    a = (C)*inner(u, v) * dx
+    L = (C)*conj(v) * dx
     actual = Function(H)
     solve(a == L, actual)
 
@@ -99,13 +99,13 @@ def test_scalar_scaled_mass(m, value, typ, degree):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    mass = assemble(u*v*dx)
+    mass = assemble(inner(u, v) * dx)
 
-    scaled = assemble(c*u*v*dx)
+    scaled = assemble(c*inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * value, scaled.M.values)
 
-    scaled_sum = assemble(c*u*v*dx + u*v*dx)
+    scaled_sum = assemble(c*inner(u, v) * dx + inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
 
@@ -139,13 +139,13 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    mass = assemble(dot(u, v)*dx)
+    mass = assemble(inner(u, v) * dx)
 
-    scaled = assemble(c*dot(u, v)*dx)
+    scaled = assemble(c*inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * value, scaled.M.values)
 
-    scaled_sum = assemble(c*dot(u, v)*dx + dot(u, v)*dx)
+    scaled_sum = assemble(c * inner(u, v) * dx + inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
 
@@ -174,11 +174,11 @@ def test_tensor_scaled_mass(m, value, typ, degree):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    mass = assemble(inner(u, v)*dx)
-    scaled = assemble(c*inner(u, v)*dx)
+    mass = assemble(inner(u, v) * dx)
+    scaled = assemble(c * inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * value, scaled.M.values)
 
-    scaled_sum = assemble(c*inner(u, v)*dx + inner(u, v)*dx)
+    scaled_sum = assemble(c * inner(u, v) * dx + inner(u, v) * dx)
 
     assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)

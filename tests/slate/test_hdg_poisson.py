@@ -55,16 +55,16 @@ def run_LDG_H_problem(r, degree, quads=False):
     qhat = q + tau*(u - uhat)*n
 
     # Formulate the LDG-H method in UFL
-    a = ((dot(v, q) - div(v)*u)*dx
-         + uhat('+')*jump(v, n=n)*dS
-         + uhat*dot(v, n)*ds
-         - dot(grad(w), q)*dx
-         + jump(qhat, n=n)*w('+')*dS
-         + dot(qhat, n)*w*ds
+    a = ((inner(q, v) - inner(u, div(v)))*dx
+         + inner(uhat('+'), jump(v, n=n))*dS
+         + inner(uhat, dot(v, n))*ds
+         - inner(grad(w), q)*dx
+         + inner(jump(qhat, n=n), w('+'))*dS
+         + inner(dot(qhat, n), w)*ds
          # Transmission condition
-         + mu('+')*jump(qhat, n=n)*dS)
+         + inner(jump(qhat, n=n), mu('+'))*dS)
 
-    L = w*f*dx
+    L = inner(f, w)*dx
     F = a - L
     params = {'snes_type': 'ksponly',
               'mat_type': 'matfree',

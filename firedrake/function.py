@@ -6,7 +6,8 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType, IntType, as_ctypes
+
+from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.logging import warning
@@ -28,10 +29,9 @@ class _CFunction(ctypes.Structure):
     _fields_ = [("n_cols", c_int),
                 ("extruded", c_int),
                 ("n_layers", c_int),
-                ("coords", POINTER(c_double)),
+                ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
-                # FIXME: what if f does not have type double?
-                ("f", POINTER(c_double)),
+                ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
                 ("sidx", c_void_p)]
 
@@ -475,10 +475,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             c_function.extruded = 0
             c_function.n_layers = 1
-        c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.coords = coordinates.dat.data.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        # FIXME: What about complex?
-        c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.f = self.dat.data.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -497,7 +496,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return cache[tolerance]
         except KeyError:
             result = make_c_evaluate(self, tolerance=tolerance)
-            result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
+            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_void_p]
             result.restype = c_int
             return cache.setdefault(tolerance, result)
 
@@ -522,7 +521,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.array(arg, dtype=float)
+        arg = np.asarray(arg, dtype=utils.ScalarType)
+        if utils.complex_mode:
+            if not np.allclose(arg.imag, 0):
+                raise ValueError("Provided points have non-zero imaginary part")
+            arg = arg.real.copy()
 
         dont_raise = kwargs.get('dont_raise', False)
 
@@ -559,7 +562,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             r"""Helper function to evaluate at a single point."""
             err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
                                                         x.ctypes.data_as(POINTER(c_double)),
-                                                        buf.ctypes.data_as(POINTER(c_double)))
+                                                        buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
@@ -578,7 +581,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                 if mixed:
                     l_result.append((i, tuple(f.at(p) for f in split)))
                 else:
-                    p_result = np.zeros(value_shape, dtype=float)
+                    p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
                     l_result.append((i, p_result))
             except PointNotInDomainError:
@@ -655,8 +658,10 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     arg.position = 1
     args.append(arg)
 
+    p_ScalarType_c = f"{utils.ScalarType_c}*"
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=["double*", "double*"],
+                                            forward_args=[p_ScalarType_c,
+                                                          p_ScalarType_c],
                                             kernel_name="evaluate_kernel",
                                             wrapper_name="wrap_evaluate"))
 

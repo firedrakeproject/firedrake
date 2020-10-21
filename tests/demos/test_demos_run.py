@@ -49,5 +49,6 @@ def py_file(rst_file, tmpdir, monkeypatch):
     return output
 
 
+@pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 def test_demo_runs(py_file, env):
     subprocess.check_call([sys.executable, py_file], env=env)

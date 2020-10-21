@@ -15,7 +15,7 @@ import tempfile
 import collections
 
 import ufl
-from ufl import Form
+from ufl import Form, conj
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
@@ -29,7 +29,6 @@ from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
 from firedrake import utils
-
 
 # Set TSFC default scalar type at load time
 tsfc_default_parameters["scalar_type"] = utils.ScalarType
@@ -230,6 +229,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
                             number_map, interface, coffee, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
+
     kernels = tuple(kernels)
     return cache.setdefault(key, kernels)
 
@@ -247,7 +247,7 @@ def _real_mangle(form):
             replacements[arg] = 1
     # If only the test space is Real, we need to turn the trial function into a test function.
     if reals == [True, False]:
-        replacements[a[1]] = TestFunction(a[1].function_space())
+        replacements[a[1]] = conj(TestFunction(a[1].function_space()))
     return ufl.replace(form, replacements)
 
 

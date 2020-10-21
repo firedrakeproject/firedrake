@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.supermeshing import *
 from itertools import product
+import numpy
 import pytest
 
 
@@ -79,5 +80,5 @@ def test_galerkin_projection(mesh, shapify, A, B):
     diff = Function(V_B)
     diff.assign(f_B_prolong - f_B_project)
     norm = sqrt(assemble(inner(diff, diff)*dx))
-
-    assert norm < 1.0e-12
+    assert numpy.allclose(norm.imag, 0)
+    assert norm.real < 1.0e-12

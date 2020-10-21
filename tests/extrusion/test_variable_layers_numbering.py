@@ -2,7 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_disconnected():
@@ -414,16 +414,16 @@ def test_bcs_nodes(domain, expected):
 
     selector = interpolate(
         conditional(
-            x < 0.2,
+            real(x) < 0.2,
             as_vector([0, 3]),
-            conditional(x > 0.8,
+            conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
         V)
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
-    layers[:] = selector.dat.data_ro
+    layers[:] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
@@ -466,7 +466,7 @@ def test_layer_extents_parallel():
 
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
 
-    data = selector.dat.data_ro_with_halos
+    data = selector.dat.data_ro_with_halos.real
     for cell in V.cell_node_map().values_with_halo:
         if data[cell] < 0.25:
             layers[cell, :] = [0, 1]
@@ -614,7 +614,7 @@ def test_layer_extents_parallel_vertex_owners():
 
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
 
-    data = selector.dat.data_ro_with_halos
+    data = selector.dat.data_ro_with_halos.real
     for cell in V.cell_node_map().values_with_halo:
         if data[cell] < 0.5:
             layers[cell, :] = [1, 1]

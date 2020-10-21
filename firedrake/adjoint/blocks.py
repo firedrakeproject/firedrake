@@ -155,8 +155,8 @@ class ProjectBlock(SolveVarFormBlock):
         dx = self.backend.dx(mesh)
         w = self.backend.TestFunction(V)
         Pv = self.backend.TrialFunction(V)
-        a = self.backend.inner(w, Pv) * dx
-        L = self.backend.inner(w, v) * dx
+        a = self.backend.inner(Pv, w) * dx
+        L = self.backend.inner(v, w) * dx
 
         super().__init__(a == L, output, bcs, *args, **kwargs)
 
@@ -221,10 +221,15 @@ class FunctionMergeBlock(Block, Backend):
         super().__init__()
         self.add_dependency(func)
         self.idx = idx
+        for output in func._ad_outputs:
+            self.add_dependency(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        return adj_inputs[0]
+        if idx == 0:
+            return adj_inputs[0].split()[self.idx]
+        else:
+            return adj_inputs[0]
 
     def evaluate_tlm(self):
         tlm_input = self.get_dependencies()[0].tlm_value
@@ -241,9 +246,12 @@ class FunctionMergeBlock(Block, Backend):
         return hessian_inputs[0]
 
     def recompute(self):
-        dep = self.get_dependencies()[0].checkpoint
-        output = self.get_outputs()[0].checkpoint
-        self.backend.Function.assign(self.backend.Function.sub(output, self.idx), dep)
+        deps = self.get_dependencies()
+        sub_func = deps[0].checkpoint
+        parent_in = deps[1].checkpoint
+        parent_out = self.get_outputs()[0].checkpoint
+        parent_out.assign(parent_in)
+        parent_out.sub(self.idx).assign(sub_func)
 
 
 class MeshOutputBlock(Block):

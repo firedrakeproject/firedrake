@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(params=["interval", "triangle",
@@ -40,7 +41,7 @@ def hierarchy(cell, refinements_per_level):
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
 
     if cell in {"prism", "hexahedron"}:
-        hierarchy = ExtrudedMeshHierarchy(hierarchy, layers=[3]*nref, height=1)
+        hierarchy = ExtrudedMeshHierarchy(hierarchy, base_layer=3, refinement_ratio=1, height=1)
     if cell == "triangle-nonnested":
         c2f = {}
         for k, v in hierarchy.coarse_to_fine_cells.items():
@@ -165,7 +166,11 @@ def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
     if transfer_type == "injection":
-        run_injection(hierarchy, vector, space, degrees)
+        if space in {"DG", "DQ"} and complex_mode:
+            with pytest.raises(NotImplementedError):
+                run_injection(hierarchy, vector, space, degrees)
+        else:
+            run_injection(hierarchy, vector, space, degrees)
     elif transfer_type == "restriction":
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
@@ -180,7 +185,11 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
     if not hierarchy.nested and hierarchy.refinements_per_level > 1:
         pytest.skip("Not implemented")
     if transfer_type == "injection":
-        run_injection(hierarchy, vector, space, degrees)
+        if space in {"DG", "DQ"} and complex_mode:
+            with pytest.raises(NotImplementedError):
+                run_injection(hierarchy, vector, space, degrees)
+        else:
+            run_injection(hierarchy, vector, space, degrees)
     elif transfer_type == "restriction":
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":

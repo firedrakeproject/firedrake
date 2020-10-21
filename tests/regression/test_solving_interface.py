@@ -19,7 +19,7 @@ def a_L_out():
 
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    return u*v*dx, f*v*dx, out
+    return inner(u, v) * dx, inner(f, v) * dx, out
 
 
 def test_linear_solver_api(a_L_out):
@@ -120,8 +120,8 @@ def test_linear_solves_equivalent():
     t = TestFunction(V)
     q = TrialFunction(V)
 
-    a = inner(t, q)*dx
-    L = inner(f, t)*dx
+    a = inner(q, t) * dx
+    L = inner(f, t) * dx
 
     # Solve the system using forms
     sol = Function(V)
@@ -152,11 +152,11 @@ def test_constant_jacobian_lvs():
 
     q = Function(V)
     q.assign(1)
-    a = q*u*v*dx
+    a = q * inner(u, v) * dx
 
     f = Function(V)
     f.assign(1)
-    L = f*v*dx
+    L = inner(f, v) * dx
 
     out = Function(V)
 
