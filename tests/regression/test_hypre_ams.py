@@ -1,3 +1,4 @@
+import pytest
 import numpy
 from firedrake import *
 
