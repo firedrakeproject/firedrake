@@ -1500,6 +1500,7 @@ if mode == "install":
 
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
+    run_pip_install(["pybind11"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
