@@ -18,7 +18,7 @@ import collections
 import numpy as np
 
 import ufl
-from ufl import Form
+from ufl import Form, MixedElement
 from ufl.log import GREEN
 from .ufl_expr import TestFunction
 
@@ -193,7 +193,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # -- Call compute_form_data for each subform corresponding to
     # -- a combination of test/trial subspaces.
     split_forms, split_subspaces, split_extraargs, split_functions = split_form_projected(form)
-    form_data_tuple = tuple(ufl_utils.compute_form_data(split_form, complex_mode=complex_mode) for split_form in split_forms)
+    form_data_tuple = tuple(ufl_utils.compute_form_data(split_f, complex_mode=complex_mode) for split_f in split_forms)
     form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
     form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
     form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
@@ -236,6 +236,10 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # -- subspace_numbers: which subspaces are used in this TSFCIntegralData.
         # -- subspace_parts  : which components are used if mixed (otherwise None).
         subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        print("subspace_numbers  :", subspace_numbers)
+        print("subspace_parts    :", subspace_parts)
+        print("subspaces:        :", subspaces, len(subspaces))
+        print(" ")
         # Make:
         # -- subspace_exprs   : gem expressions associated with enabled (split) subspaces.
         subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
@@ -264,11 +268,15 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                                     for expression in expressions)
             for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
                 subspace_expr = subspace_expr_map[subspace]
+                if type(coeff.ufl_element()) == MixedElement:
+                    coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
+                else:
+                    coefficient_expr = builder.coefficient_map[coeff]
                 i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
                 mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i_coeff + i_extra), expression), i_extra)
                                     for expression in expressions)
-                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(builder.coefficient_map[coeff], i_coeff), expression), i_coeff)
+                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
                                     for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
             builder.stash_integrals(reps, params)

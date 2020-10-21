@@ -2,8 +2,13 @@ import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
-from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.classes import ListTensor
+from ufl.corealg.map_dag import map_expr_dag
+from ufl.algorithms import extract_arguments, extract_coefficients, compute_form_action
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+from ufl.algorithms.apply_derivatives import GradRuleset, ReferenceGradRuleset, VariableRuleset, GateauxDerivativeRuleset, DerivativeRuleDispatcher
+from ufl.form import as_form
+from ufl.classes import ListTensor, Zero
 
 import firedrake
 from firedrake import utils
@@ -206,7 +211,11 @@ def action(form, coefficient):
             raise ValueError("Can't take action of rank-0 tensor")
         return form * firedrake.AssembledVector(coefficient)
     else:
-        return ufl.action(form, coefficient)
+        #return ufl.action(form, coefficient)
+        form = as_form(form)
+        form = apply_algebra_lowering(form)
+        form = apply_derivatives(form)
+        return compute_form_action(form, coefficient)
 
 
 def adjoint(form, reordered_arguments=None):
@@ -264,6 +273,61 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+class FiredrakeDerivativeMixin(object):
+    def firedrake_projected(self, o, Ap):
+        # Propagate zeros
+        if isinstance(Ap, Zero):
+            return self.independent_operator(o)
+        return firedrake.projected.FiredrakeProjected(Ap, o.subspace())
+
+
+class FiredrakeGradRuleset(GradRuleset, FiredrakeDerivativeMixin):
+    def __init__(self, geometric_dimension):
+        GradRuleset.__init__(self, geometric_dimension)
+
+
+class FiredrakeReferanceGradRuleset(ReferenceGradRuleset, FiredrakeDerivativeMixin):
+    def __init__(self, topological_dimension):
+        ReferenceGradRuleset.__init__(self, topological_dimension)
+
+
+class FiredrakeVariableRuleset(VariableRuleset, FiredrakeDerivativeMixin):
+    def __init__(self, var):
+        VariableRuleset.__init__(self, var)
+
+
+class FiredrakeGateauxDerivativeRuleset(GateauxDerivativeRuleset, FiredrakeDerivativeMixin):
+    def __init__(self, coefficients, arguments, coefficient_derivatives):
+        GateauxDerivativeRuleset.__init__(self, coefficients, arguments, coefficient_derivatives)
+
+
+class FiredrakeDerivativeRuleDispatcher(DerivativeRuleDispatcher):
+    def __init__(self):
+        DerivativeRuleDispatcher.__init__(self)
+
+    def grad(self, o, f):
+        rules = FiredrakeGradRuleset(o.ufl_shape[-1])
+        return map_expr_dag(rules, f)
+
+    def reference_grad(self, o, f):
+        rules = FiredrakeReferenceGradRuleset(o.ufl_shape[-1])  # FIXME: Look over this and test better.
+        return map_expr_dag(rules, f)
+
+    def variable_derivative(self, o, f, dummy_v):
+        rules = FiredrakeVariableRuleset(o.ufl_operands[1])
+        return map_expr_dag(rules, f)
+
+    def coefficient_derivative(self, o, f, dummy_w, dummy_v, dummy_cd):
+        dummy, w, v, cd = o.ufl_operands
+        rules = FiredrakeGateauxDerivativeRuleset(w, v, cd)
+        return map_expr_dag(rules, f)
+
+
+def apply_derivatives(expression):
+    rules = FiredrakeDerivativeRuleDispatcher()
+    return map_integrand_dags(rules, expression)
 
 
 class _Masked(ufl.Masked):

@@ -1,14 +1,18 @@
 import itertools
 import ufl
 from ufl.algorithms.analysis import extract_type
+from ufl.algorithms.ad import expand_derivatives
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.constantvalue import Zero
 from ufl.core.ufl_type import ufl_type
 from ufl.core.operator import Operator
 from ufl.form import Form
+from ufl import MixedElement
 from ufl.precedence import parstr
-from firedrake.ufl_expr import Argument, derivative
+import firedrake
+from firedrake.ufl_expr import Argument, derivative, apply_derivatives
 from firedrake.function import Function
-from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace
+from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace, IndexedSubspace
 
 
 __all__ = ['Projected']
@@ -130,11 +134,12 @@ def propagate_projection(expression):
 
 # -- Wrap split functions
 
-
 def split_form_projected(form):
+    form = apply_algebra_lowering(form)
+    form = apply_derivatives(form)
     form = propagate_projection(form)
     nargs = len(form.arguments())
-    # -- Collect all (subspace, arg) pairs for which form contains Projected(arg, subspace).
+    # -- Collect every (subspace, arg) pair if Projected(arg, subspace) is found in the form.
     subspace_argument_set = extract_indexed_subspaces(form, cls=Argument) 
     subspaces_list = tuple((None, ) + tuple(s for s, a in subspace_argument_set if a.number() == i) for i in range(nargs))
     # -- Decompose form according to test/trial subspaces.
@@ -216,33 +221,43 @@ def split_form_projected_argument(form, subspace_tuple):
     nargs = len(form.arguments())
     splitter = SplitFormProjectedArgument()
     subform = splitter.split(form, subspace_tuple)
-    subforms = []
-    subspaces = []
-    extraargs = []
-    functions = []
     if subform.integrals() == ():
         return [], [], [], []
     # Further split subform if projected functions are found.
     subspace_function_set = extract_indexed_subspaces(subform, cls=Function)
-    if len(subspace_function_set) > 0:
-        subsubform = split_form_non_projected_function(subform)
-    else:
-        subsubform = subform
+    if len(subspace_function_set) == 0:
+        return [subform, ], [subspace_tuple, ], [(), ], [(), ]
+    subforms = []
+    subspaces = []
+    extraargs = []
+    functions = []
+    subsubform = split_form_non_projected_function(subform)
     if subsubform.integrals():
         subforms.append(subsubform)
         subspaces.append(subspace_tuple)
         extraargs.append(())
         functions.append(())
-    #for now assume functions are scalar
     for s, f in subspace_function_set:
         # Replace f with a new argument.
         f_arg = Argument(f.function_space(), nargs)
         subsubform = split_form_projected_function(subform, s, f, f_arg)
         if subsubform.integrals():
-            subforms.append(subsubform)
-            subspaces.append(subspace_tuple + (s, ))
-            extraargs.append((f_arg, ))
-            functions.append((f, ))
+            subsubsubforms = firedrake.formmanipulation.split_form(subsubform)
+            for idx, subsubsubform in subsubsubforms:
+                assert all(idx[i] == 0 for i in range(nargs))
+                assert all(form.arguments()[i] == subsubsubform.arguments()[i] for i in range(nargs))
+                subforms.append(subsubsubform)
+                if type(s.ufl_element()) == MixedElement:
+                    subspaces.append(subspace_tuple + (IndexedSubspace(s, idx[nargs]), ))
+                else:
+                    assert idx[nargs] == 0
+                    subspaces.append(subspace_tuple + (s, ))
+                extraargs.append((subsubsubform.arguments()[nargs], ))
+                # Here we just remember the parent function, f.
+                # The index is found in the associated IndexedSubspace.
+                # When submesh lands, f.split() will return a function
+                # on a WithGeometry that remembers its parent and the index.
+                functions.append((f, ))
     return subforms, subspaces, extraargs, functions
 
 

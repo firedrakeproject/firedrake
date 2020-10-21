@@ -118,6 +118,13 @@ class IndexedSubspace(object):
     def transform_matrix(self, elem, expression, dtype):
         return self.parent.transform_matrix(elem, expression, dtype)
 
+    def __eq__(self, other):
+        return self.parent is other.parent and \
+               self.index == other.index
+    
+    def __hash__(self):
+        return hash((self.parent, self.index))
+
 
 class ScalarSubspace(AbstractSubspace):
     def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
@@ -507,6 +514,7 @@ def _normalise_subspace2(old_subspace, subdomain):
               "old_subspace": (old_subspace, READ)},
              is_loopy_kernel=True)
     return new_subspace
+
 
 def make_subspace_numbers_and_parts(subspaces, original_subspaces):
     # -- subspace_numbers_: which subspaces are used in this TSFCIntegralData.
