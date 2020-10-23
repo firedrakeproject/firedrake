@@ -109,6 +109,28 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
 
 
+@pytest.mark.xfail(reason="Sparsity creation issue")
+def test_scalar_function_interpolator(parentmesh, vertexcoords, fs):
+    # try and make reusable Interpolator from V to W
+    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vertexcoords = vm.coordinates.dat.data_ro
+    fs_fam, fs_deg, fs_typ = fs
+    V = fs_typ(parentmesh, fs_fam, fs_deg)
+    W = FunctionSpace(vm, "DG", 0)
+    from functools import reduce
+    from operator import add
+    expr = reduce(add, SpatialCoordinate(parentmesh))
+    A_w = Interpolator(TestFunction(V), W)
+    w_v = Function(W)
+    v = Function(V).interpolate(expr)
+    A_w.interpolate(v, output=w_v)
+    assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
+    # use if again for a different Function in V
+    v = Function(V).assign(Constant(2))
+    A_w.interpolate(v, output=w_v)
+    assert np.allclose(w_v.dat.data_ro, 2)
+
+
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
