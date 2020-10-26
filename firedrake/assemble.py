@@ -615,10 +615,6 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
             for c_ in c.split():
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
-        print("indices       :", indices)
-        print("subspace_map  :", subspace_map)
-        print("subspace_parts:", subspace_parts)
-        print("  ")
         for i, n in enumerate(subspace_map):
             c = subspaces[n]
             enabled_parts = subspace_parts[i]

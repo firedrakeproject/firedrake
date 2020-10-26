@@ -13,6 +13,7 @@ import finat
 import ufl
 
 from pyop2 import op2
+from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
 from tsfc.finatinterface import create_element
 
@@ -585,6 +586,9 @@ class FunctionSpace(object):
                 nodes.append(nodes1)
             nodes = numpy.concatenate(tuple(nodes))
         return op2.Subset(self.node_set, nodes)
+
+    def boundary_node_empty_subset(self):
+        return op2.Subset(self.node_set, numpy.empty(0, dtype=IntType))
 
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.

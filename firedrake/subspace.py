@@ -66,6 +66,16 @@ class AbstractSubspace(ufl.Subspace):
         val = getattr(self._data, name)
         setattr(self, name, val)
         return val
+    
+    def __hash__(self):
+        return hash((self._count, ))
+
+    def __str__(self):
+        count = str(self._count)
+        if len(count) == 1:
+            return "s_%s" % count
+        else:
+            return "s_{%s}" % count
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -209,6 +219,14 @@ class Subspaces(object):
 
     def __iter__(self):
         return iter(self._components)
+
+    def __len__(self):
+        return len(self._components)
+
+    #@utils.cached_property
+    @property
+    def components(self):
+        return self._components
 
     #@utils.cached_property
     @property
@@ -381,10 +399,10 @@ def _boundary_subspace_functions(V, subdomain):
                 a = V.boundary_node_subset(subdomain[i])
                 b = V.boundary_node_subset(subdomain[j])
                 corner_list.append(a.intersection(b))
-        corners = functools.reduce(lambda a, b: a.union(b), corner_list)
+        corners = functools.reduce(lambda a, b: a.union(b), corner_list) if corner_list else V.boundary_node_empty_subset()
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_deriv))
-        v1 = firedrake.Masked(v, ScalarSubspace(V, val=g1))
-        u1 = firedrake.Masked(u, ScalarSubspace(V, val=g1))
+        v1 = firedrake.Projected(v, ScalarSubspace(V, val=g1))
+        u1 = firedrake.Projected(u, ScalarSubspace(V, val=g1))
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
 
         normal = FacetNormal(V.mesh())
@@ -441,8 +459,8 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         #corners = functools.reduce(lambda a, b: a.union(b), corner_list)
         #g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_deriv))
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        v1 = firedrake.Masked(v, ScalarSubspace(V, g1))
-        u1 = firedrake.Masked(u, ScalarSubspace(V, g1))
+        v1 = firedrake.Projected(v, ScalarSubspace(V, g1))
+        u1 = firedrake.Projected(u, ScalarSubspace(V, g1))
         #quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [0.5, ], [1, ]]), [0.25, 0.50, 0.25])
 
@@ -542,4 +560,4 @@ def make_subspace_numbers_and_parts(subspaces, original_subspaces):
 
 def sort_indexed_subspaces(subspaces):
     return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
-                                                     s.index if s.index else -1))
+                                            -1 if s.index is None else s.index))

@@ -26,9 +26,9 @@ def test_filter_poisson():
 
     # Solve with Masked; no DirichletBC
     Vsub = BoundarySubspace(V, (1, 2, 3, 4))
-    v_b = Masked(v, Vsub)
-    u_b = Masked(u, Vsub)
-    g_b = Masked(g, Vsub)
+    v_b = Projected(v, Vsub)
+    u_b = Projected(u, Vsub)
+    g_b = Projected(g, Vsub)
     v_d = v - v_b 
     u_d = u - u_b 
 
@@ -111,8 +111,8 @@ def test_filter_stokes():
     #g = Function(W)
     #g.sub(0).assign(Constant([1., 1.]), subset=V.boundary_node_subset((3, 4)))
     Wsub = BoundarySubspace(W.sub(0), (3, 4))
-    up34 = Masked(up, Wsub)
-    vq34 = Masked(vq, Wsub)
+    up34 = Projected(up, Wsub)
+    vq34 = Projected(vq, Wsub)
 
     u, p = split(up)
     v, q = split(vq)
@@ -161,3 +161,112 @@ def test_filter_stokes():
     plt.savefig('test_subspace_stokes.pdf')
 
 
+def test_filter_stokes_rot():
+    # Modified a demo problem at:
+    # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/07-geometric-multigrid.ipynb
+
+    # Define common parts
+    mesh = RectangleMesh(15, 10, 1.5, 1)
+    
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    x, y = SpatialCoordinate(mesh)
+    nu = Constant(1)
+
+    def get_gbar(r):
+        t = conditional(r < 0.5, r - 1/4, r - 3/4)
+        gbar = conditional(Or(And(1/6 < r,
+                                  r < 1/3),
+                              And(2/3 < r,
+                                  r < 5/6)),
+                           1, 
+                           0)
+        return gbar * (1 - (12 * t)**2)
+
+    solver_parameters={"ksp_type": "gmres",
+                       "ksp_rtol": 1.e-15,
+                       "pc_type": "ilu",
+                       "pmat_type": "aij"}
+
+    # Unrotated domain
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    flux = as_vector([get_gbar(y), 0])
+    bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)),
+           DirichletBC(W.sub(0).sub(1), 0, (3, 4))]
+    a = (nu * inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx
+    L = inner(Constant((0, 0)), v) * dx
+    sol_target = Function(W)
+    solve(a == L, sol_target, bcs=bcs, solver_parameters=solver_parameters)
+
+    # Rotated domain
+    theta = pi / 6
+    Vc = mesh.coordinates.function_space()
+    f = Function(Vc).interpolate(as_vector([cos(theta) * x - sin(theta) * y,
+                                            sin(theta) * x + cos(theta) * y]))
+    mesh.coordinates.assign(f)
+    xprime = Constant([cos(theta), sin(theta)])
+    yprime = Constant([-sin(theta), cos(theta)])
+
+    r = -sin(theta) * x + cos(theta) * y
+    gbar = get_gbar(r)
+    flux = as_vector([cos(theta) * gbar, sin(theta) * gbar])
+    bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)), ]
+    
+    # Trial/Test function
+    vq = TestFunction(W)
+    up = TrialFunction(W)
+
+    v, q = split(vq)
+    u, p = split(up)
+    
+    normal = FacetNormal(mesh)
+    V4 = BoundaryComponentSubspace(W.sub(0), (3, 4), normal)
+
+    vq4 = Projected(vq, V4)
+    up4 = Projected(up, V4)
+
+    v4, q4 = split(vq4)
+    u4, p4 = split(up4)
+
+    v0, q0 = v - v4, q - q4
+    u0, p0 = u - u4, p - p4
+
+    bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)), ]
+
+    a = nu * inner(grad(u0), grad(v0)) * dx \
+        - inner(p0, div(v0)) * dx \
+        - inner(div(u0), q0) * dx \
+        + inner(u4, v4) * ds((3, 4))
+    #L = inner(Constant(0), q0) * dx
+    L = inner(Constant((0, 0)), v0) * dx
+
+    sol = Function(W)
+    solve(a == L, sol, bcs=bcs, solver_parameters=solver_parameters)
+
+    # Postprocess
+    a0, b0 = sol_target.split()
+    a1, b1 = sol.split()
+    a0_, b0_ = a0.dat.data, b0.dat.data
+    a1_, b1_ = a1.dat.data, b1.dat.data
+    a0_ = np.concatenate((cos(theta) * a0_[:, [0]] - sin(theta) * a0_[:, [1]],
+                          sin(theta) * a0_[:, [0]] + cos(theta) * a0_[:, [1]]), axis=1)
+    assert(np.linalg.norm(a1_ - a0_)/np.linalg.norm(a0_) < 1e-14)
+    assert(np.linalg.norm(b1_ - b0_)/np.linalg.norm(b0_) < 1e-13)
+    # Plot solution
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
+    arrows = quiver(a1, axes=axes[0])
+    axes[0].set_xlim(-0.6, 1.8)
+    axes[0].set_aspect("equal")
+    axes[0].set_title("Velocity")
+    fig.colorbar(arrows, ax=axes[0], fraction=0.032, pad=0.02)
+    triangles = tripcolor(b1, axes=axes[1], cmap='coolwarm')
+    axes[1].set_aspect("equal")
+    axes[1].set_title("Pressure")
+    fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02)
+
+    plt.savefig('test_subspace_stokes_rot.pdf')

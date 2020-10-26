@@ -37,7 +37,7 @@ def _poisson(n, el_type, degree, perturb):
         mesh = Mesh(new)
 
     # Rotate mesh
-    theta = pi / 6
+    theta = pi / 6 * 1
     mesh = _rotate_mesh(mesh, theta)
 
     V = FunctionSpace(mesh, el_type, degree)
@@ -60,19 +60,18 @@ def _poisson(n, el_type, degree, perturb):
     #a, L = _poisson_get_forms_original(V, f, n)
     u = TrialFunction(V)
     v = TestFunction(V)
+    V1 = BoundarySubspace(V, (1, 2, 3, 4))
 
-    V1 = BoundarySubspace(V, (1,2,3,4))
-
-    ub = Masked(u, V1)
-    vb = Masked(v, V1)
-    gb = Masked(gV, V1)
+    ub = Projected(u, V1)
+    vb = Projected(v, V1)
+    gb = Projected(gV, V1)
 
     # Make sure to project with very small tolerance.
-    ud = Masked(u, V1.complement)
-    vd = Masked(v, V1.complement)
+    ud = u-ub #Projected(u, V1.complement)
+    vd = v-vb #Projected(v, V1.complement)
 
-    a = inner(grad(ud), grad(vd)) * dx + inner(ub, vb)* ds
-    L = inner(f, vd) * dx - inner(grad(gb), grad(vd)) * dx + inner(gb, vb) * ds
+    a = inner(grad(ud), grad(vd)) * dx + inner(ub, vb) * ds((1,2,3,4))
+    L = inner(f, vd) * dx - inner(grad(gb), grad(vd)) * dx + inner(gb, vb) * ds((1,2,3,4))
 
     # Solve
     sol = Function(V)
@@ -129,11 +128,10 @@ def test_subspace_rotated_subspace_poisson_zany():
     print("time consumed:", b - a)
 
 
-@pytest.mark.parallel(nprocs=3)
+#@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_stokes():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
-
     mesh = Mesh("./docs/notebooks/stokes-control.msh")
     theta = pi / 6
     mesh = _rotate_mesh(mesh, theta)
@@ -151,8 +149,8 @@ def test_subspace_rotated_subspace_stokes():
     normal = FacetNormal(mesh)
     V4 = BoundaryComponentSubspace(W.sub(0), (3, 4, 5), normal)
 
-    vq4 = Masked(vq, V4)
-    up4 = Masked(up, V4)
+    vq4 = Projected(vq, V4)
+    up4 = Projected(up, V4)
 
     v4, q4 = split(vq4)
     u4, p4 = split(up4)
@@ -178,7 +176,6 @@ def test_subspace_rotated_subspace_stokes():
     w = Function(W)
     solve(a == L, w, bcs=bcs, solver_parameters={"pc_type": "lu", "mat_type": "aij",
                                                  "pc_factor_shift_type": "inblocks"})
-
     # Plot
     #uplot, pplot = w.split()
     #plot_velocity("test_subspace_rotated_subspace_stokes.pdf", uplot, theta, [-5, 27], None, [0, 1.], 20.)
@@ -211,8 +208,8 @@ def test_subspace_rotated_subspace_swe():
     normal = FacetNormal(mesh)
     V4 = BoundaryComponentSubspace(W.sub(0), (3, 4, 5), normal)
 
-    vq4 = Masked(vq, V4)
-    uh4 = Masked(uh, V4)
+    vq4 = Projected(vq, V4)
+    uh4 = Projected(uh, V4)
     v4, q4 = split(vq4)
     u4, h4 = split(uh4)
     v0, q0 = v - v4, q - q4
@@ -253,17 +250,16 @@ def test_subspace_rotated_subspace_swe():
 
 
     t = 0
-    while t < 25:
-        #uplot, hplot = uh.split()
-        #plot_velocity(uplot, 'swe_velocity_%05.2f.pdf' % t, t)
-        #plot_surface(uplot, 'swe_surface_%05.2f.pdf' % t, t)
+    while t < 10:
+        uplot, hplot = uh.split()
+        plot_velocity('swe_velocity_%05.2f.pdf' % t, uplot, theta, [0, 30], [0, 15], [0,1], 0.02, t)
+        plot_surface(hplot, 'swe_surface_%05.2f.pdf' % t, t)
 
         uh_.assign(uh)
         solve(F == 0, uh, bcs=bcs, solver_parameters={"ksp_type": "gmres"})
         t += dt
-        #print(t)
+        print(t)
 
-"""
 import matplotlib.pyplot as plt
 
 
@@ -324,4 +320,3 @@ def plot_surface(hplot, name, t=None):
     cbar.ax.tick_params(labelsize=20)
     plt.savefig(name)
     plt.close(fig)
-"""

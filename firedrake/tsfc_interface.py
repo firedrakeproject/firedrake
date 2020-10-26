@@ -194,11 +194,13 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # -- a combination of test/trial subspaces.
     split_forms, split_subspaces, split_extraargs, split_functions = split_form_projected(form)
     form_data_tuple = tuple(ufl_utils.compute_form_data(split_f, complex_mode=complex_mode) for split_f in split_forms)
-    form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
-    form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
-    form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
-    tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
-    form_data_coefficient_map = {fd:tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fd, fs in form_data_function_map.items()}
+    #form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
+    #form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
+    #form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
+    #tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
+    tsfc_form_data = TSFCFormData(form_data_tuple, form, split_extraargs, split_functions, diagonal)
+    #form_data_coefficient_map = {fd:tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fd, fs in form_data_function_map.items()}
+    split_coefficients = tuple(tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fs in split_functions)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     # Pick interface
@@ -216,6 +218,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # Loop over `TSFCIntegralData`s and construct a kernel for each.
     kernels = []
     original_subspaces = extract_subspaces(form)
+
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
         builder = interface(tsfc_integral_data,
@@ -227,19 +230,15 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         nargs = len(argument_multiindices)
         # Gather all subspaces in this TSFCIntegralData
         subspaces = set()
-        for integral in tsfc_integral_data.integrals:
-            form_data = tsfc_integral_data.integral_to_form_data(integral)
-            subspaces.update(form_data_subspace_map[form_data])
+        for i in range(len(tsfc_integral_data.integrals)):
+            form_data_index = tsfc_integral_data.integral_to_form_data(i)
+            subspaces.update(split_subspaces[form_data_index])
         subspaces = subspaces.difference(set((None, )))
         # Make:
         # return sorted subspaces
         # -- subspace_numbers: which subspaces are used in this TSFCIntegralData.
         # -- subspace_parts  : which components are used if mixed (otherwise None).
         subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
-        print("subspace_numbers  :", subspace_numbers)
-        print("subspace_parts    :", subspace_parts)
-        print("subspaces:        :", subspaces, len(subspaces))
-        print(" ")
         # Make:
         # -- subspace_exprs   : gem expressions associated with enabled (split) subspaces.
         subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
@@ -249,10 +248,10 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # -- Compile ufl -> gem.
         # -- Apply subspace transformation.
         # -- 
-        for integral in tsfc_integral_data.integrals:
-            form_data = tsfc_integral_data.integral_to_form_data(integral)
-            subspace_tuple = form_data_subspace_map[form_data]
-            coefficient_tuple = form_data_coefficient_map[form_data]
+        for integral_idx, integral in enumerate(tsfc_integral_data.integrals):
+            form_data_idx = tsfc_integral_data.integral_to_form_data(integral_idx)
+            subspace_tuple = split_subspaces[form_data_idx]
+            coefficient_tuple = split_coefficients[form_data_idx]
             params = parameters.copy()
             params.update(integral.metadata())  # integral metadata overrides
             _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
