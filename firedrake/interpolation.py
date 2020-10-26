@@ -331,9 +331,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and not isinstance(coefficient.function_space().mesh().topology, firedrake.mesh.VertexOnlyMeshTopology):
-            # manually build map from vertex only mesh cell to parent cell nodes
-            # TODO: Move this to a Composed Map utility builder function and
-            # stash the composed map on cell_parent_cell_map using caching
+            # TODO: stash the composed map on cell_parent_cell_map using caching
+            m_ = composed_map(mesh.cell_parent_cell_map, coefficient.cell_node_map())
             iterset = mesh.cell_parent_cell_map.iterset
             toset = coefficient.cell_node_map().toset
             assert mesh.cell_parent_cell_map.arity == 1
@@ -357,6 +356,32 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         return parloop, tensor.assemble
     else:
         return copyin + (parloop, ) + copyout
+
+
+def composed_map(map1, map2):
+    """
+    Manually build a :class:`PyOP2.Map` from the iterset of map1 to the
+    toset of map2.
+
+    :arg map1: The map with the desired iterset
+    :arg map2: The map with the desired toset
+
+    :returns:  The composed map
+
+    Requires that `map1.toset == map2.iterset`.
+    Only currently implemented for `map1.arity == 1`
+    """
+    if map1.toset != map2.iterset:
+        raise ValueError("Cannot compose a map where the intermediate sets do not match!")
+    if map1.arity != 1:
+        raise NotImplementedError("Can only currently build composed maps where map1.arity == 1")
+    iterset = map1.iterset
+    toset = map2.toset
+    arity = map2.arity
+    # TODO: Move below line into cython
+    values = map2.values[map1.values].reshape(iterset.size, arity)
+    assert values.shape == (iterset.size, arity)
+    return op2.Map(iterset, toset, arity, values)
 
 
 class GlobalWrapper(object):
