@@ -166,10 +166,14 @@ def make_interpolator(expr, V, subset, access):
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
-
         argfs = arguments[0].function_space()
+        argfs_map = argfs.cell_node_map()
+        if argfs_map is None or argfs_map.iterset != V.cell_node_map().iterset:
+            if isinstance(V.ufl_domain().topology, firedrake.mesh.VertexOnlyMeshTopology):
+                # TODO: stash the composed map on cell_parent_cell_map using caching
+                argfs_map = composed_map(V.ufl_domain().cell_parent_cell_map, argfs_map)
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
-                                ((V.cell_node_map(), argfs.cell_node_map()),),
+                                ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
                                 nest=False,
                                 block_sparse=True)
