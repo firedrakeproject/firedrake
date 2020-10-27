@@ -471,13 +471,13 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
             gamma = Constant(8.0)
             h = CellSize(W.mesh())
             h_avg = (h('+') + h('-'))/2
-            a_dg = + inner(grad(u), grad(v))*dx \
+            a_dg = -(inner(grad(u), grad(v))*dx \
                 - inner(jump(u, n), avg(grad(v)))*dS \
                 - inner(avg(grad(u)), jump(v, n), )*dS \
                 + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS \
                 - inner(u*n, grad(v))*ds \
                 - inner(grad(u), v*n)*ds \
-                + (gamma/h)*inner(u, v)*ds
+                + (gamma/h)*inner(u, v)*ds)
             bcs = None
             return (a_dg, bcs)
   
@@ -508,13 +508,13 @@ approximation we used above.
  Mesh elements  GMRES iterations
 ============== ==================
     2                 2
-    8                 10
-    32                17
-    128               19
-    512               20
-    2048              20
-    8192              19
-    32768             19
+    8                 9
+    32                12
+    128               13
+    512               14
+    2048              13
+    8192              13
+    32768             13
 ============== ==================
 
 Block diagonal preconditioners
