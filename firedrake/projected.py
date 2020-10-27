@@ -98,7 +98,7 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.map_integrands import map_integrand_dags
 
 from ufl.algorithms.traversal import iter_expressions
-from ufl.corealg.traversal import pre_traversal
+from ufl.corealg.traversal import unique_pre_traversal
 
 
 # -- Propagate FiredrakeProjected to directly wrap FormArguments
@@ -371,27 +371,6 @@ def split_form_non_projected_function(form):
 # -- Helper functions
 
 
-class SubspaceExtractor(MultiFunction):
-    def __init__(self):
-        MultiFunction.__init__(self)
-
-    def terminal(self, o):
-        return o
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def firedrake_projected(self, o, A):
-        if isinstance(A, self._cls):
-            self._pairs.update(((o.subspace(), A), ))
-        return o
-
-    def extract(self, form, cls):
-        self._cls = cls
-        self._pairs = set()
-        _ = map_integrand_dags(self, form)
-        return self._pairs
-
-
 def extract_subspaces(a, cls=object):
     subspaces_and_objects = extract_indexed_subspaces(a, cls=cls)
     subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
@@ -407,14 +386,10 @@ def extract_indexed_subspaces(a, cls=object):
         for op in a.operands:
             _set.update(extract_indexed_subspaces(op, cls=cls))
         return _set
-    elif isinstance(a, Form):
-        
-        #return set((o.subspace(), o.ufl_operands[0])
-        #            for e in iter_expressions(a)
-        #            for o in pre_traversal(e)
-        #            if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
-        
-        extractor = SubspaceExtractor()
-        return extractor.extract(a, cls)
+    elif isinstance(a, Form):        
+        return set((o.subspace(), o.ufl_operands[0])
+                    for e in iter_expressions(a)
+                    for o in unique_pre_traversal(e)
+                    if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
     else:
         raise TypeError("Unexpected type: %s" % str(type(a)))
