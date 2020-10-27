@@ -109,7 +109,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
 
 
-@pytest.mark.xfail(reason="Sparsity creation issue")
+# TODO: Add vector and tensor tests
 def test_scalar_function_interpolator(parentmesh, vertexcoords, fs):
     # try and make reusable Interpolator from V to W
     vm = VertexOnlyMesh(parentmesh, vertexcoords)

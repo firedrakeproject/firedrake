@@ -307,6 +307,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
         # NOTE: Shouldn't this happen in compile_expression_dual_evaluation?
         coefficients = coefficients + [mesh.reference_coordinates]
+        # TODO: stash the composed map on cell_parent_cell_map using caching
+        try:
+            cell_node_map = arguments[0].function_space().cell_node_map()
+        except IndexError:
+            # should have had coefficients before adding reference coords
+            assert len(coefficients) > 1
+            cell_node_map = coefficients[0].cell_node_map()
+        cell_parent_cell_fs_node_map = composed_map(mesh.cell_parent_cell_map,
+                                                    cell_node_map)
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -325,8 +334,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         parloop_args.append(tensor(access, V.cell_node_map()))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
-        parloop_args.append(tensor(op2.WRITE, (V.cell_node_map(),
-                                               arguments[0].function_space().cell_node_map())))
+        if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+            cmap = cell_parent_cell_fs_node_map
+        else:
+            cmap = arguments[0].function_space().cell_node_map()
+        parloop_args.append(tensor(op2.WRITE, (V.cell_node_map(), cmap)))
     if oriented:
         co = mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
@@ -335,8 +347,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and not isinstance(coefficient.function_space().mesh().topology, firedrake.mesh.VertexOnlyMeshTopology):
-            # TODO: stash the composed map on cell_parent_cell_map using caching
-            m_ = composed_map(mesh.cell_parent_cell_map, coefficient.cell_node_map())
+            m_ = cell_parent_cell_fs_node_map
             iterset = mesh.cell_parent_cell_map.iterset
             toset = coefficient.cell_node_map().toset
             assert mesh.cell_parent_cell_map.arity == 1
