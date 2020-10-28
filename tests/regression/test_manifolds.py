@@ -80,6 +80,8 @@ def run_manifold():
     params = {'ksp_rtol': 1e-10}
     if config['options']['complex'] and COMM_WORLD.size == 1:
         params['mat_mumps_icntl_7'] = 1
+    elif config['options']['complex'] and COMM_WORLD.size > 1:
+        params['mat_mumps_icntl_7'] = 3
     solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 
