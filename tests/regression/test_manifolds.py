@@ -5,6 +5,7 @@ import numpy as np
 
 config = firedrake_configuration.get_config()
 
+
 # This test solves a mixed formulation of the Poisson equation with
 # inhomogeneous Neumann boundary conditions such that the exact
 # solution is p(x, y) = x - 0.5.  First on a 2D mesh, and then again

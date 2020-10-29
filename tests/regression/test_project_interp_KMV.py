@@ -6,6 +6,7 @@ import finat
 
 config = firedrake_configuration.get_config()
 
+
 @pytest.fixture(params=["square", "cube"])
 def mesh_type(request):
     return request.param
