@@ -8,7 +8,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.analysis import extract_type
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags, map_expr_dag
 
-from firedrake.ufl_expr import Argument, Masked
+from firedrake.ufl_expr import Argument
 from firedrake.function import Function
 from firedrake.subspace import IndexedSubspace
 from firedrake.projected import FiredrakeProjected

@@ -13,7 +13,7 @@ from ufl.precedence import parstr
 import firedrake
 from firedrake.ufl_expr import Argument, derivative, apply_derivatives
 from firedrake.function import Function
-from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace, IndexedSubspace
+from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, ScalarSubspace, IndexedSubspace
 
 
 __all__ = ['Projected']
@@ -85,11 +85,10 @@ def Projected(form_argument, subspace):
     if isinstance(subspace, Subspaces):
         ms = tuple(Projected(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor)):
-        #TODO: ufl.classes.ListTensor can be removed if we trest splitting appropriately.
+    elif isinstance(subspace, Subspace):
         return FiredrakeProjected(form_argument, subspace)
     else:
-        raise TypeError("Must be `AbstractSubspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
+        raise TypeError("Must be `Subspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
 
 
 from ufl.classes import FormArgument

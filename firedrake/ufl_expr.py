@@ -13,7 +13,7 @@ from ufl.classes import ListTensor, Zero
 import firedrake
 from firedrake import utils
 from firedrake.function import Function
-from firedrake.subspace import AbstractSubspace, Subspaces, ComplementSubspace, ScalarSubspace
+from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, ScalarSubspace
 
 import functools
 
@@ -21,8 +21,7 @@ import functools
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'CellSize', 'FacetNormal',
-           'Masked']
+           'action', 'CellSize', 'FacetNormal']
 
 
 class Argument(ufl.argument.Argument):
@@ -328,29 +327,3 @@ class FiredrakeDerivativeRuleDispatcher(DerivativeRuleDispatcher):
 def apply_derivatives(expression):
     rules = FiredrakeDerivativeRuleDispatcher()
     return map_integrand_dags(rules, expression)
-
-
-class _Masked(ufl.Masked):
-    """Wrapper for `ufl.Masked` class.
-
-    :arg form_argument: the :class:`~.Argument` or :class:`~.Function`
-       to "mask".
-    :arg subspace: the :class:`~.Subspace` (or :class:`~.Function`).
-    """
-    def __init__(self, form_argument, subspace):
-        super().__init__(form_argument, subspace)
-
-
-def Masked(form_argument, subspace):
-    """Return `_Masked` objects."""
-    if isinstance(subspace, ComplementSubspace):
-        return form_argument - Masked(form_argument, subspace.complement)
-    if isinstance(subspace, (list, tuple)):
-        subspace = Subspaces(*subspace)
-    if isinstance(subspace, Subspaces):
-        ms = tuple(Masked(form_argument, s) for s in subspace)
-        return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (AbstractSubspace, ufl.classes.ListTensor)):
-        return _Masked(form_argument, subspace)
-    else:
-        raise TypeError("Must be `AbstractSubspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)

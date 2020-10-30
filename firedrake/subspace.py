@@ -1,6 +1,5 @@
 import functools
 import numpy as np
-import ufl
 
 import firedrake
 from firedrake import functionspaceimpl
@@ -23,7 +22,7 @@ __all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces',
            'BoundarySubspace', 'BoundaryComponentSubspace']
 
 
-class AbstractSubspace(ufl.Subspace):
+class Subspace(object):
     r"""Wrapper base for Firedrake subspaces.
 
     :arg function_space: The :class:`~.functionspaceimpl.WithGeometry`.
@@ -31,15 +30,21 @@ class AbstractSubspace(ufl.Subspace):
     :arg subdomain: The subdomain(s) on which values are set.
     The constructor mimics that of :class:`~DirichletBC`.
     """
-    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType):
+
+    _globalcount = 0
+
+    def __init__(self, function_space, val=None, subdomain=None, name=None, dtype=ScalarType, count=None):
+
+        self._count = count or Subspace._globalcount
+        if self._count >= Subspace._globalcount:
+            Subspace._globalcount = self._count + 1
+
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
         elif not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Subspace defined on a "
                                       + str(type(function_space)))
-
-        super().__init__(V)
 
         if subdomain:
             if not val:
@@ -62,20 +67,7 @@ class AbstractSubspace(ufl.Subspace):
         self.parent = None
         self.index = None
 
-    def __getattr__(self, name):
-        val = getattr(self._data, name)
-        setattr(self, name, val)
-        return val
-    
-    def __hash__(self):
-        return hash((self._count, ))
-
-    def __str__(self):
-        count = str(self._count)
-        if len(count) == 1:
-            return "s_%s" % count
-        else:
-            return "s_{%s}" % count
+        self._repr = "Subspace(%s, %s)" % (repr(self._function_space), repr(self._count))
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -85,6 +77,24 @@ class AbstractSubspace(ufl.Subspace):
 
     def ufl_element(self):
         return self.function_space().ufl_element()
+
+    def __getattr__(self, name):
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
+    
+    def __hash__(self):
+        return hash(repr(self))
+
+    def __str__(self):
+        count = str(self._count)
+        if len(count) == 1:
+            return "s_%s" % count
+        else:
+            return "s_{%s}" % count
+
+    def __repr__(self):
+        return self._repr
 
     #@utils.cached_property
     @property
@@ -133,12 +143,18 @@ class IndexedSubspace(object):
                self.index == other.index
     
     def __hash__(self):
-        return hash((self.parent, self.index))
+        return hash(repr(self))
+
+    def __str__(self):
+        return "%s[%s]" % (self.parent, self.index)
+
+    def __repr__(self):
+        return "IndexedSubspace(%s, %s)" % (repr(self.parent), repr(self.index))
 
 
-class ScalarSubspace(AbstractSubspace):
+class ScalarSubspace(Subspace):
     def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
-        AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
+        Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
     def transform_matrix(elem, expression, dtype):
@@ -167,9 +183,9 @@ class ScalarSubspace(AbstractSubspace):
         return mat
 
 
-class RotatedSubspace(AbstractSubspace):
+class RotatedSubspace(Subspace):
     def __init__(self, V, val=None, subdomain=None, name=None, dtype=ScalarType):
-        AbstractSubspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
+        Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
     def transform_matrix(elem, expression, dtype):
@@ -238,8 +254,8 @@ class ComplementSubspace(object):
     r"""Complement of :class:`.Subspace` or :class:`.Subspaces`."""
 
     def __init__(self, subspace):
-        if not isinstance(subspace, (AbstractSubspace, Subspaces)):
-            raise TypeError("Expecting `AbstractSubspace` or `Subspaces`,"
+        if not isinstance(subspace, (Subspace, Subspaces)):
+            raise TypeError("Expecting `Subspace` or `Subspaces`,"
                             " not %s." % subspace.__class__.__name__)
         self._subspace = subspace
 
