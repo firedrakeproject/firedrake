@@ -1,6 +1,8 @@
 import functools
 import numpy as np
 
+from ufl.form import Form
+
 import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function, CoordinatelessFunction
@@ -577,3 +579,31 @@ def make_subspace_numbers_and_parts(subspaces, original_subspaces):
 def sort_indexed_subspaces(subspaces):
     return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
                                             -1 if s.index is None else s.index))
+
+
+def extract_subspaces(a, cls=object):
+    subspaces_and_objects = extract_indexed_subspaces(a, cls=cls)
+    subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
+    return tuple(sorted(subspaces, key=lambda x: x.count()))
+
+from ufl.algorithms.traversal import iter_expressions
+from ufl.corealg.traversal import unique_pre_traversal
+
+
+def extract_indexed_subspaces(a, cls=object):
+    from firedrake.projected import FiredrakeProjected
+    from firedrake.slate.slate import TensorBase, Tensor
+    if isinstance(a, TensorBase):
+        if isinstance(a, Tensor):
+            return extract_indexed_subspaces(a.form, cls=cls)
+        _set = set()
+        for op in a.operands:
+            _set.update(extract_indexed_subspaces(op, cls=cls))
+        return _set
+    elif isinstance(a, Form):        
+        return set((o.subspace(), o.ufl_operands[0])
+                    for e in iter_expressions(a)
+                    for o in unique_pre_traversal(e)
+                    if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
+    else:
+        raise TypeError("Unexpected type: %s" % str(type(a)))

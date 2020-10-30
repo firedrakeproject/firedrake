@@ -13,7 +13,7 @@ from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
-from firedrake.projected import extract_subspaces
+from firedrake.subspace import extract_subspaces
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
