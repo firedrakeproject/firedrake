@@ -194,12 +194,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # -- a combination of test/trial subspaces.
     split_forms, split_subspaces, split_extraargs, split_functions = split_form_projected(form)
     form_data_tuple = tuple(ufl_utils.compute_form_data(split_f, complex_mode=complex_mode) for split_f in split_forms)
-    #form_data_subspace_map = {fd:subspace for fd, subspace in zip(form_data_tuple, split_subspaces)}
-    #form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
-    #form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
-    #tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
     tsfc_form_data = TSFCFormData(form_data_tuple, split_extraargs, split_functions, form, diagonal)
-    #form_data_coefficient_map = {fd:tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fd, fs in form_data_function_map.items()}
     split_coefficients = tuple(tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fs in split_functions)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 

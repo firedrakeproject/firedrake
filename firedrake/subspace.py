@@ -2,6 +2,8 @@ import functools
 import numpy as np
 
 from ufl.form import Form
+from ufl.corealg.traversal import unique_pre_traversal
+from ufl.algorithms.traversal import iter_expressions
 
 import firedrake
 from firedrake import functionspaceimpl
@@ -179,7 +181,6 @@ class ScalarSubspace(Subspace):
         jj = tuple(gem.Index(extent=extent) for extent in shape)
         eye = gem.Literal(1)
         for i, j in zip(ii, jj):
-            #eye = gem.Product(eye, gem.Delta(i, j))
             eye = gem.Product(eye, gem.Indexed(gem.Identity(i.extent), (i, j)))
         mat = gem.ComponentTensor(gem.Product(eye, expression[ii]), ii + jj)
         return mat
@@ -585,9 +586,6 @@ def extract_subspaces(a, cls=object):
     subspaces_and_objects = extract_indexed_subspaces(a, cls=cls)
     subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
     return tuple(sorted(subspaces, key=lambda x: x.count()))
-
-from ufl.algorithms.traversal import iter_expressions
-from ufl.corealg.traversal import unique_pre_traversal
 
 
 def extract_indexed_subspaces(a, cls=object):

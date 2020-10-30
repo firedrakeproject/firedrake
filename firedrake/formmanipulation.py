@@ -432,5 +432,3 @@ class SplitFormNonProjectedFunction(MultiFunction):
 def split_form_non_projected_function(form):
     splitter = SplitFormNonProjectedFunction()
     return splitter.split(form)
-
-
