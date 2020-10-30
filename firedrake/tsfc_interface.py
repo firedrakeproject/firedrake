@@ -257,9 +257,8 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 if subspace is None:
                     continue
                 subspace_expr = subspace_expr_map[subspace]
-                mat = subspace.transform(subspace.ufl_element(), subspace_expr, builder.scalar_type)
-                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
-                                    for expression in expressions)
+                expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
+                                                 subspace.ufl_element(), builder.scalar_type)
             for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
                 subspace_expr = subspace_expr_map[subspace]
                 if type(coeff.ufl_element()) == MixedElement:
@@ -267,9 +266,8 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 else:
                     coefficient_expr = builder.coefficient_map[coeff]
                 i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
-                mat = subspace.transform(subspace.ufl_element(), subspace_expr, builder.scalar_type)
-                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i_coeff + i_extra), expression), i_extra)
-                                    for expression in expressions)
+                expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff,
+                                                 subspace.ufl_element(), builder.scalar_type)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
                                     for expression in expressions)
             reps = builder.construct_integrals(expressions, params)

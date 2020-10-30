@@ -20,6 +20,8 @@ from finat.quadrature import QuadratureRule
 from tsfc.finatinterface import create_element
 
 import gem
+from gem.node import MemoizerArg
+from gem.optimise import filtered_replace_indices
 
 
 __all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces',
@@ -106,7 +108,7 @@ class Subspace(object):
         return ComplementSubspace(self)
 
     @staticmethod
-    def transform(elem, expression, dtype):
+    def transform(expressions, subspace_expr, i_dummy, i, elem, dtype):
         r"""Apply linear transformation.
 
         :arg elem: UFL element: `self.ufl_function_space().ufl_element`
@@ -139,8 +141,8 @@ class IndexedSubspace(object):
     def ufl_element(self):
         return self.function_space().ufl_element()
 
-    def transform(self, elem, expression, dtype):
-        return self.parent.transform(elem, expression, dtype)
+    def transform(self, expressions, subspace_expr, i_dummy, i, elem, dtype):
+        return self.parent.transform(expressions, subspace_expr, i_dummy, i, elem, dtype)
 
     def __eq__(self, other):
         return self.parent is other.parent and \
@@ -161,7 +163,7 @@ class ScalarSubspace(Subspace):
         Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
-    def transform(elem, expression, dtype):
+    def transform(expressions, subspace_expr, i_dummy, i, elem, dtype):
         r"""Basic subspace.
 
         Linear combination of weighted basis:
@@ -176,14 +178,10 @@ class ScalarSubspace(Subspace):
                 w_i = 0 to deselect the associated basis.
                 w_i = 1 to select.
         """
-        shape = expression.shape
-        ii = tuple(gem.Index(extent=extent) for extent in shape)
-        jj = tuple(gem.Index(extent=extent) for extent in shape)
-        eye = gem.Literal(1)
-        for i, j in zip(ii, jj):
-            eye = gem.Product(eye, gem.Indexed(gem.Identity(i.extent), (i, j)))
-        mat = gem.ComponentTensor(gem.Product(eye, expression[ii]), ii + jj)
-        return mat
+        substitution = tuple(zip(i_dummy, i))
+        mapper = MemoizerArg(filtered_replace_indices)
+        expressions = tuple(mapper(expression, substitution) for expression in expressions)
+        return tuple(gem.Product(gem.Indexed(subspace_expr, i), expression) for expression in expressions)
 
 
 class RotatedSubspace(Subspace):
@@ -191,7 +189,7 @@ class RotatedSubspace(Subspace):
         Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
-    def transform(elem, expression, dtype):
+    def transform(expressions, subspace_expr, i_dummy, i, elem, dtype):
         r"""Rotation subspace.
 
         u = \sum [ u_i * \sum [ \psi(e)_i * \sum [ \psi(e)_k * \phi(e)_k ] ] ]
@@ -204,27 +202,27 @@ class RotatedSubspace(Subspace):
         \psi(e) : rotation vector whose elements not associated with
                   entity e are set zero.
         """
-        shape = expression.shape
+        shape = subspace_expr.shape
         finat_element = create_element(elem)
         if len(shape) == 1:
             entity_dofs = finat_element.entity_dofs()
         else:
             entity_dofs = finat_element.base_element.entity_dofs()
-        ii = tuple(gem.Index(extent=extent) for extent in shape)
-        jj = tuple(gem.Index(extent=extent) for extent in shape)
-        comp = gem.Zero()
-        for dim in entity_dofs:
-            for _, dofs in entity_dofs[dim].items():
-                if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
-                    continue
-                ind = np.zeros(shape, dtype=dtype)
-                for dof in dofs:
-                    for ndind in np.ndindex(shape[1:]):
-                        ind[(dof, ) + ndind] = 1.
-                comp = gem.Sum(comp, gem.Product(gem.Product(gem.Literal(ind)[ii], expression[ii]),
-                                                 gem.Product(gem.Literal(ind)[jj], expression[jj])))
-        mat = gem.ComponentTensor(comp, ii + jj)
-        return mat
+        _expressions = []
+        for expression in expressions:
+            _expression = gem.Zero()
+            for dim in entity_dofs:
+                for _, dofs in entity_dofs[dim].items():
+                    if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
+                        continue
+                    ind = np.zeros(shape, dtype=dtype)
+                    for dof in dofs:
+                        for ndind in np.ndindex(shape[1:]):
+                            ind[(dof, ) + ndind] = 1.
+                    temp = gem.IndexSum(gem.Product(gem.Product(gem.Literal(ind)[i_dummy], subspace_expr[i_dummy]), expression), i_dummy)
+                    _expression = gem.Sum(_expression, gem.Product(gem.Product(gem.Literal(ind)[i], subspace_expr[i]), temp))
+            _expressions.append(_expression)
+        return tuple(_expressions)
 
 
 class Subspaces(object):
