@@ -257,7 +257,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 if subspace is None:
                     continue
                 subspace_expr = subspace_expr_map[subspace]
-                mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
+                mat = subspace.transform(subspace.ufl_element(), subspace_expr, builder.scalar_type)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i + i_dummy), expression), i_dummy)
                                     for expression in expressions)
             for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
@@ -267,7 +267,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 else:
                     coefficient_expr = builder.coefficient_map[coeff]
                 i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
-                mat = subspace.transform_matrix(subspace.ufl_element(), subspace_expr, builder.scalar_type)
+                mat = subspace.transform(subspace.ufl_element(), subspace_expr, builder.scalar_type)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(mat, i_coeff + i_extra), expression), i_extra)
                                     for expression in expressions)
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)

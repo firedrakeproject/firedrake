@@ -106,8 +106,8 @@ class Subspace(object):
         return ComplementSubspace(self)
 
     @staticmethod
-    def transform_matrix(elem, expression, dtype):
-        r"""Construct transformation matrix.
+    def transform(elem, expression, dtype):
+        r"""Apply linear transformation.
 
         :arg elem: UFL element: `self.ufl_function_space().ufl_element`
             or its subelement (in case of `MixedElement`).
@@ -125,7 +125,7 @@ class Subspace(object):
         u_i   : ith coefficient
         \phi_i: ith basis
         """
-        raise NotImplementedError("Must implement `transform_matrix` method.")
+        raise NotImplementedError("Must implement `transform` method.")
 
 
 class IndexedSubspace(object):
@@ -139,8 +139,8 @@ class IndexedSubspace(object):
     def ufl_element(self):
         return self.function_space().ufl_element()
 
-    def transform_matrix(self, elem, expression, dtype):
-        return self.parent.transform_matrix(elem, expression, dtype)
+    def transform(self, elem, expression, dtype):
+        return self.parent.transform(elem, expression, dtype)
 
     def __eq__(self, other):
         return self.parent is other.parent and \
@@ -161,7 +161,7 @@ class ScalarSubspace(Subspace):
         Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
-    def transform_matrix(elem, expression, dtype):
+    def transform(elem, expression, dtype):
         r"""Basic subspace.
 
         Linear combination of weighted basis:
@@ -191,7 +191,7 @@ class RotatedSubspace(Subspace):
         Subspace.__init__(self, V, val=val, subdomain=subdomain, name=name, dtype=dtype)
 
     @staticmethod
-    def transform_matrix(elem, expression, dtype):
+    def transform(elem, expression, dtype):
         r"""Rotation subspace.
 
         u = \sum [ u_i * \sum [ \psi(e)_i * \sum [ \psi(e)_k * \phi(e)_k ] ] ]
