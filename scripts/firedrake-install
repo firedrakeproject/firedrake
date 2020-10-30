@@ -16,8 +16,10 @@ import shlex
 from glob import iglob
 from itertools import chain
 
+osname = platform.uname()[0]
+
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -60,7 +62,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
 
 
 def deep_update(this, that):
@@ -277,6 +279,8 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
+    parser.add_argument("--with-blas", default=None,
+                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
 
     args = parser.parse_args()
 
@@ -357,6 +361,8 @@ else:
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install-help.")
+    parser.add_argument("--pip-install", action="append", dest="pip_packages",
+                        help="Pip install additional packages into the venv")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
     parser.add_argument("--cache-dir", type=str,
@@ -373,6 +379,8 @@ else:
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
+    parser.add_argument("--with-blas", default=None,
+                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
 
     args = parser.parse_args()
 
@@ -381,6 +389,9 @@ else:
     petsc_int_type_changed = False
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
+        args.rebuild = True
+    if config["options"].get("with_blas") is not None and \
+       config["options"].get("with_blas") != args.with_blas:
         args.rebuild = True
 
     petsc_complex_type_changed = False
@@ -465,7 +476,9 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
 python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the venv
 pip = python + ["-m", "pip"]
-pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
+pipinstall = pip + ["install",
+                    "--no-build-isolation",
+                    "--no-binary", ",".join(wheel_blacklist)]
 
 
 # This context manager should be used whenever arguments should be temporarily added to pipinstall.
@@ -490,17 +503,13 @@ If you really want to use your own Python packages, please run again with the
 --honour-pythonpath option.
 """)
 
-petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
-
-petsc_opts += "--with-fortran-bindings=0 "
-
 petsc_options = {"--with-fortran-bindings=0",
                  "--with-debugging=0",
                  "--with-shared-libraries=1",
                  "--with-c2html=0",
                  "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                  # File format
-                 "--download-hdf5=https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.6/src/hdf5-1.10.6.tar.bz2",
+                 "--download-hdf5",
                  # AMG
                  "--download-hypre",
                  # Sparse direct solver
@@ -520,6 +529,8 @@ if not options["minimal_petsc"]:
     petsc_options.add("--download-pastix")
     # Required by pastix
     petsc_options.add("--download-hwloc")
+    if osname == "Darwin":
+        petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
     # Serial mesh partitioner
     petsc_options.add("--download-metis")
     if options.get("with_parmetis", None):
@@ -551,6 +562,26 @@ if options.get("mpiexec") is not None:
 else:
     # Download mpich if the user does not tell us about an MPI.
     petsc_options.add("--download-mpich")
+    if osname == "Darwin":
+        petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
+
+if options.get("with_blas") == "download":
+    # Download openblas if the user specifies.
+    petsc_options.add("--download-openblas")
+    if osname == "Darwin":
+        petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+elif options.get("with_blas") is not None:
+    petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+    if osname == "Darwin":
+        petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+    else:
+        petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+elif osname == "Darwin":
+    mac_blas = "/usr/local/opt/openblas"
+    petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
+    petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
 
 petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
 
@@ -723,8 +754,9 @@ def run_pip_install(pipargs):
     # Make pip verbose when logging, so we see what the
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
-    pipargs = ["-vvv"] + pipargs
-    check_call(pipinstall + pipargs)
+    with environment(**blas):
+        pipargs = ["-vvv"] + pipargs
+        check_call(pipinstall + pipargs)
 
 
 def run_cmd(args):
@@ -767,17 +799,26 @@ def install(package):
         build_and_install_petsc()
     elif package == "slepc/":
         build_and_install_slepc()
-    # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-    elif package not in ["petsc4py/", "slepc4py/"]:
-        run_pip_install(["-e", package])
-    else:
+    elif package in ["petsc4py/", "slepc4py/"]:
+        # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", package])
+    elif package == "h5py/":
+        # h5py tries to build against ancient version of numpy additional flag avoids this
+        run_pip_install(["--no-build-isolation", package])
+    elif package == "loopy/" and osname == "Darwin":
+        # On MacOS loopy won't build unless additional flags are passed to the compiler
+        with environment(CFLAGS="-Wno-implicit-function-declaration"):
+            run_pip_install(["-e", package])
+    else:
+        run_pip_install(["-e", package])
 
 
 def clean(package):
     log.info("Cleaning %s" % package)
     with directory(package):
-        check_call(["python", "setup.py", "clean"])
+        with environment(**blas):
+            # loopy needs knowledge of the system BLAS just to run setup.py
+            check_call(["python", "setup.py", "clean"])
 
 
 def pip_uninstall(package):
@@ -918,7 +959,8 @@ def build_and_install_h5py():
     if changed or args.rebuild:
         log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
         with environment(HDF5_DIR=hdf5_dir,
-                         HDF5_MPI="ON"):
+                         HDF5_MPI="ON",
+                         **blas):
             # Only uninstall if things changed.
             pip_uninstall("h5py")
             # Pip installing from dirty directory is potentially unsafe.
@@ -1214,7 +1256,6 @@ log.debug("\n\n")
 
 if mode == "install" or not args.update_script:
     # Check operating system.
-    osname = platform.uname()[0]
     required_packages = None
     package_manager = None
     if osname == "Darwin":
@@ -1222,10 +1263,13 @@ if mode == "install" or not args.update_script:
         required_packages = ["gcc",
                              "python3",
                              "autoconf",
+                             "make",
                              "automake",
                              "cmake",
                              "libtool",
                              "boost"]
+        if args.with_blas is None and mode == "install":
+            required_packages.append("openblas")
     elif osname == "Linux":
         package_manager = "apt-get"
         required_packages = ["build-essential",
@@ -1236,8 +1280,6 @@ if mode == "install" or not args.update_script:
                              "cmake",
                              "gfortran",
                              "git",
-                             "libblas-dev",
-                             "liblapack-dev",
                              "libtool",
                              "python3-dev",
                              "python3-pip",
@@ -1248,8 +1290,13 @@ if mode == "install" or not args.update_script:
         if args.opencascade:
             required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
+
+        if args.with_blas is None and mode == "install":
+            required_packages.append("libopenblas-dev")
+
         if args.documentation_dependencies:
             required_packages.append("graphviz")
+
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
@@ -1277,6 +1324,8 @@ if mode == "install" or not args.update_script:
             if osname == "Darwin":
                 log.info("\nIn addition, the command line tools will be installed using xcode")
         sys.exit(0)
+
+    blas_location = args.with_blas
 
     if osname == "Darwin":
         if options["package_manager"]:
@@ -1312,6 +1361,10 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
+
+            if args.with_blas is None and mode == "install":
+                blas_location = "/usr/local/opt/openblas"
+                config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
@@ -1330,7 +1383,8 @@ if mode == "install" or not args.update_script:
         except (subprocess.CalledProcessError, InstallError):
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
-
+else:
+    blas_location = config["options"].get("with_blas")
 
 if mode == "install":
     if os.path.exists(firedrake_env):
@@ -1358,18 +1412,13 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
-    # Ensure pip and setuptools are at the latest version.
+    # Ensure pip, setuptools and wheel are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
+    run_pip(["install", "-U", "wheel"])
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
-
-    # Pre-install requested packages
-    if args.pip_packages is not None:
-        for package in args.pip_packages:
-            log.info("Pip installing %s to venv" % package)
-            run_pip_install(package.split())
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
@@ -1400,6 +1449,14 @@ f90 = options["mpif90"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
+# Dict to store BLAS and OPENBLAS environment variables
+blas = dict()
+if blas_location == "download":
+    blas_location = os.path.join(petsc_dir, petsc_arch)
+if blas_location is not None:
+    blas["BLAS"] = blas_location
+    blas["OPENBLAS"] = blas_location
+
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update
 # can be run on a partial install.
@@ -1408,7 +1465,6 @@ json_output = json.dumps(config)
 with open(config_location, "w") as f:
     f.write(json_output)
 log.info("Configuration saved to " + config_location)
-
 
 if mode == "install":
     os.mkdir("src")
@@ -1422,6 +1478,12 @@ if mode == "install":
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1437,6 +1499,7 @@ if mode == "install":
 
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
+    run_pip_install(["pybind11"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
