@@ -23,7 +23,7 @@ from ufl.log import GREEN
 from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
-from tsfc.driver import TSFCFormData, TSFCIntegralData, preprocess_parameters
+from tsfc.driver import TSFCFormData, preprocess_parameters
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.logging import logger
@@ -198,7 +198,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     #form_data_extraarg_map = {fd:extraarg for fd, extraarg in zip(form_data_tuple, split_extraargs)}
     #form_data_function_map = {fd:function for fd, function in zip(form_data_tuple, split_functions)}
     #tsfc_form_data = TSFCFormData(form_data_tuple, form, form_data_extraarg_map, form_data_function_map, diagonal)
-    tsfc_form_data = TSFCFormData(form_data_tuple, form, split_extraargs, split_functions, diagonal)
+    tsfc_form_data = TSFCFormData(form_data_tuple, split_extraargs, split_functions, form, diagonal)
     #form_data_coefficient_map = {fd:tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fd, fs in form_data_function_map.items()}
     split_coefficients = tuple(tuple(tsfc_form_data.function_replace_map[f] for f in fs) for fs in split_functions)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
@@ -230,8 +230,8 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         nargs = len(argument_multiindices)
         # Gather all subspaces in this TSFCIntegralData
         subspaces = set()
-        for i in range(len(tsfc_integral_data.integrals)):
-            form_data_index = tsfc_integral_data.integral_to_form_data(i)
+        for integral_index in range(len(tsfc_integral_data.integrals)):
+            form_data_index = tsfc_integral_data.integral_index_to_form_data_index(integral_index)
             subspaces.update(split_subspaces[form_data_index])
         subspaces = subspaces.difference(set((None, )))
         # Make:
@@ -248,8 +248,8 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # -- Compile ufl -> gem.
         # -- Apply subspace transformation.
         # -- 
-        for integral_idx, integral in enumerate(tsfc_integral_data.integrals):
-            form_data_idx = tsfc_integral_data.integral_to_form_data(integral_idx)
+        for integral_index, integral in enumerate(tsfc_integral_data.integrals):
+            form_data_idx = tsfc_integral_data.integral_index_to_form_data_index(integral_index)
             subspace_tuple = split_subspaces[form_data_idx]
             coefficient_tuple = split_coefficients[form_data_idx]
             params = parameters.copy()
