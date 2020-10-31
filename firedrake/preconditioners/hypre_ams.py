@@ -3,13 +3,11 @@ from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.constant import Constant
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator
+from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
-from firedrake import interpolate
 from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
-import numpy as np
 from ufl import grad
 
 __all__ = ("HypreAMS",)
