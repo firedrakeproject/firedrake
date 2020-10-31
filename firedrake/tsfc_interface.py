@@ -15,7 +15,6 @@ import os
 import zlib
 import tempfile
 import collections
-import numpy as np
 
 import ufl
 from ufl import Form, MixedElement
@@ -24,8 +23,7 @@ from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
 from tsfc.driver import TSFCFormData, preprocess_parameters
-from tsfc.parameters import PARAMETERS as tsfc_default_parameters
-from tsfc.parameters import default_parameters, is_complex
+from tsfc.parameters import PARAMETERS as tsfc_default_parameters, is_complex
 from tsfc.logging import logger
 
 import gem
@@ -34,9 +32,7 @@ from pyop2.caching import Cached
 from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
-from firedrake.ufl_expr import Argument
 from firedrake.formmanipulation import split_form, split_form_projected
-from firedrake.projected import propagate_projection
 from firedrake.subspace import make_subspace_numbers_and_parts, extract_subspaces
 
 from firedrake.parameters import parameters as default_parameters
@@ -351,7 +347,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
         subspace_number_map = dict((n, _subspace_numbers[s])
-                                    for (n, s) in enumerate(extract_subspaces(f)))
+                                   for (n, s) in enumerate(extract_subspaces(f)))
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
                             number_map, subspace_number_map, interface, coffee, diagonal, idx=idx).kernels
