@@ -1,13 +1,15 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake.functionspace import FunctionSpace
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.constant import Constant
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator
-from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
+from firedrake import interpolate
 from firedrake.utils import complex_mode
 from firedrake_citations import Citations
+from firedrake import SpatialCoordinate
+import numpy as np
 from ufl import grad
 
 __all__ = ("HypreAMS",)
@@ -44,14 +46,8 @@ class HypreAMS(PCBase):
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
 
-        # Build constants basis for the Nedelec space
-        cvecs = []
-        for i in range(mesh.cell_dimension()):
-            direction = [1.0 if i == j else 0.0 for j in range(mesh.cell_dimension())]
-            c = project(Constant(direction), V)
-            with c.vector().dat.vec_ro as cvec:
-                cvecs.append(cvec)
-        pc.setHYPRESetEdgeConstantVectors(*cvecs)
+        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro)
         pc.setUp()
 
         self.pc = pc
