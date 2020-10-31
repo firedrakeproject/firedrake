@@ -131,7 +131,7 @@ def test_homogeneous_field_linear_convergence():
               'ksp_rtol': '1e-8',
               'ksp_atol': '1e-8',
               'pc_type': 'python',
-              'pc_python_type': 'HypreAMS_preconditioner.HypreAMS',
+              'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True,
               }
 
