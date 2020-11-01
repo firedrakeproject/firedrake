@@ -7,7 +7,6 @@ from ufl.algorithms.traversal import iter_expressions
 from firedrake import functionspaceimpl, utils
 from firedrake.function import Function, CoordinatelessFunction
 
-from pyop2 import op2
 from pyop2.datatypes import ScalarType
 
 import gem
@@ -35,7 +34,7 @@ class Subspace(object):
             Subspace._globalcount = self._count + 1
         if not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Subspace defined on a "
-                                      + str(type(function_space)))
+                                      + str(type(V)))
         if isinstance(val, (Function, CoordinatelessFunction)):
             val = val.topological
             if val.function_space() != V.topological:
@@ -69,12 +68,13 @@ class Subspace(object):
         A non-projected (default) function is written as a
         linear combination of basis functions:
 
-        u = \sum [ u_i * \phi_i ]
-              i
+        .. math::
 
-        u     : function
-        u_i   : ith coefficient
-        \phi_i: ith basis
+            u = \\sum_i [ u_i * \\phi_i ]
+
+            u      : function
+            u_i    : ith coefficient
+            \\phi_i: ith basis
         """
         raise NotImplementedError("Subclasses must implement `transform` method.")
 
@@ -84,8 +84,7 @@ class Subspace(object):
         elif type(other) is not type(self):
             return False
         else:
-            return other._function_space is self._function_space and \
-                   other._count == self._count
+            return other._function_space == self._function_space and other._count == self._count
 
     def __str__(self):
         count = str(self._count)
@@ -126,7 +125,7 @@ class IndexedSubspace(object):
         return self.parent.transform(expressions, subspace_expr, i_dummy, i, finat_element, dtype)
 
     def __eq__(self, other):
-        return self.parent is other.parent and self.index == other.index
+        return self.parent == other.parent and self.index == other.index
 
     def __str__(self):
         return "%s[%s]" % (self.parent, self.index)
@@ -147,15 +146,17 @@ class ScalarSubspace(Subspace):
 
         Linear combination of weighted basis:
 
-        u = \sum [ u_i * (w_i * \phi_i) ]
-              i
+        .. math::
 
-        u     : function
-        u_i   : ith coefficient
-        \phi_i: ith basis
-        w_i   : ith weight (stored in the subspace object)
-                w_i = 0 to deselect the associated basis.
-                w_i = 1 to select.
+            u = \\sum [ u_i * (w_i * \\phi_i) ]
+                   i
+
+            u      : function
+            u_i    : ith coefficient
+            \\phi_i: ith basis
+            w_i    : ith weight (stored in the subspace object)
+                    w_i = 0 to deselect the associated basis.
+                    w_i = 1 to select.
         """
         substitution = tuple(zip(i_dummy, i))
         mapper = MemoizerArg(filtered_replace_indices)
@@ -170,15 +171,17 @@ class RotatedSubspace(Subspace):
     def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
         """Rotation subspace.
 
-        u = \sum [ u_i * \sum [ \psi(e)_i * \sum [ \psi(e)_k * \phi(e)_k ] ] ]
-              i            e                  k
+        .. math::
 
-        u       : function
-        u_i     : ith coefficient
-        \phi(e) : basis vector whose elements not associated with
-                  topological entity e are set zero.
-        \psi(e) : rotation vector whose elements not associated with
-                  topological entity e are set zero.
+            u = \\sum [ u_i * \\sum [ \\psi(e)_i * \\sum [ \\psi(e)_k * \\phi(e)_k ] ] ]
+                   i             e                    k
+
+            u        : function
+            u_i      : ith coefficient
+            \\phi(e) : basis vector whose elements not associated with
+                       topological entity e are set zero.
+            \\psi(e) : rotation vector whose elements not associated with
+                       topological entity e are set zero.
         """
         shape = subspace_expr.shape
         if len(shape) == 1:

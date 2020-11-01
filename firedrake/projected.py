@@ -1,6 +1,5 @@
 import functools
-import ufl
-from ufl.algorithms.analysis import extract_type
+
 from ufl.constantvalue import Zero
 from ufl.core.ufl_type import ufl_type
 from ufl.core.operator import Operator
@@ -8,8 +7,8 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.precedence import parstr
-import firedrake
-from firedrake.subspace import Subspace, Subspaces, ScalarSubspace, IndexedSubspace
+
+from firedrake.subspace import Subspace, Subspaces
 
 
 __all__ = ['Projected']
@@ -61,30 +60,24 @@ class FiredrakeProjected(Operator):
         elif not isinstance(other, FiredrakeProjected):
             return False
         else:
-            return self.ufl_operands[0] == other.ufl_operands[0] and \
-                   self.subspace() is other.subspace()
+            return self.ufl_operands[0] == other.ufl_operands[0] and self.subspace() == other.subspace()
+
+    def __str__(self):
+        return "%s[%s]" % (parstr(self.ufl_operands[0], self), self._subspace)
 
     def __repr__(self):
         return "%s(%s, %s)" % (self._ufl_class_.__name__, repr(self.ufl_operands[0]), repr(self.subspace()))
 
-    def __str__(self):
-        return "%s[%s]" % (parstr(self.ufl_operands[0], self),
-                           self._subspace)
-
 
 def Projected(form_argument, subspace):
     """Return `FiredrakeProjected` objects."""
-    #if isinstance(subspace, ComplementSubspace):
-    #    return form_argument - Projected(form_argument, subspace.complement)
-    if isinstance(subspace, (list, tuple)):
-        subspace = Subspaces(*subspace)
     if isinstance(subspace, Subspaces):
         ms = tuple(Projected(form_argument, s) for s in subspace)
         return functools.reduce(lambda a, b: a + b, ms)
     elif isinstance(subspace, Subspace):
         return FiredrakeProjected(form_argument, subspace)
     else:
-        raise TypeError("Must be `Subspace`, `Subspaces`, list, or tuple, not %s." % subspace.__class__.__name__)
+        raise TypeError("Expecting `Subspace` or `Subspaces`, not %s." % subspace.__class__.__name__)
 
 
 # -- Propagate FiredrakeProjected to directly wrap FormArguments
