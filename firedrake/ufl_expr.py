@@ -8,14 +8,11 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import GradRuleset, ReferenceGradRuleset, VariableRuleset, GateauxDerivativeRuleset, DerivativeRuleDispatcher
 from ufl.form import as_form
-from ufl.classes import ListTensor, Zero
+from ufl.classes import Zero
 
 import firedrake
 from firedrake import utils
-from firedrake.function import Function
-from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, ScalarSubspace
-
-import functools
+from firedrake.projected import FiredrakeProjected
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -210,7 +207,6 @@ def action(form, coefficient):
             raise ValueError("Can't take action of rank-0 tensor")
         return form * firedrake.AssembledVector(coefficient)
     else:
-        #return ufl.action(form, coefficient)
         form = as_form(form)
         form = apply_algebra_lowering(form)
         form = apply_derivatives(form)
@@ -274,12 +270,15 @@ def FacetNormal(mesh):
     return ufl.FacetNormal(mesh)
 
 
+# apply_derivative with FiredrakeProjected.
+
+
 class FiredrakeDerivativeMixin(object):
     def firedrake_projected(self, o, Ap):
         # Propagate zeros
         if isinstance(Ap, Zero):
             return self.independent_operator(o)
-        return firedrake.projected.FiredrakeProjected(Ap, o.subspace())
+        return FiredrakeProjected(Ap, o.subspace())
 
 
 class FiredrakeGradRuleset(GradRuleset, FiredrakeDerivativeMixin):
@@ -287,7 +286,7 @@ class FiredrakeGradRuleset(GradRuleset, FiredrakeDerivativeMixin):
         GradRuleset.__init__(self, geometric_dimension)
 
 
-class FiredrakeReferanceGradRuleset(ReferenceGradRuleset, FiredrakeDerivativeMixin):
+class FiredrakeReferenceGradRuleset(ReferenceGradRuleset, FiredrakeDerivativeMixin):
     def __init__(self, topological_dimension):
         ReferenceGradRuleset.__init__(self, topological_dimension)
 
@@ -325,5 +324,12 @@ class FiredrakeDerivativeRuleDispatcher(DerivativeRuleDispatcher):
 
 
 def apply_derivatives(expression):
+    """Apply derivatives.
+
+    `ufl.algorithms.apply_derivatives.GenericDerivativeRuleset`
+    does not define default rule for expr, so we need to
+    reconstruct apply_derivative function with rule set for
+    FiredrakeProjected.
+    """
     rules = FiredrakeDerivativeRuleDispatcher()
     return map_integrand_dags(rules, expression)
