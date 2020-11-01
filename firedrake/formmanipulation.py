@@ -5,13 +5,14 @@ import itertools
 from ufl import as_vector, MixedElement
 from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.analysis import extract_type
-from ufl.corealg.map_dag import MultiFunction, map_expr_dags, map_expr_dag
+from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
-from firedrake.ufl_expr import Argument
+from firedrake.ufl_expr import Argument, derivative, apply_derivatives
 from firedrake.function import Function
-from firedrake.subspace import IndexedSubspace
-from firedrake.projected import FiredrakeProjected
+from firedrake.subspace import IndexedSubspace, extract_indexed_subspaces
+from firedrake.projected import FiredrakeProjected, propagate_projection
 
 
 class ExtractSubBlock(MultiFunction):
@@ -195,32 +196,57 @@ def split_form(form, diagonal=False):
     return tuple(forms)
 
 
-# -- Split according to subspaces
+# -- Split form according to subspaces
 
-
-from ufl.classes import FormArgument
-from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-
-from firedrake.ufl_expr import Argument, derivative, apply_derivatives
-from firedrake.function import Function
-
-from firedrake.projected import propagate_projection
-from firedrake.subspace import extract_indexed_subspaces
 
 def split_form_projected(form):
+    """Split form according to subspaces.
+
+    :arg form: the form to split.
+
+    If a projected function is found, replace it with an additional argument
+    and remember the association of the resulting form (of one higher rank),
+    the additional argument, the projected function, the subspace that the
+    function is projected onto.
+
+    For instance consider the following:
+
+    .. code-block:: python
+
+        V = FunctionSpace(m, 'CG', 1)
+        Vsub = ScalarSubspace(V)
+        v = TestFunction(V)
+        u = Function(V)
+        form = u * v * dx + u * Projected(v, Vsub) * dx + Projected(u, Vsub) * v * dx
+
+    Then split_form_projected(form) returns:
+
+    .. code-block:: python
+
+       (subforms, subspaces, extraargs, functions)
+
+    where:
+
+    .. code-block:: python
+
+        subforms = (u * v * dx, u * v * dx, TrialFunction(V) * v * dx, )
+        subspaces = ((None, ), (Vsub, ), (None, Vsub), )
+        extraargs = ((), (), (TrialFunction(V), ), )
+        functions = ((), (), (u, ), )
+    """
     form = apply_algebra_lowering(form)
     form = apply_derivatives(form)
     form = propagate_projection(form)
     nargs = len(form.arguments())
-    # -- Collect every (subspace, arg) pair if Projected(arg, subspace) is found in the form.
-    subspace_argument_set = extract_indexed_subspaces(form, cls=Argument) 
-    subspaces_list = tuple((None, ) + tuple(s for s, a in subspace_argument_set if a.number() == i) for i in range(nargs))
+    # Collect (subspace, arg) pair if Projected(arg, subspace) is found in the form.
+    subspace_argument_set = extract_indexed_subspaces(form, cls=Argument)
+    subspaces_tuple = tuple((None, ) + tuple(s for s, a in subspace_argument_set if a.number() == i) for i in range(nargs))
     # -- Decompose form according to test/trial subspaces.
     subforms = []
     subspaces = []
     extraargs = []
     functions = []
-    for subspace_tuple in itertools.product(*subspaces_list):
+    for subspace_tuple in itertools.product(*subspaces_tuple):
         _subforms, _subspaces, _extraargs, _functions = split_form_projected_argument(form, subspace_tuple)
         subforms.extend(_subforms)
         subspaces.extend(_subspaces)
@@ -251,17 +277,12 @@ class SplitFormProjectedArgument(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def firedrake_projected(self, o, A):
-        a = set()
-        a.update(extract_type(o.ufl_operands[0], Argument))
-        a.update(extract_type(o.ufl_operands[0], Function))
-        a = tuple(a)
-        if len(a) != 1:
-            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        a = a[0]
+        a, = o.ufl_operands
+        assert isinstance(a, (Argument, Function))
         if isinstance(a, Function):
             return o
-        if o.subspace() is self.subspaces[a.number()]:
-            return o.ufl_operands[0]
+        elif o.subspace() is self.subspaces[a.number()]:
+            return a
         else:
             shape = o.ufl_shape
             fi = o.ufl_free_indices
@@ -269,16 +290,16 @@ class SplitFormProjectedArgument(MultiFunction):
             return Zero(shape=shape, free_indices=fi, index_dimensions=fid)
 
     def split(self, form, subspaces):
-        """Split a sub-form according to test/trial subspaces.
+        """Split form according to test/trial subspaces.
 
-        :arg form: the sub-form to split.
+        :arg form: the form to split.
         :arg subspaces: subspaces of test and trial spaces to extract.
             This should be 0-, 1-, or 2-tuple (whose length is the
             same as the number of arguments as the ``form``). The
             tuple can contain `None`s for extraction of non-projected
             arguments.
 
-        Returns a new :class:`ufl.classes.Form` on the selected subspace.
+        Returns a new :class:`ufl.classes.Form`.
         """
         args = form.arguments()
         if len(subspaces) != len(args):
@@ -296,20 +317,23 @@ def split_form_projected_argument(form, subspace_tuple):
     subform = splitter.split(form, subspace_tuple)
     if subform.integrals() == ():
         return [], [], [], []
-    # Further split subform if projected functions are found.
     subspace_function_set = extract_indexed_subspaces(subform, cls=Function)
+    # Return if projected functions are not found.
     if len(subspace_function_set) == 0:
         return [subform, ], [subspace_tuple, ], [(), ], [(), ]
+    # Further split subform if projected functions are found.
     subforms = []
     subspaces = []
     extraargs = []
     functions = []
+    # Extract part that does not contain projected functions.
     subsubform = split_form_non_projected_function(subform)
     if subsubform.integrals():
         subforms.append(subsubform)
         subspaces.append(subspace_tuple)
         extraargs.append(())
         functions.append(())
+    # Split according to projected functions.
     for s, f in subspace_function_set:
         # Replace f with a new argument.
         f_arg = Argument(f.function_space(), nargs)
@@ -337,22 +361,6 @@ def split_form_projected_argument(form, subspace_tuple):
 # -- SplitFormProjectedFunction
 
 
-class ProjectedFunctionReplacer(MultiFunction):
-    def __init__(self, function, dummy_function):
-        MultiFunction.__init__(self)
-        self._function = function
-        self._dummy_function = dummy_function
-
-    def terminal(self, o):
-        return o
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def coefficient(self, o):
-        assert o is self._function
-        return self._dummy_function
-
-
 class SplitFormProjectedFunction(MultiFunction):
     def __init__(self):
         MultiFunction.__init__(self)
@@ -363,18 +371,10 @@ class SplitFormProjectedFunction(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def firedrake_projected(self, o, A):
-        a = set()
-        a.update(extract_type(o.ufl_operands[0], Argument))
-        a.update(extract_type(o.ufl_operands[0], Function))
-        a = tuple(a)
-        if len(a) != 1:
-            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        a = a[0]
-        if isinstance(a, Argument):
-            raise RuntimeError("Projected arguments must have been removed.")
-        elif o.subspace() is self._subspace and a is self._function:
-            rules = ProjectedFunctionReplacer(self._function, self._dummy_function)
-            return map_expr_dag(rules, A)
+        a, = o.ufl_operands
+        assert isinstance(a, Function)
+        if o.subspace() is self._subspace and a is self._function:
+            return self._dummy_function
         else:
             shape = o.ufl_shape
             fi = o.ufl_free_indices
@@ -411,15 +411,8 @@ class SplitFormNonProjectedFunction(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def firedrake_projected(self, o, A):
-        a = set()
-        a.update(extract_type(o.ufl_operands[0], Argument))
-        a.update(extract_type(o.ufl_operands[0], Function))
-        a = tuple(a)
-        if len(a) != 1:
-            raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        a = a[0]
-        if isinstance(a, Argument):
-            raise RuntimeError("Projected arguments must have been removed.")
+        a, = o.ufl_operands
+        assert isinstance(a, Function)
         shape = o.ufl_shape
         fi = o.ufl_free_indices
         fid = o.ufl_index_dimensions
