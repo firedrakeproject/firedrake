@@ -21,6 +21,7 @@ def handle_exit_annotation():
         pause_annotation()
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_constant():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
@@ -36,6 +37,7 @@ def test_interpolate_constant():
     assert taylor_test(rf, c, h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_with_arguments():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
@@ -56,6 +58,7 @@ def test_interpolate_with_arguments():
     assert taylor_test(rf, f, h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_scalar_valued():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = IntervalMesh(10, 0, 1)
@@ -82,6 +85,7 @@ def test_interpolate_scalar_valued():
     assert taylor_test(rf, g, h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_vector_valued():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
@@ -103,6 +107,7 @@ def test_interpolate_vector_valued():
     assert taylor_test(rf, f, h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_tlm():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
@@ -130,6 +135,7 @@ def test_interpolate_tlm():
     assert taylor_test(rf, f, h, dJdm=J.tlm_value) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_tlm_wit_constant():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = IntervalMesh(10, 0, 1)
@@ -163,6 +169,7 @@ def test_interpolate_tlm_wit_constant():
     assert abs(J.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_bump_function():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(10, 10)
@@ -180,6 +187,7 @@ def test_interpolate_bump_function():
     assert taylor_test(rf, [cx, cy], h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_interpolate():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1, 1)
@@ -196,6 +204,7 @@ def test_self_interpolate():
     assert taylor_test(rf, c, h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_interpolate_function():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1, 1)
@@ -213,6 +222,7 @@ def test_self_interpolate_function():
     assert taylor_test(rf, Constant(3.), h) > 1.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_to_function_space():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1, 1)

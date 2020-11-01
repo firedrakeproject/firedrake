@@ -1,5 +1,5 @@
 
-from pyop2.datatypes import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr
 
 from coffee import base as ast
 
@@ -101,7 +101,7 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, utils.ScalarType_c)
+    body = generate_coffee(impero_c, {}, utils.ScalarType)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
@@ -113,6 +113,7 @@ def compile_element(expression, coordinates, parameters=None):
         "geometric_dimension": cell.geometric_dimension(),
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
+        "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
     }
@@ -128,7 +129,8 @@ def compile_element(expression, coordinates, parameters=None):
 static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
-int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)
+
+int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     struct ReferenceCoords reference_coords;
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
@@ -139,12 +141,12 @@ int evaluate(struct Function *f, %(scalar_type)s *x, %(scalar_type)s *result)
     if (!result) {
         return 0;
     }
+#if %(extruded_define)s
     int layers[2] = {0, 0};
-    if (f->extruded != 0) {
-        int nlayers = f->n_layers;
-        layers[1] = cell %% nlayers + 2;
-        cell = cell / nlayers;
-    }
+    int nlayers = f->n_layers;
+    layers[1] = cell %% nlayers + 2;
+    cell = cell / nlayers;
+#endif
 
     wrap_evaluate(result, reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
     return 0;

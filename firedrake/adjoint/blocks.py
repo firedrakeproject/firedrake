@@ -121,7 +121,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_nlvs_replace_forms()
         self._ad_nlvs.parameters.update(self.solver_params)
         self._ad_nlvs.solve()
-        return self._ad_nlvs._problem.u
+        func.assign(self._ad_nlvs._problem.u)
+        return func
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
@@ -135,19 +136,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                     assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
         return assign_map
 
-    def _ad_assign_coefficients(self, form, func=None):
+    def _ad_assign_coefficients(self, form):
         assign_map = self._ad_assign_map(form)
-        if func is not None and self._ad_nlvs._problem.u in assign_map:
-            self.backend.Function.assign(func, assign_map[self._ad_nlvs._problem.u])
-            assign_map[self._ad_nlvs._problem.u] = func
-
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
     def _ad_nlvs_replace_forms(self):
         problem = self._ad_nlvs._problem
-        func = self.backend.Function(problem.u.function_space())
-        self._ad_assign_coefficients(problem.F, func)
+        self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
 
@@ -159,8 +155,8 @@ class ProjectBlock(SolveVarFormBlock):
         dx = self.backend.dx(mesh)
         w = self.backend.TestFunction(V)
         Pv = self.backend.TrialFunction(V)
-        a = self.backend.inner(w, Pv) * dx
-        L = self.backend.inner(w, v) * dx
+        a = self.backend.inner(Pv, w) * dx
+        L = self.backend.inner(v, w) * dx
 
         super().__init__(a == L, output, bcs, *args, **kwargs)
 
@@ -225,10 +221,15 @@ class FunctionMergeBlock(Block, Backend):
         super().__init__()
         self.add_dependency(func)
         self.idx = idx
+        for output in func._ad_outputs:
+            self.add_dependency(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        return adj_inputs[0]
+        if idx == 0:
+            return adj_inputs[0].split()[self.idx]
+        else:
+            return adj_inputs[0]
 
     def evaluate_tlm(self):
         tlm_input = self.get_dependencies()[0].tlm_value
@@ -245,9 +246,12 @@ class FunctionMergeBlock(Block, Backend):
         return hessian_inputs[0]
 
     def recompute(self):
-        dep = self.get_dependencies()[0].checkpoint
-        output = self.get_outputs()[0].checkpoint
-        self.backend.Function.assign(self.backend.Function.sub(output, self.idx), dep)
+        deps = self.get_dependencies()
+        sub_func = deps[0].checkpoint
+        parent_in = deps[1].checkpoint
+        parent_out = self.get_outputs()[0].checkpoint
+        parent_out.assign(parent_in)
+        parent_out.sub(self.idx).assign(sub_func)
 
 
 class MeshOutputBlock(Block):

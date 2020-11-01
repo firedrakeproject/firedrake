@@ -153,13 +153,13 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
 
 
 def test_matrix_types(W):
-    a = inner(TestFunction(W), TrialFunction(W))*dx
+    a = inner(TrialFunction(W), TestFunction(W))*dx
 
     with pytest.raises(ValueError):
         assemble(a, mat_type="baij")
 
     A = assemble(a)
-    assert A.M.handle.getType() == parameters["default_matrix_type"]
+    assert A.M.handle.getType() == "seq" + parameters["default_matrix_type"]
 
     A = assemble(a, mat_type="aij")
 

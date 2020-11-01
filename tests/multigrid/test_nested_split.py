@@ -6,6 +6,7 @@ import pytest
                          [{
                              # Newton
                              "snes_type": "newtonls",
+                             "snes_linesearch_type": "bt",
                              "ksp_type": "cg",
                              # Fieldsplit PC
                              "pc_type": "fieldsplit",
@@ -26,7 +27,7 @@ import pytest
                           {
                               # Newton
                               "snes_type": "newtonls",
-                              "snes_view": None,
+                              "snes_linesearch_type": "bt",
                               "ksp_type": "cg",
                               # Same as before, just with a recursive split, so we need an aij matrix
                               "mat_type": "aij",
@@ -50,6 +51,8 @@ import pytest
                               "fieldsplit_1_ksp_type": "preonly",
                               "fieldsplit_1_pc_type": "bjacobi",
                               "fieldsplit_1_sub_pc_type": "ilu"}])
+@pytest.mark.skipcomplex
+@pytest.mark.skipcomplexnoslate
 def test_nested_split_multigrid(parameters):
     mesh = UnitSquareMesh(10, 10)
 
@@ -77,9 +80,9 @@ def test_nested_split_multigrid(parameters):
 
     poisson_forcing = 0.5*pi*pi*(4*cos(pi*x) - 5*cos(pi*x*0.5) + 2)*sin(pi*y)
 
-    F = inner(nu*grad(u), grad(v))*dx(degree=4) + plaplace_forcing*v*dx
-    F += dot(grad(p), grad(q))*dx + poisson_forcing*q*dx
-    F += s*r*dx - x*r*dx
+    F = inner(nu*grad(u), grad(v))*dx(degree=4) + inner(plaplace_forcing, v)*dx
+    F += inner(grad(p), grad(q))*dx + inner(poisson_forcing, q)*dx
+    F += inner(s, r)*dx - inner(x, r)*dx
 
     expect = Function(W)
     u_expect, p_expect, s_expect = expect.split()

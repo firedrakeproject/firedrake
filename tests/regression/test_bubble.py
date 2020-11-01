@@ -39,7 +39,7 @@ def test_BDFM():
     v = TrialFunction(V1)
     w = TestFunction(V1)
     out = Function(V1)
-    solve(dot(v, w)*dx == dot(curl(u), w)*dx, out)
+    solve(inner(v, w)*dx == inner(curl(u), w)*dx, out)
     # testing against known result where the interior DOFS of BDFM are excited
     a = out.dat.data
     a.sort()

@@ -33,6 +33,7 @@ def test_locate_cell(meshdata, point, value):
     def value_at(p):
         cell = m.locate_cell(p)
         return f.dat.data[cell]
+
     assert np.allclose(value, value_at(point))
 
 

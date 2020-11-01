@@ -67,6 +67,51 @@ def test_p_multigrid_scalar(mesh, mat_type):
     assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
 
 
+def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
+    V = FunctionSpace(mesh, "CG", 4)
+
+    u = Function(V)
+    v = TestFunction(V)
+    f = Constant(1)
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    F = inner((Constant(1.0) + u**2) * grad(u), grad(v))*dx - inner(f, v)*dx
+
+    relax = {"ksp_type": "chebyshev",
+             "ksp_monitor_true_residual": None,
+             "ksp_norm_type": "unpreconditioned",
+             "ksp_max_it": 3,
+             "pc_type": "jacobi"}
+
+    sp = {"snes_monitor": None,
+          "snes_type": "newtonls",
+          "ksp_type": "fgmres",
+          "ksp_monitor_true_residual": None,
+          "pc_type": "python",
+          "pc_python_type": "firedrake.PMGPC",
+          "pmg_pc_mg_type": "multiplicative",
+          "pmg_mg_levels": relax,
+          "pmg_mg_levels_transfer_mat_type": mat_type,
+          "pmg_mg_coarse_ksp_type": "richardson",
+          "pmg_mg_coarse_ksp_max_it": 1,
+          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
+          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_pc_type": "mg",
+          "pmg_mg_coarse_pc_mg_type": "multiplicative",
+          "pmg_mg_coarse_mg_levels": relax,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
+          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
+          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
+          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_pc_type": "gamg"}
+    problem = NonlinearVariationalProblem(F, u, bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+    solver.solve()
+
+    assert solver.snes.its <= 3
+
+
+@pytest.mark.skipcomplex
 def test_p_multigrid_vector():
     mesh = UnitSquareMesh(2, 2)
 
@@ -128,6 +173,7 @@ class MixedPMG(PMGPC):
         return MixedElement(csubeles)
 
 
+@pytest.mark.skipcomplex
 def test_p_multigrid_mixed():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)

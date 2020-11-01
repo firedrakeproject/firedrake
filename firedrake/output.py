@@ -5,7 +5,7 @@ import os
 import ufl
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
@@ -199,7 +199,7 @@ def get_topology(coordinates):
             def vrange(cell_layers):
                 return numpy.repeat(cell_layers - cell_layers.cumsum(),
                                     cell_layers) + numpy.arange(cell_layers.sum())
-            offsets = numpy.outer(vrange(cell_layers), offsetMap)
+            offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
             num_cells = cell_layers.sum()
         else:
             cell_layers = mesh.cell_set.layers - 1
@@ -235,36 +235,56 @@ def get_byte_order(dtype):
             ">": "BigEndian"}[dtype.byteorder]
 
 
-def write_array(f, ofunction):
-    array = ofunction.array
-    numpy.uint32(array.nbytes).tofile(f)
-    if get_byte_order(array.dtype) == "BigEndian":
-        array = array.byteswap()
-    array.tofile(f)
-
-
-def write_array_descriptor(f, ofunction, offset=None, parallel=False):
+def prepare_ofunction(ofunction, real):
     array, name, _ = ofunction
-    shape = array.shape[1:]
-    ncmp = {0: "",
-            1: "3",
-            2: "9"}[len(shape)]
-    typ = {numpy.dtype("float32"): "Float32",
-           numpy.dtype("float64"): "Float64",
-           numpy.dtype("int32"): "Int32",
-           numpy.dtype("int64"): "Int64",
-           numpy.dtype("uint8"): "UInt8"}[array.dtype]
-    if parallel:
-        f.write(('<PDataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+    if array.dtype.kind == "c":
+        if real:
+            arrays = (array.real, )
+            names = (name, )
+        else:
+            arrays = (array.real, array.imag)
+            names = (name + " (real part)", name + " (imaginary part)")
     else:
-        if offset is None:
-            raise ValueError("Must provide offset")
-        f.write(('<DataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" '
-                 'format="appended" '
-                 'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
-    return 4 + array.nbytes     # 4 is for the array size (uint32)
+        arrays = (array, )
+        names = (name,)
+    return arrays, names
+
+
+def write_array(f, ofunction, real=False):
+    arrays, _ = prepare_ofunction(ofunction, real=real)
+    for array in arrays:
+        numpy.uint32(array.nbytes).tofile(f)
+        if get_byte_order(array.dtype) == "BigEndian":
+            array = array.byteswap()
+        array.tofile(f)
+
+
+def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False):
+    arrays, names = prepare_ofunction(ofunction, real)
+    nbytes = 0
+    for array, name in zip(arrays, names):
+        shape = array.shape[1:]
+        ncmp = {0: "",
+                1: "3",
+                2: "9"}[len(shape)]
+        typ = {numpy.dtype("float32"): "Float32",
+               numpy.dtype("float64"): "Float64",
+               numpy.dtype("int32"): "Int32",
+               numpy.dtype("int64"): "Int64",
+               numpy.dtype("uint8"): "UInt8"}[array.dtype]
+        if parallel:
+            f.write(('<PDataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+        else:
+            if offset is None:
+                raise ValueError("Must provide offset")
+            offset += nbytes
+            nbytes += (4 + array.nbytes)  # 4 is for the array size (uint32)
+            f.write(('<DataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" '
+                     'format="appended" '
+                     'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
+    return nbytes
 
 
 def active_field_attributes(ofunctions):
@@ -527,7 +547,7 @@ class File(object):
                      'NumberOfCells="%d">\n' % (num_points, num_cells)).encode('ascii'))
             f.write(b'<Points>\n')
             # Vertex coordinates
-            offset += write_array_descriptor(f, coordinates, offset=offset)
+            offset += write_array_descriptor(f, coordinates, offset=offset, real=True)
             f.write(b'</Points>\n')
 
             f.write(b'<Cells>\n')
@@ -548,7 +568,7 @@ class File(object):
             # Appended data must start with "_", separating whitespace
             # from data
             f.write(b'_')
-            write_array(f, coordinates)
+            write_array(f, coordinates, real=True)
             write_array(f, connectivity)
             write_array(f, offsets)
             write_array(f, types)
@@ -572,7 +592,7 @@ class File(object):
 
             f.write(b'<PPoints>\n')
             # Vertex coordinates
-            write_array_descriptor(f, coordinates, parallel=True)
+            write_array_descriptor(f, coordinates, parallel=True, real=True)
             f.write(b'</PPoints>\n')
 
             f.write(b'<PCells>\n')

@@ -16,7 +16,7 @@ def test_nullspace(V):
     x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
-    L = -v*ds(3) + v*ds(4)
+    L = -conj(v)*ds(3) + conj(v)*ds(4)
 
     nullspace = VectorSpaceBasis(constant=True)
     u = Function(V)
@@ -24,7 +24,7 @@ def test_nullspace(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_orthonormalize():
@@ -51,7 +51,7 @@ def test_transpose_nullspace():
         v = TestFunction(V)
 
         a = inner(grad(u), grad(v))*dx
-        L = v*dx
+        L = conj(v)*dx
 
         nullspace = VectorSpaceBasis(constant=True)
         u = Function(V)
@@ -76,7 +76,7 @@ def test_nullspace_preassembled(V):
     x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
-    L = -v*ds(3) + v*ds(4)
+    L = -conj(v)*ds(3) + conj(v)*ds(4)
 
     nullspace = VectorSpaceBasis(constant=True)
     u = Function(V)
@@ -86,7 +86,7 @@ def test_nullspace_preassembled(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_nullspace_mixed():
@@ -99,7 +99,7 @@ def test_nullspace_mixed():
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
 
     bc1 = Function(BDM).assign(0.0)
     bc2 = Function(BDM).project(Constant((0, 1)))
@@ -111,7 +111,7 @@ def test_nullspace_mixed():
 
     f = Function(DG)
     f.assign(0)
-    L = f*v*dx
+    L = inner(f, v)*dx
 
     # Null space is constant functions in DG and empty in BDM.
     nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
@@ -122,7 +122,7 @@ def test_nullspace_mixed():
     exact.interpolate(x[1] - 0.5)
 
     sigma, u = w.split()
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 1e-7
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 1e-7
 
     # Now using a Schur complement
     w.assign(0)
@@ -137,7 +137,7 @@ def test_nullspace_mixed():
                              'fieldsplit_1_pc_type': 'none'})
 
     sigma, u = w.split()
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_near_nullspace(tmpdir):

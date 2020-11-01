@@ -1,4 +1,6 @@
 from firedrake import *
+from firedrake.utils import RealType
+import pytest
 
 
 # Useful for making a periodic hierarchy
@@ -7,16 +9,16 @@ def periodise(m):
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
-    instructions = """
-    <float64> Y = 0
+    instructions = f"""
+    <{RealType}> Y = 0
     <float64> pi = 3.141592653589793
     for i
-        Y = Y + old_coords[i, 1]
+        Y = Y + real(old_coords[i, 1])
     end
     for j
-        new_coords[j, 0] = atan2(old_coords[j, 1], old_coords[j, 0]) / (pi* 2)
-        new_coords[j, 0] = if(new_coords[j, 0] < 0, new_coords[j, 0] + 1, new_coords[j, 0])
-        new_coords[j, 0] = if(new_coords[j, 0] == 0 and Y < 0, 1, new_coords[j, 0])
+        new_coords[j, 0] = atan2(real(old_coords[j, 1]), real(old_coords[j, 0])) / (pi*2)
+        new_coords[j, 0] = new_coords[j, 0] + 1 if real(new_coords[j, 0]) < 0 else new_coords[j, 0]
+        new_coords[j, 0] = 1 if (real(new_coords[j, 0]) == 0 and Y < 0) else new_coords[j, 0]
         new_coords[j, 0] = new_coords[j, 0] * Lx[0]
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end
@@ -32,6 +34,7 @@ def periodise(m):
     return Mesh(new_coordinates)
 
 
+@pytest.mark.skipcomplex
 def test_line_smoother_periodic():
     N = 3
     H = 0.1
@@ -53,7 +56,7 @@ def test_line_smoother_periodic():
     v = TestFunction(V)
     bc = DirichletBC(V, Constant(0), [1, 2])
 
-    F = dot(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
 
     base = {"snes_type": "ksponly",
             "ksp_type": "fgmres",

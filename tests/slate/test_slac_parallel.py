@@ -35,8 +35,8 @@ def test_parallel_kernel_on_sphere():
     detJ = det(J + dJ)
     u = TrialFunction(U)
     v = TestFunction(U)
-    bilinear_f = u * v * detJ * dx
-    linear_f = expr * v * detJ * dx
+    bilinear_f = inner(detJ * u, v) * dx
+    linear_f = inner(expr * detJ, v) * dx
 
     A = assemble(Tensor(bilinear_f))
     b = assemble(Tensor(linear_f))

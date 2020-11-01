@@ -294,8 +294,8 @@ def test_adjoint_Pk(degree):
     Pkp1 = FunctionSpace(mesh, "CG", degree+1)
     Pk = FunctionSpace(mesh, "CG", degree)
 
-    v = TestFunction(Pkp1)
-    u_Pk = assemble(TestFunction(Pk) * dx)
+    v = conj(TestFunction(Pkp1))
+    u_Pk = assemble(conj(TestFunction(Pk)) * dx)
     interpolator = Interpolator(TestFunction(Pk), Pkp1)
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
@@ -308,8 +308,8 @@ def test_adjoint_quads():
     P1 = FunctionSpace(mesh, fe1)
     P2 = FunctionSpace(mesh, "CG", 2)
 
-    v = TestFunction(P2)
-    u_P1 = assemble(TestFunction(P1) * dx)
+    v = conj(TestFunction(P2))
+    u_P1 = assemble(conj(TestFunction(P1)) * dx)
     interpolator = Interpolator(TestFunction(P1), P2)
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
@@ -321,14 +321,15 @@ def test_adjoint_dg():
     cg1 = FunctionSpace(mesh, "CG", 1)
     dg1 = FunctionSpace(mesh, "DG", 1)
 
-    v = TestFunction(dg1)
-    u_cg = assemble(TestFunction(cg1) * dx)
+    v = conj(TestFunction(dg1))
+    u_cg = assemble(conj(TestFunction(cg1)) * dx)
     interpolator = Interpolator(TestFunction(cg1), dg1)
     v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
 
+@pytest.mark.skipcomplex  # complex numbers are not orderable
 @pytest.mark.parametrize("access", [MIN, MAX])
 def test_interpolate_minmax(access):
     mesh = UnitSquareMesh(3, 3)
@@ -347,6 +348,7 @@ def test_interpolate_minmax(access):
     assert np.allclose(actual, expect)
 
 
+@pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)

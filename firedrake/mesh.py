@@ -11,7 +11,7 @@ import numbers
 import abc
 
 from mpi4py import MPI
-from pyop2.datatypes import IntType, RealType
+from firedrake.utils import IntType, RealType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
@@ -1382,11 +1382,20 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V)
-        coords_max = function.Function(V)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
+
+        if utils.complex_mode:
+            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+                raise ValueError("Coordinate field has non-zero imaginary part")
+            coords = function.Function(self.coordinates.function_space(),
+                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+                                       dtype=RealType)
+        else:
+            coords = self.coordinates
 
         cell_node_list = self.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
@@ -1399,7 +1408,7 @@ values from f.)"""
         end
         """
         par_loop((domain, instructions), ufl.dx,
-                 {'f': (self.coordinates, READ),
+                 {'f': (coords, READ),
                   'f_min': (coords_min, MIN),
                   'f_max': (coords_max, MAX)},
                  is_loopy_kernel=True)
@@ -1419,9 +1428,15 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
+
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
+
         x = np.asarray(x, dtype=utils.ScalarType)
+        if not np.allclose(x.imag, 0):
+            raise ValueError("Point coordinates must have zero imaginary part")
+        x = x.real.copy()
+
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
@@ -1904,7 +1919,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         For example, the swarm coordinates themselves are stored in a
         field named `DMSwarmPIC_coor` which, were it not created
         automatically, would be initialised with
-        ``fields = [("DMSwarmPIC_coor", coordsdim, ScalarType)]``.
+        ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
         information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
     :return: the immersed DMSwarm
@@ -1912,6 +1927,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     .. note::
 
         The created DMSwarm uses the communicator of the input DMPlex.
+
+    .. note::
+
+        In complex mode the "DMSwarmPIC_coor" field is still saved as a
+        real number unlike the coordinates of a DMPlex which become
+        complex (though usually with zeroed imaginary parts).
     """
 
     # Check coords

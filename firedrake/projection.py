@@ -2,7 +2,7 @@ import abc
 import ufl
 
 import firedrake
-from firedrake.utils import cached_property
+from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
@@ -87,6 +87,7 @@ def project(v, V, bcs=None,
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned."""
+
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
                     form_compiler_parameters=form_compiler_parameters,
                     use_slate_for_inverse=use_slate_for_inverse).project()
@@ -128,7 +129,8 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             # Mixed space
             is_dg = False
             is_variable_layers = True
-        self.use_slate_for_inverse = use_slate_for_inverse and is_dg and not is_variable_layers
+        self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
+                                      and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
 
     @cached_property
     def A(self):

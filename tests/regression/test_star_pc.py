@@ -7,7 +7,9 @@ except ImportError:
     marks = pytest.mark.skip(reason="No tinyasm")
 
 
-@pytest.fixture(params=["scalar", "vector", "mixed"])
+@pytest.fixture(params=["scalar",
+                        pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
+                        "mixed"])
 def problem_type(request):
     return request.param
 
@@ -122,7 +124,7 @@ def test_star_equivalence(problem_type, backend):
         (z, p) = split(u)
         (v, q) = split(TestFunction(V))
 
-        a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(q, div(z))*dx
+        a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(div(z), q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])

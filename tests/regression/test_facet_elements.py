@@ -12,7 +12,7 @@ def test_all_dofs_on_facets():
     g = Function(W1).assign(1)
     n = FacetNormal(mesh)
 
-    assert abs(assemble(dot(f, f)*dx) - assemble(dot(g, g)*dx)) < 1e-12
-    assert abs(assemble(dot(f, f)*ds) - assemble(dot(g, g)*ds)) < 1e-12
-    assert abs(assemble(dot(f, n)*ds) - assemble(dot(g, n)*ds)) < 1e-12
-    assert abs(assemble(dot(f('+'), n('+'))*dS) - assemble(dot(g('+'), n('+'))*dS)) < 1e-12
+    assert abs(assemble(inner(f, f)*dx) - assemble(inner(g, g)*dx)) < 2e-12
+    assert abs(assemble(inner(f, f)*ds) - assemble(inner(g, g)*ds)) < 2e-12
+    assert abs(assemble(inner(f, n)*ds) - assemble(inner(g, n)*ds)) < 2e-12
+    assert abs(assemble(inner(f('+'), n('+'))*dS) - assemble(inner(g('+'), n('+'))*dS)) < 2e-12

@@ -5,7 +5,7 @@ import cython
 import numpy as np
 from firedrake.petsc import PETSc
 from mpi4py import MPI
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 
@@ -1071,7 +1071,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[PetscReal, ndim=2, mode="c"] dm_coords, coords
+        np.ndarray[PetscScalar, ndim=2, mode="c"] dm_coords, coords
 
     if type(dm) is PETSc.DMPlex:
         dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
@@ -1079,7 +1079,8 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
     elif type(dm) is PETSc.DMSwarm:
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
-        dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape)
+        # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
+        dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape).astype(ScalarType)
         coords = np.empty_like(dm_coords)
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")

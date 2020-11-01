@@ -124,8 +124,8 @@ class TransferManager(object):
         try:
             return cache._V_DG_mass[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
-                                                   firedrake.TrialFunction(V))*firedrake.dx)
+            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
+                                                   firedrake.TestFunction(DG))*firedrake.dx)
             return cache._V_DG_mass.setdefault(key, M.petscmat)
 
     def DG_inv_mass(self, DG):
@@ -139,8 +139,8 @@ class TransferManager(object):
         try:
             return cache._DG_inv_mass[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TestFunction(DG),
-                                                                    firedrake.TrialFunction(DG))*firedrake.dx).inv)
+            M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                                    firedrake.TestFunction(DG))*firedrake.dx).inv)
             return cache._DG_inv_mass.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass(self, V, DG):
@@ -155,10 +155,10 @@ class TransferManager(object):
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
-            a = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
-                                                 firedrake.TrialFunction(V))*firedrake.dx)
-            b = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
-                                                 firedrake.TrialFunction(DG))*firedrake.dx)
+            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
+                                                 firedrake.TestFunction(V))*firedrake.dx)
+            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                 firedrake.TestFunction(V))*firedrake.dx)
             M = firedrake.assemble(a.inv * b)
             return cache._V_approx_inv_mass.setdefault(key, M.petscmat)
 
@@ -173,8 +173,8 @@ class TransferManager(object):
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(V),
-                                                   firedrake.TrialFunction(V))*firedrake.dx)
+            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
+                                                   firedrake.TestFunction(V))*firedrake.dx)
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))

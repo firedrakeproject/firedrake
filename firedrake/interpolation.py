@@ -225,11 +225,16 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
+    parameters = {}
+    parameters['scalar_type'] = utils.ScalarType
+
     if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords,
-                                                                                              domain=V.mesh(), coffee=False)
+                                                                                              domain=V.mesh(),
+                                                                                              parameters=parameters,
+                                                                                              coffee=False)
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []

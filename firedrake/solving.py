@@ -28,6 +28,8 @@ from firedrake import dmhooks
 import firedrake
 from firedrake.adjoint import annotate_solve
 
+from firedrake.utils import ScalarType
+
 
 @annotate_solve
 def solve(*args, **kwargs):
@@ -138,6 +140,10 @@ def _solve_varproblem(*args, **kwargs):
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
+
+    if form_compiler_parameters is None:
+        form_compiler_parameters = {}
+    form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem

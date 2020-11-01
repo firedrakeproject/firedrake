@@ -17,11 +17,11 @@ def test_trace_galerkin_projection_extr(degree, quad):
     u = TrialFunction(T)
     v = TestFunction(T)
 
-    a_ds = u*v*ds_t + u*v*ds_b + u*v*ds_v
-    a_dS = u('+')*v('+')*dS_h + u('+')*v('+')*dS_v
+    a_ds = inner(u, v)*ds_t + inner(u, v)*ds_b + inner(u, v)*ds_v
+    a_dS = inner(u('+'), v('+'))*dS_h + inner(u('+'), v('+'))*dS_v
     A = a_ds + a_dS
-    l_ds = f*v*ds_t + f*v*ds_b + f*v*ds_v
-    l_dS = f('+')*v('+')*dS_h + f('+')*v('+')*dS_v
+    l_ds = inner(f, v)*ds_t + inner(f, v)*ds_b + inner(f, v)*ds_v
+    l_dS = inner(f('+'), v('+'))*dS_h + inner(f('+'), v('+'))*dS_v
     L = l_ds + l_dS
 
     sol = Function(T)
@@ -29,8 +29,8 @@ def test_trace_galerkin_projection_extr(degree, quad):
 
     m = FacetArea(mesh)
     diff = sol - f
-    error = (m*diff*diff*ds_t + m*diff*diff*ds_b + m*diff*diff*ds_v
-             + m*diff('+')*diff('+')*dS_h + m*diff('+')*diff('+')*dS_v)
+    error = (m*inner(diff, diff)*ds_t + m*inner(diff, diff)*ds_b + m*inner(diff, diff)*ds_v
+             + m*inner(diff('+'), diff('+'))*dS_h + m*inner(diff('+'), diff('+'))*dS_v)
 
     trace_error = sqrt(assemble(error))
     assert trace_error < 1e-12

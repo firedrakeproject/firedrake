@@ -11,10 +11,10 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.mg.utils as utils
+from firedrake.utils import complex_mode, ScalarType
 import ufl
 from ufl import inner, dx
 import numpy
-from pyop2.datatypes import ScalarType
 from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
@@ -31,7 +31,6 @@ class BlockMatrix(object):
 
     def mult(self, mat, x, y):
         sizes = self.mat.getSizes()
-
         for i in range(self.dimension):
             start = i
             stride = self.dimension
@@ -180,7 +179,6 @@ each supermesh cell.
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.M.handle[:, :]
-
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
     node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
     num_nodes_A = node_locations_A.shape[0]
@@ -195,14 +193,15 @@ each supermesh cell.
     %(evaluate_S)s
     %(evaluate_A)s
     %(evaluate_B)s
+#define complex_mode %(complex_mode)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
-    static void print_array(double *arr, int d)
+    static void print_array(PetscScalar *arr, int d)
     {
         for(int j=0; j<d; j++)
-            PrintInfo("%%+.2f ", arr[j]);
+            PrintInfo(stderr, "%%+.2f ", arr[j]);
     }
-    static void print_coordinates(double *simplex, int d)
+    static void print_coordinates(PetscScalar *simplex, int d)
     {
         for(int i=0; i<d+1; i++)
         {
@@ -211,7 +210,31 @@ each supermesh cell.
             PrintInfo("\\n");
         }
     }
-    int supermesh_kernel(double* simplex_A, double* simplex_B, double* simplices_C, double* nodes_A, double* nodes_B, double* M_SS, double* outptr)
+#if complex_mode
+    static void seperate_real_and_imag(PetscScalar *simplex, double *real_simplex, double *imag_simplex, int d)
+    {
+        for(int i=0; i<d+1; i++)
+        {
+            for(int j=0; j<d; j++)
+            {
+                real_simplex[d*i+j] = creal(simplex[d*i+j]);
+                imag_simplex[d*i+j] = cimag(simplex[d*i+j]);
+            }
+        }
+    }
+    static void merge_back_to_simplex(PetscScalar* simplex, double* real_simplex, double* imag_simplex, int d)
+    {
+        print_coordinates(simplex,d);
+        for(int i=0; i<d+1; i++)
+        {
+            for(int j=0; j<d; j++)
+            {
+                simplex[d*i+j] = real_simplex[d*i+j]+imag_simplex[d*i+j]*_Complex_I;
+            }
+        }
+    }
+#endif
+    int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C,  PetscScalar* nodes_A,  PetscScalar* nodes_B,  PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
     {
 #define d %(dim)s
 #define num_nodes_A %(num_nodes_A)s
@@ -222,49 +245,82 @@ each supermesh cell.
         print_coordinates(simplex_A, d);
         PrintInfo("simplex_B coordinates\\n");
         print_coordinates(simplex_B, d);
-        int num_elements;
+        int num_elements = num_ele;
 
         if (d == 2) simplex_ref_measure = 0.5;
         else if (d == 3) simplex_ref_measure = 1.0/6;
 
-        double R_AS[num_nodes_A][num_nodes_A];
-        double R_BS[num_nodes_B][num_nodes_B];
-        double coeffs_A[%(num_nodes_A)s] = {0.};
-        double coeffs_B[%(num_nodes_B)s] = {0.};
+        PetscScalar R_AS[num_nodes_A][num_nodes_A];
+        PetscScalar R_BS[num_nodes_B][num_nodes_B];
+        PetscScalar coeffs_A[%(num_nodes_A)s] = {0.};
+        PetscScalar coeffs_B[%(num_nodes_B)s] = {0.};
 
-        double reference_nodes_A[num_nodes_A][d];
-        double reference_nodes_B[num_nodes_B][d];
+        PetscScalar reference_nodes_A[num_nodes_A][d];
+        PetscScalar reference_nodes_B[num_nodes_B][d];
 
+#if complex_mode
+        double real_simplex_A[d*(d+1)];
+        double imag_simplex_A[d*(d+1)];
+        seperate_real_and_imag(simplex_A, real_simplex_A, imag_simplex_A, d);
+        double real_simplex_B[d*(d+1)];
+        double imag_simplex_B[d*(d+1)];
+        seperate_real_and_imag(simplex_B, real_simplex_B, imag_simplex_B, d);
+
+        double real_simplices_C[num_elements*d*(d+1)];
+        double imag_simplices_C[num_elements*d*(d+1)];
+        for (int ii=0; ii<num_elements*d*(d+1); ++ii) imag_simplices_C[ii] = 0.;
+
+        %(libsupermesh_intersect_simplices)s(real_simplex_A, real_simplex_B, real_simplices_C, &num_elements);
+
+        merge_back_to_simplex(simplex_A, real_simplex_A, imag_simplex_A, d);
+        merge_back_to_simplex(simplex_B, real_simplex_B, imag_simplex_B, d);
+        for(int s=0; s<num_elements; s++)
+        {
+            PetscScalar* simplex_C = &simplices_C[s * d * (d+1)];
+            double* real_simplex_C = &real_simplices_C[s * d * (d+1)];
+            double* imag_simplex_C = &imag_simplices_C[s * d * (d+1)];
+            merge_back_to_simplex(simplex_C, real_simplex_C, imag_simplex_C, d);
+        }
+#else
         %(libsupermesh_intersect_simplices)s(simplex_A, simplex_B, simplices_C, &num_elements);
-
+#endif
         PrintInfo("Supermesh consists of %%i elements\\n", num_elements);
 
         // would like to do this
-        //double MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (double (*)[%(num_nodes_B)s])outptr;
+        //PetscScalar MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (PetscScalar (*)[%(num_nodes_B)s])outptr;
         // but have to do this instead because we don't grok C
-        double (*MAB)[num_nodes_A] = (double (*)[num_nodes_A])outptr;
-        double (*MSS)[num_nodes_A] = (double (*)[num_nodes_A])M_SS; // note the underscore
+        PetscScalar (*MAB)[num_nodes_A] = (PetscScalar (*)[num_nodes_A])outptr;
+        PetscScalar (*MSS)[num_nodes_A] = (PetscScalar (*)[num_nodes_A])M_SS; // note the underscore
 
         for ( int i = 0; i < num_nodes_B; i++ ) {
             for (int j = 0; j < num_nodes_A; j++) {
-                MAB[i][j] = 0;
+                MAB[i][j] = 0.0;
             }
         }
 
         for(int s=0; s<num_elements; s++)
         {
-            double* simplex_S = &simplices_C[s * d * (d+1)];
+            PetscScalar* simplex_S = &simplices_C[s * d * (d+1)];
             double simplex_S_measure;
+#if complex_mode
+            double real_simplex_S[d*(d+1)];
+            double imag_simplex_S[d*(d+1)];
+            seperate_real_and_imag(simplex_S, real_simplex_S, imag_simplex_S, d);
 
+            %(libsupermesh_simplex_measure)s(real_simplex_S, &simplex_S_measure);
+
+            merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
+#else
             %(libsupermesh_simplex_measure)s(simplex_S, &simplex_S_measure);
+#endif
             PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
 
             PrintInfo("Start mapping nodes for V_A\\n");
-            double physical_nodes_A[num_nodes_A][d];
+            PetscScalar physical_nodes_A[num_nodes_A][d];
             for(int n=0; n < num_nodes_A; n++) {
-                double* reference_node_location = &nodes_A[n*d];
-                double* physical_node_location = physical_nodes_A[n];
+                PetscScalar* reference_node_location = &nodes_A[n*d];
+                PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
@@ -274,10 +330,10 @@ each supermesh cell.
                 PrintInfo("\\n");
             }
             PrintInfo("Start mapping nodes for V_B\\n");
-            double physical_nodes_B[num_nodes_B][d];
+            PetscScalar physical_nodes_B[num_nodes_B][d];
             for(int n=0; n < num_nodes_B; n++) {
-                double* reference_node_location = &nodes_B[n*d];
-                double* physical_node_location = physical_nodes_B[n];
+                PetscScalar* reference_node_location = &nodes_B[n*d];
+                PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
                 pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
@@ -353,7 +409,8 @@ each supermesh cell.
         "num_nodes_B": num_nodes_B,
         "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
         "libsupermesh_intersect_simplices": "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real",
-        "dim": dim
+        "dim": dim,
+        "complex_mode": 1 if complex_mode else 0
     }
 
     dirs = get_petsc_dir() + (sys.prefix, )
@@ -367,7 +424,6 @@ each supermesh cell.
                restype=ctypes.c_int)
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-
     if orig_value_size == 1:
         return mat
     else:
