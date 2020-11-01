@@ -258,7 +258,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 subspace_expr = subspace_expr_map[subspace]
                 # Apply subspace transformation (i_dummy -> i).
                 expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
-                                                 subspace.ufl_element(), builder.scalar_type)
+                                                 builder.create_element(subspace.ufl_element()), builder.scalar_type)
             # Apply subspace transformations for projected `Function`s.
             for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
                 subspace_expr = subspace_expr_map[subspace]
@@ -269,7 +269,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
                 # Apply subspace transformation (i_extra -> i_coeff).
                 expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff,
-                                                 subspace.ufl_element(), builder.scalar_type)
+                                                 builder.create_element(subspace.ufl_element()), builder.scalar_type)
                 # Finally contract with the true function.
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
                                     for expression in expressions)

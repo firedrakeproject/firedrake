@@ -57,7 +57,10 @@ def test_filter_one_form_bdm():
     f = Function(V).project(as_vector([8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5),
                                        8.0 * pi * pi * cos(2 * pi *x + pi/7) * cos(2 * pi * y + pi/11)]))
 
-    Vsub = ScalarSubspace(V, Function(V).project(as_vector([1., 2.])), 1)
+    subdomain = (1, )
+    g = Function(V).project(as_vector([1., 2.]))
+    g = Function(V).assign(g, V.boundary_node_subset(subdomain))
+    Vsub = ScalarSubspace(V, g)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
@@ -136,9 +139,9 @@ def test_filter_two_form_lagrange():
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    subdomain1 = V.boundary_node_subset((1, ))
-    Vsub_b = ScalarSubspace(V, Constant(1.), subdomain1)
-    Vsub_d = ScalarSubspace(V, Constant(1.), V.node_set.difference(subdomain1))
+    subdomain = V.boundary_node_subset((1, ))
+    Vsub_b = ScalarSubspace(V, Function(V).assign(Constant(1.), subdomain))
+    Vsub_d = ScalarSubspace(V, Function(V).assign(Constant(1.), V.node_set.difference(subdomain)))
 
     v_b = Projected(v, Vsub_b)
     u_b = Projected(u, Vsub_b)
