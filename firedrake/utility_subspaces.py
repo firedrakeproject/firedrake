@@ -22,29 +22,26 @@ def BoundarySubspace(V, subdomain):
     :arg V: The function space.
     :arg subdomain: The subdomain.
     """
-    subdomain = as_tuple(subdomain)
     if not isinstance(V, functionspaceimpl.WithGeometry):
         raise TypeError("V must be `functionspaceimpl.WithGeometry`, not %s." % V.__class__.__name__ )
+    if isinstance(subdomain, str):
+        subdomain = (subdomain, )
+    else:
+        subdomain = as_tuple(subdomain)
     tV = V.topological
     if type(tV) == functionspaceimpl.MixedFunctionSpace:
-        g = {False: {'scalar': None, 'rot': None},  # primary subspaces (_compl = False)
-             True: {'scalar': None, 'rot': None}}  # complement subspaces (_compl = True)
-        for i, Vsub in enumerate(V):
-            ff, _compl = _boundary_subspace_functions(Vsub, subdomain)
-            for (typ, f) in zip(('scalar', 'rot'), ff):
-                if f:
-                    if not g[_compl][typ]:
-                        g[_compl][typ] = Function(V)
-                    g[_compl][typ].sub(i).assign(f)
-        ss = []
-        if (typ, cls) in zip(('scalar', 'rot'), (ScalarSubspace, RotatedSubspace)):
-            if g[False][typ]:
-                ss.append(cls(g[False][typ]))
-            if g[True][typ]:
-                ss.append(cls(g[True][typ]).complement)
-        return Subspaces(*ss)
+        f = {'scalar': None, 'rotated': None}
+        for i, Vi in enumerate(V):
+            fis = _boundary_subspace_functions(Vi, subdomain)
+            for (typ, fi) in zip(('scalar', 'rotated'), fis):
+                if fi:
+                    if not f[typ]:
+                        f[typ] = Function(V)
+                    f[typ].sub(i).assign(fi)
+        return Subspaces(cls(f[typ])
+                         for typ, cls in zip(('scalar', 'rotated'), (ScalarSubspace, RotatedSubspace)) if f[typ])
     else:
-        ff, _complement = _boundary_subspace_functions(V, subdomain)
+        ff = _boundary_subspace_functions(V, subdomain)
         # Reconstruct the parent WithGeometry
         # TODO: When submesh lands, just use W = V.parent.
         indices = []
@@ -72,11 +69,7 @@ def BoundarySubspace(V, subdomain):
             ss = RotatedSubspace(W, val=gg[1])
         else:
             raise NotImplementedError("Implement EmptySubspace?")
-
-        if _complement:
-            return ss.complement
-        else:
-            return ss
+        return ss
 
 
 def BoundaryComponentSubspace(V, subdomain, thetas):
@@ -109,7 +102,7 @@ def BoundaryComponentSubspace(V, subdomain, thetas):
             # Tensor element
             raise NotImplementedError("TensorElement not implemented yet.")
 
-        ff, _complement = _boundary_component_subspace_functions(V, subdomain, thetas)
+        ff = _boundary_component_subspace_functions(V, subdomain, thetas)
         # Reconstruct the parent WithGeometry
         # TODO: When submesh lands, just use W = V.parent.
         indices = []
@@ -137,11 +130,7 @@ def BoundaryComponentSubspace(V, subdomain, thetas):
             ss = RotatedSubspace(W, val=gg[1])
         else:
             raise NotImplementedError("Implement EmptySubspace?")
-
-        if _complement:
-            return ss.complement
-        else:
-            return ss
+        return ss
 
 
 def _boundary_subspace_functions(V, subdomain):
@@ -173,17 +162,6 @@ def _boundary_subspace_functions(V, subdomain):
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
 
         normal = FacetNormal(V.mesh())
-
-        """
-        aa = inner(u - u1, v - v1) * dx + inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
-        ff = inner(normal, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
-        s0 = Function(V)
-        s1 = Function(V)
-        solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
-        s1 = _normalise_subspace(s1, subdomain)
-        s0.assign(Constant(1.), subset=V.node_set.difference(V.boundary_node_subset(subdomain)))
-        return (s0, s1), True
-        """
         tangent = dot(as_tensor([[0., 1.], [-1., 0.]]), normal)
         aa = inner(u - u1, v - v1) * dx + inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
         ff = inner(tangent, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
@@ -193,7 +171,7 @@ def _boundary_subspace_functions(V, subdomain):
         s1 = _normalise_subspace(s1, subdomain)
         s0.assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_value))
         s0.assign(Constant(1.), subset=corners)
-        return (s0, s1), False
+        return s0, s1
     elif V.ufl_element().family() == 'Morley':
         raise NotImplementedError("Morley not implemented.")
     elif V.ufl_element().family() == 'Argyris':
@@ -202,7 +180,7 @@ def _boundary_subspace_functions(V, subdomain):
         raise NotImplementedError("Bell not implemented.")
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return (f0, None), False
+        return f0, None
 
 
 def _boundary_component_subspace_functions(V, subdomain, thetas):
@@ -224,10 +202,10 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         s1 = Function(V)
         solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace2(s1, subdomain)
-        return (None, s1), False
+        return None, s1
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return (f0, None), False
+        return f0, None
 
 
 def _normalise_subspace(old_subspace, subdomain):

@@ -1,22 +1,15 @@
-import functools
 import numpy as np
 
 from ufl.form import Form
 from ufl.corealg.traversal import unique_pre_traversal
 from ufl.algorithms.traversal import iter_expressions
 
-import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function, CoordinatelessFunction
-from firedrake.constant import Constant
-#from firedrake.utils import IntType, RealType, ScalarType
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType, IntType, as_ctypes
-from pyop2.utils import as_tuple
+from pyop2.datatypes import ScalarType
 
-from finat.point_set import PointSet
-from finat.quadrature import QuadratureRule
 from tsfc.finatinterface import create_element
 
 import gem
@@ -55,8 +48,8 @@ class Subspace(object):
             if not val:
                 raise RuntimeError("Must provide val if providing subdomain.")
             if not isinstance(subdomain, op2.Subset):
-               # Turn subdomain into op2.Subset.
-               subdomain = V.boundary_node_subset(subdomain) 
+                # Turn subdomain into op2.Subset.
+                subdomain = V.boundary_node_subset(subdomain)
             val = Function(V).assign(val, subset=subdomain)
             self._data = val.topological
         else:
@@ -87,7 +80,7 @@ class Subspace(object):
         val = getattr(self._data, name)
         setattr(self, name, val)
         return val
-    
+
     def __hash__(self):
         return hash(repr(self))
 
@@ -117,10 +110,10 @@ class Subspace(object):
 
         Classical implementation of functions/function spaces.
         Linear combination of basis:
-        
+
         u = \sum [ u_i * \phi_i ]
               i
-        
+
         u     : function
         u_i   : ith coefficient
         \phi_i: ith basis
@@ -143,9 +136,8 @@ class IndexedSubspace(object):
         return self.parent.transform(expressions, subspace_expr, i_dummy, i, elem, dtype)
 
     def __eq__(self, other):
-        return self.parent is other.parent and \
-               self.index == other.index
-    
+        return self.parent is other.parent and self.index == other.index
+
     def __hash__(self):
         return hash(repr(self))
 
@@ -287,7 +279,7 @@ def make_subspace_numbers_and_parts(subspaces, original_subspaces):
 
 
 def sort_indexed_subspaces(subspaces):
-    return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(), 
+    return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(),
                                             -1 if s.index is None else s.index))
 
 
@@ -307,10 +299,10 @@ def extract_indexed_subspaces(a, cls=object):
         for op in a.operands:
             _set.update(extract_indexed_subspaces(op, cls=cls))
         return _set
-    elif isinstance(a, Form):        
+    elif isinstance(a, Form):
         return set((o.subspace(), o.ufl_operands[0])
-                    for e in iter_expressions(a)
-                    for o in unique_pre_traversal(e)
-                    if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
+                   for e in iter_expressions(a)
+                   for o in unique_pre_traversal(e)
+                   if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
     else:
         raise TypeError("Unexpected type: %s" % str(type(a)))
