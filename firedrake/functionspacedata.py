@@ -432,10 +432,6 @@ class FunctionSpaceData(object):
 
     def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
-        #if isinstance(finat_element, (finat.Hermite, finat.Bell, finat.Argyris)):
-        #    entity_dofs_per_derivative_order = finat_element.entity_dofs_per_derivative_order()
-        #else:
-        #    entity_dofs_per_derivative_order = None
         entity_dofs_per_derivative_order = finat_element.entity_dofs_per_derivative_order()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
