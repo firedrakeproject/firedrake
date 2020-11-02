@@ -28,7 +28,7 @@ def test_homogeneous_field_linear():
               'ksp_atol': '1e-15',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
-              'pc_hypre_ams_zero_beta_poisson': True,
+              'pc_hypre_ams_zero_beta_poisson': True
               }
 
     A = Function(V)
@@ -65,7 +65,7 @@ def test_homogeneous_field_matfree():
               'pc_python_type': 'firedrake.AssembledPC',
               'assembled_pc_type': 'python',
               'assembled_pc_python_type': 'firedrake.HypreAMS',
-              'assembled_pc_hypre_ams_zero_beta_poisson': True,
+              'assembled_pc_hypre_ams_zero_beta_poisson': True
               }
 
     A = Function(V)
@@ -99,7 +99,7 @@ def test_homogeneous_field_nonlinear():
               'ksp_atol': '1e-15',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
-              'pc_hypre_ams_zero_beta_poisson': True,
+              'pc_hypre_ams_zero_beta_poisson': True
               }
 
     solve(a - L == 0, u, bc, solver_parameters=params)
@@ -132,7 +132,7 @@ def test_homogeneous_field_linear_convergence():
               'ksp_atol': '1e-8',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
-              'pc_hypre_ams_zero_beta_poisson': True,
+              'pc_hypre_ams_zero_beta_poisson': True
               }
 
     A = Function(V)
