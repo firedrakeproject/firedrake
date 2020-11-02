@@ -1,7 +1,10 @@
+import firedrake_configuration
 import pytest
 import numpy as np
 from firedrake import *
 import finat
+
+config = firedrake_configuration.get_config()
 
 
 @pytest.fixture(params=["square", "cube"])
@@ -70,4 +73,7 @@ def run_projection(mesh, expr, p):
 def test_projection_KMV(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         error = run_projection(mesh(1), interpolation_expr, p)
-        assert np.abs(error) < 1e-14
+        if config['options']['complex']:
+            assert np.abs(error) < 1.05e-14
+        else:
+            assert np.abs(error) < 1e-14

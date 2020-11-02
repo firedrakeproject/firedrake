@@ -1,6 +1,9 @@
+import firedrake_configuration
 from firedrake import *
 import pytest
 import numpy as np
+
+config = firedrake_configuration.get_config()
 
 
 # This test solves a mixed formulation of the Poisson equation with
@@ -31,7 +34,12 @@ def run_no_manifold():
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
+
+    # Add additional flags to MUMPS in complex mode as pivoting fails with default options
+    params = {'ksp_rtol': 1e-10}
+    if config['options']['complex'] and COMM_WORLD.size == 1:
+        params['mat_mumps_icntl_7'] = 1
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x[0] - 0.5)
 
     u, p = up.split()
@@ -68,7 +76,14 @@ def run_manifold():
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
+
+    # Add additional flags to MUMPS in complex mode as pivoting fails with default options
+    params = {'ksp_rtol': 1e-10}
+    if config['options']['complex'] and COMM_WORLD.size == 1:
+        params['mat_mumps_icntl_7'] = 1
+    elif config['options']['complex'] and COMM_WORLD.size > 1:
+        params['mat_mumps_icntl_7'] = 3
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 
     u, p = up.split()
