@@ -1,10 +1,14 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace
+from firedrake.constant import Constant
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator
+from firedrake.projection import project
 from firedrake.dmhooks import get_function_space
 from ufl import grad, curl
+import numpy as np
+
 
 __all__ = ("HypreADS",)
 
