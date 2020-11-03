@@ -178,8 +178,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
 
     coords = toreal(coords, "real")
     x, y = coords[:, 0], coords[:, 1]
@@ -231,13 +230,15 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
+    element = function.ufl_element()
+    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
+    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
     return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
 def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax=None, norm=None, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
     coords = toreal(coords, "real")
     vals = toreal(vals, complex_component)
     vertices = coords[triangles]
