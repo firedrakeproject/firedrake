@@ -73,9 +73,30 @@ def test_plotting_scalar_field():
     assert filled_contours.filled
     fig.colorbar(filled_contours, ax=axes[1])
 
-    collection = tripcolor(f, axes=axes[2])
-    assert collection is not None
-    fig.colorbar(collection, ax=axes[2])
+
+def test_tripcolor_shading():
+    mesh = UnitSquareMesh(10, 10)
+    x = SpatialCoordinate(mesh)
+
+    V0 = FunctionSpace(mesh, "DG", 0)
+    f0 = Function(V0)
+
+    V1 = FunctionSpace(mesh, "DG", 1)
+    f1 = Function(V1)
+
+    f0.project(x[0] + x[1])
+    f1.project(x[0] + x[1])
+
+    fig, axes = plt.subplots(ncols=3, sharex=True, sharey=True)
+
+    collection = tripcolor(f0, num_sample_points=1, axes=axes[0])
+    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+
+    collection = tripcolor(f1, num_sample_points=1, axes=axes[1])
+    assert collection.get_array().shape == f1.dat.data_ro[:].shape
+
+    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[2])
+    assert collection.get_array().shape == f0.dat.data_ro[:].shape
 
 
 def test_plotting_quadratic():

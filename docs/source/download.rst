@@ -33,6 +33,17 @@ use Firedrake::
 
      source firedrake/bin/activate.csh
 
+
+Installation and MPI
+--------------------
+
+By default, ``firedrake-install`` will prompt the PETSc installer to
+download and install its own MPICH library and executables in the
+virtual environment.  This has implications for the performance of the
+resulting library when run in parallel.  Instructions on how best to
+configure MPI for the installation process are `found here
+<https://www.firedrakeproject.org/parallelism.html>`_.
+
 Testing the installation
 ------------------------
 
