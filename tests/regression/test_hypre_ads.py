@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.skipcomplex
+@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
@@ -30,7 +30,7 @@ def test_homogeneous_field_linear():
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
 
 
-@pytest.mark.skipcomplex
+@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
@@ -61,7 +61,7 @@ def test_homogeneous_field_matfree():
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
 
 
-@pytest.mark.skipcomplex
+@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
 def test_homogeneous_field_nonlinear():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
