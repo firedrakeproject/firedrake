@@ -1422,26 +1422,27 @@ if mode == "install":
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
-should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
+if mode == "install":
+    should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
 
-# Set up the MPI wrappers
-for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
-    if options.get(opt):
-        name = options[opt]
-        src = shutil.which(name)
-    else:
-        src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
-    dest = os.path.join(firedrake_env, "bin", opt)
-    # Remove old symlinks
-    if os.path.lexists(dest):
-        os.remove(dest)
-    elif os.path.exists(dest):
-        os.remove(dest)
-    if should_link:
-        log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
-        with open(dest, "w") as f:
-            f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
-        os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
+    # Set up the MPI wrappers
+    for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
+        if options.get(opt):
+            name = options[opt]
+            src = shutil.which(name)
+        else:
+            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+        dest = os.path.join(firedrake_env, "bin", opt)
+        # Remove old symlinks
+        if os.path.lexists(dest):
+            os.remove(dest)
+        elif os.path.exists(dest):
+            os.remove(dest)
+        if should_link:
+            log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
+            with open(dest, "w") as f:
+                f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
+            os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
