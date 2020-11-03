@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 
+
 @pytest.mark.skipcomplex
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(10, 10, 10)
@@ -26,7 +27,8 @@ def test_homogeneous_field_linear():
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)),u,'L2')<1e-10)
+    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+
 
 @pytest.mark.skipcomplex
 def test_homogeneous_field_matfree():
@@ -56,7 +58,8 @@ def test_homogeneous_field_matfree():
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2')<1e-10)
+    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+
 
 @pytest.mark.skipcomplex
 def test_homogeneous_field_nonlinear():
@@ -81,4 +84,4 @@ def test_homogeneous_field_nonlinear():
               }
 
     solve(F == 0, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2')<1e-10)
+    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
