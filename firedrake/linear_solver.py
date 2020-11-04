@@ -62,10 +62,9 @@ class LinearSolver(OptionsManager):
         self.A.petscmat.setOptionsPrefix(self.options_prefix)
         self.P.petscmat.setOptionsPrefix(self.options_prefix)
 
-        # If preconditioning matrix is matrix-free, then default to no
-        # preconditioning.
+        # If preconditioning matrix is matrix-free, then default to jacobi
         if isinstance(self.P, matrix.ImplicitMatrix):
-            self.set_default_parameter("pc_type", "none")
+            self.set_default_parameter("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
 
