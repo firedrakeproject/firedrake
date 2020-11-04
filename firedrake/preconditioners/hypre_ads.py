@@ -38,7 +38,7 @@ class HypreADS(PCBase):
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
         V = VectorFunctionSpace(mesh, "Lagrange", 1)
-        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
+        linear_coordinates = Interpolator(SpatialCoordinate(mesh), V).dat.data_ro.copy()
         pc.setCoordinates(linear_coordinates)
 
         pc.setUp()
