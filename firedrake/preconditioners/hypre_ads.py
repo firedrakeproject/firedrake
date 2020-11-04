@@ -4,7 +4,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator
 from firedrake.dmhooks import get_function_space
-from ufl import grad, curl
+from ufl import grad, curl, SpatialCoordinate
 
 __all__ = ("HypreADS",)
 
