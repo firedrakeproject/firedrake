@@ -90,7 +90,7 @@ def test_aw(stress_element):
                   "snes_linesearch_type": "basic",
                   "snes_monitor": None,
                   "mat_type": "aij",
-                  "snes_max_it": 10,
+                  "snes_max_it": 15,
                   "snes_lag_jacobian": -2,
                   "snes_lag_preconditioner": -2,
                   "ksp_type": "preonly",
