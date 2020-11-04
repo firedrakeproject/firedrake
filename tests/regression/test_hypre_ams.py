@@ -25,7 +25,6 @@ def test_homogeneous_field_linear():
               'ksp_type': 'cg',
               'ksp_max_it': '30',
               'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True
@@ -60,7 +59,6 @@ def test_homogeneous_field_matfree():
               'ksp_type': 'cg',
               'ksp_max_it': '30',
               'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.AssembledPC',
               'assembled_pc_type': 'python',
@@ -96,7 +94,6 @@ def test_homogeneous_field_nonlinear():
               'ksp_type': 'cg',
               'ksp_itmax': '30',
               'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True
@@ -129,7 +126,6 @@ def test_homogeneous_field_linear_convergence():
               'ksp_type': 'cg',
               'ksp_max_it': '30',
               'ksp_rtol': '1e-8',
-              'ksp_atol': '1e-8',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HypreAMS',
               'pc_hypre_ams_zero_beta_poisson': True

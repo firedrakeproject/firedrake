@@ -44,7 +44,7 @@ class HypreAMS(PCBase):
             pc.setHYPRESetBetaPoissonMatrix(None)
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro)
+        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
         pc.setUp()
 
         self.pc = pc
