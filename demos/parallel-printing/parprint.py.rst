@@ -79,17 +79,17 @@ solution, in two norms.  The :math:`L^2` norm is computed with
 ``assemble`` which already includes an MPI reduction across the ``mesh.comm``
 communicator::
 
-    uexact = Function(V)
-    uexact.interpolate(cos(x*pi*2)*cos(y*pi*2))
-    L_2_err = sqrt(assemble(dot(u - uexact, u - uexact) * dx))
+    udiff = Function(V).interpolate(u - cos(x*pi*2)*cos(y*pi*2))
+    L_2_err = sqrt(assemble(dot(udiff,udiff) * dx))
 
 We compute the :math:`L^\infty` error a different way.  Note that
-``L_inf_err = u.dat.data.max()`` would work in serial but in parallel that only
+``u.dat.data.max()`` works in serial but in parallel that only
 gets the max over the process-owned entries.  So again we use the ``PETSc.Vec``
 approach::
 
-    with u.dat.vec_ro as vu:
-        L_inf_err = vu.max()[1]
+    udiffabs = Function(V).interpolate(abs(udiff))
+    with udiffabs.dat.vec_ro as v:
+        L_inf_err = v.max()[1]
     PETSc.Sys.Print('L_2 error norm = %g, L_inf error norm = %g' \
                     % (L_2_err,L_inf_err))
 
