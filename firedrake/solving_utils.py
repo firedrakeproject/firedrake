@@ -29,7 +29,9 @@ if get_config()["options"]["petsc_int_type"] == "int32":
                               "ksp_rtol": 1e-7,
                               "pc_type": "lu",
                               "pc_factor_mat_solver_type": "mumps",
-                              "mat_mumps_icntl_14": 200}
+                              "mat_mumps_icntl_14": 200,
+                              # Detect zero pivots
+                              "mat_mumps_icntl_24": 1}
 else:
     DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
                               "ksp_type": "preonly",
