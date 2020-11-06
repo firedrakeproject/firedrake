@@ -238,13 +238,14 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
 
 def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax=None, norm=None, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
-    coords = toreal(coords, "real")
-    vals = toreal(vals, complex_component)
-    vertices = coords[triangles]
-    collection = Poly3DCollection(vertices, *args, **kwargs)
+    value_calculator = ValueCalculator(function.function_space(), num_sample_points)
+    coordinates, triangles = value_calculator.coordinates, value_calculator.triangles
+    vertices = coordinates[triangles]
 
-    avg_vals = vals[triangles].mean(axis=1)
+    collection = Poly3DCollection(vertices, *args, **kwargs)
+    values = toreal(value_calculator(function), complex_component)
+    avg_vals = values[triangles].mean(axis=1)
+    print(values.shape, avg_vals.shape, vertices.shape)
     collection.set_array(avg_vals)
     if (vmin is not None) or (vmax is not None):
         collection.set_clim(vmin, vmax)
@@ -252,7 +253,7 @@ def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax
         collection.set_norm(norm)
 
     axes.add_collection(collection)
-    _autoscale_view(axes, coords)
+    _autoscale_view(axes, coordinates)
 
     return collection
 
@@ -909,9 +910,9 @@ class ValueCalculator:
         if function_space.mesh().topological_dimension() != 2:
             raise ValueError(f"Only works for 2D meshes!")
 
-        self._setup_2d(function_space, num_sample_points)
+        self._setup_nd(function_space, num_sample_points)
 
-    def _setup_2d(self, function_space, num_sample_points):
+    def _setup_nd(self, function_space, num_sample_points):
         mesh = function_space.mesh()
         cell = mesh.ufl_cell()
         if cell.cellname() == "triangle":
@@ -942,8 +943,13 @@ class ValueCalculator:
         coordinate_values = self(mesh.coordinates)
         X = coordinate_values.reshape(-1, mesh.geometric_dimension())
         coords = toreal(X, "real")
-        x, y = coords[:, 0], coords[:, 1]
-        self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
+
+        if mesh.geometric_dimension() == 2:
+            x, y = coords[:, 0], coords[:, 1]
+            self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
+        elif mesh.geometric_dimension() == 3:
+            self.coordinates = coords
+            self.triangles = all_triangles
 
     def __call__(self, function):
         # TODO: Make this more efficient on repeated calls -- for example reuse `elem`
