@@ -1,4 +1,5 @@
 import enum
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors
@@ -171,21 +172,20 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
+    Q = function.function_space()
+    mesh = Q.mesh()
     if len(function.ufl_shape) == 1:
-        mesh = function.ufl_domain()
         element = function.ufl_element().sub_elements()[0]
         Q = FunctionSpace(mesh, element)
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
-
-    coords = toreal(coords, "real")
-    x, y = coords[:, 0], coords[:, 1]
-    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
+    value_calculator = ValueCalculator(Q, num_sample_points)
+    triangulation = value_calculator.triangulation
+    values = value_calculator(function)
 
     method = getattr(axes, method_name)
-    return method(triangulation, toreal(vals, complex_component), *args, **kwargs)
+    return method(triangulation, toreal(values, complex_component), *args, **kwargs)
 
 
 def tricontourf(function, *args, complex_component="real", **kwargs):
@@ -274,13 +274,14 @@ def trisurf(function, *args, complex_component="real", **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
 
-    _kwargs = {"antialiased": False, "edgecolor": "none",
-               "cmap": plt.rcParams["image.cmap"]}
+    _kwargs = {"antialiased": False, "edgecolor": "none", "cmap": plt.rcParams["image.cmap"]}
     _kwargs.update(kwargs)
 
-    mesh = function.ufl_domain()
+    Q = function.function_space()
+    mesh = Q.mesh()
     if mesh.geometric_dimension() == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
+    _kwargs.update({"shade": False})
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements()[0]
@@ -288,14 +289,10 @@ def trisurf(function, *args, complex_component="real", **kwargs):
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
-    coords = toreal(coords, "real")
-    vals = toreal(vals, complex_component)
-    x, y = coords[:, 0], coords[:, 1]
-    triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
-    _kwargs.update({"shade": False})
-    return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
+    value_calculator = ValueCalculator(Q, num_sample_points)
+    triangulation = value_calculator.triangulation
+    values = value_calculator(function)
+    return axes.plot_trisurf(triangulation, values, *args, **_kwargs)
 
 
 def quiver(function, *, complex_component="real", **kwargs):
@@ -766,7 +763,6 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
        obeyed exactly, but a linear triangulation is created which
        matches it reasonably well.
     """
-    from math import log
     mesh = function.function_space().mesh()
     cell = mesh.ufl_cell()
     if cell.cellname() == "triangle":
@@ -780,7 +776,7 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
 
     base_tri = matplotlib.tri.Triangulation(x, y)
     refiner = matplotlib.tri.UniformTriRefiner(base_tri)
-    sub_triangles = int(log(num_sample_points, 4))
+    sub_triangles = int(math.log(num_sample_points, 4))
     tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
 
@@ -906,3 +902,66 @@ def _bernstein(x, k, n):
     from math import factorial
     comb = factorial(n) // factorial(k) // factorial(n - k)
     return comb * (x ** k) * ((1 - x) ** (n - k))
+
+
+class ValueCalculator:
+    def __init__(self, function_space, num_sample_points):
+        if function_space.mesh().topological_dimension() != 2:
+            raise ValueError(f"Only works for 2D meshes!")
+
+        self._setup_2d(function_space, num_sample_points)
+
+    def _setup_2d(self, function_space, num_sample_points):
+        mesh = function_space.mesh()
+        cell = mesh.ufl_cell()
+        if cell.cellname() == "triangle":
+            x = np.array([0, 0, 1])
+            y = np.array([0, 1, 0])
+        elif cell.cellname() == "quadrilateral":
+            x = np.array([0, 0, 1, 1])
+            y = np.array([0, 1, 0, 1])
+        else:
+            raise ValueError(f"Unsupported cell type {cell}")
+
+        # First, create the *reference points* -- a triangulation and points in
+        # a single reference cell of the mesh, which will be coarser or denser
+        # depending on how many sample points were specified.
+        base_tri = matplotlib.tri.Triangulation(x, y)
+        refiner = matplotlib.tri.UniformTriRefiner(base_tri)
+        sub_triangles = int(math.log(num_sample_points, 4))
+        tri = refiner.refine_triangulation(False, sub_triangles)
+        triangles = tri.get_masked_triangles()
+        self._reference_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
+
+        # Now create a matching triangulation of the whole domain.
+        num_vertices = self._reference_points.shape[0]
+        num_cells = function_space.cell_node_list.shape[0]
+        add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
+        all_triangles = (triangles + add_idx).reshape(-1, 3)
+
+        coordinate_values = self(mesh.coordinates)
+        X = coordinate_values.reshape(-1, mesh.geometric_dimension())
+        coords = toreal(X, "real")
+        x, y = coords[:, 0], coords[:, 1]
+        self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
+
+    def __call__(self, function):
+        # TODO: Make this more efficient on repeated calls -- for example reuse `elem`
+        # if the function space is the same as the last one
+        Q = function.function_space()
+        dimension = Q.mesh().topological_dimension()
+        keys = {1: (0,), 2: (0, 0)}
+
+        fiat_element = create_base_element(Q.ufl_element()).fiat_equivalent
+        elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
+        cell_node_list = Q.cell_node_list
+        data = function.dat.data_ro[cell_node_list]
+        if function.ufl_shape == ():
+            vec_length = 1
+        else:
+            vec_length = function.ufl_shape[0]
+
+        if vec_length == 1:
+            data = np.reshape(data, data.shape + (1,))
+
+        return np.einsum("ijk, jl->ilk", data, elem).reshape(-1)
