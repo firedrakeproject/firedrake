@@ -678,67 +678,6 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     return result
 
 
-def _calculate_values(function, points, dimension, cell_mask=None):
-    """Calculate function values at given reference points
-
-    :arg function: function to be sampled
-    :arg points: points to be sampled in reference space
-    :arg cell_mask: Masks for cell node list
-    """
-    import numpy.ma as ma
-    function_space = function.function_space()
-    keys = {1: (0,),
-            2: (0, 0)}
-    # Such tabulation could be done with FInAT, but that would be more
-    # complicated, and there is no clear benefit to changing.
-    fiat_element = create_base_element(function_space.ufl_element()).fiat_equivalent
-    elem = fiat_element.tabulate(0, points)[keys[dimension]]
-    cell_node_list = function_space.cell_node_list
-    if cell_mask is not None:
-        cell_mask = np.tile(cell_mask.reshape(-1, 1), cell_node_list.shape[1])
-        cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
-                                                          mask=cell_mask))
-    data = function.dat.data_ro[cell_node_list]
-    if function.ufl_shape == ():
-        vec_length = 1
-    else:
-        vec_length = function.ufl_shape[0]
-    if vec_length == 1:
-        data = np.reshape(data, data.shape+(1, ))
-    return np.einsum("ijk,jl->ilk", data, elem)
-
-
-def _calculate_points(function, num_points, dimension, cell_mask=None):
-    """Calculate points in physical space of given function with given number
-    of sampling points at given dimension
-
-    :arg function: function to be sampled
-    :arg num_points: number of sampling points
-    :arg dimension: dimension of the function
-    :arg cell_mask: Masks for cell node list
-    """
-    function_space = function.function_space()
-    mesh = function_space.mesh()
-    if mesh.ufl_cell() == Cell('interval'):
-        points = np.linspace(0.0, 1.0, num=num_points,
-                             dtype=float).reshape(-1, 1)
-    elif mesh.ufl_cell() == Cell('quadrilateral'):
-        points_1d = np.linspace(0, 1.0, num=num_points,
-                                dtype=float).reshape(-1, 1)
-        points = np.array(np.meshgrid(points_1d, points_1d)).T.reshape(-1, 2)
-    elif mesh.ufl_cell() == Cell('triangle'):
-        points_1d = np.linspace(0, 1.0, num=num_points,
-                                dtype=float).reshape(-1, 1)
-        points_1d_rev = np.fliplr([points_1d]).reshape(-1)
-        iu = np.triu_indices(num_points)
-        points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
-    else:
-        raise NotImplementedError("Unsupported cell type %r", mesh.ufl_cell())
-    y_vals = _calculate_values(function, points, dimension, cell_mask)
-    x_vals = _calculate_values(mesh.coordinates, points, dimension, cell_mask)
-    return x_vals, y_vals
-
-
 def calculate_one_dim_points(function, num_points, cell_mask=None):
     """Calculate a set of points for plotting for a one-dimension function as
     a numpy array
@@ -747,12 +686,9 @@ def calculate_one_dim_points(function, num_points, cell_mask=None):
     :arg num_points: Number of points per element
     :arg cell_mask: Masks for cell node list
     """
-    x_vals, y_vals = _calculate_points(function, num_points, 1, cell_mask)
-    x_vals = x_vals.reshape(-1)
-    y_vals = y_vals.reshape(-1)
-    order = np.argsort(x_vals)
-    x_vals = x_vals[order]
-    y_vals = y_vals[order]
+    value_calculator = ValueCalculator(function.function_space(), num_points)
+    x_vals = value_calculator(function.function_space().mesh().coordinates)
+    y_vals = value_calculator(function)
     return np.array([x_vals, y_vals])
 
 
@@ -868,10 +804,13 @@ def _bernstein(x, k, n):
 
 class ValueCalculator:
     def __init__(self, function_space, num_sample_points):
-        if function_space.mesh().topological_dimension() != 2:
-            raise ValueError(f"Only works for 2D meshes!")
+        if function_space.mesh().topological_dimension() == 1:
+            self._setup_1d(function_space, num_sample_points)
+        else:
+            self._setup_nd(function_space, num_sample_points)
 
-        self._setup_nd(function_space, num_sample_points)
+    def _setup_1d(self, function_space, num_sample_points):
+        self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, function_space, num_sample_points):
         mesh = function_space.mesh()
