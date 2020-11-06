@@ -756,45 +756,6 @@ def calculate_one_dim_points(function, num_points, cell_mask=None):
     return np.array([x_vals, y_vals])
 
 
-def _two_dimension_triangle_func_val(function, num_sample_points):
-    """Calculate the triangulation and function values for a given 2D function
-
-    :arg function: 2D function
-    :arg num_sample_points: Number of sampling points.  This is not
-       obeyed exactly, but a linear triangulation is created which
-       matches it reasonably well.
-    """
-    mesh = function.function_space().mesh()
-    cell = mesh.ufl_cell()
-    if cell.cellname() == "triangle":
-        x = np.array([0, 0, 1])
-        y = np.array([0, 1, 0])
-    elif cell.cellname() == "quadrilateral":
-        x = np.array([0, 0, 1, 1])
-        y = np.array([0, 1, 0, 1])
-    else:
-        raise ValueError("Unsupported cell type %s" % cell)
-
-    base_tri = matplotlib.tri.Triangulation(x, y)
-    refiner = matplotlib.tri.UniformTriRefiner(base_tri)
-    sub_triangles = int(math.log(num_sample_points, 4))
-    tri = refiner.refine_triangulation(False, sub_triangles)
-    triangles = tri.get_masked_triangles()
-
-    ref_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
-    z_vals = _calculate_values(function, ref_points, 2)
-    coords_vals = _calculate_values(mesh.coordinates, ref_points, 2)
-
-    num_verts = ref_points.shape[0]
-    num_cells = function.function_space().cell_node_list.shape[0]
-    add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_verts
-    all_triangles = (triangles + add_idx).reshape(-1, 3)
-
-    Z = z_vals.reshape(-1)
-    X = coords_vals.reshape(-1, mesh.geometric_dimension())
-    return X, Z, all_triangles
-
-
 def _bezier_calculate_points(function):
     """Calculate points values for a function used for bezier plotting
 
