@@ -670,26 +670,15 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     else:
         degree = function.ufl_element().degree()
         num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
-        points = calculate_one_dim_points(function, num_sample_points)
+        value_calculator = ValueCalculator(function.function_space(), num_sample_points)
+        x_vals = value_calculator(function.function_space().mesh().coordinates)
+        y_vals = value_calculator(function)
+        points = np.array([x_vals, y_vals])
         num_cells = function.function_space().mesh().num_cells()
         result = _interp_bezier(points, num_cells, axes, **kwargs)
 
     _autoscale_view(axes, None)
     return result
-
-
-def calculate_one_dim_points(function, num_points, cell_mask=None):
-    """Calculate a set of points for plotting for a one-dimension function as
-    a numpy array
-
-    :arg function: 1D function for plotting
-    :arg num_points: Number of points per element
-    :arg cell_mask: Masks for cell node list
-    """
-    value_calculator = ValueCalculator(function.function_space(), num_points)
-    x_vals = value_calculator(function.function_space().mesh().coordinates)
-    y_vals = value_calculator(function)
-    return np.array([x_vals, y_vals])
 
 
 def _bezier_calculate_points(function):
