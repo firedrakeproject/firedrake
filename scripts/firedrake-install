@@ -911,7 +911,7 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call([sys.executable, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
@@ -1108,7 +1108,7 @@ def build_and_install_slepc():
                 with environment(PETSC_DIR=petsc_dir,
                                  SLEPC_DIR=slepc_dir,
                                  PETSC_ARCH=petsc_arch):
-                    check_call(["python3", "./configure"])
+                    check_call([sys.executable, "./configure"])
                     check_call(["make", "all"])
                     check_call(["make", "check"])
         else:
