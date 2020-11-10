@@ -109,7 +109,6 @@ def test_homogeneous_field_linear_convergence():
     N = 4
     mesh = UnitCubeMesh(2**N, 2**N, 2**N)
     V = FunctionSpace(mesh, "N1curl", 1)
-    V0 = VectorFunctionSpace(mesh, "DG", 0)
 
     u = TrialFunction(V)
     v = TestFunction(V)
