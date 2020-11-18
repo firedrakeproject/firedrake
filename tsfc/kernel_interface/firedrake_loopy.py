@@ -17,7 +17,7 @@ from tsfc.loopy import generate as generate_loopy
 
 
 # Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients', 'tabulations'])
+ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients', 'first_coefficient_fake_coords', 'tabulations'])
 
 
 def make_builder(*args, **kwargs):
@@ -153,12 +153,14 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, index_names):
+    def construct_kernel(self, return_arg, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg return_arg: loopy.GlobalArg for the return value
         :arg impero_c: gem.ImperoC object that represents the kernel
         :arg index_names: pre-assigned index names
+        :arg first_coefficient_fake_coords: If true, the kernel's first
+            coefficient is a constructed UFL coordinate field
         :returns: :class:`ExpressionKernel` object
         """
         args = [return_arg]
@@ -173,7 +175,8 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_kernel = generate_loopy(impero_c, args, self.scalar_type,
                                       "expression_kernel", index_names)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficients, self.tabulations)
+                                self.coefficients, first_coefficient_fake_coords,
+                                self.tabulations)
 
 
 class KernelBuilder(KernelBuilderBase):

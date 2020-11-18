@@ -332,15 +332,16 @@ def compile_expression_dual_evaluation(expression, to_element, *,
         domain = expression.ufl_domain()
     assert domain is not None
 
-    # Create a fake coordinate coefficient for a domain.
-    coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-    builder.domain_coordinate[domain] = coords_coefficient
-    builder.set_cell_sizes(domain)
-
     # Collect required coefficients
+    first_coefficient_fake_coords = False
     coefficients = extract_coefficients(expression)
     if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
+        # Create a fake coordinate coefficient for a domain.
+        coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
+        builder.domain_coordinate[domain] = coords_coefficient
+        builder.set_cell_sizes(domain)
         coefficients = [coords_coefficient] + coefficients
+        first_coefficient_fake_coords = True
     builder.set_coefficients(coefficients)
 
     # Split mixed coefficients
@@ -433,7 +434,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Handle kernel interface requirements
     builder.register_requirements([ir])
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, index_names)
+    return builder.construct_kernel(return_arg, impero_c, index_names, first_coefficient_fake_coords)
 
 
 def lower_integral_type(fiat_cell, integral_type):
