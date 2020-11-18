@@ -1,5 +1,4 @@
 import numpy
-import pytest
 from firedrake import *
 
 
@@ -9,7 +8,7 @@ class NonePC(PCBase):
         self.uh = Function(V)
         u = TrialFunction(V)
         v = TestFunction(V)
-        problem = LinearVariationalProblem(u*v*dx, 2*v*dx, self.uh)
+        problem = LinearVariationalProblem(inner(u, v) * dx, 2*conj(v)*dx, self.uh)
         self.solver = LinearVariationalSolver(problem)
 
     def update(self, pc):
@@ -24,7 +23,6 @@ class NonePC(PCBase):
         x.copy(y)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Broken: FIX BEFORE MERGING")
 def test_appctx_cleanup():
     mesh = UnitSquareMesh(1, 1)
     mh = MeshHierarchy(mesh, 2)
