@@ -266,7 +266,7 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     expr = TestFunction(P1)
     to_element = create_base_element(Pk.ufl_element())
 
-    ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     kernel = op2.Kernel(ast, ast.name)
     return kernel
 
@@ -377,7 +377,7 @@ class StandaloneInterpolationMatrix(object):
         from tsfc import compile_expression_dual_evaluation
         from tsfc.finatinterface import create_base_element
         to_element = create_base_element(Vf.ufl_element())
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
         return op2.Kernel(ast, ast.name)
 
     def make_blas_kernels(self, Vf, Vc):
