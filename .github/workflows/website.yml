@@ -1,0 +1,24 @@
+name: Build Website
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Build documentation
+        uses: ammaraskar/sphinx-action@master
+        with:
+          docs-folder: "doc/sphinx"
+      - name: Upload to GitHub Pages
+        uses: crazy-max/ghaction-github-pages@v2.2.0
+        with:
+          build_dir: doc/sphinx/build/html
+          jekyll: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
