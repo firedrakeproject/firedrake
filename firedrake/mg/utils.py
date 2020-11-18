@@ -109,8 +109,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         assert Vc.extruded == Vf.extruded
         if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
             raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
-            raise ValueError("Coarse and fine meshes must have same number of layers")
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
