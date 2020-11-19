@@ -56,13 +56,6 @@ def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     """
     errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
               for r in range(2, 5)]
-    """
-    errors = []
-    for r in range(2, 5):
-        print("RUNNING %s" % r)
-        x = run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
-        errors.append(x)
-    """
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
     assert l2conv > 1.8
