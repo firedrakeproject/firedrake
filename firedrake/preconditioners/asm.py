@@ -66,6 +66,11 @@ class ASMPatchPC(PCBase):
         elif backend == "tinyasm":
             if not have_tinyasm:
                 raise ValueError("To use the TinyASM backend you need to install firedrake with TinyASM (firedrake-update --tinyasm)")
+
+            _, P = asmpc.getOperators()
+            lgmap = V.dof_dset.lgmap
+            P.setLGMap(rmap=lgmap, cmap=lgmap)
+
             asmpc.setType("tinyasm")
             # TinyASM wants local numbers, no need to translate
             tinyasm.SetASMLocalSubdomains(

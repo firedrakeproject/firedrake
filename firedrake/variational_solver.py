@@ -180,11 +180,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
                                                        snes_defaults=self.DEFAULT_SNES_PARAMETERS)
-        mat_type = solver_parameters.get("mat_type")
-        pmat_type = solver_parameters.get("pmat_type")
-
         super().__init__(solver_parameters, options_prefix)
-
+        # Now the correct parameters live in self.parameters (via the
+        # OptionsManager mixin)
+        mat_type = self.parameters.get("mat_type")
+        pmat_type = self.parameters.get("pmat_type")
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,

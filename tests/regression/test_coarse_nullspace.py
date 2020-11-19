@@ -14,6 +14,7 @@ def test_coarse_nullspace():
     one = Function(V)
     one.interpolate(Constant(1))
     nsp = VectorSpaceBasis([one])
+    nsp.orthonormalize()
 
     sp = {"ksp_type": "cg",
           "ksp_monitor_true_residual": None,
