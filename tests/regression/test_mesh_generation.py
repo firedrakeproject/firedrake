@@ -435,10 +435,3 @@ def test_changing_default_reorder_works(reorder):
     finally:
         parameters["reorder_meshes"] = old_reorder
 
-
-@pytest.mark.parametrize("kind, num_cells",
-                         [("default", 6), ("crossed", 5)])
-def test_boxmesh_kind(kind, num_cells):
-    m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    m.init()
-    assert m.num_cells() == num_cells
