@@ -7,17 +7,25 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    container: 
+      image: firedrakeproject/firedrake:latest
+      options: --user root  # GH Actions require root user
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      # The documentation can only be built using a PyOP2 installed as 
+      # part of the Firedrake stack due to a variety of dependency issues.
       - name: Build documentation
-        uses: ammaraskar/sphinx-action@master
-        with:
-          docs-folder: "doc/sphinx"
+        shell: bash
+        run: |
+          source /home/firedrake/firedrake/bin/activate
+          cd $VIRTUAL_ENV/src/PyOP2/doc/sphinx
+          git pull
+          make html
+          mv build/html $GITHUB_WORKSPACE
+
       - name: Upload to GitHub Pages
         uses: crazy-max/ghaction-github-pages@v2.2.0
         with:
-          build_dir: doc/sphinx/build/html
+          build_dir: html
           jekyll: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
