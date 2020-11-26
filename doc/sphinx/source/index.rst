@@ -6,6 +6,14 @@
 Welcome to PyOP2's documentation!
 =================================
 
+.. warning::
+   The prose documentation contained here is significantly out-of-date and thus
+   contains many inaccuracies. It is, nevertheless, quite a useful resource for 
+   people new to PyOP2. Please read with care.
+
+   The API documentation, however, is updated regularly and can be considered
+   accurate.
+
 Contents:
 
 .. toctree::

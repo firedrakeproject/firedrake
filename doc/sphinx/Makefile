@@ -20,7 +20,6 @@ devhelp epub latex latexpdf text man changes linkcheck doctest gettext apidoc
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
-	@echo "  livehtml   to make HTML files and point livereload server at them"
 	@echo "  html       to make standalone HTML files"
 	@echo "  dirhtml    to make HTML files named index.html in directories"
 	@echo "  singlehtml to make a single large HTML file"
@@ -46,9 +45,6 @@ apidoc:
 
 clean:
 	-rm -rf $(BUILDDIR)/*
-
-livehtml:
-	python server.py
 
 buildhtml:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
