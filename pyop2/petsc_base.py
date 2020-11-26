@@ -272,14 +272,7 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             self.comm.Scan(owned_sz, field_offset)
             self.comm.Allgather(field_offset, current_offsets[1:])
             # Find the ranks each entry in the l2g belongs to
-            l2g = s.halo.local_to_global_numbering
-            # If cdim > 1, we need to unroll the node numbering to dof
-            # numbering
-            if s.cdim > 1:
-                new_l2g = np.empty(l2g.shape[0]*s.cdim, dtype=l2g.dtype)
-                for i in range(s.cdim):
-                    new_l2g[i::s.cdim] = l2g*s.cdim + i
-                l2g = new_l2g
+            l2g = s.unblocked_lgmap.indices
             tmp_indices = np.searchsorted(current_offsets, l2g, side="right") - 1
             idx[:] = l2g[:] - current_offsets[tmp_indices] + \
                 all_field_offsets[tmp_indices] + all_local_offsets[tmp_indices]

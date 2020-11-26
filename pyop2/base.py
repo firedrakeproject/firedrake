@@ -1003,6 +1003,7 @@ class GlobalDataSet(DataSet):
 
         self._global = global_
         self._globalset = GlobalSet(comm=self.comm)
+        self._name = "gdset_#x%x" % id(self)
 
     @classmethod
     def _cache_key(cls, *args):
