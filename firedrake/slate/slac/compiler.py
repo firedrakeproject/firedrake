@@ -165,7 +165,9 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
-    blasdir = get_config().get('with_blas')
+    blasdir = get_config()["options"].get("with_blas")
+    if blasdir == "download":
+        blasdir = PETSC_ARCH
     if blasdir:
         ldflags = ["-llapack", f"-L{blasdir}/lib", f"-Wl,-rpath,{blasdir}/lib"]
         include = [f"{blasdir}/include"]
