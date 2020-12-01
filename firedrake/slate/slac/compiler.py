@@ -168,8 +168,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     blasdir = get_config()["options"].get("with_blas")
     if blasdir == "download":
         # PETSc OpenBLAS doesn't need `-llapack`
-        ldflags = None
-        include = None
+        ldflags = []
+        include = []
     elif blasdir:
         # FIX ME: OpenBLAS doesn't need `-llapack`, but others might?
         ldflags = [f"-Wl,-rpath,{blasdir}/lib", f"-L{blasdir}/lib"]
@@ -177,7 +177,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     else:
         # This case assumes we use the system (netlib) LAPACK
         ldflags = ["-llapack"]
-        include = None
+        include = []
     loopykernel = op2.Kernel(code, loopy_merged.name, include_dirs=include, ldargs=ldflags)
 
     kinfo = KernelInfo(kernel=loopykernel,
