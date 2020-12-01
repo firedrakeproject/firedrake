@@ -21,6 +21,7 @@ from hashlib import md5
 import os.path
 
 from firedrake_citations import Citations
+from firedrake_configuration import get_config
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
@@ -164,7 +165,13 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
-    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+    blasdir = get_config().get('with_blas')
+    if blasdir:
+        ldflags = ["-llapack", f"-L{blasdir}/lib", f"-Wl,-rpath,{blasdir}/lib"]
+        include = [f"{blasdir}/include"]
+        loopykernel = op2.Kernel(code, loopy_merged.name, include_dirs=include, ldargs=ldflags)
+    else:
+        loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
