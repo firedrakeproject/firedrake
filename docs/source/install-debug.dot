@@ -14,7 +14,7 @@ digraph triage {
 
     activate_venv [label="Activate the\nvenv first."];
     uninstall_anaconda [label="Deactivate\nAnaconda."];
-    update_python [label="Get Python 3.6+"];
+    update_python [label="Get Python 3.6-3.8"];
     update_install_script [label="Fetch new\ninstall script"];
     get_homebrew [label="Use Homebrew."];
     brew_doctor [label="brew doctor"];
