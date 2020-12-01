@@ -167,13 +167,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
     blasdir = get_config()["options"].get("with_blas")
     if blasdir == "download":
-        blasdir = PETSC_ARCH
-    if blasdir:
-        ldflags = ["-llapack", f"-L{blasdir}/lib", f"-Wl,-rpath,{blasdir}/lib"]
+        # PETSc OpenBLAS doesn't need `-llapack`
+        ldflags = None
+        include = None
+    elif blasdir:
+        # FIX ME: OpenBLAS doesn't need `-llapack`, but others might?
+        ldflags = [f"-Wl,-rpath,{blasdir}/lib", f"-L{blasdir}/lib"]
         include = [f"{blasdir}/include"]
-        loopykernel = op2.Kernel(code, loopy_merged.name, include_dirs=include, ldargs=ldflags)
     else:
-        loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+        # This case assumes we use the system (netlib) LAPACK
+        ldflags = ["-llapack"]
+        include = None
+    loopykernel = op2.Kernel(code, loopy_merged.name, include_dirs=include, ldargs=ldflags)
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
