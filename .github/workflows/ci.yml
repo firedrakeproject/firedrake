@@ -1,0 +1,66 @@
+name: CI
+
+#on: pull_request
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CC: mpicc
+      PETSC_CONFIGURE_OPTIONS: --with-debugging=1
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt install build-essential python3-dev git python3-pip \
+                      libopenmpi-dev openmpi-bin libblas-dev \
+                      liblapack-dev gfortran
+
+      - name: Set correct Python version
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.6'
+
+      # xargs is used to force installation of requirements in the order we specified.
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          pip install pip==20.2
+          xargs -l1 pip install < requirements-ext.txt
+          xargs -l1 pip install < requirements-git.txt
+          pip install pulp
+          pip install -U flake8
+
+      - name: Install PyOP2
+        shell: bash
+        run: pip install -e .
+
+      - name: Do tests
+        shell: bash
+        run: |
+          make lint
+          py.test test -v --tb=native
+
+#      - name: Build documentation
+#        if: ${{ github.actions}}
+#        shell: bash
+#        run: |
+#          source /home/firedrake/firedrake/bin/activate
+#          cd $VIRTUAL_ENV/src/PyOP2/doc/sphinx
+#          git pull
+#          make html
+#          mv build/html $GITHUB_WORKSPACE
+#
+#      - name: Upload to GitHub Pages
+#        uses: crazy-max/ghaction-github-pages@v2.2.0
+#        with:
+#          build_dir: html
+#          jekyll: false
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#  
+#
