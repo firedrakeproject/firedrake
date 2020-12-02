@@ -1996,7 +1996,7 @@ def SubDomainData(geometric_expr):
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)

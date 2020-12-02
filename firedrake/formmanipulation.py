@@ -135,7 +135,7 @@ def split_form(form, diagonal=False):
 
     For example, consider the following code:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         V = FunctionSpace(m, 'CG', 1)
         W = V*V*V
@@ -145,7 +145,7 @@ def split_form(form, diagonal=False):
 
     Then splitting the form returns a tuple of two forms.
 
-    .. code-block:: python
+    .. code-block:: python3
 
        ((0, 2), w*p*dx),
         (1, 0), q*u*dx))

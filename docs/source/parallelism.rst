@@ -87,7 +87,7 @@ collective over. If you find parallel code hanging for inexplicable
 reasons, it is possible to turn off the Python garbage collector by
 including these lines in your code:
 
-.. code-block:: python
+.. code-block:: python3
 
     import gc
     gc.disable()
@@ -100,7 +100,7 @@ including these lines in your code:
 
 The garbage collector can be turned back on with this line:
 
-.. code-block:: python
+.. code-block:: python3
 
     gc.enable()
 
@@ -123,7 +123,7 @@ the supplied communicator, rather than ``MPI_COMM_WORLD``.  For
 example, to split the global communicator into two and perform two
 different simulations on the two halves we would write.
 
-.. code-block:: python
+.. code-block:: python3
 
    from firedrake import *
 
@@ -176,7 +176,7 @@ member. The total number of processes launched by ``mpiexec`` must
 therefore be equal to the product of number of ensemble members with
 the number of processes to be used for each ensemble member.
 
-.. code-block:: python
+.. code-block:: python3
 
    from firedrake import *
 
@@ -186,7 +186,7 @@ Then, the spatial sub-communicator must be passed to :func:`~.mesh.Mesh` (or via
 inbuilt mesh generators in :mod:`~.utility_meshes`), so that it will then be used by function spaces
 and functions derived from the mesh.
 
-.. code-block:: python
+.. code-block:: python3
 
     mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
     x, y = SpatialCoordinate(mesh)
@@ -195,7 +195,7 @@ and functions derived from the mesh.
 
 The ensemble sub-communicator is then available through the method :attr:`~.Ensemble.ensemble_comm`.
 
-.. code-block:: python
+.. code-block:: python3
 
     q = Constant(my_ensemble.ensemble_comm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
@@ -206,7 +206,7 @@ communications across the ensemble sub-communicator (i.e., between ensemble
 members) are handled through methods of :class:`~.Ensemble`. Currently only
 global reductions are supported.
 
-.. code-block:: python
+.. code-block:: python3
 
     my_ensemble.allreduce(u, usum)
 
