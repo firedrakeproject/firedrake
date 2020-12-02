@@ -203,3 +203,80 @@ def test_near_nullspace(tmpdir):
 
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
+
+
+def test_nullspace_mixed_multiple_components():
+    # tests mixed nullspace with nullspace components in both spaces
+    # and passing of sub-nullspace in fieldsplit
+
+    mesh = PeriodicRectangleMesh(10, 10, 1, 1)
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "CG", 1)
+    Z = MixedFunctionSpace([V, W])
+
+    N, M = TestFunctions(Z)
+    z = Function(Z)
+    u, p = split(z)
+
+    x, y = SpatialCoordinate(mesh)
+    khat = Constant((0., -1.))
+    mu = Constant(1.0)
+    g = Constant(1.0)
+    tau = mu * (grad(u)+transpose(grad(u)))
+    # added constant to create inconsistent rhs:
+    rho = sin(pi*y)*cos(pi*x) + Constant(1.0)
+
+    F_stokes = inner(tau, grad(N)) * dx + inner(grad(p), N) * dx
+    F_stokes += inner(g * rho * khat, N) * dx
+    F_stokes += -inner(u, grad(M)) * dx
+
+    PETSc.Sys.popErrorHandler()
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'snes_type': 'ksponly',
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_schur_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'ksp_rtol': '1e-9',
+            'ksp_test_null_space': None,
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-7',
+            'ksp_monitor': None,
+        }
+    }
+
+    ux0 = Function(Z.sub(0))
+    ux0.assign(Constant((1.0, 0.)))
+    uy0 = Function(Z.sub(0))
+    uy0.assign(Constant((0.0, 1.)))
+    uv_nullspace = VectorSpaceBasis([ux0, uy0])
+    uv_nullspace.orthonormalize()
+
+    p_nullspace = VectorSpaceBasis(constant=True)
+
+    mix_nullspace = MixedVectorSpaceBasis(Z, [uv_nullspace, p_nullspace])
+
+    problem = NonlinearVariationalProblem(F_stokes, z)
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=solver_parameters,
+        nullspace=mix_nullspace, transpose_nullspace=mix_nullspace)
+    solver.solve()
+
+    assert solver.snes.getConvergedReason() > 0
+    schur_ksp = solver.snes.ksp.pc.getFieldSplitSubKSP()[1]
+    assert schur_ksp.getConvergedReason() > 0
+    assert schur_ksp.getIterationNumber() < 6
