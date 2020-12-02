@@ -41,7 +41,7 @@ system is find `u\in V`, `r\in R` such that:
 
 The corresponding Python code is:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
@@ -143,7 +143,7 @@ vertical average of a three-dimensional DG1 field by projecting the source
 field on a DG1 x R space.
 
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 

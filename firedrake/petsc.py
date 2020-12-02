@@ -19,7 +19,7 @@ def flatten_parameters(parameters, sep="_"):
     Used to flatten parameter dictionaries with nested structure to a
     flat dict suitable to pass to PETSc.  For example:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
        => {"a_b_c": 4, "a_d": 2, "e": 1}
@@ -27,7 +27,7 @@ def flatten_parameters(parameters, sep="_"):
     If a "prefix" key already ends with the provided separator, then
     it is not used to concatenate the keys.  Hence:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        flatten_parameters({"a_": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
        => {"a_b_c": 4, "a_d": 2, "e": 1}
@@ -111,7 +111,7 @@ class OptionsManager(object):
     is populated at the time of a ``SNESSolve`` or ``KSPSolve`` call.
     Do that using the :meth:`inserted_options` context manager.
 
-    .. code-block:: python
+    .. code-block:: python3
 
        with self.inserted_options():
            self.snes.solve(...)
