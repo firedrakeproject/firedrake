@@ -200,25 +200,35 @@ class HybridizationPC(SCBase):
         K = Tensor(Kform)
 
         # Assemble the Schur complement operator and right-hand side
+        local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
+        if local_matfree:
+            x = K * Atilde.solve(AssembledVector(self.broken_residual), matfree=local_matfree) # rhs: we solve Ar = b and then set x=K*r
+        else:
+            x = K * Atilde.inv  * AssembledVector(self.broken_residual)
+
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
+            x,
             tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params)
+            form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
-        schur_comp = K * Atilde.inv * K.T
+        if local_matfree:
+            schur_comp = K * Atilde.solve(K.T, matfree=local_matfree) # first part of schur: we solve Ay = K.T
+        else:
+            schur_comp = K * Atilde.inv * K.T
+
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
+                                 appctx=self.get_appctx(pc)) # this generates an ImplicitMatrix and assembles action and actionT
         self._assemble_S = create_assembly_callable(schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
                                                     form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type)
+                                                    mat_type=mat_type) 
 
         with timed_region("HybridOperatorAssembly"):
             self._assemble_S()
@@ -303,9 +313,10 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
+        # TODO invs have to replaced my matfree solves
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
+        u_rec = M.solve(f - C * A.inv * g - R * lambdar, # This a.inv needs to be rewritten as well?
                         decomposition="PartialPivLU")
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
@@ -381,7 +392,7 @@ class HybridizationPC(SCBase):
                 else:
                     acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
-                    self.trace_ksp.solve(b, x_trace)
+                    self.trace_ksp.solve(b, x_trace) # FIXME currently fails here because loopy out of bounds
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
