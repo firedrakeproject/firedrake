@@ -18,9 +18,10 @@ __all__ = ["LinearVariationalProblem",
 
 
 def check_pde_args(F, J, Jp):
+    from firedrake import Argument
     if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
-    if len(F.arguments()) != 1:
+    if len(tuple(filter(lambda x: isinstance(x, Argument), F.arguments()))) != 1:
         raise ValueError("Provided residual is not a linear form")
     if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
         raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)

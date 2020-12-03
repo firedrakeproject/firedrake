@@ -682,7 +682,8 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         if domain is not None and domain.topology != topology:
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
-    rank = len(expr.arguments())
+    from firedrake import Argument
+    rank = len(tuple(filter(lambda x: isinstance(x, Argument), expr.arguments())))
     if diagonal:
         assert rank == 2
     if rank == 2 and not diagonal:
@@ -730,7 +731,7 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
             if test.function_space() != trial.function_space():
                 raise ValueError("Can only assemble diagonal of 2-form if functionspaces match")
         else:
-            test, = expr.arguments()
+            test, = tuple(filter(lambda x: isinstance(x, Argument), expr.arguments()))
         tensor, zeros, result = get_vector(test, tensor=tensor)
 
         create_op2arg = functools.partial(vector_arg, function=tensor,

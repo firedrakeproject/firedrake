@@ -179,7 +179,8 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def rank(self):
         """Returns the rank information of the tensor object."""
-        return len(self.arguments())
+        from firedrake import Argument
+        return len(tuple(filter(lambda x: isinstance(x, Argument), self.arguments())))
 
     @abstractmethod
     def coefficients(self):
