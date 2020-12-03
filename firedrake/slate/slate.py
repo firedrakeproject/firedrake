@@ -34,6 +34,7 @@ from ufl.domain import join_domains
 from ufl.form import Form
 import hashlib
 
+from functools import singledispatch
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
@@ -722,7 +723,7 @@ class Tensor(TensorBase):
 
     operands = ()
 
-    def __init__(self, form):
+    def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
             if isinstance(form, Function):
@@ -739,6 +740,7 @@ class Tensor(TensorBase):
         super(Tensor, self).__init__()
 
         self.form = form
+        self.diagonal = diagonal
 
     @cached_property
     def arg_function_spaces(self):
@@ -779,6 +781,14 @@ class Tensor(TensorBase):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.form)
+        
+    @cached_property
+    def shape(self):
+        shapes = tuple(sum(shapelist) for shapelist in self.shapes.values())
+        if self.diagonal:
+            return (shapes[0],)
+        else:
+            return shapes
 
 
 class TensorOp(TensorBase):
@@ -1114,6 +1124,7 @@ class Solve(BinaryOp):
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
         self._matfree = matfree
+        # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):
