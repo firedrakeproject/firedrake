@@ -119,6 +119,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
     terminal = False
     assembled = False
+    diagonal = False
 
     _id = count()
 
@@ -155,7 +156,7 @@ class TensorBase(object, metaclass=ABCMeta):
             elif isinstance(op, Factorization):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
-                data = (op.form.signature(), )
+                data = (op.form.signature(), op.diagonal, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -815,14 +816,17 @@ class Tensor(TensorBase):
     operands = ()
     terminal = True
 
-    def __init__(self, form):
+    def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
             if isinstance(form, Function):
                 raise TypeError("Use AssembledVector instead of Tensor.")
             raise TypeError("Only UFL forms are acceptable inputs.")
 
-        r = len(form.arguments())
+        if self.diagonal:
+            assert len(form.arguments()) > 1, "Diagonal option only makes sense on rank-2 tensors."
+
+        r = len(form.arguments()) - diagonal
         if r not in (0, 1, 2):
             raise NotImplementedError("No support for tensors of rank %d." % r)
 
@@ -832,6 +836,7 @@ class Tensor(TensorBase):
         super(Tensor, self).__init__()
 
         self.form = form
+        self.diagonal = diagonal
 
     @cached_property
     def arg_function_spaces(self):
@@ -842,7 +847,8 @@ class Tensor(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.form.arguments()
+        r = len(self.form.arguments()) - self.diagonal
+        return self.form.arguments()[0:r]
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -871,7 +877,7 @@ class Tensor(TensorBase):
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        return (type(self), self.form)
+        return (type(self), self.form, self.diagonal)
 
 
 class TensorOp(TensorBase):
