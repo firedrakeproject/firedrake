@@ -1194,3 +1194,71 @@ precedences = [
 for level, group in enumerate(precedences):
     for tensor in group:
         tensor.prec = level
+
+
+# @singledispatch
+# def _replace(expr, self):
+#     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+# @_replace.register(Tensor)
+# def _replace_tensor(expr, self):
+#     import ufl
+#     t = Tensor(ufl.algorithms.replace(expr.form, self.mapping))
+#     return t
+
+# @_replace.register(AssembledVector)
+# def _replace_vector(expr, self):
+#     return AssembledVector(*map(self, expr.children))
+
+# @_replace.register(Block)
+# def _replace_block(expr, self):
+#     form = map(self, expr.form)
+#     return AssembledVector(form)
+
+# @_replace.register(Inverse)
+# def _replace_inverse(expr, self):
+#     return Inverse(*map(self, expr.children))
+
+# @_replace.register(Solve)
+# def _replace_solve(expr, self):
+#     return Solve(*map(self, expr.children))
+
+# @_replace.register(Transpose)
+# def _replace_transpose(expr, self):
+#     return Transpose(*map(self, expr.children))
+
+
+# @_replace.register(Negative)
+# def _replace_negative(expr, self):
+#     return Negative(*map(self, expr.children))
+
+# @_replace.register(Add)
+# def _replace_add(expr, self):
+#     return Add(*map(self, expr.children))
+
+# @_replace.register(Mul)
+# def _replace_mul(expr, self):
+#     expr._args = expr.arguments()[:-1] + (self.mapping[expr.arguments()[1]],)
+#     # arg1,arg2 = map(self, expr.children)
+#     return expr
+
+# @_replace.register(Factorization)
+# def _replace_factorization(expr, self):
+#     return Factorization(*map(self, expr.children), expr.decomposition)
+
+def replace(expr, mapping):
+    #FIXME Do I need change the arguments in all subexpressions? If yes can I use the Memoizer?
+    if isinstance(expr, Mul):
+        A = Mul(*expr.children)
+        A._args = expr.arguments()[:-1] + (mapping[expr.arguments()[-1]],)
+        return A
+    else:
+        AT = Transpose(*expr.children)
+        A, = expr.operands
+        A._args = A.arguments()[:-1] + (mapping[A.arguments()[1]],)
+        return AT
+
+    # from gem.node import Memoizer
+    # mapper = Memoizer(_replace)
+    # mapper.mapping = mapping
+    # return mapper(expr)
