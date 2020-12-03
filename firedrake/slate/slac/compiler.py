@@ -84,22 +84,23 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, compiler_parameters, coffee):
+    def _cache_key(cls, expr, compiler_parameters, coffee, diagonal):
         return md5((expr.expression_hash
                     + str(sorted(compiler_parameters.items()))
-                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(coffee)
+                    + str(diagonal)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, compiler_parameters, coffee=False):
+    def __init__(self, expr, compiler_parameters, coffee=False, diagonal=False):
         if self._initialized:
             return
         if coffee:
-            self.split_kernel = generate_kernel(expr, compiler_parameters)
+            self.split_kernel = generate_kernel(expr, compiler_parameters, diagonal)
         else:
-            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
+            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters, diagonal)
         self._initialized = True
 
 
-def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
+def compile_expression(slate_expr, compiler_parameters=None, coffee=False, diagonal=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -129,7 +130,7 @@ def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, params, coffee).split_kernel
+        kernel = SlateKernel(slate_expr, params, coffee, diagonal).split_kernel
         return cache.setdefault(key, kernel)
 
 
@@ -153,7 +154,7 @@ def get_temp_info(loopy_kernel):
     return mem_total, num_temps, mems, shapes
 
 
-def generate_loopy_kernel(slate_expr, compiler_parameters=None):
+def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")

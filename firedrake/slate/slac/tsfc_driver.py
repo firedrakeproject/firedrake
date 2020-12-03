@@ -60,7 +60,8 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
         kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters,
-                               coffee=coffee, split=False)
+                               coffee=coffee, split=False, diagonal=tensor.diagonal)
+
         if kernels:
             cxt_k = ContextKernel(tensor=tensor,
                                   coefficients=form.coefficients(),
