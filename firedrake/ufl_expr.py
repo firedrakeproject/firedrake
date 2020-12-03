@@ -222,7 +222,7 @@ def adjoint(form, reordered_arguments=None):
     if isinstance(form, firedrake.slate.TensorBase):
         if reordered_arguments is not None:
             firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
-        if form.rank() != 2:
+        if form.rank != 2:
             raise ValueError("Expecting rank-2 tensor")
         return form.T
     else:
