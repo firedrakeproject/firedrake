@@ -1,9 +1,12 @@
-name: CI
+name: Build Website
 
-on: pull_request
+on:
+  push:
+    branches:
+      - master
 
 jobs:
-  test:
+  gh-pages:
     runs-on: ubuntu-latest
     env:
       CC: mpicc
@@ -32,15 +35,21 @@ jobs:
           pip install pip==20.2
           xargs -l1 pip install < requirements-ext.txt
           xargs -l1 pip install < requirements-git.txt
-          pip install pulp
+          pip install pulp sphinx
           pip install -U flake8
 
       - name: Install PyOP2
         shell: bash
         run: pip install -e .
 
-      - name: Do tests
+      - name: Build documentation
         shell: bash
-        run: |
-          make lint
-          py.test test -v --tb=native
+        run: make -C doc/sphinx html
+
+      - name: Upload to GitHub Pages
+        uses: crazy-max/ghaction-github-pages@v2.2.0
+        with:
+          build_dir: doc/sphinx/build/html
+          jekyll: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
