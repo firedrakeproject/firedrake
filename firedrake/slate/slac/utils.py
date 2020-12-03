@@ -236,12 +236,6 @@ def _slate2gem_factorization(expr, self):
     A, = map(self, expr.children)
     return A
 
-@_slate2gem.register(sl.Diagonal)
-def _slate2gem_diagonal(expr, self):
-    A, = map(self, expr.children)
-    assert A.shape[0] == A.shape[1]
-    idx = tuple(make_indices(1))
-    return ComponentTensor(Indexed(A, idx+idx), idx)
 
 
 def slate2gem(expression):
