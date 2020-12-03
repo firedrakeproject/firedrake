@@ -361,6 +361,34 @@ class TensorBase(object, metaclass=ABCMeta):
         """Generates a hash for the TensorBase object."""
         return self._hash_id
 
+def action(tensor, coefficient):
+    """Compute the action of a form on a Coefficient.
+
+    This works simply by replacing the last Argument
+    with a Coefficient on the same function space (element).
+    The form returned will thus have one Argument less
+    and one additional Coefficient at the end if no
+    Coefficient has been provided.
+    """
+
+    # Extract all arguments
+    arguments = tensor.arguments()
+
+    # parts = [arg.part() for arg in arguments]
+    # if set(parts) - {None}:
+    #     error("compute_form_action cannot handle parts.")
+
+    # Pick last argument (will be replaced)
+    u = arguments[-1]
+
+    fs = u.ufl_function_space()
+    if coefficient is None:
+        coefficient = AssembledVector(Coefficient(fs))
+    # elif coefficient.ufl_function_space() != fs:
+    #     debug("Computing action of form on a coefficient in a different function space.")
+
+    return replace(tensor, {u: coefficient._function})
+
 
 class AssembledVector(TensorBase):
     """This class is a symbolic representation of an assembled

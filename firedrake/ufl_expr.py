@@ -198,7 +198,7 @@ def action(form, coefficient):
     if isinstance(form, firedrake.slate.TensorBase):
         if form.rank == 0:
             raise ValueError("Can't take action of rank-0 tensor")
-        return form * firedrake.AssembledVector(coefficient)
+        return firedrake.slate.action(form, firedrake.AssembledVector(coefficient))
     else:
         return ufl.action(form, coefficient)
 
@@ -222,7 +222,7 @@ def adjoint(form, reordered_arguments=None):
     if isinstance(form, firedrake.slate.TensorBase):
         if reordered_arguments is not None:
             firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
-        if form.rank != 2:
+        if form.rank() != 2:
             raise ValueError("Expecting rank-2 tensor")
         return form.T
     else:
