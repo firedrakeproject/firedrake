@@ -693,8 +693,6 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
-        if diagonal:
-            raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(expr, compiler_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
