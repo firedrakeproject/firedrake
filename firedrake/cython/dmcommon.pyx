@@ -650,7 +650,7 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         bint variable, extruded, on_base_
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
 
     if type(dm) is PETSc.DMSwarm and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
@@ -728,7 +728,7 @@ def get_cell_nodes(mesh,
         bint variable
         PETSc.DM dm
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
     variable = mesh.variable_layers
     cell_closures = mesh.cell_closure
     if variable:
@@ -817,7 +817,7 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
     if label not in {"interior_facets", "exterior_facets"}:
         raise ValueError("Unsupported facet label '%s'", label)
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
     variable = mesh.variable_layers
 
     if variable and offset is None:
@@ -2678,8 +2678,8 @@ def label_pic_parent_cell_nums(PETSc.DM swarm, parentmesh):
     if type(swarm) is not PETSc.DMSwarm:
         raise ValueError("swarm must be a DMSwarm")
 
-    if parentmesh._topology_dm.handle != swarm.getCellDM().handle:
-        raise ValueError("parentmesh._topology_dm is not the swarm's CellDM")
+    if parentmesh.topology_dm.handle != swarm.getCellDM().handle:
+        raise ValueError("parentmesh.topology_dm is not the swarm's CellDM")
 
     dim = parentmesh.geometric_dimension()
 
