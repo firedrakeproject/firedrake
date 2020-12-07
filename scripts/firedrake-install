@@ -481,9 +481,9 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
 
 # venv install
-python = ["%s/bin/python" % firedrake_env]
+python = "%s/bin/python" % firedrake_env
 # Use the pip from the venv
-pip = python + ["-m", "pip"]
+pip = [python, "-m", "pip"]
 pipinstall = pip + ["install",
                     "--no-build-isolation",
                     "--no-binary", ",".join(wheel_blacklist)]
@@ -503,7 +503,7 @@ class pipargs(object):
         pipinstall = self.save
 
 
-pyinstall = python + ["setup.py", "install"]
+pyinstall = [python, "setup.py", "install"]
 
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
@@ -841,7 +841,7 @@ def clean(package):
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
-            check_call(["python", "setup.py", "clean"])
+            check_call([python, "setup.py", "clean"])
 
 
 def pip_uninstall(package):
@@ -934,7 +934,7 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
@@ -1066,7 +1066,7 @@ def build_and_install_pythonocc():
             with directory("build"):
                 check_call(["cmake", "..",
                             "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                            "-DPYTHON_EXECUTABLE=" + python[0],
+                            "-DPYTHON_EXECUTABLE=" + python,
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
                             "-DMPI_Fortran_COMPILER=" + f90,
@@ -1131,7 +1131,7 @@ def build_and_install_slepc():
                 with environment(PETSC_DIR=petsc_dir,
                                  SLEPC_DIR=slepc_dir,
                                  PETSC_ARCH=petsc_arch):
-                    check_call(["python3", "./configure"])
+                    check_call([python, "./configure"])
                     check_call(["make", "all"])
                     check_call(["make", "check"])
         else:
@@ -1431,7 +1431,7 @@ if mode == "install":
         import urllib.request
         log.debug("ensurepip unavailable, bootstrapping pip using get-pip.py")
         urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", filename="get-pip.py")
-        check_call(python + ["get-pip.py"])
+        check_call([python, "get-pip.py"])
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
