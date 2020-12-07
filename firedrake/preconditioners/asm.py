@@ -122,7 +122,7 @@ class ASMStarPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh._topology_dm
+        mesh_dm = mesh.topology_dm
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
@@ -175,7 +175,7 @@ class ASMVankaPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh._topology_dm
+        mesh_dm = mesh.topology_dm
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
@@ -250,7 +250,7 @@ class ASMLinesmoothPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         assert mesh.cell_set._extruded
-        dm = mesh._topology_dm
+        dm = mesh.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")

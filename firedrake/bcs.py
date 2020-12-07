@@ -126,7 +126,7 @@ class BCBase(object):
         # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
         sub_d = [as_tuple(i) for i in sub_d]
 
-        ndim = self.function_space().mesh()._topology_dm.getDimension()
+        ndim = self.function_space().mesh().topology_dm.getDimension()
         sd = [[] for _ in range(ndim)]
         for i in sub_d:
             sd[ndim - len(i)].append(i)

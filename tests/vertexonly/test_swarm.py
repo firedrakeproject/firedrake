@@ -70,7 +70,7 @@ def test_pic_swarm_in_plex(parentmesh):
 
     parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
-    plex = parentmesh.topology._topology_dm
+    plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
     swarm = mesh._pic_swarm_in_plex(plex, inputpointcoords, fields=fields)
