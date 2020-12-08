@@ -79,7 +79,7 @@ def flatten_parameters(parameters, sep="_"):
     return new
 
 
-@functools.cache
+@functools.lru_cache
 def get_petsc_variables():
     """Get dict of PETSc environment variables from the file:
     $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables
