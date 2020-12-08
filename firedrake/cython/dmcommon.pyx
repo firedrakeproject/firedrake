@@ -1135,6 +1135,14 @@ def mark_entity_classes(PETSc.DM dm):
     CHKERR(DMGetLabel(dm.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &lbl_ghost))
 
+    # These labels are distribution dependent.
+    # We should be able to save/load labels selectively.
+    for p in range(pStart, pEnd):
+        CHKERR(DMLabelClearValue(lbl_core, p, 1))
+        CHKERR(DMLabelClearValue(lbl_owned, p, 1))
+        CHKERR(DMLabelClearValue(lbl_ghost, p, 1))
+    # print("dmcommon: We should be able to save/load labels selectively.")
+
     if dm.comm.size > 1:
         # Mark ghosts from point overlap SF
         point_sf = dm.getPointSF()
