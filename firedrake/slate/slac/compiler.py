@@ -172,7 +172,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopykernel = op2.Kernel(code,
                              loopy_merged.name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
-                             ldargs=BLASLAPACK_LIB).split()
+                             ldargs=BLASLAPACK_LIB.split())
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
