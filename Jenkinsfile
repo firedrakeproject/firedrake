@@ -40,7 +40,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager --package-branch petsc ksagiyam/plex_hdf5_tests || (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
