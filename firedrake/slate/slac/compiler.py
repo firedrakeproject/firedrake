@@ -18,16 +18,15 @@ from coffee import base as ast
 
 import time
 from hashlib import md5
-import os.path
 
 from firedrake_citations import Citations
-from firedrake_configuration import get_config
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
+from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
 from gem.utils import groupby
@@ -56,19 +55,24 @@ except ValueError:
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
+BLASLAPACK_LIB = None
+BLASLAPACK_INCLUDE = None
 if not complex_mode:
     if COMM_WORLD.rank == 0:
-        filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
-        with open(filepath) as file:
-            for line in file:
-                if line.find("EIGEN_INCLUDE") == 0:
-                    EIGEN_INCLUDE_DIR = line[18:].rstrip()
-                    break
+        petsc_variables = get_petsc_variables()
+        EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
         if EIGEN_INCLUDE_DIR is None:
             raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
         EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+
+        BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+        BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
+        BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
     else:
         EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -165,20 +169,10 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
-    blasdir = get_config()["options"].get("with_blas")
-    if blasdir == "download":
-        # PETSc OpenBLAS doesn't need `-llapack`
-        ldflags = []
-        include = []
-    elif blasdir:
-        # FIX ME: OpenBLAS doesn't need `-llapack`, but others might?
-        ldflags = [f"-Wl,-rpath,{blasdir}/lib", f"-L{blasdir}/lib"]
-        include = [f"{blasdir}/include"]
-    else:
-        # This case assumes we use the system (netlib) LAPACK
-        ldflags = ["-llapack"]
-        include = []
-    loopykernel = op2.Kernel(code, loopy_merged.name, include_dirs=include, ldargs=ldflags)
+    loopykernel = op2.Kernel(code,
+                             loopy_merged.name,
+                             include_dirs=BLASLAPACK_INCLUDE.split(),
+                             ldargs=BLASLAPACK_LIB).split()
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals

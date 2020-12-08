@@ -4,10 +4,12 @@ import sys
 petsc4py.init(sys.argv)
 from petsc4py import PETSc
 import itertools
+import functools
 from contextlib import contextmanager
+from pathlib import Path
 
 
-__all__ = ("PETSc", "OptionsManager")
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
 
 
 def flatten_parameters(parameters, sep="_"):
@@ -75,6 +77,24 @@ def flatten_parameters(parameters, sep="_"):
                     option, new[option], value)
         new[option] = value
     return new
+
+
+@functools.cache
+def get_petsc_variables():
+    """Get dict of PETSc environment variables from the file:
+    $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables
+
+    The result is memoized to avoid constantly reading the file.
+    """
+    config = petsc4py.get_config()
+    variables_path = Path(config["PETSC_DIR"])/config["PETSC_ARCH"]
+    variables_path /= "lib/petsc/conf/petscvariables"
+    with open(variables_path) as fh:
+        # Split lines on '=', assignment
+        splitlines = (line.split("=") for line in fh.readlines())
+        # Rejoin value on '=' in case variable itself contains assignments
+        variables = {k.strip(): "=".join(v).strip() for k, *v in splitlines}
+    return variables
 
 
 class OptionsManager(object):
