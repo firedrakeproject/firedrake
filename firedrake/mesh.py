@@ -1426,6 +1426,35 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if hasattr(self, '_callback'):
             self._callback(self)
 
+    def _init_topology(self, topology):
+        """Initialise the topology.
+
+        :arg topology: The :class:`.MeshTopology` object.
+
+        A mesh is fully initialised with its topology and coordinates.
+        In this method we partially initialise the mesh by registering
+        its topology. We also set the `_callback` attribute that is
+        later called to set its coordinates and finalise the initialisation.
+        """
+        import firedrake.functionspace as functionspace
+        import firedrake.function as function
+
+        self._topology = topology
+
+        def callback(self):
+            """Finish initialisation."""
+            del self._callback
+            # Finish the initialisation of mesh topology
+            self.topology.init()
+            coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
+            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+            coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                          val=coordinates_data,
+                                                          name="Coordinates")
+            self.__init__(coordinates)
+        self._callback = callback
+
     @property
     def topology(self):
         """The underlying mesh topology object."""
@@ -1740,7 +1769,6 @@ def make_mesh_from_coordinates(coordinates):
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
     assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
     # Build coordinate element
-    element = coordinates.ufl_element()
     cell = element.cell().reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
@@ -1804,7 +1832,6 @@ def Mesh(meshfile, **kwargs):
         knows its geometric and topological dimensions).
 
     """
-    import firedrake.functionspace as functionspace
     import firedrake.function as function
 
     if isinstance(meshfile, function.Function):
@@ -1866,27 +1893,7 @@ def Mesh(meshfile, **kwargs):
     element = ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
-    mesh._topology = topology
-
-    def callback(self):
-        """Finish initialisation."""
-        del self._callback
-        # Finish the initialisation of mesh topology
-        self.topology.init()
-
-        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                           dim=geometric_dim)
-
-        coordinates_data = dmcommon.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
-                                                     (self.num_vertices(), geometric_dim))
-
-        coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                      val=coordinates_data,
-                                                      name="Coordinates")
-
-        self.__init__(coordinates)
-
-    mesh._callback = callback
+    mesh._init_topology(topology)
     return mesh
 
 
