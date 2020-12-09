@@ -43,3 +43,7 @@ def test_io_mesh(outformat, heterogeneous, tmpdir):
             mesh.save(fname, outformat)
             PETSc.Sys.Print("End   cycle %d\n--------\n" % i, comm=comm)
         COMM_WORLD.Barrier()
+
+
+if __name__ == "__main__":
+    test_io_mesh(ViewerHDF5.Format.HDF5_PETSC, True, "./")
