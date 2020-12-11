@@ -35,6 +35,7 @@ from ufl.form import Form
 import hashlib
 
 from functools import singledispatch
+from contextlib import contextmanager
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
@@ -362,34 +363,6 @@ class TensorBase(object, metaclass=ABCMeta):
     def __hash__(self):
         """Generates a hash for the TensorBase object."""
         return self._hash_id
-
-def action(tensor, coefficient):
-    """Compute the action of a form on a Coefficient.
-
-    This works simply by replacing the last Argument
-    with a Coefficient on the same function space (element).
-    The form returned will thus have one Argument less
-    and one additional Coefficient at the end if no
-    Coefficient has been provided.
-    """
-
-    # Extract all arguments
-    arguments = tensor.arguments()
-
-    # parts = [arg.part() for arg in arguments]
-    # if set(parts) - {None}:
-    #     error("compute_form_action cannot handle parts.")
-
-    # Pick last argument (will be replaced)
-    u = arguments[-1]
-
-    fs = u.ufl_function_space()
-    if coefficient is None:
-        coefficient = AssembledVector(Coefficient(fs))
-    # elif coefficient.ufl_function_space() != fs:
-    #     debug("Computing action of form on a coefficient in a different function space.")
-
-    return replace(tensor, {u: coefficient._function})
 
 
 class AssembledVector(TensorBase):
@@ -1208,69 +1181,196 @@ for level, group in enumerate(precedences):
         tensor.prec = level
 
 
-# @singledispatch
-# def _replace(expr, self):
-#     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+@singledispatch
+def _action(expr, self):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
 
-# @_replace.register(Tensor)
-# def _replace_tensor(expr, self):
-#     import ufl
-#     t = Tensor(ufl.algorithms.replace(expr.form, self.mapping))
-#     return t
+@_action.register(Tensor)
+def _action_tensor(expr, self, state):
+    import ufl.algorithms as ufl_alg
 
-# @_replace.register(AssembledVector)
-# def _replace_vector(expr, self):
-#     return AssembledVector(*map(self, expr.children))
+    # Pick first or last argument (will be replaced)
+    arguments = expr.arguments()
+    u = arguments[state.pick_op]
+    coeff = state.coeff._function
 
-# @_replace.register(Block)
-# def _replace_block(expr, self):
-#     form = map(self, expr.form)
-#     return AssembledVector(form)
+    return Tensor(ufl_alg.replace(expr.form, {u: coeff}))
 
-# @_replace.register(Inverse)
-# def _replace_inverse(expr, self):
-#     return Inverse(*map(self, expr.children))
+@_action.register(AssembledVector)
+@_action.register(Block)
+def _action_block(expr, self, state):
+    raise AssertionError("You cannot push into this node.")
 
-# @_replace.register(Solve)
-# def _replace_solve(expr, self):
-#     return Solve(*map(self, expr.children))
+@_action.register(Inverse)
+def _action_inverse(expr, self, state):
+    raise AssertionError("You should not have inverse calls in matrix-free expression. Consider rewriting into a solve.")
 
-# @_replace.register(Transpose)
-# def _replace_transpose(expr, self):
-#     return Transpose(*map(self, expr.children))
+@_action.register(Solve)
+def _action_solve(expr, self, state):
+    """ Pushes an action through a multiplication.
+        We explot A.T*x = (x.T*A).T,
+        e.g.            (y_new*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
+        transforms to   (((A.inv*(B.T)).T*y_new.T).T.T    -> {[(4,4)*(4,3)].T*(4,1)}.T.T
+                        = (B*A.inv.T*y_new.T).T.T         -> {(3,4)*[(4,4)*(4,1)]}
+                        = B*A.T.solve(y_new.T)
+    """
+    assert expr.rank != 0, "You cannot do actions on 0 forms"
+    assert expr.rank != 1, "Action should not be pushed into a multiplication by vector"
 
-
-# @_replace.register(Negative)
-# def _replace_negative(expr, self):
-#     return Negative(*map(self, expr.children))
-
-# @_replace.register(Add)
-# def _replace_add(expr, self):
-#     return Add(*map(self, expr.children))
-
-# @_replace.register(Mul)
-# def _replace_mul(expr, self):
-#     expr._args = expr.arguments()[:-1] + (self.mapping[expr.arguments()[1]],)
-#     # arg1,arg2 = map(self, expr.children)
-#     return expr
-
-# @_replace.register(Factorization)
-# def _replace_factorization(expr, self):
-#     return Factorization(*map(self, expr.children), expr.decomposition)
-
-def replace(expr, mapping):
-    #FIXME Do I need change the arguments in all subexpressions? If yes can I use the Memoizer?
-    if isinstance(expr, Mul):
-        A = Mul(*expr.children)
-        A._args = expr.arguments()[:-1] + (mapping[expr.arguments()[-1]],)
-        return A
+    
+    # swap operands if we are currently premultiplying due to a former transpose
+    if state.pick_op == 0:
+        rhs = state.swap_op
+        state.swap_op = Transpose(expr.children[state.pick_op^1])
+        mat = Transpose(expr.children[state.pick_op])
+        return state.swap_op, Solve(mat, self(rhs, state), matfree=expr.is_matfree)
     else:
-        AT = Transpose(*expr.children)
-        A, = expr.operands
-        A._args = A.arguments()[:-1] + (mapping[A.arguments()[1]],)
-        return AT
+        rhs = expr.children[state.pick_op]
+        mat = expr.children[state.pick_op^1]
+        # always push into the right hand side of the solve
+        return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
 
-    # from gem.node import Memoizer
-    # mapper = Memoizer(_replace)
-    # mapper.mapping = mapping
-    # return mapper(expr)
+@_action.register(Transpose)
+def _action_transpose(expr, self, state):
+    """ Pushes an action through a multiplication.
+        Considers A.T*x = (x.T*A).T,
+        e.g. (C*A.solve(B.T)).T * y = ((y.T * (C*A.solve(B.T))).T
+
+        :arg expr: a Mul Slate node.
+        :arg self: MemoizerArg.
+        :arg state:  1: if we need to transpose this node, 0 will contain an operand
+                        which needs to be swapped through
+                    0: coefficient
+                    2: pick op
+        :returns: an action of this node on the coefficient.
+    """
+    if expr.rank == 2:
+        with pick_ops_mapper(state) as pom:
+            T = self(*expr.children, pom)
+        return Transpose(T)
+    else:
+        return expr
+
+
+@_action.register(Negative)
+def _action_negative(expr, self, state):
+    return Negative(*map(self, expr.children, state))
+
+@_action.register(Add)
+def _action_add(expr, self, state):
+    return Add(*map(self, expr.children, state))
+
+@_action.register(Mul)
+def _action_mul(expr, self, state):
+    """ Pushes an action through a multiplication.
+
+        EXAMPLE 1: (A*B*C)*y
+        –––––––––––––––––––––––––––––––––––––––––––––––––––––––
+                action(A*B*C,y)   ---->    A*B*action(C,y)       |-> A*B*new_coeff  ---->    action(A*B, new_coeff)
+            
+                    action1                     Mul2                                                action2
+                    /     \                   /      \                                              /      \ 
+                Mul2       y   ---->      Mul3        action1    |                  ---->       Mul3        new_coeff
+                /   \                    /    \       /    \     |->new_coeff                  /    \ 
+            Mul3    op3               op1      op2 op3      y    |                          op1       op2
+            /   \
+        op1      op2
+        
+        EXAMPLE 2: TensorOp(op1, op2)*y
+        –––––––––––––––––––––––––––––––––––––––––––––––––––––––
+                action                           TensorOp
+                /     \                         /        \
+             y.T       TensorOp        ---->  action       op2
+                       /       \              /   \
+                    op1          op2         y.T   op1
+
+        EXAMPLE 3: C is (3,4) A is (4,4), B is (3,4), x is (3,1) FIXME!
+        ––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+                (y.T * (C*A.solve(B.T)).T                               ->{(1,3)*[(3,4)*(4,4)*(4,3)]}.T
+        -->     ((y.T*C)*A.solve(B.T)).T =(y_new*(A.inv*(B.T))).T       ->{(1,4)*[((4,4)*(4,3)]}.T
+        -->     (((A.inv*(B.T)).T*y_new.T).T.T                          ->{[(4,4)*(4,3)].T*(4,1)}.T.T
+        -->     (B*A.inv.T*(y_new.T)).T.T = B*A.T.solve(y_new.T).T.T    -> (3,4)*[(4,4)*(4,1)]
+
+    :arg expr: a Mul Slate node.
+    :arg self: MemoizerArg.
+    :arg state:  1: if we need to transpose this node, 0 will contain an operand
+                    which needs to be swapped through
+                 0: coefficient
+                 2: pick op
+    :returns: an action of this node on the coefficient.
+    """
+    assert expr.rank != 0, "You cannot do actions on 0 forms"
+    assert expr.rank != 1, "Action should not be pushed into a multiplication by vector"
+    if expr.rank == 2:
+            other_child = expr.children[state.pick_op^1]
+            prio_child = expr.children[state.pick_op]
+            if isinstance(prio_child, Solve) and state.pick_op == 0:
+                state.swap_op = other_child
+            pushed_prio_child = self(prio_child, state)
+
+            # Assemble new coefficient
+            # FIXME: this is a temporary solutions we jump out of local assembly
+            # into global assembly and back to local assembly here.
+            # We need to stack tsfc calls instead.
+            from firedrake import assemble
+
+            # Then action the leftover operator onto the thing where the action got pushed into
+            # solve needs special case because we need to swap args if we premultiply with a vec
+            if isinstance(other_child, Solve) and state.pick_op == 0 and other_child.rank == 2:
+                #FIXME I think I transpose one too many
+                state.swap_op = Transpose(pushed_prio_child)
+                swapped_op, pushed_other_child = self(other_child, state)
+                state.coeff = AssembledVector(assemble(pushed_other_child))
+                state.swap_op = None
+                return Transpose(self(swapped_op, state))
+            else:
+                state.coeff = AssembledVector(assemble(pushed_prio_child))
+                return self(other_child, state)
+
+@_action.register(Factorization)
+def _action_factorization(expr, self, state):
+    return Factorization(*map(self, expr.children, state))
+
+def action(tensor, coeff):
+    """Compute the action of a form on a Coefficient.
+
+    This works simply by replacing the last Argument
+    with a Coefficient on the same function space (element).
+    The form returned will thus have one Argument less
+    and one additional Coefficient at the end if no
+    Coefficient has been provided.
+    """
+
+    from gem.node import MemoizerArg
+    mapper = MemoizerArg(_action)
+    a = mapper(tensor, ActionBag(coeff, None, 1))
+    return a
+
+class ActionBag(object):
+    def __init__(self, coeff, swap_op, pick_op):
+        # what we contract with
+        self.coeff = coeff
+        # for dealing with solves which get premultiplied by a vector
+        self.swap_op = swap_op
+        # decides which argument in Tensor is exchanged against the coefficient
+        # and in which op the action has to be pushed
+        self.pick_op = pick_op 
+    
+    def copy(self):
+        return ActionBag(self.coeff, self.swap_op, self.pick_op)
+
+
+@contextmanager
+def pick_ops_mapper(state):
+    """Picks operands in the nodes a step down.
+   :arg state: current state.
+   :arg mapper: code generation context.
+   :returns: new code generation context."""
+    new_state = state.copy()
+    new_state.pick_op = new_state.pick_op^1
+    yield new_state
+
+    state.pick_op = state.pick_op^1
+    yield state
+    state.pick_op = state.pick_op^1
