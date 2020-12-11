@@ -112,7 +112,6 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-
 if sys.version_info < (3, 6):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
