@@ -3325,8 +3325,8 @@ class Kernel(Cached):
             code = code.gencode()
         if isinstance(code, loopy.LoopKernel):
             from loopy.tools import LoopyKeyBuilder
-            from pytools.persistent_dict import new_hash
-            key_hash = new_hash()
+            from hashlib import sha256
+            key_hash = sha256()
             code.update_persistent_hash(key_hash, LoopyKeyBuilder())
             code = key_hash.hexdigest()
         hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs)
