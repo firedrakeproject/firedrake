@@ -1256,12 +1256,9 @@ def _action_transpose(expr, self, state):
 
 
 @_action.register(Negative)
-def _action_negative(expr, self, state):
-    return Negative(*map(self, expr.children, state))
-
 @_action.register(Add)
-def _action_add(expr, self, state):
-    return Add(*map(self, expr.children, state))
+def _action_negative(expr, self, state):
+    return type(expr)(*map(self, expr.children, state))
 
 @_action.register(Mul)
 def _action_mul(expr, self, state):
