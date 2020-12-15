@@ -83,7 +83,6 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values(self.values() + other.values())
 
     def _ad_dot(self, other, options=None):
-        from firedrake_adjoint import AdjFloat
         if type(other) is AdjFloat:
             return sum(self.values() * other)
         else:
