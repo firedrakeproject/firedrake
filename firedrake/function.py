@@ -270,6 +270,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
+    @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
         r"""Return a copy of this Function.
 
