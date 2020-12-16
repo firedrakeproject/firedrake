@@ -1,4 +1,5 @@
 # Utility module that imports and initialises petsc4py
+import os
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
@@ -6,7 +7,6 @@ from petsc4py import PETSc
 import itertools
 import functools
 from contextlib import contextmanager
-from pathlib import Path
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
@@ -87,8 +87,8 @@ def get_petsc_variables():
     The result is memoized to avoid constantly reading the file.
     """
     config = petsc4py.get_config()
-    variables_path = Path(config["PETSC_DIR"])/config["PETSC_ARCH"]
-    variables_path /= "lib/petsc/conf/petscvariables"
+    path = [config["PETSC_DIR"], config["PETSC_ARCH"], "lib/petsc/conf/petscvariables"]
+    variables_path = os.path.join(*path)
     with open(variables_path) as fh:
         # Split lines on '=', assignment
         splitlines = (line.split("=") for line in fh.readlines())
