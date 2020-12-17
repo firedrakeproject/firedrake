@@ -262,3 +262,6 @@ intersphinx_mapping = {
     'matplotlib': ('https://matplotlib.org/', None),
     'python':('https://docs.python.org/3/', None),
 }
+
+#  -- Options for sphinxcontrib.bibtex ------------------------------------
+bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib']
