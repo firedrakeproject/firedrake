@@ -10,7 +10,7 @@ Firedrake offers various ways to interpolate expressions onto fields
 initial conditions and/or boundary conditions. The basic syntax for
 interpolation is:
 
-.. code-block:: python
+.. code-block:: python3
 
    # create new function f on function space V
    f = interpolate(expression, V)
@@ -46,7 +46,7 @@ including:
 
 Here is an example demonstrating some of these features:
 
-.. code-block:: python
+.. code-block:: python3
 
    # g is a vector-valued Function, e.g. on an H(div) function space
    f = interpolate(sqrt(3.2 * div(g)), V)
@@ -54,7 +54,7 @@ Here is an example demonstrating some of these features:
 This also works as expected when interpolating into a a space defined on the facets
 of the mesh:
 
-.. code-block:: python
+.. code-block:: python3
 
    # where trace is a trace space on the current mesh:
    f = interpolate(expression, trace)
@@ -68,20 +68,20 @@ objects which provide caching of the interpolation operation. The
 following line creates an interpolator which will interpolate the
 current value of `expression` into the space `V`:
 
-.. code-block:: python
+.. code-block:: python3
 
    interpolator = Interpolator(expression, V)
 
 If `expression` does not contain a :py:func:`~ufl.TestFunction` then
 the interpolation can be performed with:
 
-.. code-block:: python
+.. code-block:: python3
 
    f = interpolator.interpolate()
 
 Alternatively, one can use the interpolator to set the value of an existing :py:class:`~.Function`:
 
-.. code-block:: python
+.. code-block:: python3
 
    f = Function(V)
    interpolator.interpolate(output=f)
@@ -90,7 +90,7 @@ If `expression` does not contain a :py:func:`~ufl.TestFunction` then
 the interpolator acts to interpolate :py:class:`~.Function`\s in the
 test space to those in the target space. For example:
 
-.. code-block:: python
+.. code-block:: python3
 
    w = TestFunction(W)
    interpolator = Interpolator(w, V)
@@ -128,7 +128,7 @@ the external data source, but the precise details are not relevant
 now.  In this case, interpolation into a target function space ``V``
 proceeds as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
    # First, grab the mesh.
    m = V.ufl_domain()
@@ -161,7 +161,7 @@ C string expressions
 
 Here are a couple of old-style C string expressions, and their modern replacements.
 
-.. code-block:: python
+.. code-block:: python3
 
    # Expression:
    f = interpolate(Expression("sin(x[0]*pi)"), V)
@@ -189,7 +189,7 @@ Python expression classes
 One can subclass :py:class:`~.Expression` and define a Python method
 ``eval`` on the subclass.  An example usage:
 
-.. code-block:: python
+.. code-block:: python3
 
    class MyExpression(Expression):
        def eval(self, value, x):
@@ -209,7 +209,7 @@ Since Python :py:class:`~.Expression` classes expressions are
 deprecated, below are a few examples on how to replace them with UFL
 expressions:
 
-.. code-block:: python
+.. code-block:: python3
 
    # Python expression:
    class MyExpression(Expression):
@@ -241,7 +241,7 @@ All distribution methods defined in `randomgen <https://pypi.org/project/randomg
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
 to generate a randomised :class:`.Function`.
 
-.. code-block:: python
+.. code-block:: python3
 
     mesh = UnitSquareMesh(2,2)
     V = FunctionSpace(mesh, "CG", 1)

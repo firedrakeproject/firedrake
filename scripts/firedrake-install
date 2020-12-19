@@ -15,11 +15,14 @@ import pprint
 import shlex
 from glob import iglob
 from itertools import chain
+import re
 
 osname = platform.uname()[0]
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
+# Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
+parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -115,7 +118,12 @@ log = logging.getLogger()
 log.info("Running %s" % " ".join(sys.argv))
 
 
-if sys.version_info < (3, 6):
+if sys.version_info >= (3, 9):
+    print("""\nCan not install Firedrake with Python 3.9 at the moment:
+wheels are not yet available for Python 3.9 for the required package(s).
+Please install with Python 3.8 (or with earlier versions).""")
+    sys.exit(1)
+elif sys.version_info < (3, 6):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
 You should run firedrake-install with python3.""")
@@ -473,9 +481,9 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
     config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
 
 # venv install
-python = ["%s/bin/python" % firedrake_env]
+python = "%s/bin/python" % firedrake_env
 # Use the pip from the venv
-pip = python + ["-m", "pip"]
+pip = [python, "-m", "pip"]
 pipinstall = pip + ["install",
                     "--no-build-isolation",
                     "--no-binary", ",".join(wheel_blacklist)]
@@ -495,7 +503,7 @@ class pipargs(object):
         pipinstall = self.save
 
 
-pyinstall = python + ["setup.py", "install"]
+pyinstall = [python, "setup.py", "install"]
 
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
@@ -763,20 +771,34 @@ def run_cmd(args):
     check_call(args)
 
 
-def pip_requirements(package):
+def get_requirements(reqfname):
+    with open(reqfname, "r") as f:
+        reqs = f.readlines()
+    return [req.strip() for req in reqs]
+
+
+def run_pip_install_wrap(reqs, parallel_compiler_env):
+    for req in reqs:
+        if re.split('<|>|=', req)[0] in parallel_packages:
+            with environment(**parallel_compiler_env):
+                run_pip_install([req])
+        else:
+            run_pip_install([req])
+
+
+def pip_requirements(package, parallel_compiler_env):
     log.info("Installing pip dependencies for %s" % package)
     if os.path.isfile("%s/requirements-ext.txt" % package):
-        run_pip_install(["-r", "%s/requirements-ext.txt" % package])
+        reqs = get_requirements("%s/requirements-ext.txt" % package)
+        run_pip_install_wrap(reqs, parallel_compiler_env)
     elif os.path.isfile("%s/requirements.txt" % package):
         if package == "COFFEE":
             # FIXME: Horrible hack to work around
             # https://github.com/coin-or/pulp/issues/123
             run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
         elif package == "pyadjoint":
-            with open("%s/requirements.txt" % package, "r") as f:
-                reqs = f.readlines()
+            reqs = get_requirements("%s/requirements.txt" % package)
             for req in reqs:
-                req = req.strip()
                 try:
                     run_pip_install([req])
                 except subprocess.CalledProcessError as e:
@@ -788,7 +810,8 @@ def pip_requirements(package):
             # loopy dependencies are installed in setup.py
             return
         else:
-            run_pip_install(["-r", "%s/requirements.txt" % package])
+            reqs = get_requirements("%s/requirements.txt" % package)
+            run_pip_install_wrap(reqs, parallel_compiler_env)
     else:
         log.info("No dependencies found. Skipping.")
 
@@ -818,7 +841,7 @@ def clean(package):
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
-            check_call(["python", "setup.py", "clean"])
+            check_call([python, "setup.py", "clean"])
 
 
 def pip_uninstall(package):
@@ -911,7 +934,7 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call(["python3", "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
@@ -1043,7 +1066,7 @@ def build_and_install_pythonocc():
             with directory("build"):
                 check_call(["cmake", "..",
                             "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                            "-DPYTHON_EXECUTABLE=" + python[0],
+                            "-DPYTHON_EXECUTABLE=" + python,
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
                             "-DMPI_Fortran_COMPILER=" + f90,
@@ -1108,7 +1131,7 @@ def build_and_install_slepc():
                 with environment(PETSC_DIR=petsc_dir,
                                  SLEPC_DIR=slepc_dir,
                                  PETSC_ARCH=petsc_arch):
-                    check_call(["python3", "./configure"])
+                    check_call([python, "./configure"])
                     check_call(["make", "all"])
                     check_call(["make", "check"])
         else:
@@ -1408,7 +1431,7 @@ if mode == "install":
         import urllib.request
         log.debug("ensurepip unavailable, bootstrapping pip using get-pip.py")
         urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", filename="get-pip.py")
-        check_call(python + ["get-pip.py"])
+        check_call([python, "get-pip.py"])
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
@@ -1520,31 +1543,36 @@ if mode == "install":
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
-    with environment(**compiler_env):
-        for p in packages:
-            pip_requirements(p)
+    for p in packages:
+        pip_requirements(p, compiler_env)
 
+    with environment(**compiler_env):
         build_and_install_h5py()
-        build_and_install_libspatialindex()
         build_and_install_libsupermesh()
 
-        if "loopy" in packages:
-            # We do want to install loopy's dependencies.
-            install("loopy/")
-            packages.remove("loopy")
+    build_and_install_libspatialindex()
 
-        with pipargs("--no-deps"):
-            for p in packages:
+    if "loopy" in packages:
+        # We do want to install loopy's dependencies.
+        install("loopy/")
+        packages.remove("loopy")
+
+    with pipargs("--no-deps"):
+        for p in packages:
+            if p in parallel_packages:
+                with environment(**compiler_env):
+                    install(p+"/")
+            else:
                 install(p+"/")
-                sys.path.append(os.getcwd() + "/" + p)
+            sys.path.append(os.getcwd() + "/" + p)
 
-        # Work around easy-install.pth bug.
-        try:
-            packages.remove("petsc")
-        except ValueError:
-            pass
-        packages.remove("petsc4py")
-        packages.remove("firedrake")
+    # Work around easy-install.pth bug.
+    try:
+        packages.remove("petsc")
+    except ValueError:
+        pass
+    packages.remove("petsc4py")
+    packages.remove("firedrake")
 
 else:
     # Update mode
@@ -1616,26 +1644,28 @@ else:
             f90 = os.path.join(compilerbin, "mpif90")
             compiler_env = create_compiler_env(cc, cxx, f90)
 
-    with environment(**compiler_env):
-        # update dependencies.
-        for p in packages:
-            pip_requirements(p)
+    # update dependencies.
+    for p in packages:
+        pip_requirements(p, compiler_env)
 
-        with pipargs("--no-deps"):
-            if args.rebuild or petsc_changed or petsc4py_changed:
-                clean("petsc4py/")
+    with pipargs("--no-deps"):
+        if args.rebuild or petsc_changed or petsc4py_changed:
+            clean("petsc4py/")
+            with environment(**compiler_env):
                 install("petsc4py/")
 
-            # Always rebuild h5py.
+        # Always rebuild h5py.
+        with environment(**compiler_env):
             build_and_install_h5py()
-            build_and_install_libspatialindex()
             build_and_install_libsupermesh()
+        build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
         clean("loopy")
         install("loopy/")
         packages.remove("loopy")
+
     with pipargs("--no-deps"):
         try:
             packages.remove("PyOP2")
@@ -1645,7 +1675,11 @@ else:
         packages += ("PyOP2", "firedrake")
         for p in packages:
             clean(p)
-            install(p+"/")
+            if p in parallel_packages:
+                with environment(**compiler_env):
+                    install(p+"/")
+            else:
+                install(p+"/")
 
         # Ensure pytest is at the latest version
         run_pip(["install", "-U", "pytest"])
@@ -1655,14 +1689,15 @@ with environment(**compiler_env):
         if options["slepc"]:
             build_and_install_slepc()
 
-        if options["opencascade"]:
-            build_and_install_pythonocc()
+    if options["tinyasm"]:
+        build_and_install_tinyasm()
 
-        if options["tinyasm"]:
-            build_and_install_tinyasm()
+with pipargs("--no-deps"):
+    if options["opencascade"]:
+        build_and_install_pythonocc()
 
-    if args.documentation_dependencies:
-        install_documentation_dependencies()
+if args.documentation_dependencies:
+    install_documentation_dependencies()
 
 if mode == "update":
     try:

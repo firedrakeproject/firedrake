@@ -126,7 +126,7 @@ class BCBase(object):
         # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
         sub_d = [as_tuple(i) for i in sub_d]
 
-        ndim = self.function_space().mesh()._topology_dm.getDimension()
+        ndim = self.function_space().mesh().topology_dm.getDimension()
         sd = [[] for _ in range(ndim)]
         for i in sub_d:
             sd[ndim - len(i)].append(i)
@@ -146,20 +146,19 @@ class BCBase(object):
             else:
                 return bcnodes
 
-        sub_d = self.sub_domain
-        if isinstance(sub_d, str):
-            return hermite_stride(self._function_space.boundary_nodes(sub_d, self.method))
-        else:
-            sub_d = as_tuple(sub_d)
-            sub_d = [as_tuple(s) for s in sub_d]
-            bcnodes = []
-            for s in sub_d:
+        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
+        bcnodes = []
+        for s in sub_d:
+            if isinstance(s, str):
+                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s, self.method)))
+            else:
                 # s is of one of the following formats:
                 # facet: (i, )
                 # edge: (i, j)
                 # vertex: (i, j, k)
-
                 # take intersection of facet nodes, and add it to bcnodes
+                # i, j, k can also be strings.
                 bcnodes1 = []
                 if len(s) > 1 and not isinstance(self._function_space.finat_element, finat.Lagrange):
                     raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
@@ -170,7 +169,7 @@ class BCBase(object):
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss, self.method)))
                 bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-            return np.concatenate(tuple(bcnodes))
+        return np.concatenate(bcnodes)
 
     @utils.cached_property
     def node_set(self):

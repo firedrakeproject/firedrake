@@ -358,3 +358,22 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1])
     else:
         assert np.allclose(bc.nodes, [1, 2])
+
+
+def test_bcs_string_bc_list():
+    N = 10
+    base = SquareMesh(N, N, 1, quadrilateral=True)
+    baseh = MeshHierarchy(base, 1)
+    mh = ExtrudedMeshHierarchy(baseh, height=2, base_layer=N)
+    mesh = mh[-1]
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u0 = Function(V)
+    DirichletBC(V, Constant(1), ["on_boundary", "top", "bottom"]).apply(u0)
+
+    u1 = Function(V)
+    DirichletBC(V, Constant(1), "on_boundary").apply(u1)
+    DirichletBC(V, Constant(1), "top").apply(u1)
+    DirichletBC(V, Constant(1), "bottom").apply(u1)
+
+    assert np.allclose(u0.dat.data, u1.dat.data)
