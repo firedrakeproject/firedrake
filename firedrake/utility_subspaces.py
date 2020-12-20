@@ -191,8 +191,13 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         u = firedrake.TrialFunction(V)
 
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        v1 = firedrake.Projected(v, ScalarSubspace(V, g1))
-        u1 = firedrake.Projected(u, ScalarSubspace(V, g1))
+        ss0 = ScalarSubspace(V, g1)
+        ss1 = ScalarSubspace(V, g1)
+        v1 = firedrake.Projected(v, ss0)
+        u1 = firedrake.Projected(u, ss1)
+        #subs = ScalarSubspace(V, g1)
+        #v1 = firedrake.Projected(v, subs)
+        #u1 = firedrake.Projected(u, subs)
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [0.5, ], [1, ]]), [0.25, 0.50, 0.25])
 
         normal = FacetNormal(V.mesh())

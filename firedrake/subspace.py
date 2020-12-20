@@ -7,7 +7,7 @@ from ufl.algorithms.traversal import iter_expressions
 from firedrake import functionspaceimpl, utils
 from firedrake.function import Function, CoordinatelessFunction
 
-from pyop2.datatypes import ScalarType
+from pyop2.datatypes import RealType, ScalarType
 
 import gem
 from gem.node import MemoizerArg
@@ -47,6 +47,9 @@ class Subspace(object):
         self.parent = None
         self.index = None
         self._repr = "Subspace(%s, %s)" % (repr(self._function_space), repr(self._count))
+
+    def count(self):
+        return self._count
 
     def function_space(self):
         return self._function_space
@@ -195,7 +198,9 @@ class RotatedSubspace(Subspace):
                 for _, dofs in entity_dofs[dim].items():
                     if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
                         continue
-                    ind = np.zeros(shape, dtype=dtype)
+                    # Avoid pytools/persistent_dict.py TypeError: unsupported type for persistent hash keying: <class 'complex'>
+                    #ind = np.zeros(shape, dtype=dtype)
+                    ind = np.zeros(shape, dtype=RealType)
                     for dof in dofs:
                         for ndind in np.ndindex(shape[1:]):
                             ind[(dof, ) + ndind] = 1.

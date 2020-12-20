@@ -181,6 +181,7 @@ def test_subspace_rotated_subspace_stokes():
     #plot_velocity("test_subspace_rotated_subspace_stokes.pdf", uplot, theta, [-5, 27], None, [0, 1.], 20.)
 
 
+#@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_swe():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
@@ -252,8 +253,8 @@ def test_subspace_rotated_subspace_swe():
     t = 0
     while t < 10:
         uplot, hplot = uh.split()
-        plot_velocity('swe_velocity_%05.2f.pdf' % t, uplot, theta, [0, 30], [0, 15], [0,1], 0.02, t)
-        plot_surface(hplot, 'swe_surface_%05.2f.pdf' % t, t)
+        #plot_velocity('swe_velocity_%05.2f.pdf' % t, uplot, theta, [0, 30], [0, 15], [0,1], 0.02, t)
+        #plot_surface(hplot, 'swe_surface_%05.2f.pdf' % t, t)
 
         uh_.assign(uh)
         solve(F == 0, uh, bcs=bcs, solver_parameters={"ksp_type": "gmres"})
@@ -320,3 +321,4 @@ def plot_surface(hplot, name, t=None):
     cbar.ax.tick_params(labelsize=20)
     plt.savefig(name)
     plt.close(fig)
+
