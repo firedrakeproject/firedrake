@@ -5,7 +5,7 @@ import cython
 import numpy as np
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
@@ -241,8 +241,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse
         np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
-    cdm = mc._topology_dm
-    fdm = mf._topology_dm
+    cdm = mc.topology_dm
+    fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = 2 ** dim
     ncoarse = mc.cell_set.size

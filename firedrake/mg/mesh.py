@@ -2,6 +2,8 @@ import numpy as np
 from fractions import Fraction
 from collections import defaultdict
 
+from pyop2.datatypes import IntType
+
 import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
@@ -9,7 +11,8 @@ from firedrake.cython.dmcommon import CELL_SETS_LABEL, FACE_SETS_LABEL
 from .utils import set_level
 
 
-__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy")
+__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
+           "SemiCoarsenedExtrudedHierarchy")
 
 
 class HierarchyBase(object):
@@ -93,7 +96,7 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
-    cdm = mesh._topology_dm
+    cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
     dms = []
     if mesh.comm.size > 1 and mesh._grown_halos:
@@ -156,10 +159,10 @@ def MeshHierarchy(mesh, refinement_levels,
 
     lgmaps = []
     for i, m in enumerate(meshes):
-        no = impl.create_lgmap(m._topology_dm)
+        no = impl.create_lgmap(m.topology_dm)
         m.init()
-        o = impl.create_lgmap(m._topology_dm)
-        m._topology_dm.setRefineLevel(i)
+        o = impl.create_lgmap(m.topology_dm)
+        m.topology_dm.setRefineLevel(i)
         lgmaps.append((no, o))
 
     coarse_to_fine_cells = []
@@ -228,6 +231,68 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
                          base_hierarchy.fine_to_coarse_cells,
                          refinements_per_level=base_hierarchy.refinements_per_level,
                          nested=base_hierarchy.nested)
+
+
+def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, refinement_ratio=2, layers=None,
+                                   kernel=None, extrusion_type='uniform', gdim=None,
+                                   mesh_builder=firedrake.ExtrudedMesh):
+    """Build a hierarchy of extruded meshes with refinement only in the extruded dimension.
+
+    :arg base_mesh: the unextruded base mesh to extrude.
+    :arg nref: Number of refinements.
+    :arg height: the height of the domain to extrude to. This is in contrast
+       to the extrusion routines, which take in layer_height, the height of
+       an individual layer. This is because when refining in the extruded
+       dimension, the height of an individual layer will vary.
+    :arg base_layer: the number of layers to use the extrusion of the coarsest
+       grid.
+    :arg refinement_ratio: the ratio by which base_layer should be increased
+       on every refinement. refinement_ratio = 2 means standard uniform
+       refinement. refinement_ratio = 1 means to not refine in the extruded
+       dimension, i.e. the multigrid hierarchy will use semicoarsening.
+    :arg layers: as an alternative to specifying base_layer and refinement_ratio,
+       one may specify directly the number of layers to be used by each level
+       in the extruded hierarchy. This option cannot be combined with base_layer
+       and refinement_ratio. Note that the ratio of successive entries in this
+       iterable must be an integer for the multigrid transfer operators to work.
+    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+       extruded mesh. Used by pyadjoint.
+
+    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+
+    See also :func:`~.ExtrudedMeshHierarchy` if you want to extruded a
+    hierarchy of unstructured meshes.
+    """
+    if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
+        raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
+    base_mesh.init()
+    if base_mesh.cell_set._extruded:
+        raise ValueError("Base mesh must not be extruded")
+    if layers is None:
+        if base_layer == -1:
+            raise ValueError("Must specify number of layers for coarsest grid with base_layer=N")
+        layers = [base_layer * refinement_ratio**idx for idx in range(nref+1)]
+    else:
+        if base_layer != -1:
+            raise ValueError("Can't specify both layers and base_layer")
+        if len(layers) == nref+1:
+            raise ValueError("Need to provide a number of layers for every refined mesh. "
+                             f"Got {len(layers)}, needed {nref+1}")
+
+    meshes = [mesh_builder(base_mesh, layer, kernel=kernel,
+                           layer_height=height/layer,
+                           extrusion_type=extrusion_type,
+                           gdim=gdim)
+              for layer in layers]
+    refinements_per_level = 1
+    identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)
+    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), identity)
+                                for i in range(nref))
+    fine_to_coarse_cells = dict((Fraction(i+1, refinements_per_level), identity)
+                                for i in range(nref))
+    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                         refinements_per_level=refinements_per_level,
+                         nested=True)
 
 
 def NonNestedHierarchy(*meshes):

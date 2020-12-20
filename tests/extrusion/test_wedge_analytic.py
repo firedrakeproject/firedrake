@@ -15,7 +15,7 @@ def u_v():
 def test_analytic_laplacian(u_v):
     u, v = u_v
 
-    a = dot(grad(u), grad(v))*dx
+    a = inner(grad(u), grad(v))*dx
 
     vals = assemble(a).M.values
 
@@ -49,7 +49,7 @@ def test_analytic_laplacian(u_v):
 def test_analytic_mass(u_v):
     u, v = u_v
 
-    a = u*v*dx
+    a = inner(u, v)*dx
 
     vals = assemble(a).M.values
 

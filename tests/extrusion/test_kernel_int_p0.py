@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+from firedrake.utils import RealType
 
 
 def integrate_p0(family, degree):
@@ -23,9 +24,9 @@ def integrate_p0(family, degree):
 
     domain = ""
     instructions = """
-    <float64> area = x[0,0]*(x[2,1]-x[4,1]) + x[2,0]*(x[4,1]-x[0,1]) + x[4,0]*(x[0,1]-x[2,1])
-    A[0] = A[0] + 0.5*abs(area)*(x[1,2]-x[0,2])*y[0,0]
-    """
+    <{0}> area = real(x[0,0])*(real(x[2,1])-real(x[4,1])) + real(x[2,0])*(real(x[4,1])-real(x[0,1])) + real(x[4,0])*(real(x[0,1])-real(x[2,1]))
+    A[0] = A[0] + 0.5*abs(area)*(real(x[1,2])-real(x[0,2]))*real(y[0,0])
+    """.format(RealType)
 
     par_loop((domain, instructions), dx, {"A": (g, INC), "x": (coords, READ), "y": (f, READ)},
              is_loopy_kernel=True)

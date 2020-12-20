@@ -25,8 +25,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         exact = project(expr, exactfspace)
 
         out = Function(fspace)
-        solve(u*v*dx == exact*v*dx, out)
-        l2err[ii] = sqrt(assemble((out-exact)*(out-exact)*dx))
+        solve(inner(u, v)*dx == inner(exact, v)*dx, out)
+        l2err[ii] = sqrt(assemble(inner((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
 
 
@@ -70,8 +70,8 @@ def test_hdiv_convergence(extmesh, testcase, convrate):
         exact.interpolate(expr)
 
         out = Function(fspace)
-        solve(dot(u, v)*dx == dot(exact, v)*dx, out)
-        l2err[ii] = sqrt(assemble(dot((out-exact), (out-exact))*dx))
+        solve(inner(u, v)*dx == inner(exact, v)*dx, out)
+        l2err[ii] = sqrt(assemble(inner((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
 
 
@@ -112,6 +112,6 @@ def test_hcurl_convergence(extmesh, testcase, convrate):
         exact.interpolate(expr)
 
         out = Function(fspace)
-        solve(dot(u, v)*dx == dot(exact, v)*dx, out)
-        l2err[ii] = sqrt(assemble(dot((out-exact), (out-exact))*dx))
+        solve(inner(u, v)*dx == inner(exact, v)*dx, out)
+        l2err[ii] = sqrt(assemble(inner((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()

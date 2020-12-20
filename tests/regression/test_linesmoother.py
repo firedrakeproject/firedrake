@@ -1,5 +1,10 @@
 import pytest
 from firedrake import *
+try:
+    import tinyasm  # noqa: F401
+    marks = ()
+except ImportError:
+    marks = pytest.mark.skip(reason="No tinyasm")
 
 
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
@@ -38,8 +43,13 @@ def expected(mesh_type):
         return [9, 20]
 
 
-def test_linesmoother(mesh, S1family, expected):
+@pytest.fixture(params=["petscasm", pytest.param("tinyasm", marks=marks)])
+def backend(request):
+    return request.param
 
+
+@pytest.mark.skipcomplexnoslate
+def test_linesmoother(mesh, S1family, expected, backend):
     nits = []
     for degree in range(2):
         S1 = FiniteElement(S1family, mesh._base_mesh.ufl_cell(), degree+1)
@@ -91,6 +101,7 @@ def test_linesmoother(mesh, S1family, expected):
               'sub_0': {'sub_pc_type': 'jacobi'},
               'sub_1': {'pc_type': 'python',
                         'pc_python_type': 'firedrake.ASMLinesmoothPC',
+                        'pc_linesmooth_backend': backend,
                         'pc_linesmooth_codims': '0'}}
 
         wave_parameters['hybridization'].update(ls)

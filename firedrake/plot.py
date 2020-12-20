@@ -19,9 +19,20 @@ __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor
            "quiver", "streamplot"]
 
 
+def toreal(array, component):
+    if array.dtype.kind == "c":
+        assert component in {"real", "imag"}
+        return getattr(array, component)
+    else:
+        assert component == "real"
+        return array
+
+
 def _autoscale_view(axes, coords):
     axes.autoscale_view()
 
+    if coords is not None:
+        coords = toreal(coords, "real")
     # Dirty hack; autoscale_view doesn't appear to work for 3D plots.
     if isinstance(axes, mpl_toolkits.mplot3d.Axes3D):
         setters = ["set_xlim", "set_ylim", "set_zlim"]
@@ -91,7 +102,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = interpolate(coordinates, V)
 
-    coords = coordinates.dat.data_ro
+    coords = toreal(coordinates.dat.data_ro, "real")
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
@@ -154,7 +165,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     return result
 
 
-def _plot_2d_field(method_name, function, *args, **kwargs):
+def _plot_2d_field(method_name, function, *args, complex_component="real", **kwargs):
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -167,59 +178,69 @@ def _plot_2d_field(method_name, function, *args, **kwargs):
         function = interpolate(sqrt(inner(function, function)), Q)
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
 
+    coords = toreal(coords, "real")
     x, y = coords[:, 0], coords[:, 1]
     triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
 
     method = getattr(axes, method_name)
-    return method(triangulation, vals, *args, **kwargs)
+    return method(triangulation, toreal(vals, complex_component), *args, **kwargs)
 
 
-def tricontourf(function, *args, **kwargs):
+def tricontourf(function, *args, complex_component="real", **kwargs):
     r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
-    return _plot_2d_field("tricontourf", function, *args, **kwargs)
+    return _plot_2d_field("tricontourf", function, *args, complex_component=complex_component, **kwargs)
 
 
-def tricontour(function, *args, **kwargs):
+def tricontour(function, *args, complex_component="real", **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`ContourSet <matplotlib.contour.ContourSet>` object
     """
-    return _plot_2d_field("tricontour", function, *args, **kwargs)
+    return _plot_2d_field("tricontour", function, *args, complex_component=complex_component, **kwargs)
 
 
-def tripcolor(function, *args, **kwargs):
+def tripcolor(function, *args, complex_component="real", **kwargs):
     r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the function to plot
     :arg args: same as for matplotlib :func:`tripcolor <matplotlib.pyplot.tripcolor>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    return _plot_2d_field("tripcolor", function, *args, **kwargs)
+    element = function.ufl_element()
+    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
+    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
+    return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
-def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs):
+def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax=None, norm=None, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
-    coords, vals, triangles = _two_dimension_triangle_func_val(function,
-                                                               num_sample_points)
+    coords, vals, triangles = _two_dimension_triangle_func_val(function, num_sample_points)
+    coords = toreal(coords, "real")
+    vals = toreal(vals, complex_component)
     vertices = coords[triangles]
     collection = Poly3DCollection(vertices, *args, **kwargs)
 
@@ -236,13 +257,15 @@ def _trisurf_3d(axes, function, *args, vmin=None, vmax=None, norm=None, **kwargs
     return collection
 
 
-def trisurf(function, *args, **kwargs):
+def trisurf(function, *args, complex_component="real", **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
     :arg function: the Firedrake :class:`~.Function` to plot
     :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`Poly3DCollection <mpl_toolkits.mplot3d.art3d.Poly3DCollection>` object
     """
@@ -257,7 +280,7 @@ def trisurf(function, *args, **kwargs):
 
     mesh = function.ufl_domain()
     if mesh.geometric_dimension() == 3:
-        return _trisurf_3d(axes, function, *args, **_kwargs)
+        return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements()[0]
@@ -267,16 +290,20 @@ def trisurf(function, *args, **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
     coords, vals, triangles = _two_dimension_triangle_func_val(function,
                                                                num_sample_points)
+    coords = toreal(coords, "real")
+    vals = toreal(vals, complex_component)
     x, y = coords[:, 0], coords[:, 1]
     triangulation = matplotlib.tri.Triangulation(x, y, triangles=triangles)
     _kwargs.update({"shade": False})
     return axes.plot_trisurf(triangulation, vals, *args, **_kwargs)
 
 
-def quiver(function, **kwargs):
+def quiver(function, *, complex_component="real", **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
     :arg function: the vector field to plot
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
     :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
     """
@@ -288,9 +315,9 @@ def quiver(function, **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = function.ufl_domain().coordinates.dat.data_ro
+    coords = toreal(function.ufl_domain().coordinates.dat.data_ro, "real")
     V = function.ufl_domain().coordinates.function_space()
-    vals = interpolate(function, V).dat.data_ro
+    vals = toreal(interpolate(function, V).dat.data_ro, complex_component)
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
@@ -307,7 +334,8 @@ def _step_to_boundary(mesh, x, u, dt, loc_tolerance):
     return bracket[0]
 
 
-def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10):
+def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10,
+               complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
 
     :arg function: the Firedrake :class:`~.Function` to plot
@@ -315,23 +343,27 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :arg direction: either +1 or -1 to integrate forward or backward
     :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
     :arg loc_tolerance: tolerance for point location
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = function.ufl_domain()
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = direction * function.at(x, tolerance=loc_tolerance)
-    r = cell_sizes.at(x, tolerance=loc_tolerance)
+    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
+    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
     dt = 0.5 * r / np.sqrt(np.sum(v1**2))
 
     while True:
         try:
-            v2 = direction * function.at(x + dt * v1, tolerance=loc_tolerance)
+            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+                        complex_component)
         except PointNotInDomainError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = direction * function.at(y, tolerance=loc_tolerance)
+            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                        complex_component)
             yield y, v1, ds
             break
 
@@ -342,13 +374,15 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = direction * function.at(y, tolerance=loc_tolerance)
-                r = cell_sizes.at(y, tolerance=loc_tolerance)
+                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                            complex_component)
+                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
             except PointNotInDomainError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = direction * function.at(y, tolerance=loc_tolerance)
+                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                            complex_component)
                 yield y, v1, ds
                 break
 
@@ -373,7 +407,7 @@ class Reason(enum.IntEnum):
 
 class Streamplotter(object):
     def __init__(self, function, resolution, min_length, max_time, tolerance,
-                 loc_tolerance):
+                 loc_tolerance, *, complex_component="real"):
         r"""Generates a dense set of streamlines of a vector field
 
         This class is a utility for the :func:`~firedrake.plot.streamplot`
@@ -385,10 +419,11 @@ class Streamplotter(object):
         self.max_time = max_time
         self.tolerance = tolerance
         self.loc_tolerance = loc_tolerance
+        self.complex_component = complex_component
 
         # Create a grid to track the distance to the nearest streamline
         mesh = self.function.ufl_domain()
-        coords = mesh.coordinates.dat.data_ro
+        coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
         self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
@@ -421,7 +456,8 @@ class Streamplotter(object):
         T = 0.
         reason = Reason.BOUNDARY
         for x, v, dt in streamline(self.function, start_point, direction,
-                                   self.tolerance, self.loc_tolerance):
+                                   self.tolerance, self.loc_tolerance,
+                                   complex_component=self.complex_component):
             delta = x - s[-1]
             s.append(x)
             T += dt
@@ -510,7 +546,7 @@ class Streamplotter(object):
 
 def streamplot(function, resolution=None, min_length=None, max_time=None,
                start_width=0.5, end_width=1.5, tolerance=3e-3, loc_tolerance=1e-10,
-               seed=None, **kwargs):
+               seed=None, complex_component="real", **kwargs):
     r"""Create a streamline plot of a vector field
 
     Similar to matplotlib :func:`streamplot <matplotlib.pyplot.streamplot>`
@@ -523,6 +559,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     :arg end_width: line width at end of streamline, to convey direction
     :arg tolerance: dimensionless tolerance for adaptive ODE integration
     :arg loc_tolerance: point location tolerance for :meth:`~firedrake.functions.Function.at`
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`
     """
     import randomgen
@@ -537,7 +575,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     mesh = function.ufl_domain()
     if resolution is None:
-        coords = mesh.coordinates.dat.data_ro
+        coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
 
     if min_length is None:
@@ -549,7 +587,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
         max_time = 50 * min_length / average_speed
 
     streamplotter = Streamplotter(function, resolution, min_length, max_time,
-                                  tolerance, loc_tolerance)
+                                  tolerance, loc_tolerance,
+                                  complex_component=complex_component)
 
     # TODO: better way of seeding start points
     shape = streamplotter._grid.shape
@@ -568,7 +607,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = np.array(function.at(streamline, tolerance=loc_tolerance))
+        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+                          complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])
 
@@ -587,6 +627,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = np.array(speeds)
     widths = np.array(widths)
 
+    points = np.asarray(points)
     vmin = kwargs.pop("vmin", speeds.min())
     vmax = kwargs.pop("vmax", speeds.max())
     norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
@@ -600,12 +641,14 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     return collection
 
 
-def plot(function, *args, num_sample_points=10, **kwargs):
+def plot(function, *args, bezier=False, num_sample_points=10, complex_component="real", **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
     :arg function: The :class:`~.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
     :arg num_sample_points: number of sample points for high-degree functions
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: same as for matplotlib
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
@@ -625,7 +668,7 @@ def plot(function, *args, num_sample_points=10, **kwargs):
         axes = figure.add_subplot(111)
 
     if function.ufl_element().degree() < 4:
-        result = _bezier_plot(function, axes, **kwargs)
+        result = _bezier_plot(function, axes, complex_component=complex_component, **kwargs)
     else:
         degree = function.ufl_element().degree()
         num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
@@ -774,12 +817,14 @@ def _bezier_calculate_points(function):
     return np.dot(function.dat.data_ro[cell_node_list], M_inv)
 
 
-def _bezier_plot(function, axes, **kwargs):
+def _bezier_plot(function, axes, complex_component="real", **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curves within each cell
 
     :arg function: 1D :class:`~.Function` to plot
     :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: additional key work arguments to plot
     :return: matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     """
@@ -787,14 +832,14 @@ def _bezier_plot(function, axes, **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        func = Function(V).interpolate(function)
-        return _bezier_plot(func, axes, **kwargs)
+        return _bezier_plot(interpolate(function, V), axes, complex_component=complex_component,
+                            **kwargs)
     y_vals = _bezier_calculate_points(function)
     x = SpatialCoordinate(mesh)
     coords = Function(FunctionSpace(mesh, 'DG', deg))
     coords.interpolate(x[0])
     x_vals = _bezier_calculate_points(coords)
-    vals = np.dstack((x_vals, y_vals))
+    vals = np.dstack((toreal(x_vals, "real"), toreal(y_vals, complex_component)))
 
     codes = {1: [Path.MOVETO, Path.LINETO],
              2: [Path.MOVETO, Path.CURVE3, Path.CURVE3],
@@ -810,12 +855,14 @@ def _bezier_plot(function, axes, **kwargs):
     return patch
 
 
-def _interp_bezier(pts, num_cells, axes, **kwargs):
+def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
     """Interpolate points of a 1D function into piece-wise Bezier curves
 
     :arg pts: Points of the 1D function evaluated by _calculate_one_dim_points
     :arg num_cells: Number of cells containing the points
     :arg axes: Axes to be plotted on
+    :kwarg complex_component: If plotting complex data, which
+        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :arg kwargs: Addition key word argument for plotting
     """
     pts = pts.T.reshape(num_cells, -1, 2)
@@ -832,7 +879,9 @@ def _interp_bezier(pts, num_cells, axes, **kwargs):
 
     for i in range(num_cells):
         xs = np.dot(M, pts[i, idx])
-        vertices = np.append(vertices, xs.transpose([1, 0, 2]).reshape(-1, 2))
+        vertices = np.append(toreal(vertices, "real"),
+                             toreal(xs.transpose([1, 0, 2]).reshape(-1, 2),
+                                    complex_component))
 
     vertices = vertices.reshape(-1, 2)
     codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],

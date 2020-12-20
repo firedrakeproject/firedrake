@@ -17,7 +17,7 @@ def test_facet_interior_jump(mesh):
     x, y = SpatialCoordinate(mesh)
     f = project(as_vector([x, y]), DG)
 
-    form = jump(f[0]*f[1]*u, n=n)*dS
+    form = jump(f[0]*f[1]*conj(u), n=n)*dS
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -32,7 +32,7 @@ def test_facet_interior_avg(mesh):
     x, y = SpatialCoordinate(mesh)
     f = interpolate(x + y, DG)
 
-    form = avg(f * u)*dS
+    form = avg(inner(f, u))*dS
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -48,7 +48,7 @@ def test_facet_exterior(mesh):
     x, y = SpatialCoordinate(mesh)
     f = project(as_vector([x, y]), DG)
 
-    form = dot(f[0]*f[1]*u, n)*ds
+    form = inner(n, f[0]*f[1]*u)*ds
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data

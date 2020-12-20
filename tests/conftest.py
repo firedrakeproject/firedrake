@@ -6,6 +6,7 @@ import pytest
 
 from subprocess import check_call
 from pyadjoint.tape import get_working_tape
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +56,15 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
+    config.addinivalue_line(
+        "markers",
+        "skipcomplex: mark as skipped in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipreal: mark as skipped unless in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
 
 
 def pytest_runtest_setup(item):
@@ -84,6 +94,19 @@ def pytest_runtest_call(item):
     if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
+
+
+def pytest_collection_modifyitems(session, config, items):
+    from firedrake.utils import SLATE_SUPPORTS_COMPLEX
+    for item in items:
+        if complex_mode:
+            if item.get_closest_marker("skipcomplex") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
+            if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
+                item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
+        else:
+            if item.get_closest_marker("skipreal") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
 
 @pytest.fixture(scope="module", autouse=True)

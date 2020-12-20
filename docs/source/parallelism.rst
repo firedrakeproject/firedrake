@@ -17,6 +17,40 @@ called ``mpiexec``.  For example, to run a simulation in a file named
 
    mpiexec -n 16 python simulation.py
 
+
+Installing for parallel use
+===========================
+
+By default, Firedrake makes use of an MPICH library that is
+downloaded, configured, and installed in the virtual environment as
+part of the PETSc installation procedure.  If you do not intend to use
+parallelism, or only use it in a limited way, this will be sufficient
+for your needs.  The default MPICH installation uses ``nemesis`` as the
+MPI channel, which is reasonably fast, but imposes a hard limit on the
+maximum number of concurrent MPI threads equal to the number of cores
+on your machine.  If you would like to be able to *oversubscribe* your
+machine, and run more threads than cores, you need to change the MPICH
+device at install time to ``sock``, by setting an environment variable
+before you run ``firedrake-install``:
+
+.. code-block:: shell
+
+   export PETSC_CONFIGURE_OPTIONS="--download-mpich-device=ch3:sock"
+
+If parallel performance is important to you (e.g., for generating
+reliable timings or using a supercomputer), then you should probably
+be using an MPICH library tuned for your system.  If you have a
+system-wide install already available, then you can simply tell the
+firedrake installer to use it, by running:
+
+.. code-block:: shell
+
+   python3 firedrake-install --mpiexec=mpiexec --mpicc=mpicc --mpicxx=mpicxx --mpif90=mpif90
+
+where ``mpiexec``, ``mpicc``, ``mpicxx``, and ``mpif90`` are the
+commands to run an MPI job and to compile C, C++, and Fortran 90 code,
+respectively.
+
 Printing in parallel
 ====================
 
@@ -53,7 +87,7 @@ collective over. If you find parallel code hanging for inexplicable
 reasons, it is possible to turn off the Python garbage collector by
 including these lines in your code:
 
-.. code-block:: python
+.. code-block:: python3
 
     import gc
     gc.disable()
@@ -66,7 +100,7 @@ including these lines in your code:
 
 The garbage collector can be turned back on with this line:
 
-.. code-block:: python
+.. code-block:: python3
 
     gc.enable()
 
@@ -89,7 +123,7 @@ the supplied communicator, rather than ``MPI_COMM_WORLD``.  For
 example, to split the global communicator into two and perform two
 different simulations on the two halves we would write.
 
-.. code-block:: python
+.. code-block:: python3
 
    from firedrake import *
 
@@ -142,7 +176,7 @@ member. The total number of processes launched by ``mpiexec`` must
 therefore be equal to the product of number of ensemble members with
 the number of processes to be used for each ensemble member.
 
-.. code-block:: python
+.. code-block:: python3
 
    from firedrake import *
 
@@ -152,7 +186,7 @@ Then, the spatial sub-communicator must be passed to :func:`~.mesh.Mesh` (or via
 inbuilt mesh generators in :mod:`~.utility_meshes`), so that it will then be used by function spaces
 and functions derived from the mesh.
 
-.. code-block:: python
+.. code-block:: python3
 
     mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
     x, y = SpatialCoordinate(mesh)
@@ -161,7 +195,7 @@ and functions derived from the mesh.
 
 The ensemble sub-communicator is then available through the method :attr:`~.Ensemble.ensemble_comm`.
 
-.. code-block:: python
+.. code-block:: python3
 
     q = Constant(my_ensemble.ensemble_comm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
@@ -172,7 +206,7 @@ communications across the ensemble sub-communicator (i.e., between ensemble
 members) are handled through methods of :class:`~.Ensemble`. Currently only
 global reductions are supported.
 
-.. code-block:: python
+.. code-block:: python3
 
     my_ensemble.allreduce(u, usum)
 

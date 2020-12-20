@@ -49,7 +49,7 @@ For assembled bilinear forms, the PETSc object is a ``Mat``; for
 assembled linear forms, it is a ``Vec``.  The ways we access these are
 different.  For a bilinear form, the matrix is obtained with:
 
-.. code-block:: python
+.. code-block:: python3
 
    petsc_mat = assemble(bilinear_form).M.handle
 
@@ -57,14 +57,14 @@ For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
 read-write access to the PETSc object.  For read-only access, we use:
 
-.. code-block:: python
+.. code-block:: python3
 
    with assemble(linear_form).dat.vec_ro as v:
        petsc_vec_ro = v
 
 For read-write access, use:
 
-.. code-block:: python
+.. code-block:: python3
 
    with assemble(linear_form).dat.vec as v:
        petsc_vec = v
@@ -79,7 +79,7 @@ To solve the linear system :math:`Bx = b` we need to define the
 operator :math:`B` such that PETSc can use it.  To do this, we build a
 Python class that provides a ``mult`` method:
 
-.. code-block:: python
+.. code-block:: python3
 
    class MatrixFreeB(object):
 
@@ -102,7 +102,7 @@ Python class that provides a ``mult`` method:
 Now we must build a PETSc ``Mat`` and indicate that it should use this
 newly defined class to compute the matrix action:
 
-.. code-block:: python
+.. code-block:: python3
 
    # Import petsc4py namespace
    from firedrake.petsc import PETSc
@@ -137,7 +137,7 @@ newly defined class to compute the matrix action:
 The next step is to build a linear solver object to solve the system.
 For this we need a PETSc ``KSP``:
 
-.. code-block:: python
+.. code-block:: python3
 
    ksp = PETSc.KSP().create()
 
@@ -148,7 +148,7 @@ For this we need a PETSc ``KSP``:
 
 Now we can solve a system using this ``ksp`` object:
 
-.. code-block:: python
+.. code-block:: python3
 
    solution = Function(V)
 
@@ -175,7 +175,7 @@ one of two ways.
    :math:`A`.  In this case, we merely have to call
    ``ksp.setOperators`` with two arguments:
 
-   .. code-block:: python
+   .. code-block:: python3
 
       ksp.setOperators(B, A)
 
@@ -219,7 +219,7 @@ operators we have provided to our solver, so for this class, we won't
 pass :math:`A`, :math:`u` and :math:`v` explicitly, but rather extract
 them from the operators in a ``setUp`` method:
 
-.. code-block:: python
+.. code-block:: python3
 
    class MatrixFreePC(object):
 
@@ -257,7 +257,7 @@ them from the operators in a ``setUp`` method:
 Now we extract the ``PC`` object from the ``KSP`` linear solver and
 indicate that it should use our matrix free preconditioner
 
-.. code-block:: python
+.. code-block:: python3
 
     ksp = PETSc.KSP().create()
     ksp.setOperators(B)
@@ -269,7 +269,7 @@ indicate that it should use our matrix free preconditioner
 
 before going on to solve the system as before:
 
-.. code-block:: python
+.. code-block:: python3
 
    solution = Function(V)
 

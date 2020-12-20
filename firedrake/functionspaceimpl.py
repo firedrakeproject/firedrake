@@ -369,7 +369,7 @@ class FunctionSpace(object):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._topology_dm.getPointSF(),
+                             sf=self.mesh().topology_dm.getPointSF(),
                              section=self._shared_data.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
@@ -900,7 +900,7 @@ class RealFunctionSpace(FunctionSpace):
         dm = self.dof_dset.dm
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh()._topology_dm.getPointSF(),
+                             sf=self.mesh().topology_dm.getPointSF(),
                              section=None)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)

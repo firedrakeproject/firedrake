@@ -27,7 +27,7 @@ from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loo
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import ScalarType_c
+from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
 from gem.utils import groupby
 from gem import impero_utils
@@ -35,7 +35,6 @@ from gem import impero_utils
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
 
@@ -56,16 +55,19 @@ except ValueError:
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
-if COMM_WORLD.rank == 0:
-    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
-    with open(filepath) as file:
-        for line in file:
-            if line.find("EIGEN_INCLUDE") == 0:
-                EIGEN_INCLUDE_DIR = line[18:].rstrip()
-                break
-    if EIGEN_INCLUDE_DIR is None:
-        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+if not complex_mode:
+    if COMM_WORLD.rank == 0:
+        filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
+        with open(filepath) as file:
+            for line in file:
+                if line.find("EIGEN_INCLUDE") == 0:
+                    EIGEN_INCLUDE_DIR = line[18:].rstrip()
+                    break
+        if EIGEN_INCLUDE_DIR is None:
+            raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+    else:
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -97,6 +99,8 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    if complex_mode:
+        raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
@@ -159,7 +163,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
-    code.replace('void slate_kernel', 'static void slate_kernel')
+    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
     loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
 
     kinfo = KernelInfo(kernel=loopykernel,

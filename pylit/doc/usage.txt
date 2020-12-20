@@ -84,7 +84,7 @@ script like pylit_, e.g. ::
 
   import pylit
 
-  pylit.defaults.code_block_marker = '.. code-block:: python'
+  pylit.defaults.code_block_marker = '.. code-block:: python3'
   pylit.defaults.comment_string = "## "
   pylit.defaults.codeindent = 4
   defaults.text_extensions = [".rst"]

@@ -19,7 +19,7 @@ def test_pyop2_custom_init():
 
 def test_int_type():
     import firedrake_configuration
-    from pyop2.datatypes import IntType
+    from firedrake.utils import IntType
 
     expected = firedrake_configuration.get_config()["options"]["petsc_int_type"]
     actual = {4: "int32", 8: "int64"}[IntType.itemsize]
