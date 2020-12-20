@@ -530,7 +530,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                         deriv_ind = tuple(v.keys())
                         expr_args = expr.arguments()
                         args_list = tuple(tuple((expr_args[position], is_adj) for position, is_adj in args) for args in v.values())
-                        d._add_dependencies(deriv_ind, args_list)
+                        d.add_dependencies(deriv_ind, args_list)
                         reconstruct_extops = [e for k, e in d._extop_master.coefficient_dict.items() if k in v]
                         external_operators.extend(reconstruct_extops)
                         new_coefficients.extend([e.get_coefficient() for e in reconstruct_extops])

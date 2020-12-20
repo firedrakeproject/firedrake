@@ -9,10 +9,18 @@ def mesh():
 
 class PointexprActionOperator(PointexprOperator):
 
-    _external_operator_type = 'GLOBAL'
+    #def __init__(self, *args, **kwargs):
+        #PointexprOperator.__init__(self, *args, **kwargs)
+    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data):
 
-    def __init__(self, *args, **kwargs):
-        PointexprOperator.__init__(self, *args, **kwargs)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, dtype=dtype, operator_data=operator_data)
+
+        # Check
+        if not isinstance(operator_data, types.FunctionType):
+            error("Expecting a FunctionType pointwise expression")
+        expr_shape = operator_data(*operands).ufl_shape
+        if expr_shape != function_space.ufl_element().value_shape():
+            error("The dimension does not match with the dimension of the function space %s" % function_space)
 
     def _evaluate_action(self, args):
         if len(args) == 0:
@@ -79,7 +87,7 @@ def test_pointwise_expr_operator(mesh):
 
     assert p2.ufl_operands[0] == u
     assert p2.ufl_operands[1] == v
-    assert p2._ufl_function_space == V
+    assert p2.ufl_function_space() == V
     assert p2.derivatives == (0, 0)
     assert p2.ufl_shape == ()
     assert p2.expr(u, v) == u*v
@@ -126,7 +134,7 @@ def test_compute_derivatives(mesh):
 
     assert p2.ufl_operands[0] == u
     assert p2.ufl_operands[1] == v
-    assert p2._ufl_function_space == P
+    assert p2.ufl_function_space() == P
     assert dp2du.derivatives == (1, 0)
     assert p2.ufl_shape == ()
     assert p2.expr(u, v) == 0.5*u**2*v
@@ -328,9 +336,9 @@ def _test_action_arguments(Ja, Ja_action, u_hat, g):
     dp_action, = Ja_action.external_operators()
 
     assert dp.arguments() == ()
-    assert dp.action_args() == ()
+    assert dp.action_coefficients() == ()
     assert dp_action.arguments() == ((u_hat, False),)
-    assert dp_action.action_args() == ()
+    assert dp_action.action_coefficients() == ()
 
     # Take the action
     Ja = action(Ja, g)
@@ -339,6 +347,6 @@ def _test_action_arguments(Ja, Ja_action, u_hat, g):
     dp_action, = Ja_action.external_operators()
 
     assert dp.arguments() == ()
-    assert dp.action_args() == ()
+    assert dp.action_coefficients() == ()
     assert dp_action.arguments() == ()
-    assert dp_action.action_args() == ((g, False),)
+    assert dp_action.action_coefficients() == ((g, False),)

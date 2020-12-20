@@ -56,7 +56,7 @@ def test_pointwise_solve_operator(mesh):
     a2 = p2*dx
 
     assert p2.ufl_operands == (b, a, b)
-    assert p2._ufl_function_space == P
+    assert p2.ufl_function_space() == P
     assert p2.derivatives == (0, 0, 0)
     assert p2.ufl_shape == ()
 
