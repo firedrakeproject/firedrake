@@ -142,6 +142,10 @@ class Arg(object):
             self.map_tuple = (map, )
         else:
             self.map_tuple = tuple(map)
+
+        if data is not None and hasattr(data, "dtype"):
+            if data.dtype.kind == "c" and (access == MIN or access == MAX):
+                raise ValueError("MIN and MAX access descriptors are undefined on complex data.")
         self._access = access
 
         self.unroll_map = unroll_map
@@ -999,6 +1003,7 @@ class GlobalDataSet(DataSet):
 
         self._global = global_
         self._globalset = GlobalSet(comm=self.comm)
+        self._name = "gdset_#x%x" % id(self)
 
     @classmethod
     def _cache_key(cls, *args):
@@ -3329,8 +3334,8 @@ class Kernel(Cached):
             code = code.gencode()
         if isinstance(code, loopy.LoopKernel):
             from loopy.tools import LoopyKeyBuilder
-            from pytools.persistent_dict import new_hash
-            key_hash = new_hash()
+            from hashlib import sha256
+            key_hash = sha256()
             code.update_persistent_hash(key_hash, LoopyKeyBuilder())
             code = key_hash.hexdigest()
         hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs)
