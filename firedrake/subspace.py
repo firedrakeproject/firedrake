@@ -57,6 +57,44 @@ class Subspace(object):
     def ufl_element(self):
         return self.function_space().ufl_element()
 
+    @property
+    def topological(self):
+        r"""The underlying coordinateless function."""
+        return self._data
+
+    @utils.cached_property
+    def _split(self):
+        return tuple(type(self)(V, val)
+                     for (V, val) in zip(self.function_space(), self.topological.split()))
+
+    def split(self):
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        return self._split
+
+    @utils.cached_property
+    def _components(self):
+        if self.function_space().value_size == 1:
+            return (self, )
+        else:
+            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+                         for i in range(self.function_space().value_size))
+
+    def sub(self, i):
+        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+
+        :arg i: the index to extract
+
+        See also :meth:`split`.
+
+        If the :class:`Function` is defined on a
+        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
+        indexing the ith component of the space, suitable for use in
+        boundary condition application."""
+        if len(self.function_space()) == 1:
+            return self._components[i]
+        return self._split[i]
+
     def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
         """Apply linear transformation.
 
@@ -225,7 +263,9 @@ class Subspaces(object):
     def __len__(self):
         return len(self._components)
 
-    @utils.cached_property
+    def __getitem__(self, i):
+        return self._components[i]
+
     def components(self):
         return self._components
 

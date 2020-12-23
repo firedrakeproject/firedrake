@@ -323,3 +323,8 @@ def plot_surface(hplot, name, t=None):
     plt.savefig(name)
     plt.close(fig)
 """
+
+
+if __name__ == "__main__":
+    test_subspace_rotated_subspace_stokes()
+    test_subspace_rotated_subspace_swe()

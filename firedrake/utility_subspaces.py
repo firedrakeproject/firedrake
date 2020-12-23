@@ -30,16 +30,14 @@ def BoundarySubspace(V, subdomain):
         subdomain = as_tuple(subdomain)
     tV = V.topological
     if type(tV) == functionspaceimpl.MixedFunctionSpace:
-        f = {'scalar': None, 'rotated': None}
+        #f = {'scalar': None, 'rotated': None}
+        f = {}
         for i, Vi in enumerate(V):
             fis = _boundary_subspace_functions(Vi, subdomain)
-            for (typ, fi) in zip(('scalar', 'rotated'), fis):
-                if fi:
-                    if not f[typ]:
-                        f[typ] = Function(V)
-                    f[typ].sub(i).assign(fi)
-        return Subspaces(cls(f[typ])
-                         for typ, cls in zip(('scalar', 'rotated'), (ScalarSubspace, RotatedSubspace)) if f[typ])
+            for fi in fis:
+                s = f.setdefault(fi.__class__.__name__, type(fi)(V))
+                fi.dat.copy(s.sub(i).dat)
+        return Subspaces(*tuple(s for _, s in f.items()))
     else:
         ff = _boundary_subspace_functions(V, subdomain)
         # Reconstruct the parent WithGeometry
@@ -52,24 +50,14 @@ def BoundarySubspace(V, subdomain):
             W = V
         else:
             W = functionspaceimpl.WithGeometry(tV, V.mesh())
-        gg = [None, None]
-        for i, f in enumerate(ff):
-            if f:
-                g = Function(W)
-                gsub = g
-                for ix in reversed(indices):
-                    gsub = gsub.sub(ix)
-                gsub.assign(f)
-                gg[i] = g
-        if gg[0] and gg[1]:
-            ss = Subspaces(ScalarSubspace(W, val=gg[0]), RotatedSubspace(W, val=gg[1]))
-        elif gg[0]:
-            ss = ScalarSubspace(W, val=gg[0])
-        elif gg[1]:
-            ss = RotatedSubspace(W, val=gg[1])
-        else:
-            raise NotImplementedError("Implement EmptySubspace?")
-        return ss
+        gg = {}
+        for f in ff:
+            g = gg.setdefault(f.__class__.__name__, type(f)(W))
+            gsub = g
+            for ix in reversed(indices):
+                gsub = gsub.sub(ix)
+            f.dat.copy(gsub.dat)
+        return Subspaces(*tuple(g for _, g in gg.items()))
 
 
 def BoundaryComponentSubspace(V, subdomain, thetas):
@@ -157,21 +145,23 @@ def _boundary_subspace_functions(V, subdomain):
                 corner_list.append(a.intersection(b))
         corners = functools.reduce(lambda a, b: a.union(b), corner_list) if corner_list else V.boundary_node_empty_subset()
         g1 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_deriv))
-        v1 = firedrake.Projected(v, ScalarSubspace(V, val=g1))
-        u1 = firedrake.Projected(u, ScalarSubspace(V, val=g1))
+        _subspace = ScalarSubspace(V, val=g1)
+        v1 = firedrake.Projected(v, _subspace)
+        u1 = firedrake.Projected(u, _subspace)
         quad_rule_boun = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
 
         normal = FacetNormal(V.mesh())
         tangent = dot(as_tensor([[0., 1.], [-1., 0.]]), normal)
-        aa = inner(u - u1, v - v1) * dx + inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
-        ff = inner(tangent, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
+        aa = inner(u - u1, v - v1) * dx + firedrake.FacetArea(V.mesh()) * inner(grad(u1), grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
+        ff = firedrake.FacetArea(V.mesh()) * inner(tangent, grad(v1)) * ds(subdomain, scheme=quad_rule_boun)
         s0 = Function(V)
         s1 = Function(V)
         solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace(s1, subdomain)
         s0.assign(Constant(1.), subset=V.boundary_node_subset(subdomain).difference(corners).intersection(subset_value))
         s0.assign(Constant(1.), subset=corners)
-        return s0, s1
+        #return s0, s1
+        return Subspaces(ScalarSubspace(V, s0), RotatedSubspace(V, s1))
     elif V.ufl_element().family() == 'Morley':
         raise NotImplementedError("Morley not implemented.")
     elif V.ufl_element().family() == 'Argyris':
@@ -180,7 +170,8 @@ def _boundary_subspace_functions(V, subdomain):
         raise NotImplementedError("Bell not implemented.")
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return f0, None
+        #return f0, None
+        return Subspaces(ScalarSubspace(V, f0), )
 
 
 def _boundary_component_subspace_functions(V, subdomain, thetas):
