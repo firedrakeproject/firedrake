@@ -30,33 +30,38 @@ def BoundarySubspace(V, subdomain):
         subdomain = as_tuple(subdomain)
     tV = V.topological
     if type(tV) == functionspaceimpl.MixedFunctionSpace:
-        #f = {'scalar': None, 'rotated': None}
         f = {}
-        for i, Vi in enumerate(V):
+        indices_tuple = ((i, ) for i in range(len(V)))
+        for Vi, indices in zip(tuple(V), indices_tuple):
             fis = _boundary_subspace_functions(Vi, subdomain)
             for fi in fis:
-                s = f.setdefault(fi.__class__.__name__, type(fi)(V))
-                fi.dat.copy(s.sub(i).dat)
+                g = f.setdefault(fi.__class__.__name__, type(fi)(V))
+                gsub = g
+                for ix in reversed(indices):
+                    gsub = gsub.sub(ix)
+                fi.dat.copy(gsub.dat)
         return Subspaces(*tuple(s for _, s in f.items()))
     else:
-        ff = _boundary_subspace_functions(V, subdomain)
         # Reconstruct the parent WithGeometry
         # TODO: When submesh lands, just use W = V.parent.
-        indices = []
+        _indices = []
         while tV.parent:
-            indices.append(tV.index if tV.index is not None else tV.component)
+            _indices.append(tV.index if tV.index is not None else tV.component)
             tV = tV.parent
-        if len(indices) == 0:
+        if len(_indices) == 0:
             W = V
         else:
             W = functionspaceimpl.WithGeometry(tV, V.mesh())
         gg = {}
-        for f in ff:
-            g = gg.setdefault(f.__class__.__name__, type(f)(W))
-            gsub = g
-            for ix in reversed(indices):
-                gsub = gsub.sub(ix)
-            f.dat.copy(gsub.dat)
+        indices_tuple = (_indices, )
+        for Vi, indices in zip((V, ), indices_tuple):
+            ff = _boundary_subspace_functions(Vi, subdomain)
+            for f in ff:
+                g = gg.setdefault(f.__class__.__name__, type(f)(W))
+                gsub = g
+                for ix in reversed(indices):
+                    gsub = gsub.sub(ix)
+                f.dat.copy(gsub.dat)
         return Subspaces(*tuple(g for _, g in gg.items()))
 
 
