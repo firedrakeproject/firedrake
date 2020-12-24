@@ -16,7 +16,7 @@ from finat.quadrature import QuadratureRule
 __all__ = ['BoundarySubspace', 'BoundaryComponentSubspace']
 
 
-def BoundarySubspace(V, subdomain):
+def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
     r"""Return Subspace required to constrain ALL DoFs in `subdomain`.
 
     :arg V: The function space.
@@ -30,59 +30,51 @@ def BoundarySubspace(V, subdomain):
         subdomain = as_tuple(subdomain)
     tV = V.topological
     if type(tV) == functionspaceimpl.MixedFunctionSpace:
-        f = {}
-        indices_tuple = ((i, ) for i in range(len(V)))
-        for Vi, indices in zip(tuple(V), indices_tuple):
-            fis = _boundary_subspace_functions(Vi, subdomain)
-            for fi in fis:
-                g = f.setdefault(fi.__class__.__name__, type(fi)(V))
-                gsub = g
-                for ix in reversed(indices):
-                    gsub = gsub.sub(ix)
-                fi.dat.copy(gsub.dat)
-        return Subspaces(*tuple(s for _, s in f.items()))
+        W = V
+        Wsub_tuple = tuple(W)
+        indices_tuple = tuple((i, ) for i, _ in enumerate(W))
     else:
         # Reconstruct the parent WithGeometry
         # TODO: When submesh lands, just use W = V.parent.
-        _indices = []
+        indices = []
         while tV.parent:
-            _indices.append(tV.index if tV.index is not None else tV.component)
+            indices.append(tV.index if tV.index is not None else tV.component)
             tV = tV.parent
-        if len(_indices) == 0:
+        if len(indices) == 0:
             W = V
         else:
             W = functionspaceimpl.WithGeometry(tV, V.mesh())
-        gg = {}
-        indices_tuple = (_indices, )
-        for Vi, indices in zip((V, ), indices_tuple):
-            ff = _boundary_subspace_functions(Vi, subdomain)
-            for f in ff:
-                g = gg.setdefault(f.__class__.__name__, type(f)(W))
-                gsub = g
-                for ix in reversed(indices):
-                    gsub = gsub.sub(ix)
-                f.dat.copy(gsub.dat)
-        return Subspaces(*tuple(g for _, g in gg.items()))
+        Wsub_tuple = (V, )
+        indices_tuple = (indices, )
+    if extra_tuple == None:
+        extra_tuple = tuple(None for _ in Wsub_tuple)
+    else:
+        assert len(extra_tuple) == len(Wsub_tuple)
+    gg = {}
+    for Wsub, indices, extra in zip(Wsub_tuple, indices_tuple, extra_tuple):
+        if extra is None:
+            ff = constructor(Wsub, subdomain)
+        else:
+            ff = constructor(Wsub, subdomain, extra)
+        for f in ff:
+            g = gg.setdefault(f.__class__.__name__, type(f)(W))
+            gsub = g
+            for ix in reversed(indices):
+                gsub = gsub.sub(ix)
+            f.dat.copy(gsub.dat)
+    return Subspaces(*tuple(g for _, g in gg.items()))
+
+
+def BoundarySubspace(V, subdomain):
+    return _BoundarySubspace(V, subdomain, _boundary_subspace_functions)
 
 
 def BoundaryComponentSubspace(V, subdomain, thetas):
-    r"""Return Subspace required to constrain DoF in `subdomain` in thetas-directions.
-
-    :arg V: The function space.
-    :arg subdomain: The subdomain.
-    :arg thetas: directions
-    """
-    subdomain = as_tuple(subdomain)
     if not isinstance(thetas, (tuple, list)):
         theta = thetas
         thetas = tuple(theta for _ in subdomain)
-    assert len(thetas) == len(subdomain)
-    if not isinstance(V, functionspaceimpl.WithGeometry):
-        raise TypeError("V must be `functionspaceimpl.WithGeometry`, not %s." % V.__class__.__name__ )
-    tV = V.topological
-    if type(tV) == functionspaceimpl.MixedFunctionSpace:
-        raise NotImplementedError("MixedFunctionSpace not implemented yet.")
-    else:
+    #assert len(thetas) == len(subdomain)
+    """
         elem = V.ufl_element()
         shape = elem.value_shape()
         if shape == ():
@@ -94,36 +86,8 @@ def BoundaryComponentSubspace(V, subdomain, thetas):
         else:
             # Tensor element
             raise NotImplementedError("TensorElement not implemented yet.")
-
-        ff = _boundary_component_subspace_functions(V, subdomain, thetas)
-        # Reconstruct the parent WithGeometry
-        # TODO: When submesh lands, just use W = V.parent.
-        indices = []
-        while tV.parent:
-            indices.append(tV.index if tV.index is not None else tV.component)
-            tV = tV.parent
-        if len(indices) == 0:
-            W = V
-        else:
-            W = functionspaceimpl.WithGeometry(tV, V.mesh())
-        gg = [None, None]
-        for i, f in enumerate(ff):
-            if f:
-                g = Function(W)
-                gsub = g
-                for ix in reversed(indices):
-                    gsub = gsub.sub(ix)
-                gsub.assign(f)
-                gg[i] = g
-        if gg[0] and gg[1]:
-            ss = Subspaces(ScalarSubspace(W, val=gg[0]), RotatedSubspace(W, val=gg[1]))
-        elif gg[0]:
-            ss = ScalarSubspace(W, val=gg[0])
-        elif gg[1]:
-            ss = RotatedSubspace(W, val=gg[1])
-        else:
-            raise NotImplementedError("Implement EmptySubspace?")
-        return ss
+    """
+    return _BoundarySubspace(V, subdomain, _boundary_component_subspace_functions, extra_tuple=(thetas, ))
 
 
 def _boundary_subspace_functions(V, subdomain):
@@ -203,11 +167,12 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         s1 = Function(V)
         solve(aa == ff, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace2(s1, subdomain)
-        return None, s1
+        #return None, s1
+        return Subspaces(RotatedSubspace(V, s1), )
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return f0, None
-
+        #return f0, None
+        return Subspaces(ScalarSubspace(V, f0), )
 
 def _normalise_subspace(old_subspace, subdomain):
     from firedrake import par_loop, ds, WRITE, READ
