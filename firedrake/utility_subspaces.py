@@ -111,7 +111,7 @@ def _boundary_subspace_functions(V, subdomain):
         s0 = Function(V)
         s1 = Function(V)
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
-        s1 = _normalise_subspace(s1, subdomain)
+        s1 = _normalise_subspace_hermite(s1, subdomain)
         s0.assign(Constant(1.), subset=subset_all.difference(subset_corners).intersection(subset_value).union(subset_corners))
         return Subspaces(ScalarSubspace(V, s0), RotatedSubspace(V, s1))
     elif V.ufl_element().family() == 'Morley':
@@ -169,7 +169,7 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         raise NotImplementedError("Currently only implemented for vector Lagrange element.")
 
 
-def _normalise_subspace(old_subspace, subdomain):
+def _normalise_subspace_hermite(old_subspace, subdomain):
     from firedrake import ds, par_loop, WRITE, READ
     domain = "{[k]: 0 <= k < 3}"
     instructions = """
@@ -190,28 +190,3 @@ def _normalise_subspace(old_subspace, subdomain):
               "old_subspace": (old_subspace, READ)},
              is_loopy_kernel=True)
     return new_subspace
-
-
-def _normalise_subspace2(old_subspace, subdomain):
-    from firedrake import par_loop, ds, WRITE, READ
-    domain = "{[k]: 0 <= k < 6}"
-    instructions = """
-    <float64> eps = 1e-9
-    <float64> norm = 0
-    for k
-        norm = sqrt(old_subspace[k, 0] * old_subspace[k, 0] + old_subspace[k, 1] * old_subspace[k, 1])
-        if norm > eps
-            new_subspace[k, 0] = old_subspace[k, 0] / norm
-            new_subspace[k, 1] = old_subspace[k, 1] / norm
-        end
-    end
-    """
-    V = old_subspace.function_space()
-    new_subspace = Function(V)
-    par_loop((domain, instructions), ds(subdomain),
-             {"new_subspace": (new_subspace, WRITE),
-              "old_subspace": (old_subspace, READ)},
-             is_loopy_kernel=True)
-    return new_subspace
-
-
