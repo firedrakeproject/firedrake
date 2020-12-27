@@ -148,7 +148,6 @@ def test_subspace_rotated_subspace_stokes():
     
     normal = FacetNormal(mesh)
     V4 = BoundaryComponentSubspace(W.sub(0), (3, 4, 5), normal)
-
     vq4 = Projected(vq, V4)
     up4 = Projected(up, V4)
 

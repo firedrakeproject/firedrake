@@ -587,8 +587,18 @@ class FunctionSpace(object):
             nodes = numpy.concatenate(tuple(nodes))
         return op2.Subset(self.node_set, nodes)
 
-    def boundary_node_empty_subset(self):
-        return op2.Subset(self.node_set, numpy.empty(0, dtype=IntType))
+    def subdomain_intersection_subset(self, subdomains):
+        intersects = []
+        nsubdomains = len(subdomains)
+        for i in range(nsubdomains):
+            for j in range(i + 1, nsubdomains):
+                a = self.boundary_node_subset(subdomains[i])
+                b = self.boundary_node_subset(subdomains[j])
+                intersects.append(a.intersection(b))
+        if intersects:
+            return functools.reduce(lambda a, b: a.union(b), intersects)
+        else:
+            return op2.Subset(self.node_set, numpy.empty(0, dtype=IntType))
 
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
