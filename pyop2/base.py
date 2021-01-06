@@ -1341,13 +1341,12 @@ class Dat(DataCarrier, _EmptyDataMixin):
     _zero_kernels = {}
     """Class-level cache for zero kernels."""
 
+    _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
     @cached_property
     def pack(self):
         from pyop2.codegen.builder import DatPack
         return DatPack
-
-    _modes = [READ, WRITE, RW, INC, MIN, MAX]
 
     @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError),
                    ('name', str, NameTypeError))
