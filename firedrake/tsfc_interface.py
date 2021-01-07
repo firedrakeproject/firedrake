@@ -87,7 +87,7 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        return cls._cache.setdefault(key, pickle.loads(val))
+        return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
