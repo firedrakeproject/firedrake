@@ -332,21 +332,77 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     insns.extend(tsfc_calls)
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
 
-    # Inames come from initialisations + loopyfying kernel args and lhs
-    domains = builder.bag.index_creator.domains
+    return tensor2temp, tsfc_kernels, insns, builder
 
-    # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
-                                     seq_dependencies=True, target=lp.CTarget())
 
-    # Generate program from kernel, so that one can register kernels
-    prg = make_program(slate_wrapper)
-    for tsfc_loopy in tsfc_kernels:
-        prg = register_callable_kernel(prg, tsfc_loopy)
-        prg = inline_callable_kernel(prg, tsfc_loopy.name)
-    prg = register_callable_kernel(prg, slate_loopy)
-    prg = inline_callable_kernel(prg, slate_loopy.name)
-    return prg
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
+    insns = []
+    tsfc_knl_list = []
+    tensor2temps = OrderedDict()
+    coeffs = builder.collect_coefficients(builder.expression.coefficients())
+    filtered_expr = []
+    is_call = lambda e: isinstance(e, sl.Action) or isinstance(e, sl.Solve)
+    print(slate_loopy)
+    from gem.node import post_traversal
+    filtered_expr = [e for e in list(post_traversal([builder.expression], reverse=True)) if is_call(e)]
+    no = 0
+    for insn in slate_loopy.instructions:
+        if isinstance(insn, lp.kernel.instruction.CallInstruction):
+            if (insn.expression.function.name.startswith("action") or
+                insn.expression.function.name.startswith("solve")):
+
+                node = filtered_expr[no]
+                no +=1
+
+                # double checking that we replace the right loopy instruction with the right local assembly call
+                variable0 = [v for v,t in var2terminal.items() if t == node.children[0]]
+                assert (insn.expression.parameters[0].subscript.aggregate.name ==
+                        variable0[0].name)
+                variable1 = [v for v,t in var2terminal.items() if t==node.children[1]]
+                assert (insn.expression.parameters[1].subscript.aggregate.name ==
+                        variable1[0].name)
+                
+                if isinstance(node, sl.Action):
+                    terminal = node.action()
+                    coeffs.update(builder.collect_coefficients([node.ufl_coefficient]))
+                else:
+                    #FIXME for now we still assemble T1 for the non matrix-free solve
+                    terminal = node.children[0].children[0]
+
+                action_lhs_name = insn.assignee_name
+                #FIXME maybe we can avoid this gemified one
+                gemified = Variable(action_lhs_name, node.shape)
+
+                # FIXME have a better way of updating the builder bag with coeffs
+                from firedrake.slate.slac.kernel_builder import SlateWrapperBag
+                builder.bag = SlateWrapperBag(coeffs)
+
+                inits, tensor2temp = builder.initialise_terminals({gemified: terminal}, builder.bag.coefficients)            
+                tensor2temps.update(tensor2temp)
+
+                # temporaries that are filled with calls, which get inlined later,
+                # need to be initialised
+                if isinstance(node, sl.Action):
+                    insns.append(*inits)
+                
+                # local assembly of the action or the matrix for the solve
+                tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+                tsfc_knl_list.append(*tsfc_knls)
+
+                if isinstance(node, sl.Action):
+                    # substitute action call with the generated tsfc call for that action
+                    # but keep the lhs so that the following instructions still act on the right temporaries
+                    insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                                    tsfc_calls[0].expression))
+                else:
+                    # FIXME solve is not matfree yet, so we need to assemble matrix first
+                    insns.append(tsfc_calls[0])
+                    insns.append(insn)
+
+        else:
+            insns.append(insn)
+
+    return tensor2temps, tsfc_knl_list, insns, builder
 
 
 def _generate_matfree_solve_callable(loopy_merged):
