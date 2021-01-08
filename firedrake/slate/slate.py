@@ -36,7 +36,7 @@ import hashlib
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve', 'Diagonal']
+           'Add', 'Mul', 'Solve', 'Diagonal', 'Action']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -940,7 +940,8 @@ class BinaryOp(TensorOp):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
                Mul: '*',
-               Solve: '\\'}
+               Solve: '\\',
+               Action: '*!'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -1040,6 +1041,69 @@ class Mul(BinaryOp):
         from multiplying two tensors A and B.
         """
         return self._args
+
+class Action(BinaryOp):
+    """Abstract Slate class representing the interior product or two tensors,
+    where the second tensor has one dimesion less than the first tensor.
+    This includes an action of Matrix on a Vector. The difference
+    to a product is that the higher dimensional tensor is never stored in a
+    temporary."
+
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
+
+    def __init__(self, A, b, pick_op):
+        """Constructor for the Mul class."""
+        if A.shape[1] != b.shape[0]:
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
+                             % (A.shape, b.shape))
+
+        fsA = A.arg_function_spaces[-1]
+        fsB = b.arg_function_spaces[0]
+
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
+        super(Action, self).__init__(A, b)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        self._args = A.arguments()[:-1] + b.arguments()[1:]
+        self.pick_op = pick_op
+        self.tensor = A
+        self.coeff = b
+        self.ufl_coefficient = None
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        A, b = self.operands
+        return A.arg_function_spaces[:-1] + b.arg_function_spaces[1:]
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from multiplying two tensors A and B.
+        """
+        return self._args
+
+    def action(self):
+        import ufl.algorithms as ufl_alg
+
+        # Pick first or last argument (will be replaced)
+        arguments = self.tensor.arguments()
+        u = arguments[self.pick_op]
+        if hasattr(self.coeff, "_function"):
+            coeff = self.coeff._function
+        else:
+            fs = self.coeff.arguments()[0].ufl_function_space()
+            coeff = Coefficient(fs)
+        self.ufl_coefficient = coeff
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
 
 class Solve(BinaryOp):
@@ -1167,7 +1231,7 @@ def space_equivalence(A, B):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor, Diagonal],
     [Add],
-    [Mul, Solve],
+    [Mul, Action, Solve],
     [UnaryOp],
 ]
 
