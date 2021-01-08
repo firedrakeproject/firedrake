@@ -286,8 +286,35 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="terminals_first", slate_expr = None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
+    
+
+    if strategy == "terminals_first":
+        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
+    elif strategy == "when_needed":
+        tensor2temp, tsfc_kernels, insns, builder = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr)
+
+    # Construct args
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+
+    # Inames come from initialisations + loopyfying kernel args and lhs
+    domains = slate_loopy.domains + builder.bag.index_creator.domains
+   
+    # Generates the loopy wrapper kernel
+    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
+                                     seq_dependencies=True, target=lp.CTarget())
+
+    # Generate program from kernel, so that one can register kernels
+    prg = make_program(slate_wrapper)
+    loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
+    for knl in loop:
+        prg = register_callable_kernel(prg, knl)
+        prg = inline_callable_kernel(prg, knl.name)
+    return prg
+
+
+def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
     builder.bag = SlateWrapperBag(coeffs)
@@ -300,8 +327,6 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
                                    (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
                                     for terminal in terminal_tensors)))
 
-    # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
