@@ -152,6 +152,11 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     Citations().register("Gibson2018")
 
+    # optimise slate expression
+    from firedrake.slate.slac.optimise import optimise
+    if tsfc_parameters["optimise_slate"]:
+        slate_expr = optimise(slate_expr, tsfc_parameters)
+
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     gem_expr, var2terminal = slate_to_gem(slate_expr)
