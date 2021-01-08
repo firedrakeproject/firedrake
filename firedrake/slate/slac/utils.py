@@ -6,7 +6,7 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 Solve, Inverse, Variable, view)
+                 Solve, Inverse, Variable, view, Action)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -190,6 +190,9 @@ def _slate2gem_block(expr, self):
 def _slate2gem_inverse(expr, self):
     return Inverse(*map(self, expr.children))
 
+@_slate2gem.register(sl.Action)
+def _slate2gem_action(expr, self):
+    return Action(*map(self, expr.children))
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
