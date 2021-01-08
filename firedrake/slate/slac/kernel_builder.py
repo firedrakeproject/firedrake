@@ -568,12 +568,13 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self):
+    def collect_coefficients(self, coeffs=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
         """
-        coeffs = self.expression.coefficients()
+        if not coeffs:
+            coeffs = self.expression.coefficients()
         coeff_dict = OrderedDict()
         for i, c in enumerate(coeffs):
             element = c.ufl_element()
@@ -610,7 +611,7 @@ class LocalLoopyKernelBuilder(object):
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
-                inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
+                inits.append(loopy.Assignment(var, "0.",
                                               within_inames=frozenset(inames)))
 
             elif isinstance(slate_tensor, slate.AssembledVector):
