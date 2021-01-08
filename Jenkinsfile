@@ -97,7 +97,7 @@ pipeline {
   ls $VIRTUAL_ENV/bin
   firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/bibliography.bib
   firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
-  cd firedrake/src/firedrake/docs; make html
+  # cd firedrake/src/firedrake/docs; make html
   '''
                 }
               }
