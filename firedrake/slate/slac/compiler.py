@@ -168,7 +168,10 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
+    if tsfc_parameters["optimise_slate"]:
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, "when_needed", slate_expr)
+    else:
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, "terminals_first")
 
     # register C callable for matrix-explicit inverse and solve calls
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
