@@ -38,8 +38,30 @@ def f(V, mymesh):
     return AssembledVector(f)
 
 
-def test_new_slateoptpass(A, A2, f):
-    for expr in [A+A, A-A, A+A+A2, A+A-A2, A+A2+A, A+A2-A,  A-A*A.inv*A]:
+@pytest.fixture(params=["A+A",
+                        "A-A",
+                        "A+A+A2",
+                        "A+A2+A",
+                        "A+A2-A",
+                        "A-A*A.inv*A"])
+def expr(request, A, A2, f):
+    if request.param == "A+A":
+        return A+A
+    elif request.param == "A-A":
+        return A-A
+    elif request.param == "A+A+A2":
+        return A+A+A2
+    elif request.param == "A+A2+A":
+        return A+A2+A
+    elif request.param == "A+A2-A":
+        return A+A2-A
+    elif request.param == "A-A+A2":
+        return A-A+A2
+    elif request.param == "A-A*A.inv*A":
+        return A-A*A.inv*A
+
+
+def test_new_slateoptpass(expr, f):
         print("Test is running for expresion " + str(expr))
         tmp = assemble(expr*f, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False})
         tmp_opt = assemble(expr*f, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True})
