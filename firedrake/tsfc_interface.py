@@ -92,7 +92,7 @@ class TSFCKernel(Cached):
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
-        cls._cache[key] = val
+        cls._cache[(key, comm.py2f())] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
