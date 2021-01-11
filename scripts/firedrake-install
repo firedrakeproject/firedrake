@@ -1284,7 +1284,6 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
-                             "python3",
                              "autoconf",
                              "make",
                              "automake",
