@@ -2,7 +2,7 @@ from functools import partial
 from itertools import chain
 import numpy as np
 
-from ufl import MixedElement, VectorElement, TensorElement, replace
+from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement, replace
 
 from pyop2 import op2
 import loopy
@@ -14,6 +14,7 @@ from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import ScalarType_c, IntType_c
+from firedrake.bcs import homogenize
 import firedrake
 
 
@@ -62,12 +63,43 @@ class PMGBase(PCSNESBase):
         degree = ele.degree()
         family = ele.family()
 
-        if family == "Discontinuous Galerkin" and degree == 0:
-            raise ValueError
-        elif degree == 1:
-            raise ValueError
+        N = degree
+        try:
+            N, = set(N)
+        except TypeError:
+            pass
+        except ValueError:
+            raise NotImplementedError("Different degrees on TensorProductElement")
 
-        return ele.reconstruct(degree=degree // 2)
+        if family == "Discontinuous Galerkin" and N == 0:
+            raise ValueError
+        elif N == 1:
+            raise ValueError
+        
+        return PMGBase.reconstruct_degree(ele, N // 2)
+
+
+    @staticmethod
+    def reconstruct_degree(ele, N):
+        """
+        Reconstruct a given element, modifying its polynomial degree.
+
+        Must provide the same degree for tensor product elements.
+
+        :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
+        :arg N: an integer degree.
+        """
+        if isinstance(ele, (VectorElement, TensorElement)):
+            cVe = [PMGBase.reconstruct_degree(K, N) 
+                   for K in ele.sub_elements()]
+            return VectorElement(cVe[0], dim = len(cVe))
+        elif isinstance(ele, TensorProductElement):
+            (Ve, Qe) = ele.sub_elements()
+            cVe = PMGBase.reconstruct_degree(Ve, N)
+            cQe = PMGBase.reconstruct_degree(Qe, N)
+            return TensorProductElement(cVe, cQe)
+        else:
+            return ele.reconstruct(degree = N)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -103,9 +135,13 @@ class PMGBase(PCSNESBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
+        # We need this for p-FAS
         pdm.setCreateInjection(self.create_injection)
-        pdm.setSNESJacobian(ctx.form_jacobian)
-        pdm.setSNESFunction(ctx.form_function)
+        pdm.setSNESJacobian(_SNESContext.form_jacobian)
+        pdm.setSNESFunction(_SNESContext.form_function)
+        pdm.setKSPComputeOperators(_SNESContext.compute_operators)
+
+        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -118,7 +154,6 @@ class PMGBase(PCSNESBase):
         self.ppc = self.configure_pmg(pc, pdm)
         self.ppc.setFromOptions()
         self.ppc.setUp()
-        # FIXME Problably setUp throws an exception
 
     def update(self, pc):
         pass
@@ -132,6 +167,17 @@ class PMGBase(PCSNESBase):
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
+
+        cbcs = []
+        for bc in fctx._problem.bcs:
+            cV_ = cV
+            for index in bc._indices:
+                cV_ = cV_.sub(index)
+
+            cbc_value = self.coarsen_bc_value(bc, cV_)
+            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                              bc.sub_domain,
+                                              method=bc.method))
 
         cu = firedrake.Function(cV)
         interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
@@ -155,20 +201,8 @@ class PMGBase(PCSNESBase):
         else:
             cJp = None
 
-        cbcs = []
-        for bc in fctx._problem.bcs:
-            cV_ = cV
-            for index in bc._indices:
-                cV_ = cV_.sub(index)
-
-            cbc_value = self.coarsen_bc_value(bc, cV_)
-
-            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                              bc.sub_domain,
-                                              method=bc.method))
-
         fcp = fctx._problem.form_compiler_parameters
-        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, cJ,
+        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
                                                          Jp=cJp,
                                                          form_compiler_parameters=fcp,
                                                          is_linear=fctx._problem.is_linear)
@@ -187,10 +221,13 @@ class PMGBase(PCSNESBase):
         add_hook(parent, setup=partial(inject_state, interpolators), call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+        cdm.setCreateInterpolation(self.create_interpolation)
+        # We need this for p-FAS
+        cdm.setCreateInjection(self.create_injection)
         cdm.setSNESJacobian(_SNESContext.form_jacobian)
         cdm.setSNESFunction(_SNESContext.form_function)
-        cdm.setCreateInterpolation(self.create_interpolation)
-        cdm.setCreateInjection(self.create_injection)
+
+        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -213,7 +250,10 @@ class PMGBase(PCSNESBase):
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
 
-        prefix = self.ppc.getOptionsPrefix()
+        #cbcs = [homogenize(bc) for bc in cbcs]
+        #fbcs = [homogenize(bc) for bc in fbcs]
+
+        prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
 
         if mattype == "matfree":
@@ -233,27 +273,24 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
-        # FIXME in firedrake/mg/ufl_utils.py they have fbcs=[]
-        # but in my opinion it should be cbcs=[]
-        # right now I am keeping both because coarse Dirichlet nodes are being zeroed out somewhere else
-        # and I do a dirty hack to get the values back inside injection
+        fbcs = []
 
         prefix = self.ppc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
 
         if mattype == "matfree":
-            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
+            I = prolongation_matrix_matfree(cV, fV, cbcs, fbcs)
         elif mattype == "aij":
-            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
+            I = prolongation_matrix_aij(cV, fV, cbcs, fbcs)
         else:
             raise ValueError("Unknown matrix type")
-        R = PETSc.Mat().createTranspose(I)
-        return R
+
+        return I
 
     def view(self, pc, viewer=None):
         if viewer is None:
             viewer = PETSc.Viewer.STDOUT
-        viewer.printfASCII("p-multigrid\n")
+        viewer.printfASCII("p-multigrid PC\n")
         self.ppc.view(viewer)
 
 
@@ -289,7 +326,6 @@ class PMGPC(PCBase, PMGBase):
 
     def coarsen_bc_value(self, bc, cV):
         return firedrake.zero(cV.shape)
-
 
 class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
@@ -410,7 +446,6 @@ class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
-    # FIXME Name of this class is interpolation, but the calling mult actually does restriction
     def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf = Vf
         self.Vc = Vc
@@ -691,16 +726,13 @@ class StandaloneInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
-        # FIXME ideally bcs should not be changed before calling the kernel
-        #[bc.zero(self.uf) for bc in self.Vf_bcs]
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.uc.cell_node_map()),
                      self.uf.dat(op2.READ, self.uf.cell_node_map()),
                      self.weight.dat(op2.READ, self.weight.cell_node_map()))
 
-        # FIXME when restricting in p-FAS one should not zero out the Dirichlet dofs
-        # that is why we don't want to pass cbcs
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         with self.uc.dat.vec_ro as xc:
@@ -714,20 +746,13 @@ class StandaloneInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
-        # FIXME for injection inhomogenous values are zeroed out for some reason
-        # this is a hack to get them back, but ideally nothing should be changed before
-        # appplying the kernel
-        [bc.apply(self.uc) for bc in self.Vc_bcs]
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
                      self.uc.dat(op2.READ, self.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
-        # FIXME the inhomogeneous value will then be added in some other part of the code
-        # This fix is good only with 2 levels
-        # we should use bc.apply instead as in firedrake/mg/ufl_utils.py
-        #[bc.apply(self.uf) for bc in self.Vf_bcs]
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
@@ -742,7 +767,7 @@ class StandaloneInterpolationMatrix(object):
             self.multTranspose(mat, x, w)
             w.axpy(1.0, y)
 
-# FIXME FIXME FIXME Important note: the stokes.py example only calls this part of the code
+
 class MixedInterpolationMatrix(object):
     """
     Interpolation matrix for a mixed finite element space.
@@ -772,8 +797,7 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0)
 
-        # FIXME ideally bcs should not be changed before calling the kernel
-        #[bc.zero(self.uf) for bc in self.Vf_bcs]
+        [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
@@ -781,8 +805,6 @@ class MixedInterpolationMatrix(object):
                          self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()),
                          standalone.weight.dat(op2.READ, standalone.weight.cell_node_map()))
 
-        # FIXME when restricting in p-FAS one should not zero out the Dirichlet dofs
-        # that is why we don't want to pass cbcs
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         with self.uc.dat.vec_ro as xc:
@@ -793,10 +815,7 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
-        # FIXME for injection inhomogenous values are zeroed out for some reason
-        # this is a hack to get them back, but ideally nothing should be changed before
-        # appplying the kernel
-        [bc.apply(self.uc) for bc in self.Vc_bcs]
+        [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
@@ -804,10 +823,6 @@ class MixedInterpolationMatrix(object):
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
-        # FIXME the inhomogeneous value will then be added in some other part of the code
-        # This fix is good only with 2 levels
-        # we should use bc.apply instead as in firedrake/mg/ufl_utils.py
-        #[bc.apply(self.uf) for bc in self.Vf_bcs]
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
@@ -843,7 +858,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
             unroll = any(bc.function_space().component is not None
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
-                               lgmaps=((rlgmap, clgmap),), unroll_map=unroll)
+                               lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
             op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
 
@@ -854,7 +869,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
         unroll = any(bc.function_space().component is not None
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
-                     lgmaps=((rlgmap, clgmap),), unroll_map=unroll)
+                     lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
         op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
                      matarg)
 
