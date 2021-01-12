@@ -394,8 +394,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
 
                 # temporaries that are filled with calls, which get inlined later,
                 # need to be initialised
-                if isinstance(node, sl.Action):
-                    insns.append(*inits)
+                insns.append(*inits)
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
@@ -408,6 +407,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                                                                     tsfc_calls[0].expression))
                 else:
                     # FIXME solve is not matfree yet, so we need to assemble matrix first
+                    # URGENT FIXME in fact this does not work, we got trouble with instructions not containing the right temps
                     insns.append(tsfc_calls[0])
                     insns.append(insn)
 
