@@ -666,12 +666,14 @@ class LocalLoopyKernelBuilder(object):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
                                           dtype=self.tsfc_parameters["scalar_type"])
-                    args.append(arg)
+                    if arg not in args:
+                        args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
                                       dtype=self.tsfc_parameters["scalar_type"])
-                args.append(arg)
+                if arg not in args:
+                    args.append(arg)
 
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
