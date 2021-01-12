@@ -350,16 +350,28 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
 
-                node = filtered_expr[no]
-                no +=1
-
-                # double checking that we replace the right loopy instruction with the right local assembly call
-                variable0 = [v for v,t in var2terminal.items() if t == node.children[0]]
-                assert (insn.expression.parameters[0].subscript.aggregate.name ==
-                        variable0[0].name)
-                variable1 = [v for v,t in var2terminal.items() if t==node.children[1]]
-                assert (insn.expression.parameters[1].subscript.aggregate.name ==
-                        variable1[0].name)
+                # node should not depend on number because loopy instructions are a priori not rigorously ordered
+                # we need to match the node with the temporary variables in the action call
+                def find_node(filtered_expr):
+                    for node in filtered_expr:
+                        if isinstance(node, sl.Action):
+                            child1, child2 = node.children
+                        else:
+                            child1, child2 = node.children
+                            child1, = child1.children
+                        variable0 = [v for v,t in var2terminal.items() if t == child1]
+                        variable1 = [v for v,t in var2terminal.items() if t == child2]
+                        if variable0 and not variable1:
+                            name = insn.expression.parameters[1].subscript.aggregate.name
+                            shape = child2.shape
+                            import gem
+                            var2terminal[gem.Variable(name, shape)] = child2
+                        checks = [insn.expression.parameters[i].subscript.aggregate.name == v.name 
+                                  for i, v in enumerate(itertools.chain(variable0, variable1))]
+                        if all(checks):
+                            return node, var2terminal
+                
+                node, var2terminal = find_node(filtered_expr)
                 
                 if isinstance(node, sl.Action):
                     terminal = node.action()
