@@ -345,8 +345,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
     print(slate_loopy)
     from gem.node import post_traversal
     filtered_expr = [e for e in list(post_traversal([builder.expression], reverse=True)) if is_call(e)]
-    no = 0
-    for insn in slate_loopy.instructions:
+    for c, insn in enumerate(slate_loopy.instructions):
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
@@ -375,7 +374,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
 
                 # FIXME have a better way of updating the builder bag with coeffs
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                builder.bag = SlateWrapperBag(coeffs)
+                builder.bag = SlateWrapperBag(coeffs, "_"+str(c))
+                builder.bag.call_name_generator("_"+str(c))
 
                 inits, tensor2temp = builder.initialise_terminals({gemified: terminal}, builder.bag.coefficients)            
                 tensor2temps.update(tensor2temp)
