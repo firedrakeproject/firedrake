@@ -1100,8 +1100,8 @@ class Action(BinaryOp):
         if hasattr(self.coeff, "_function"):
             coeff = self.coeff._function
         else:
-            fs = self.coeff.arguments()[0].ufl_function_space()
-            coeff = Coefficient(fs)
+            cfs, = self.coeff.arguments()
+            coeff = Coefficient(cfs.ufl_function_space())
         self.ufl_coefficient = coeff
         return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
