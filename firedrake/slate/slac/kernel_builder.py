@@ -747,7 +747,7 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs):
+    def __init__(self, coeffs, prefix=""):
         self.coefficients = coeffs
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
@@ -755,14 +755,16 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
-        self.index_creator = IndexCreator()
+        self.index_creator = IndexCreator("i_"+prefix)
 
 
 class IndexCreator(object):
     inames = OrderedDict()  # pym variable -> extent
-    namer = UniqueNameGenerator(forced_prefix="i_")
+    
+    def __init__(self, forced_prefix):
+        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
 
-    def __call__(self, extents):
+    def __call__(self, extents, namer=""):
         """Create new indices with specified extents.
 
         :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors
