@@ -249,7 +249,6 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
-
         #cbcs = [homogenize(bc) for bc in cbcs]
         #fbcs = [homogenize(bc) for bc in fbcs]
 
@@ -273,6 +272,7 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
+        cbcs = []
         fbcs = []
 
         prefix = self.ppc.getOptionsPrefix()
@@ -325,7 +325,13 @@ class PMGPC(PCBase, PMGBase):
         return self.ppc.applyTranspose(x, y)
 
     def coarsen_bc_value(self, bc, cV):
-        return firedrake.zero(cV.shape)
+        #return firedrake.zero(cV.shape)
+        if not isinstance(bc._original_arg, firedrake.Function):
+            return bc._original_arg
+
+        coarse = firedrake.Function(cV)
+        coarse.interpolate(bc._original_arg)
+        return coarse
 
 class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
