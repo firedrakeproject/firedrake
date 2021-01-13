@@ -352,6 +352,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         self.name = name
 
+        self.topology_dm = None
+        r"The PETSc DM representation of the mesh topology."
+
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -397,6 +400,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
@@ -679,6 +689,7 @@ class MeshTopology(AbstractMeshTopology):
         plex.setFromOptions()
 
         self.topology_dm = plex
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(plex.comm.tompi4py())
 
         # Mark exterior and interior facets
@@ -952,6 +963,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
         self.topology_dm = mesh.topology_dm
+        r"The PETSc DM representation of the mesh topology."
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
@@ -1147,6 +1159,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(swarm.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
@@ -1305,6 +1318,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     @utils.cached_property
     @MeshGeometryMixin._ad_annotate_coordinates_function
