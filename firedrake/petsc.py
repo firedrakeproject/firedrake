@@ -90,11 +90,9 @@ def get_petsc_variables():
     path = [config["PETSC_DIR"], config["PETSC_ARCH"], "lib/petsc/conf/petscvariables"]
     variables_path = os.path.join(*path)
     with open(variables_path) as fh:
-        # Split lines on '=', assignment
-        splitlines = (line.split("=") for line in fh.readlines())
-        # Rejoin value on '=' in case variable itself contains assignments
-        variables = {k.strip(): "=".join(v).strip() for k, *v in splitlines}
-    return variables
+        # Split lines on first '=' (assignment)
+        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
+    return {k.strip(): v.strip() for k, v in splitlines}
 
 
 class OptionsManager(object):
