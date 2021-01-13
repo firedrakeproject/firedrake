@@ -48,7 +48,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
         if coefficient is None:
             coefficient = Function(fs, val, name, dtype)
             self._val = coefficient.topological
-        elif not isinstance(coefficient, Coefficient):
+        elif not isinstance(coefficient, (Coefficient, ReferenceValue)):
             raise TypeError('Expecting a Coefficient and not %s', type(coefficient))
         self._coefficient = coefficient
         self._val = val
@@ -211,7 +211,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
             # If we are constructing a derivative
             corresponding_coefficient = None
             e_master = self._extop_master
-            for ext in e_master._extop_dependencies:
+            for ext in e_master.coefficient_dict.values():
                 if ext.derivatives == deriv_multiindex:
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
                                                       derivatives=deriv_multiindex,
@@ -233,12 +233,10 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
 
         if deriv_multiindex != self.derivatives:
             # If we are constructing a derivative
-            self._extop_master._extop_dependencies.append(reconstruct_op)
+            self._extop_master.coefficient_dict.update({deriv_multiindex: reconstruct_op})
             reconstruct_op._extop_master = self._extop_master
-        else:
-            if deriv_multiindex != (0,)*len(operands):
-                reconstruct_op._extop_master = self._extop_master
-            reconstruct_op._extop_dependencies = [e._ufl_expr_reconstruct_(*operands) for e in self._extop_dependencies[1:]]
+        elif deriv_multiindex != (0,)*len(operands):
+            reconstruct_op._extop_master = self._extop_master
         return reconstruct_op
 
     def __str__(self):

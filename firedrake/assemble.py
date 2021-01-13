@@ -515,7 +515,7 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
 
     if hasattr(expr, 'external_operators'):
         external_operators = list(expr.external_operators())
-        new_coefficients = list(e.coefficient for e in external_operators)
+        new_coefficients = list(e.get_coefficient() for e in external_operators)
         for ki in kernels:
             if hasattr(ki.kinfo, 'external_operators'):
                 for k, v in ki.kinfo.external_operators.items():
@@ -531,9 +531,9 @@ def create_parloops(expr, create_op2arg, *, assembly_rank=None, diagonal=False,
                         expr_args = expr.arguments()
                         args_list = tuple(tuple((expr_args[position], is_adj) for position, is_adj in args) for args in v.values())
                         d._add_dependencies(deriv_ind, args_list)
-                        reconstruct_extops = [e for e in d._extop_dependencies if e.derivatives in v]
+                        reconstruct_extops = [e for k, e in d._extop_master.coefficient_dict.items() if k in v]
                         external_operators.extend(reconstruct_extops)
-                        new_coefficients.extend([e.coefficient for e in reconstruct_extops])
+                        new_coefficients.extend([e.get_coefficient() for e in reconstruct_extops])
 
         coefficients += tuple(e for e in new_coefficients if e not in coefficients)
         # If there are any PointwiseOperators, evaluate them now.
