@@ -39,7 +39,7 @@ def test_interval_div_free():
 
     v = TestFunction(L2)
 
-    f = assemble(div(u)*v*dx)
+    f = assemble(inner(div(u), v)*dx)
 
     # Check pointwise div-free
     assert np.allclose(f.dat.data, 0)
@@ -64,7 +64,7 @@ def test_periodic_interval_div_free():
 
     v = TestFunction(L2)
 
-    f = assemble(div(u)*v*dx)
+    f = assemble(inner(div(u), v)*dx)
 
     # Check pointwise div-free
     assert np.allclose(f.dat.data, 0)

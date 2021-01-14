@@ -28,10 +28,10 @@ def run_test(degree, refinements, hemisphere):
     V = FunctionSpace(mesh, "CG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(u), grad(v))*dx
+    a = inner(grad(u), grad(v))*dx
     x, y, z = SpatialCoordinate(mesh)
 
-    L = -(x*y*z)*v*dx
+    L = -inner(x*y*z, v)*dx
 
     exact = -(x*y*z)/12.0
 
@@ -41,7 +41,7 @@ def run_test(degree, refinements, hemisphere):
     solve(a == L, u, bcs=bc,
           solver_parameters={"ksp_type": "preonly",
                              "pc_type": "lu"})
-    return errornorm(u, interpolate(exact, V))
+    return abs(errornorm(u, interpolate(exact, V)))
 
 
 def test_octahedral_hemisphere(degree, hemisphere, convergence):

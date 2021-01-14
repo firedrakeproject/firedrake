@@ -91,7 +91,7 @@ def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant(['1'] * (VV.ufl_element().value_shape()[0] + 1)))
+        f.interpolate(Constant([1] * (VV.ufl_element().value_shape()[0] + 1)))
 
 
 def test_function_val(V):

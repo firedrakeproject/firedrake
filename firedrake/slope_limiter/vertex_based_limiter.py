@@ -4,6 +4,8 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.parloops import par_loop, READ, RW, MIN, MAX
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
+from firedrake import utils
+from ufl import inner
 __all__ = ("VertexBasedLimiter",)
 
 
@@ -23,6 +25,9 @@ class VertexBasedLimiter(Limiter):
 
         :param space : FunctionSpace instance
         """
+
+        if utils.complex_mode:
+            raise ValueError("We haven't decided what limiting complex valued fields means. Please get in touch if you have need.")
 
         self.P1DG = space
         self.P1CG = FunctionSpace(self.P1DG.mesh(), 'CG', 1)  # for min/max limits
@@ -70,7 +75,7 @@ class VertexBasedLimiter(Limiter):
         """
         u = TrialFunction(self.P0)
         v = TestFunction(self.P0)
-        a = assemble(u * v * dx)
+        a = assemble(inner(u, v) * dx)
         return LinearSolver(a, solver_parameters={'ksp_type': 'preonly',
                                                   'pc_type': 'bjacobi',
                                                   'sub_pc_type': 'ilu'})
@@ -79,7 +84,7 @@ class VertexBasedLimiter(Limiter):
         """
         Update centroid values
         """
-        assemble(TestFunction(self.P0) * field * dx, tensor=self.centroids_rhs)
+        assemble(inner(field, TestFunction(self.P0)) * dx, tensor=self.centroids_rhs)
         self.centroid_solver.solve(self.centroids, self.centroids_rhs)
 
     def compute_bounds(self, field):

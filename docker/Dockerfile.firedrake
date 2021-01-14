@@ -9,4 +9,4 @@ USER firedrake
 WORKDIR /home/firedrake
 
 # Now install extra Firedrake components.
-RUN bash -c "source firedrake/bin/activate; firedrake-update --documentation-dependencies --slepc --install thetis --install gusto --install icepack"
+RUN bash -c "source firedrake/bin/activate; firedrake-update --documentation-dependencies --tinyasm --slepc --install thetis --install gusto --install icepack"

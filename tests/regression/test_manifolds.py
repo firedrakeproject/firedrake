@@ -1,6 +1,9 @@
+import firedrake_configuration
 from firedrake import *
 import pytest
 import numpy as np
+
+config = firedrake_configuration.get_config()
 
 
 # This test solves a mixed formulation of the Poisson equation with
@@ -22,16 +25,23 @@ def run_no_manifold():
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
+
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x[0] - 0.5)
 
     u, p = up.split()
@@ -59,16 +69,23 @@ def run_manifold():
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
+
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 
     u, p = up.split()

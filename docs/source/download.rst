@@ -33,6 +33,17 @@ use Firedrake::
 
      source firedrake/bin/activate.csh
 
+
+Installation and MPI
+--------------------
+
+By default, ``firedrake-install`` will prompt the PETSc installer to
+download and install its own MPICH library and executables in the
+virtual environment.  This has implications for the performance of the
+resulting library when run in parallel.  Instructions on how best to
+configure MPI for the installation process are `found here
+<https://www.firedrakeproject.org/parallelism.html>`_.
+
 Testing the installation
 ------------------------
 
@@ -87,10 +98,11 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.6 or later. The installation script is
-tested on Ubuntu and MacOS X. On Ubuntu 18.04 or later, the system
-installed Python 3 is supported and tested. On MacOS, the homebrew_
-installed Python 3 is supported and tested::
+Firedrake requires Python 3.6.x to 3.8.x (many externally managed
+dependencies such as VTK have yet to create binary wheels for 3.9.x).
+The installation script is tested on Ubuntu and MacOS X. On Ubuntu 18.04
+or later, the system installed Python 3 is supported and tested. On
+MacOS, the homebrew_ installed Python 3 is supported and tested::
 
   brew install python3
 
@@ -106,7 +118,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version >=3.6
+* Python version 3.8.x-3.6.x
 * The Python headers
 * autoconf, automake, libtool
 * CMake

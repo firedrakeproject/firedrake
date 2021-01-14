@@ -33,8 +33,8 @@ def run_gtmg_mixed_poisson():
     f = Function(DG)
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
-    a = (dot(sigma, tau) - div(tau)*u + v*div(sigma)) * dx
-    L = f * v * dx
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
+    L = inner(f, v)*dx
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -100,14 +100,14 @@ def run_gtmg_scpc_mixed_poisson():
     f = Function(V)
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
-    a = (dot(sigma, tau)*dx - div(tau)*u*dx
-         + v*div(sigma)*dx
-         + lambdar('+')*jump(tau, n=n)*dS
+    a = (inner(sigma, tau)*dx - inner(u, div(tau))*dx
+         + inner(div(sigma), v)*dx
+         + inner(lambdar('+'), jump(tau, n=n))*dS
          # Multiply transmission equation by -1 to ensure
          # SCPC produces the SPD operator after statically
          # condensing
-         - gammar('+')*jump(sigma, n=n)*dS)
-    L = f * v * dx
+         - inner(jump(sigma, n=n), gammar('+'))*dS)
+    L = inner(f, v)*dx
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -143,11 +143,11 @@ def run_gtmg_scpc_mixed_poisson():
     return errornorm(f, uh, norm_type="L2")
 
 
-@pytest.mark.parallel
+@pytest.mark.skipcomplexnoslate
 def test_mixed_poisson_gtmg():
     assert run_gtmg_mixed_poisson() < 1e-5
 
 
-@pytest.mark.parallel
+@pytest.mark.skipcomplexnoslate
 def test_scpc_mixed_poisson_gtmg():
     assert run_gtmg_scpc_mixed_poisson() < 1e-5

@@ -23,8 +23,8 @@ def test_bottom(P2):
     v = TestFunction(P2)
     xs = SpatialCoordinate(P2.mesh())
 
-    a = dot(grad(u), grad(v))*dx
-    L = -20*v*dx + 20*v*ds_b
+    a = inner(grad(u), grad(v))*dx
+    L = -inner(20, v)*dx + inner(20, v)*ds_b
     bc_expr = 10*(xs[2]-1)*(xs[2]-1)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
@@ -45,8 +45,8 @@ def test_top(P2):
     v = TestFunction(P2)
     xs = SpatialCoordinate(P2.mesh())
 
-    a = dot(grad(u), grad(v))*dx
-    L = -20*v*dx + 20*v*ds_t
+    a = inner(grad(u), grad(v))*dx
+    L = -inner(20, v)*dx + inner(20, v)*ds_t
     bc_expr = 10*xs[2]*xs[2]
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),
@@ -67,8 +67,8 @@ def test_topbottom(P2):
     v = TestFunction(P2)
     xs = SpatialCoordinate(P2.mesh())
 
-    a = dot(grad(u), grad(v))*dx
-    L = -20*v*dx + 10*v*ds_tb
+    a = inner(grad(u), grad(v))*dx
+    L = -inner(20, v)*dx + inner(10, v)*ds_tb
     bc_expr = 10*(xs[2]-0.5)*(xs[2]-0.5)
     bcs = [DirichletBC(P2, bc_expr, 1),
            DirichletBC(P2, bc_expr, 2),

@@ -20,7 +20,7 @@ from decorator import decorator
 from functools import partial
 
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
@@ -87,7 +87,7 @@ def get_node_set(mesh, key):
     nodes_per_entity, real_tensorproduct = key
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
-    halo = halo_mod.Halo(mesh._topology_dm, global_numbering)
+    halo = halo_mod.Halo(mesh.topology_dm, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 
@@ -124,7 +124,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
-    if mesh._topology_dm.getStratumSize(kind, 1) > 0:
+    if mesh.topology_dm.getStratumSize(kind, 1) > 0:
         return dmcommon.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)

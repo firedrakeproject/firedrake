@@ -225,11 +225,16 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
+    parameters = {}
+    parameters['scalar_type'] = utils.ScalarType
+
     if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords,
-                                                                                              domain=V.mesh(), coffee=False)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element,
+                                                                                                                       domain=V.mesh(),
+                                                                                                                       parameters=parameters,
+                                                                                                                       coffee=False)
         kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
@@ -238,8 +243,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
             pts, = dual.pt_dict.keys()
             to_pts.append(pts)
-
         kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
+        first_coeff_fake_coords = False
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
 
@@ -248,6 +253,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         assert subset.superset == cell_set
         cell_set = subset
     parloop_args = [kernel, cell_set]
+
+    if first_coeff_fake_coords:
+        # Replace with real coords coefficient
+        coefficients[0] = coords
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor

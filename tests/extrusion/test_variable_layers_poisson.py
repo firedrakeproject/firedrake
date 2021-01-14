@@ -1,6 +1,6 @@
 from firedrake import *
 import numpy
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_poisson_variable_layers():
@@ -24,18 +24,18 @@ def test_poisson_variable_layers():
 
     selector = interpolate(
         conditional(
-            Or(x < 0.1,
-               x > 0.9),
+            Or(real(x) < 0.1,
+               real(x) > 0.9),
             4,
-            conditional(Or(And(x > 0.1, x < 0.2),
-                           And(x > 0.8, x < 0.9)),
+            conditional(Or(And(real(x) > 0.1, real(x) < 0.2),
+                           And(real(x) > 0.8, real(x) < 0.9)),
                         3, 2)),
         V)
 
     layers = numpy.empty((10, 2), dtype=IntType)
 
     layers[:, 0] = 0
-    layers[:, 1] = selector.dat.data_ro
+    layers[:, 1] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
@@ -49,8 +49,8 @@ def test_poisson_variable_layers():
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(u), grad(v))*dx
-    L = Constant(0)*v*dx
+    a = inner(grad(u), grad(v))*dx
+    L = inner(Constant(0), v)*dx
 
     x, y = SpatialCoordinate(extmesh)
 

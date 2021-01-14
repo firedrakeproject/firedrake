@@ -11,7 +11,7 @@ import numbers
 import abc
 
 from mpi4py import MPI
-from pyop2.datatypes import IntType, RealType
+from firedrake.utils import IntType, RealType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
@@ -580,7 +580,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmcommon.get_cell_markers(self._topology_dm,
+                ids = tuple(dmcommon.get_cell_markers(self.topology_dm,
                                                       self._cell_numbering,
                                                       sid)
                             for sid in all_integer_subdomain_ids)
@@ -588,7 +588,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmcommon.get_cell_markers(self._topology_dm,
+                indices = dmcommon.get_cell_markers(self.topology_dm,
                                                     self._cell_numbering,
                                                     subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
@@ -663,14 +663,14 @@ class MeshTopology(AbstractMeshTopology):
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
-                dmcommon.set_adjacency_callback(self._topology_dm)
-                self._topology_dm.distributeOverlap(overlap)
-                dmcommon.clear_adjacency_callback(self._topology_dm)
+                dmcommon.set_adjacency_callback(self.topology_dm)
+                self.topology_dm.distributeOverlap(overlap)
+                dmcommon.clear_adjacency_callback(self.topology_dm)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
                 # Default is FEM (vertex star) adjacency.
-                self._topology_dm.distributeOverlap(overlap)
+                self.topology_dm.distributeOverlap(overlap)
                 self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -678,7 +678,7 @@ class MeshTopology(AbstractMeshTopology):
         dmcommon.validate_mesh(plex)
         plex.setFromOptions()
 
-        self._topology_dm = plex
+        self.topology_dm = plex
         self._comm = dup_comm(plex.comm.tompi4py())
 
         # Mark exterior and interior facets
@@ -742,7 +742,7 @@ class MeshTopology(AbstractMeshTopology):
 
             if reorder:
                 with timed_region("Mesh: reorder"):
-                    old_to_new = self._topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
             else:
@@ -752,9 +752,9 @@ class MeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
-                self._plex_renumbering = dmcommon.plex_renumbering(self._topology_dm,
+                dmcommon.mark_entity_classes(self.topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+                self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
                                                                    self._entity_classes,
                                                                    reordering)
 
@@ -770,7 +770,7 @@ class MeshTopology(AbstractMeshTopology):
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmcommon.get_facet_ordering(self._topology_dm, facet_numbering)
+                self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
 
     @property
@@ -783,7 +783,7 @@ class MeshTopology(AbstractMeshTopology):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self._topology_dm
+        plex = self.topology_dm
         tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
@@ -830,7 +830,7 @@ class MeshTopology(AbstractMeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
 
-        dm = self._topology_dm
+        dm = self.topology_dm
         facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets").encode(),
                                                        self._facet_ordering)
         label = dmcommon.FACE_SETS_LABEL
@@ -883,7 +883,7 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmcommon.cell_facet_labeling(self._topology_dm,
+        cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
@@ -894,27 +894,27 @@ class MeshTopology(AbstractMeshTopology):
                        name="cell-to-local-facet-dat")
 
     def num_cells(self):
-        cStart, cEnd = self._topology_dm.getHeightStratum(0)
+        cStart, cEnd = self.topology_dm.getHeightStratum(0)
         return cEnd - cStart
 
     def num_facets(self):
-        fStart, fEnd = self._topology_dm.getHeightStratum(1)
+        fStart, fEnd = self.topology_dm.getHeightStratum(1)
         return fEnd - fStart
 
     def num_faces(self):
-        fStart, fEnd = self._topology_dm.getDepthStratum(2)
+        fStart, fEnd = self.topology_dm.getDepthStratum(2)
         return fEnd - fStart
 
     def num_edges(self):
-        eStart, eEnd = self._topology_dm.getDepthStratum(1)
+        eStart, eEnd = self.topology_dm.getDepthStratum(1)
         return eEnd - eStart
 
     def num_vertices(self):
-        vStart, vEnd = self._topology_dm.getDepthStratum(0)
+        vStart, vEnd = self.topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
     def num_entities(self, d):
-        eStart, eEnd = self._topology_dm.getDepthStratum(d)
+        eStart, eEnd = self.topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
     @utils.cached_property
@@ -951,7 +951,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self._topology_dm = mesh._topology_dm
+        self.topology_dm = mesh.topology_dm
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
@@ -960,7 +960,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
-            extents = extnum.layer_extents(self._topology_dm,
+            extents = extnum.layer_extents(self.topology_dm,
                                            self._cell_numbering,
                                            layers)
             if np.any(extents[:, 3] - extents[:, 2] <= 0):
@@ -1146,7 +1146,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         swarm.setFromOptions()
 
         self._parent_mesh = parentmesh
-        self._topology_dm = swarm
+        self.topology_dm = swarm
         self._comm = dup_comm(swarm.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
@@ -1166,8 +1166,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Swarm numbering
             with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
+                dmcommon.mark_entity_classes(self.topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
                 # Derive a cell numbering from the Swarm numbering
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
@@ -1190,7 +1190,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        swarm = self._topology_dm
+        swarm = self.topology_dm
         tdim = 0
 
         # Cell numbering and global vertex numbering
@@ -1246,7 +1246,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return 0
 
     def num_vertices(self):
-        return self._topology_dm.getLocalSize()
+        return self.topology_dm.getLocalSize()
 
     def num_entities(self, d):
         if d > 0:
@@ -1380,11 +1380,20 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V)
-        coords_max = function.Function(V)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
+
+        if utils.complex_mode:
+            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+                raise ValueError("Coordinate field has non-zero imaginary part")
+            coords = function.Function(self.coordinates.function_space(),
+                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+                                       dtype=RealType)
+        else:
+            coords = self.coordinates
 
         cell_node_list = self.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
@@ -1397,7 +1406,7 @@ values from f.)"""
         end
         """
         par_loop((domain, instructions), ufl.dx,
-                 {'f': (self.coordinates, READ),
+                 {'f': (coords, READ),
                   'f_min': (coords_min, MIN),
                   'f_max': (coords_max, MAX)},
                  is_loopy_kernel=True)
@@ -1417,9 +1426,15 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
+
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
+
         x = np.asarray(x, dtype=utils.ScalarType)
+        if not np.allclose(x.imag, 0):
+            raise ValueError("Point coordinates must have zero imaginary part")
+        x = x.real.copy()
+
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
@@ -1845,7 +1860,7 @@ def VertexOnlyMesh(mesh, vertexcoords):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology._topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
 
     dmcommon.label_pic_parent_cell_nums(swarm, mesh)
 
@@ -1902,7 +1917,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         For example, the swarm coordinates themselves are stored in a
         field named `DMSwarmPIC_coor` which, were it not created
         automatically, would be initialised with
-        ``fields = [("DMSwarmPIC_coor", coordsdim, ScalarType)]``.
+        ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
         information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
     :return: the immersed DMSwarm
@@ -1910,6 +1925,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     .. note::
 
         The created DMSwarm uses the communicator of the input DMPlex.
+
+    .. note::
+
+        In complex mode the "DMSwarmPIC_coor" field is still saved as a
+        real number unlike the coordinates of a DMPlex which become
+        complex (though usually with zeroed imaginary parts).
     """
 
     # Check coords
@@ -1974,6 +1995,8 @@ def SubDomainData(geometric_expr):
 
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
+
+    .. code-block:: python3
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)

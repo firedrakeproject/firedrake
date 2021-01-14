@@ -91,18 +91,18 @@ def test_betti1(space, mesh):
     W = V0*V1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                  + div(u)*div(v))*dx)
+    L = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                  + inner(div(u), div(v))) * dx)
 
     bc0 = DirichletBC(W.sub(0), Constant(0.0), 9)
     bc1 = DirichletBC(W.sub(1), Constant((0.0, 0.0)), 9)
-    L0 = assemble((sigma*tau - inner(rot(tau), u) + inner(rot(sigma), v)
-                   + div(u)*div(v))*dx, bcs=[bc0, bc1])
+    L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
+                   + inner(div(u), div(v))) * dx, bcs=[bc0, bc1])
 
     dV0 = V0.dof_count
     dV1 = V1.dof_count
 
-    A = numpy.zeros((dV0+dV1, dV0+dV1))
+    A = numpy.zeros((dV0+dV1, dV0+dV1), dtype=utils.ScalarType)
     A[:dV0, :dV0] = L.M[0, 0].values
     A[:dV0, dV0:dV0+dV1] = L.M[0, 1].values
     A[dV0:dV0+dV1, :dV0] = L.M[1, 0].values
@@ -116,7 +116,7 @@ def test_betti1(space, mesh):
     dV0 = V0.dof_count
     dV1 = V1.dof_count
 
-    A0 = numpy.zeros((dV0+dV1, dV0+dV1))
+    A0 = numpy.zeros((dV0+dV1, dV0+dV1), dtype=utils.ScalarType)
     A0[:dV0, :dV0] = L0.M[0, 0].values
     A0[:dV0, dV0:dV0+dV1] = L0.M[0, 1].values
     A0[dV0:dV0+dV1, :dV0] = L0.M[1, 0].values
@@ -153,15 +153,15 @@ def test_betti2(space, mesh):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    L = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx)
+    L = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx)
 
     bc1 = DirichletBC(W.sub(0), Constant((0.0, 0.0)), 9)
-    L0 = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx, bcs=[bc1])
+    L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=[bc1])
 
     dV1 = V1.dof_count
     dV2 = V2.dof_count
 
-    A = numpy.zeros((dV1+dV2, dV1+dV2))
+    A = numpy.zeros((dV1+dV2, dV1+dV2), dtype=utils.ScalarType)
     A[:dV1, :dV1] = L.M[0, 0].values
     A[:dV1, dV1:dV1+dV2] = L.M[0, 1].values
     A[dV1:dV1+dV2, :dV1] = L.M[1, 0].values
@@ -173,7 +173,7 @@ def test_betti2(space, mesh):
     print(nharmonic, V1tag[0])
     assert(nharmonic == 0)
 
-    A0 = numpy.zeros((dV1+dV2, dV1+dV2))
+    A0 = numpy.zeros((dV1+dV2, dV1+dV2), dtype=utils.ScalarType)
     A0[:dV1, :dV1] = L0.M[0, 0].values
     A0[:dV1, dV1:dV1+dV2] = L0.M[0, 1].values
     A0[dV1:dV1+dV2, :dV1] = L0.M[1, 0].values

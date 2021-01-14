@@ -3,7 +3,7 @@ import ufl
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.datatypes import ScalarType
+from firedrake.utils import ScalarType
 
 import firedrake.utils as utils
 from firedrake.adjoint.constant import ConstantMixin

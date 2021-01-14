@@ -120,14 +120,33 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        J = self.problem_J
-        if J is not None:
-            J = self._replace_form(J, func)
-        problem = self.backend.NonlinearVariationalProblem(lhs, func, bcs, J=J)
-        solver = self.backend.NonlinearVariationalSolver(problem, **self.solver_kwargs)
-        solver.parameters.update(self.solver_params)
-        solver.solve()
+        self._ad_nlvs_replace_forms()
+        self._ad_nlvs.parameters.update(self.solver_params)
+        self._ad_nlvs.solve()
+        func.assign(self._ad_nlvs._problem.u)
         return func
+
+    def _ad_assign_map(self, form):
+        count_map = self._ad_nlvs._problem._ad_count_map
+        assign_map = {}
+        form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
+        for block_variable in self.get_dependencies():
+            coeff = block_variable.output
+            if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
+                coeff_count = coeff.count()
+                if coeff_count in form_ad_count_map:
+                    assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
+        return assign_map
+
+    def _ad_assign_coefficients(self, form):
+        assign_map = self._ad_assign_map(form)
+        for coeff, value in assign_map.items():
+            coeff.assign(value)
+
+    def _ad_nlvs_replace_forms(self):
+        problem = self._ad_nlvs._problem
+        self._ad_assign_coefficients(problem.F)
+        self._ad_assign_coefficients(problem.J)
 
 
 class ProjectBlock(SolveVarFormBlock):
@@ -138,8 +157,8 @@ class ProjectBlock(SolveVarFormBlock):
         dx = self.backend.dx(mesh)
         w = self.backend.TestFunction(V)
         Pv = self.backend.TrialFunction(V)
-        a = self.backend.inner(w, Pv) * dx
-        L = self.backend.inner(w, v) * dx
+        a = self.backend.inner(Pv, w) * dx
+        L = self.backend.inner(v, w) * dx
 
         super().__init__(a == L, output, bcs, *args, **kwargs)
 
@@ -204,10 +223,15 @@ class FunctionMergeBlock(Block, Backend):
         super().__init__()
         self.add_dependency(func)
         self.idx = idx
+        for output in func._ad_outputs:
+            self.add_dependency(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        return adj_inputs[0]
+        if idx == 0:
+            return adj_inputs[0].split()[self.idx]
+        else:
+            return adj_inputs[0]
 
     def evaluate_tlm(self):
         tlm_input = self.get_dependencies()[0].tlm_value
@@ -224,9 +248,12 @@ class FunctionMergeBlock(Block, Backend):
         return hessian_inputs[0]
 
     def recompute(self):
-        dep = self.get_dependencies()[0].checkpoint
-        output = self.get_outputs()[0].checkpoint
-        self.backend.Function.assign(self.backend.Function.sub(output, self.idx), dep)
+        deps = self.get_dependencies()
+        sub_func = deps[0].checkpoint
+        parent_in = deps[1].checkpoint
+        parent_out = self.get_outputs()[0].checkpoint
+        parent_out.assign(parent_in)
+        parent_out.sub(self.idx).assign(sub_func)
 
 
 class MeshOutputBlock(Block):
@@ -268,7 +295,7 @@ class PointwiseOperatorBlock(Block, Backend):
         return ufl.replace(self.point_op, self._replace_map())
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, N=None):
-        if self.point_op.coefficient == block_variable.output:
+        if self.point_op.get_coefficient() == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
 

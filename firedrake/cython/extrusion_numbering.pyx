@@ -191,7 +191,7 @@ from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from tsfc.finatinterface import as_fiat_cell
 
 cimport numpy
@@ -341,7 +341,7 @@ def node_classes(mesh, nodes_per_entity):
 
     node_classes = numpy.zeros(3, dtype=IntType)
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
     dimension = dm.getDimension()
     stratum_bounds = numpy.zeros((dimension + 1, 2), dtype=IntType)
     for i in range(dimension + 1):
@@ -385,7 +385,7 @@ def entity_layers(mesh, height, label=None):
         const PetscInt *renumbering
         PetscBool flg
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
 
     hStart, hEnd = dm.getHeightStratum(height)
     if label is None:
@@ -472,7 +472,7 @@ def top_bottom_boundary_nodes(mesh,
         if section.getDof(facet_points[i]) != section.getDof(facet_points[0]):
             raise ValueError("All vertical facets should mask same number of dofs")
 
-    dm = mesh._topology_dm
+    dm = mesh.topology_dm
     fStart, fEnd = dm.getHeightStratum(1)
     if top:
         num_indices = (section.getDof(top_facet) * ncell

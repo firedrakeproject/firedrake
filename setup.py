@@ -1,5 +1,4 @@
 from distutils.core import setup
-from distutils.extension import Extension
 from glob import glob
 from os import environ as env, path
 from Cython.Distutils import build_ext
@@ -8,6 +7,17 @@ import sys
 import numpy as np
 import petsc4py
 import versioneer
+
+from firedrake_configuration import get_config
+
+try:
+    from Cython.Distutils.extension import Extension
+    config = get_config()
+    complex_mode = config['options'].get('complex', False)
+except ImportError:
+    # No Cython Extension means no complex mode!
+    from distutils.extension import Extension
+    complex_mode = False
 
 
 def get_petsc_dir():
@@ -36,6 +46,7 @@ if "clean" in sys.argv[1:]:
                 or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
+cython_compile_time_env = {'COMPLEX': complex_mode}
 cythonfiles = [("dmcommon", ["petsc"]),
                ("extrusion_numbering", ["petsc"]),
                ("hdf5interface", ["petsc"]),
@@ -43,6 +54,7 @@ cythonfiles = [("dmcommon", ["petsc"]),
                ("patchimpl", ["petsc"]),
                ("spatialindex", ["spatialindex_c"]),
                ("supermeshimpl", ["supermesh", "petsc"])]
+
 
 petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
@@ -55,7 +67,8 @@ extensions = [Extension("firedrake.cython.{}".format(ext),
                         sources=[os.path.join("firedrake", "cython", "{}.pyx".format(ext))],
                         include_dirs=include_dirs,
                         libraries=libs,
-                        extra_link_args=link_args) for (ext, libs) in cythonfiles]
+                        extra_link_args=link_args,
+                        cython_compile_time_env=cython_compile_time_env) for (ext, libs) in cythonfiles]
 if 'CC' not in env:
     env['CC'] = "mpicc"
 

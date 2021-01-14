@@ -9,7 +9,7 @@ def V():
 
 @pytest.fixture
 def a(V):
-    return TrialFunction(V)*TestFunction(V)*dx
+    return inner(TrialFunction(V), TestFunction(V)) * dx
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def f(V):
 
 @pytest.fixture
 def L(V, f):
-    return f*TestFunction(V)*dx
+    return inner(f, TestFunction(V)) * dx
 
 
 @pytest.fixture

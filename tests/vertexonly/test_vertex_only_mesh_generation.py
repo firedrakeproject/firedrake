@@ -30,7 +30,7 @@ def cell_midpoints(m):
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
-    midpoints = np.empty((num_cells, m.ufl_cell().geometric_dimension()), dtype=float)
+    midpoints = np.empty((num_cells, m.ufl_cell().geometric_dimension()), dtype=local_midpoints.dtype)
     MPI.COMM_WORLD.Allgatherv(local_midpoints, (midpoints, local_midpoints_sizes))
     assert len(np.unique(midpoints, axis=0)) == len(midpoints)
     return midpoints, local_midpoints
@@ -119,10 +119,10 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert vm.num_edges() == vm.num_entities(1) == 0
     assert vm.num_vertices() == vm.num_entities(0) == vm.num_cells()
     # Correct parent cell numbers
-    stored_vertex_coords = np.copy(vm._topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
-    vm._topology_dm.restoreField("DMSwarmPIC_coor")
-    stored_parent_cell_nums = np.copy(vm._topology_dm.getField("parentcellnum"))
-    vm._topology_dm.restoreField("parentcellnum")
+    stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
+    vm.topology_dm.restoreField("DMSwarmPIC_coor")
+    stored_parent_cell_nums = np.copy(vm.topology_dm.getField("parentcellnum"))
+    vm.topology_dm.restoreField("parentcellnum")
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
     for i in range(len(stored_vertex_coords)):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]

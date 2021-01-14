@@ -23,8 +23,6 @@ def test_abstract_pointwise_operator(mesh):
 
     class TestAbstract(AbstractExternalOperator):
 
-        _external_operator_type = 'LOCAL'
-
         def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data):
             AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
 

@@ -81,6 +81,7 @@ def run_test(degree):
     return np.asarray(l2error)
 
 
+@pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
@@ -88,6 +89,7 @@ def test_periodic_1d_advection(degree, threshold):
     assert np.all(convergence > threshold)
 
 
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=2)
 def test_periodic_1d_advection_parallel(degree, threshold):
     l2error = run_test(degree)
