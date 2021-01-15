@@ -728,7 +728,7 @@ class MeshTopology(AbstractMeshTopology):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        label_boundary = (self.comm.size == 1) or distribute
+        label_boundary = not plex.isDistributed()
         dmcommon.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute/redistribute the dm to all ranks
@@ -980,12 +980,15 @@ class MeshTopology(AbstractMeshTopology):
                     if IntType.itemsize == 8:
                         raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
                                          "but your Integer is %d bit." % IntType.itemsize * 8)
+                    if plex.isDistributed():
+                        raise ValueError("Unable to use 'chaco': 'chaco' is a serial "
+                                         "patitioner, but the mesh is distributed.")
                 if partitioner_type == "parmetis":
                     if not get_config().get("options", {}).get("with_parmetis", False):
                         raise ValueError("Unable to use 'parmetis': Firedrake is not "
                                          "installed with 'parmetis'.")
             else:
-                if IntType.itemsize == 8:
+                if IntType.itemsize == 8 or plex.isDistributed():
                     # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
                     # Chaco does not work on distributed meshes.
                     if get_config().get("options", {}).get("with_parmetis", False):
