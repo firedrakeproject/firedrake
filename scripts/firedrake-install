@@ -488,6 +488,16 @@ pipinstall = pip + ["install",
                     "--no-build-isolation",
                     "--no-binary", ",".join(wheel_blacklist)]
 
+if mode == "install":
+    # "petsc4py" is in `branches` when we are explicitly asking for a petsc4py
+    # branch that lives in firedrake-project/petsc4py. This happens when we do:
+    # python3 firedrake-install --doi some_old_zenodo_doi ...
+    # or:
+    # python3 firedrake-install --package-branch petsc4py some_old_branch ...
+    use_petsc4py_in_petsc = "petsc4py" not in branches
+else:
+    use_petsc4py_in_petsc = True
+
 
 # This context manager should be used whenever arguments should be temporarily added to pipinstall.
 class pipargs(object):
@@ -672,7 +682,10 @@ def git_url(plain_url, protocol):
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
-        log.info("Using existing petsc installation\n")
+        log.info("Using existing PETSc installation\n")
+        return name
+    elif name == "petsc4py" and use_petsc4py_in_petsc:
+        log.info("Not cloning petsc4py from firedrake-project repo: using petsc4py in PETSc source tree.\n")
         return name
     log.info("Cloning %s\n" % name)
     branch = branches.get(name.lower(), branch)
@@ -822,7 +835,9 @@ def install(package):
         build_and_install_petsc()
     elif package == "slepc/":
         build_and_install_slepc()
-    elif package in ["petsc4py/", "slepc4py/"]:
+    elif package == "petsc4py/":
+        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
+    elif package == "slepc4py/":
         # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", package])
     elif package == "h5py/":
@@ -890,6 +905,15 @@ def get_petsc_dir():
     return petsc_dir, petsc_arch
 
 
+def get_petsc4py_dir():
+    if use_petsc4py_in_petsc:
+        petsc_dir, _ = get_petsc_dir()
+        # petsc4py is currently here:
+        return os.path.join(petsc_dir, "src/binding/petsc4py/")
+    else:
+        return "petsc4py/"
+
+
 def get_slepc_dir():
     petsc_dir, petsc_arch = get_petsc_dir()
     if args.honour_petsc_dir:
@@ -947,7 +971,6 @@ def build_and_install_petsc():
 
 
 def build_and_install_h5py():
-    import shutil
     log.info("Installing h5py")
     # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
@@ -1284,7 +1307,6 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
-                             "python3",
                              "autoconf",
                              "make",
                              "automake",
@@ -1445,26 +1467,27 @@ if mode == "install":
 
 petsc_dir, petsc_arch = get_petsc_dir()
 
-should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
+if mode == "install":
+    should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
 
-# Set up the MPI wrappers
-for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
-    if options.get(opt):
-        name = options[opt]
-        src = shutil.which(name)
-    else:
-        src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
-    dest = os.path.join(firedrake_env, "bin", opt)
-    # Remove old symlinks
-    if os.path.lexists(dest):
-        os.remove(dest)
-    elif os.path.exists(dest):
-        os.remove(dest)
-    if should_link:
-        log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
-        with open(dest, "w") as f:
-            f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
-        os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
+    # Set up the MPI wrappers
+    for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
+        if options.get(opt):
+            name = options[opt]
+            src = shutil.which(name)
+        else:
+            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+        dest = os.path.join(firedrake_env, "bin", opt)
+        # Remove old symlinks
+        if os.path.lexists(dest):
+            os.remove(dest)
+        elif os.path.exists(dest):
+            os.remove(dest)
+        if should_link:
+            log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
+            with open(dest, "w") as f:
+                f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
+            os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
@@ -1599,7 +1622,12 @@ else:
         petsc_changed = git_update("petsc", deps["petsc"])
     else:
         petsc_changed = False
-    petsc4py_changed = git_update("petsc4py", deps["petsc4py"])
+    if os.path.exists(os.path.join(firedrake_env, "src/petsc4py")):
+        clean("petsc4py/")
+        shutil.move("petsc4py", "petsc4py_old")
+        petsc4py_changed = True
+    else:
+        petsc4py_changed = False
 
     packages.remove("petsc")
     packages.remove("petsc4py")
@@ -1650,10 +1678,21 @@ else:
 
     with pipargs("--no-deps"):
         if args.rebuild or petsc_changed or petsc4py_changed:
-            clean("petsc4py/")
+            # If not honour_petsc_dir, we have a version of petsc that contains
+            # petsc4py in its source tree (old petsc must have been updated
+            # in the above).
+            # If honour_petsc_dir, we can get here (e.g., with --rebuild flag)
+            # without obtaining the latest petsc in the above:
+            # thus, we must check if the user installed petsc contains petsc4py.
+            if args.honour_petsc_dir:
+                if not os.path.exists(get_petsc4py_dir()):
+                    raise InstallError("""\npetsc4py not found in your installation of PETSc,
+which indicates that your PETSc is relatively old.
+Please consider updating your PETSc manually.
+""")
+            clean(get_petsc4py_dir())
             with environment(**compiler_env):
                 install("petsc4py/")
-
         # Always rebuild h5py.
         with environment(**compiler_env):
             build_and_install_h5py()

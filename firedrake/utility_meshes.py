@@ -784,6 +784,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                  v2, v4, v6, v7,
                  v1, v2, v7, v4]
         cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        raise NotImplementedError("The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements")
     else:
         raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
 

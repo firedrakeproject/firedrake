@@ -352,6 +352,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         self.name = name
 
+        self.topology_dm = None
+        r"The PETSc DM representation of the mesh topology."
+
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -397,6 +400,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
@@ -650,7 +660,7 @@ class MeshTopology(AbstractMeshTopology):
         self._distribution_parameters = distribution_parameters.copy()
         if distribute is None:
             distribute = True
-
+        partitioner_type = distribution_parameters.get("partitioner_type")
         overlap_type, overlap = distribution_parameters.get("overlap_type",
                                                             (DistributedMeshOverlapType.FACET, 1))
 
@@ -679,6 +689,7 @@ class MeshTopology(AbstractMeshTopology):
         plex.setFromOptions()
 
         self.topology_dm = plex
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(plex.comm.tompi4py())
 
         # Mark exterior and interior facets
@@ -688,29 +699,17 @@ class MeshTopology(AbstractMeshTopology):
         label_boundary = (self.comm.size == 1) or distribute
         dmcommon.label_facets(plex, label_boundary=label_boundary)
 
-        # Distribute the dm to all ranks
+        # Distribute/redistribute the dm to all ranks
         if self.comm.size > 1 and distribute:
             # We distribute with overlap zero, in case we're going to
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
-            partitioner = plex.getPartitioner()
-            if IntType.itemsize == 8:
-                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
-                from firedrake_configuration import get_config
-                if get_config().get("options", {}).get("with_parmetis", False):
-                    partitioner.setType(partitioner.Type.PARMETIS)
-                else:
-                    partitioner.setType(partitioner.Type.PTSCOTCH)
-            else:
-                partitioner.setType(partitioner.Type.CHACO)
-            try:
-                sizes, points = distribute
-                partitioner.setType(partitioner.Type.SHELL)
-                partitioner.setShellPartition(self.comm.size, sizes, points)
-            except TypeError:
-                pass
-            partitioner.setFromOptions()
+            self.set_partitioner(distribute, partitioner_type)
             plex.distribute(overlap=0)
+            # plex carries a new dm after distribute, which
+            # does not inherit partitioner from the old dm.
+            # It probably makes sense as chaco does not work
+            # once distributed.
 
         tdim = plex.getDimension()
 
@@ -922,6 +921,50 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    def set_partitioner(self, distribute, partitioner_type=None):
+        """Set partitioner for (re)distributing underlying plex over comm.
+
+        :arg distribute: Boolean or (sizes, points)-tuple.  If (sizes, point)-
+            tuple is given, it is used to set shell partition. If Boolean, no-op.
+        :kwarg partitioner_type: Partitioner to be used: "chaco", "ptscotch", "parmetis",
+            "shell", or `None` (unspecified). Ignored if the distribute parameter
+            specifies the distribution.
+        """
+        from firedrake_configuration import get_config
+        plex = self.topology_dm
+        partitioner = plex.getPartitioner()
+        if type(distribute) is bool:
+            if partitioner_type:
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
+                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
+                if partitioner_type == "chaco":
+                    if IntType.itemsize == 8:
+                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
+                                         "but your Integer is %d bit." % IntType.itemsize * 8)
+                if partitioner_type == "parmetis":
+                    if not get_config().get("options", {}).get("with_parmetis", False):
+                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
+                                         "installed with 'parmetis'.")
+            else:
+                if IntType.itemsize == 8:
+                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
+                    # Chaco does not work on distributed meshes.
+                    if get_config().get("options", {}).get("with_parmetis", False):
+                        partitioner_type = "parmetis"
+                    else:
+                        partitioner_type = "ptscotch"
+                else:
+                    partitioner_type = "chaco"
+            partitioner.setType({"chaco": partitioner.Type.CHACO,
+                                 "ptscotch": partitioner.Type.PTSCOTCH,
+                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+        else:
+            sizes, points = distribute
+            partitioner.setType(partitioner.Type.SHELL)
+            partitioner.setShellPartition(self.comm.size, sizes, points)
+        # Command line option `-petscpartitioner_type <type>` overrides.
+        partitioner.setFromOptions()
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -952,6 +995,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
         self.topology_dm = mesh.topology_dm
+        r"The PETSc DM representation of the mesh topology."
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
@@ -1149,6 +1193,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(swarm.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
@@ -1307,6 +1352,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     @utils.cached_property
     @MeshGeometryMixin._ad_annotate_coordinates_function
@@ -1577,6 +1629,8 @@ def Mesh(meshfile, **kwargs):
                  the default choice), ``False`` (do not) ``True``
                  (do), or a 2-tuple that specifies a partitioning of
                  the cells (only really useful for debugging).
+             -``"partitioner_type"``: which may take ``"chaco"``,
+                 ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
              - ``"overlap_type"``: a 2-tuple indicating how to grow
                  the mesh overlap.  The first entry should be a
                  :class:`DistributedMeshOverlapType` instance, the
