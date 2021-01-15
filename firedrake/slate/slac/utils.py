@@ -326,8 +326,10 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="termin
     elif strategy == "when_needed":
         tensor2temp, tsfc_kernels, insns, builder = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr)
 
+    # FIXME for some reason the temporaries in the tsfc kernels don't have a shape
+    all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
     # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, list(all_kernels))
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = slate_loopy.domains + builder.bag.index_creator.domains
