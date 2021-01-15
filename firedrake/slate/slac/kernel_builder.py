@@ -703,6 +703,13 @@ class LocalLoopyKernelBuilder(object):
         for tensor_temp in tensor2temp.values():
             args.append(tensor_temp)
 
+        for knl in templated_subkernels:
+            if isinstance(knl, loopy.program.Program):
+                knl = knl.root_kernel
+            for arg in knl.temporary_variables.values():
+                if arg not in args:
+                    args.append(arg)
+
         return args
 
     def generate_tsfc_calls(self, terminal, loopy_tensor):
