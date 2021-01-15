@@ -152,10 +152,17 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
 
     Citations().register("Gibson2018")
 
-    # optimise slate expression
-    from firedrake.slate.slac.optimise import optimise
+    if tsfc_parameters["visual_debug"]:
+        from firedrake.slate.slac.utils import visualise
+        visualise(slate_expr, "tree")
+
     if tsfc_parameters["optimise_slate"]:
+        from firedrake.slate.slac.optimise import optimise
         slate_expr = optimise(slate_expr, tsfc_parameters)
+
+    if tsfc_parameters["visual_debug"]:
+        from firedrake.slate.slac.utils import visualise
+        visualise(slate_expr, "tree")
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
