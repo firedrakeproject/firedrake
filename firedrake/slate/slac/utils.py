@@ -319,6 +319,8 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="terminals_first", slate_expr = None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     
+    if isinstance(slate_loopy, lp.program.Program):
+        slate_loopy = slate_loopy.root_kernel
 
     if strategy == "terminals_first":
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
@@ -341,8 +343,14 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="termin
     prg = make_program(slate_wrapper)
     loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
     for knl in loop:
-        prg = register_callable_kernel(prg, knl)
-        prg = inline_callable_kernel(prg, knl.name)
+        # FIXME we might need to inline properly here for inlining the tsfc calls
+        # that is so, because we first inline the solve calls with a cg loopy kernel
+        # which contains actions and then we inline those actions after that
+        if isinstance(knl, lp.program.Program):
+            prg = inline_kernel_properly(prg, knl)
+        else:
+            prg = register_callable_kernel(prg, knl)
+            prg = inline_callable_kernel(prg, knl.name)
     return prg
 
 
