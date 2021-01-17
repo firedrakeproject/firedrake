@@ -707,7 +707,7 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(knl, loopy.program.Program):
                 knl = knl.root_kernel
             for arg in knl.temporary_variables.values():
-                if arg not in args:
+                if arg.name not in [arg.name for arg in args]:
                     args.append(arg)
 
         return args
