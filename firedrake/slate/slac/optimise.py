@@ -21,7 +21,7 @@ def _action_block(expr, self, state):
 
 @_action.register(Inverse)
 def _action_inverse(expr, self, state):
-    return Solve(expr.children[0], state.coeff)
+    return Solve(expr.children[0], state.coeff, matfree=True)
 
 @_action.register(Solve)
 def _action_solve(expr, self, state):
