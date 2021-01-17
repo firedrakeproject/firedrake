@@ -393,6 +393,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
 
                 # node should not depend on number because loopy instructions are a priori not rigorously ordered
                 # we need to match the node with the temporary variables in the action call
+                # FIXME we should do this nicer be keeping track of information upfront
                 def find_node(filtered_expr):
                     for node in filtered_expr:
                         if isinstance(node, sl.Action):
@@ -407,15 +408,26 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                             shape = child2.shape
                             import gem
                             var2terminal[gem.Variable(name, shape)] = child2
+                        if variable1:
+                            variable1 = [variable1[-1]]
                         checks = [insn.expression.parameters[i].subscript.aggregate.name == v.name 
                                   for i, v in enumerate(itertools.chain(variable0, variable1))]
                         if all(checks):
-                            return node, var2terminal
-                
-                node, var2terminal = find_node(filtered_expr)
-                
+                            return node, var2terminal, None
+                        elif checks[0] == True and checks[1] == False:
+                            name = insn.expression.parameters[1].subscript.aggregate.name
+                            shape = child2.shape
+                            child2.name = name
+                            import gem
+                            var2terminal[gem.Variable(name, shape)] = child2
+                            return node, var2terminal, name
+
+                node, var2terminal, name = find_node(filtered_expr)
                 if isinstance(node, sl.Action):
-                    terminal = node.action()
+                    if name:
+                        terminal = node.update_action()
+                    else:
+                        terminal = node.action()
                     coeffs.update(builder.collect_coefficients([node.ufl_coefficient]))
                 else:
                     #FIXME for now we still assemble T1 for the non matrix-free solve
