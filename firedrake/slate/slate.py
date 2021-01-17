@@ -1105,6 +1105,17 @@ class Action(BinaryOp):
         self.ufl_coefficient = coeff
         return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
+    def update_action(self):
+        import ufl.algorithms as ufl_alg
+
+        # Pick first or last argument (will be replaced)
+        arguments = self.tensor.arguments()
+        u = arguments[self.pick_op]
+        cfs, = self.coeff.arguments()
+        coeff = Coefficient(cfs.ufl_function_space())
+        self.ufl_coefficient = coeff
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
+
 
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
