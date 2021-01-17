@@ -459,8 +459,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                     insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
                                                                     tsfc_calls[0].expression))
                 else:
-                    # FIXME solve is not matfree yet, so we need to assemble matrix first
-                    # URGENT FIXME in fact this does not work, we got trouble with instructions not containing the right temps
+                    # TODO we need to be able to this in case someone wants a matrix explicit solve
+                    # If we want an explicit solve, we need to assemble matrix first
+                    # FIXME in fact this does not work yet, we got trouble with instructions not containing the right temps
                     insns.append(tsfc_calls[0])
                     insns.append(insn)
 
