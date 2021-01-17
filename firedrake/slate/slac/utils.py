@@ -320,6 +320,8 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="terminals_first", slate_expr = None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     
+    if isinstance(slate_loopy, lp.program.Program):
+        slate_loopy = slate_loopy.root_kernel
 
     if strategy == "terminals_first":
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
@@ -342,8 +344,14 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="termin
     prg = make_program(slate_wrapper)
     loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
     for knl in loop:
-        prg = register_callable_kernel(prg, knl)
-        prg = inline_callable_kernel(prg, knl.name)
+        # FIXME we might need to inline properly here for inlining the tsfc calls
+        # that is so, because we first inline the solve calls with a cg loopy kernel
+        # which contains actions and then we inline those actions after that
+        if isinstance(knl, lp.program.Program):
+            prg = inline_kernel_properly(prg, knl)
+        else:
+            prg = register_callable_kernel(prg, knl)
+            prg = inline_callable_kernel(prg, knl.name)
     return prg
 
 
@@ -448,3 +456,23 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
             insns.append(insn)
 
     return tensor2temps, tsfc_knl_list, insns, builder
+
+def inline_kernel_properly(wrapper, kernel):
+
+    from loopy.transform.callable import _match_caller_callee_argument_dimension_
+
+    # Register all resolved functions of root_kernel in wrapper
+    for name, callable in kernel.callables_table.resolved_functions.items():
+        if isinstance(callable, lp.CallableKernel):
+            wrapper = lp.register_callable_kernel(wrapper, callable.subkernel)
+        else:
+            # Mathcallables e.g. do not have subkernels so add by hand
+            combined_callables = wrapper.callables_table.resolved_functions
+            combined_callables[name] = callable
+            combined_callables_table = wrapper.callables_table.copy(
+                resolved_functions=combined_callables)
+            wrapper = wrapper.copy(callables_table=combined_callables_table)
+
+        wrapper = _match_caller_callee_argument_dimension_(wrapper, kernel.name)
+        wrapper = lp.inline_callable_kernel(wrapper, kernel.name)
+    return wrapper
