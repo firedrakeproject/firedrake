@@ -232,7 +232,7 @@ def project_mesh_to_cad_2d(mesh, cad):
         curve = BRepAdaptor_Curve(edge)
 
         for node in owned_nodes:
-            pt = gp_Pnt(*coorddata[node, :], 0)
+            pt = gp_Pnt(*np.real(coorddata[node, :]), 0)
             proj = GeomAPI_ProjectPointOnCurve(pt, curve.Curve().Curve())
             if proj.NbPoints() > 0:
                 projpt = proj.NearestPoint()
