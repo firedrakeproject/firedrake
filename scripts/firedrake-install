@@ -4,7 +4,6 @@ import platform
 import subprocess
 import sys
 import os
-import stat
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import argparse
@@ -1485,9 +1484,10 @@ if mode == "install":
             os.remove(dest)
         if should_link:
             log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
-            with open(dest, "w") as f:
+            # use low-level os.open to ensure permissions (incl. exec.) are set according to umask
+            fd = os.open(dest, os.O_CREAT | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
                 f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
-            os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
