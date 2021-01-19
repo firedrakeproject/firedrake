@@ -168,17 +168,6 @@ class PMGBase(PCSNESBase):
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
 
-        cbcs = []
-        for bc in fctx._problem.bcs:
-            cV_ = cV
-            for index in bc._indices:
-                cV_ = cV_.sub(index)
-
-            cbc_value = self.coarsen_bc_value(bc, cV_)
-            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                              bc.sub_domain,
-                                              method=bc.method))
-
         cu = firedrake.Function(cV)
         interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
 
@@ -201,7 +190,38 @@ class PMGBase(PCSNESBase):
         else:
             cJp = None
 
-        fcp = fctx._problem.form_compiler_parameters
+        cbcs = []
+        for bc in fctx._problem.bcs:
+            cV_ = cV
+            for index in bc._indices:
+                cV_ = cV_.sub(index)
+
+            cbc_value = self.coarsen_bc_value(bc, cV_)
+            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                              bc.sub_domain,
+                                              method=bc.method))
+
+        def get_degree(ele):
+            if isinstance(ele, (MixedElement, VectorElement, TensorElement, TensorProductElement)):
+                sub = ele.sub_elements()
+                return get_degree(sub[0])
+            else:
+                N = ele.degree()
+                try:
+                    N, = set(N)
+                except TypeError:
+                    pass
+                return N
+
+        # coarsen quadrature degree accordingly
+        fcp = dict(fctx._problem.form_compiler_parameters)
+        if "quadrature_degree" in fcp:
+            Nq = fcp["quadrature_degree"]
+            Nc = get_degree(cV.ufl_element())
+            Nf = get_degree(fV.ufl_element())
+            Nq = (Nq//Nf) * Nc + Nq % Nf
+            fcp["quadrature_degree"] = Nq
+
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
                                                          Jp=cJp,
                                                          form_compiler_parameters=fcp,
@@ -249,8 +269,7 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
-        #cbcs = [homogenize(bc) for bc in cbcs]
-        #fbcs = [homogenize(bc) for bc in fbcs]
+        fbcs = []
 
         prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
@@ -325,13 +344,7 @@ class PMGPC(PCBase, PMGBase):
         return self.ppc.applyTranspose(x, y)
 
     def coarsen_bc_value(self, bc, cV):
-        #return firedrake.zero(cV.shape)
-        if not isinstance(bc._original_arg, firedrake.Function):
-            return bc._original_arg
-
-        coarse = firedrake.Function(cV)
-        coarse.interpolate(bc._original_arg)
-        return coarse
+        return firedrake.zero(cV.shape)
 
 class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
