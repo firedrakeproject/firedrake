@@ -17,6 +17,7 @@ from firedrake.utils import ScalarType_c, IntType_c
 from firedrake.bcs import homogenize
 import firedrake
 
+from petsc4py import PETSc
 
 class PMGBase(PCSNESBase):
     """
@@ -167,18 +168,19 @@ class PMGBase(PCSNESBase):
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
-
         cu = firedrake.Function(cV)
-        interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
 
-        def inject_state(interpolators):
-            for interpolator in interpolators:
-                interpolator.interpolate()
-
+        Injection = prolongation_matrix_matfree(cV, fV, [], [])
+        def inject_state():
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                Injection.multTranspose(xf, xc)
+        
         parent = get_parent(fdm)
         assert parent is not None
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
+        add_hook(parent, 
+                setup=partial(push_parent, cdm, parent),
+                teardown=partial(pop_parent, cdm, parent),
+                call_setup=True)
 
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
@@ -213,14 +215,15 @@ class PMGBase(PCSNESBase):
                     pass
                 return N
 
-        # coarsen quadrature degree accordingly
+        # Coarsen quadrature degree accordingly
+        # This preserves the ratio of GL to GLL nodes
         fcp = dict(fctx._problem.form_compiler_parameters)
         if "quadrature_degree" in fcp:
             Nq = fcp["quadrature_degree"]
             Nc = get_degree(cV.ufl_element())
             Nf = get_degree(fV.ufl_element())
-            Nq = (Nq//Nf) * Nc + Nq % Nf
-            fcp["quadrature_degree"] = Nq
+            Nq = ((Nq+1)*(Nc+1) + Nf)//(Nf+1) -1
+            fcp["quadrature_degree"] = max(Nq, 2*Nc+1)
 
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
                                                          Jp=cJp,
@@ -238,7 +241,7 @@ class PMGBase(PCSNESBase):
 
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        add_hook(parent, setup=partial(inject_state, interpolators), call_setup=True)
+        add_hook(parent, setup=inject_state, call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
@@ -269,7 +272,7 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
-        fbcs = []
+        #fbcs = []
 
         prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
@@ -446,10 +449,10 @@ def tensor_product_space_query(V):
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
-            variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
+            variant, = set([e.variant() for e in ele.sub_elements()])
         except ValueError:
-            # Mixed variants
-            variant = "mixed"
+            # Multiple variants
+            variant = "unsupported"
             use_tensorproduct = False
     else:
         family = {ele.family()}
@@ -457,7 +460,9 @@ def tensor_product_space_query(V):
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG) and variant == "spectral"
+    isspectral = variant is None or variant == "spectral"
+    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG)
+
     return use_tensorproduct, N, family, variant
 
 
@@ -481,6 +486,7 @@ class StandaloneInterpolationMatrix(object):
 
         tf, _, _, _ = tensor_product_space_query(Vf)
         tc, _, _, _ = tensor_product_space_query(Vc)
+
         if tf and tc:
             self.make_blas_kernels(Vf, Vc)
         else:

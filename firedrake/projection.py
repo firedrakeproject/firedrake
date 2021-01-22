@@ -140,6 +140,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         if self.use_slate_for_inverse:
             a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
+                               mat_type=self.solver_parameters.get("mat_type"),
                                form_compiler_parameters=self.form_compiler_parameters)
         return A
 
