@@ -351,6 +351,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="termin
             prg = inline_kernel_properly(prg, knl)
         else:
             prg = register_callable_kernel(prg, knl)
+            from loopy.transform.callable import _match_caller_callee_argument_dimension_
+            prg = _match_caller_callee_argument_dimension_(prg, knl.name)
             prg = inline_callable_kernel(prg, knl.name)
     return prg
 
