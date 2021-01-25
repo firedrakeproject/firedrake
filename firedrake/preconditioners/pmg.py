@@ -432,7 +432,7 @@ def tensor_product_space_query(V):
     """
     from FIAT import reference_element
     ndim = V.ufl_domain().topological_dimension()
-    iscube = ndim == 2 or ndim == 3 and reference_element.is_hypercube(V.finat_element.cell)
+    iscube = (ndim == 2 or ndim == 3) and reference_element.is_hypercube(V.finat_element.cell)
 
     ele = V.ufl_element()
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
