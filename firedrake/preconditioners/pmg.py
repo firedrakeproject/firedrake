@@ -14,10 +14,8 @@ from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import ScalarType_c, IntType_c
-from firedrake.bcs import homogenize
 import firedrake
 
-from petsc4py import PETSc
 
 class PMGBase(PCSNESBase):
     """
@@ -76,9 +74,8 @@ class PMGBase(PCSNESBase):
             raise ValueError
         elif N == 1:
             raise ValueError
-        
-        return PMGBase.reconstruct_degree(ele, N // 2)
 
+        return PMGBase.reconstruct_degree(ele, N // 2)
 
     @staticmethod
     def reconstruct_degree(ele, N):
@@ -91,16 +88,16 @@ class PMGBase(PCSNESBase):
         :arg N: an integer degree.
         """
         if isinstance(ele, (VectorElement, TensorElement)):
-            cVe = [PMGBase.reconstruct_degree(K, N) 
+            cVe = [PMGBase.reconstruct_degree(K, N)
                    for K in ele.sub_elements()]
-            return VectorElement(cVe[0], dim = len(cVe))
+            return VectorElement(cVe[0], dim=len(cVe))
         elif isinstance(ele, TensorProductElement):
             (Ve, Qe) = ele.sub_elements()
             cVe = PMGBase.reconstruct_degree(Ve, N)
             cQe = PMGBase.reconstruct_degree(Qe, N)
             return TensorProductElement(cVe, cQe)
         else:
-            return ele.reconstruct(degree = N)
+            return ele.reconstruct(degree=N)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -147,9 +144,11 @@ class PMGBase(PCSNESBase):
 
         parent = get_parent(odm)
         assert parent is not None
-        add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent),
+        add_hook(parent, setup=partial(push_parent, pdm, parent),
+                 teardown=partial(pop_parent, pdm, parent),
                  call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
+        add_hook(parent, setup=partial(push_appctx, pdm, ctx),
+                 teardown=partial(pop_appctx, pdm, ctx),
                  call_setup=True)
 
         self.ppc = self.configure_pmg(pc, pdm)
@@ -171,16 +170,17 @@ class PMGBase(PCSNESBase):
         cu = firedrake.Function(cV)
 
         Injection = prolongation_matrix_matfree(cV, fV, [], [])
+
         def inject_state():
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                 Injection.multTranspose(xf, xc)
-        
+
         parent = get_parent(fdm)
         assert parent is not None
-        add_hook(parent, 
-                setup=partial(push_parent, cdm, parent),
-                teardown=partial(pop_parent, cdm, parent),
-                call_setup=True)
+        add_hook(parent,
+                 setup=partial(push_parent, cdm, parent),
+                 teardown=partial(pop_parent, cdm, parent),
+                 call_setup=True)
 
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
@@ -215,15 +215,17 @@ class PMGBase(PCSNESBase):
                     pass
                 return N
 
-        # Coarsen quadrature degree accordingly
-        # This preserves the ratio of GL to GLL nodes
-        fcp = dict(fctx._problem.form_compiler_parameters)
-        if "quadrature_degree" in fcp:
-            Nq = fcp["quadrature_degree"]
-            Nc = get_degree(cV.ufl_element())
-            Nf = get_degree(fV.ufl_element())
-            Nq = ((Nq+1)*(Nc+1) + Nf)//(Nf+1) -1
-            fcp["quadrature_degree"] = max(Nq, 2*Nc+1)
+        # Coarsen the quadrature degree
+        # such that the ratio of GL to GLL nodes is preserved
+        fcp = fctx._problem.form_compiler_parameters
+        if fcp is not None:
+            fcp = dict(fcp)
+            if "quadrature_degree" in fcp:
+                Nq = fcp["quadrature_degree"]
+                Nc = get_degree(cV.ufl_element())
+                Nf = get_degree(fV.ufl_element())
+                Nq = ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1
+                fcp["quadrature_degree"] = max(Nq, 2*Nc+1)
 
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
                                                          Jp=cJp,
@@ -239,7 +241,8 @@ class PMGBase(PCSNESBase):
                             options_prefix=fctx.options_prefix,
                             transfer_manager=fctx.transfer_manager)
 
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx),
+                 teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
         add_hook(parent, setup=inject_state, call_setup=True)
 
@@ -272,7 +275,7 @@ class PMGBase(PCSNESBase):
 
         cbcs = cctx._problem.bcs
         fbcs = fctx._problem.bcs
-        #fbcs = []
+        fbcs = []
 
         prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
@@ -348,6 +351,7 @@ class PMGPC(PCBase, PMGBase):
 
     def coarsen_bc_value(self, bc, cV):
         return firedrake.zero(cV.shape)
+
 
 class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
