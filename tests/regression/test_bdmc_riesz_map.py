@@ -8,9 +8,7 @@ def problem(request):
     return request.param
 
 
-# FIXME: MMS does not converge for degree 1
-# @pytest.fixture(scope='module', params=[1, 2, 3])
-@pytest.fixture(scope='module', params=[2, 3])
+@pytest.fixture(scope='module', params=[1, 2, 3])
 def degree(request):
     return request.param
 
@@ -67,4 +65,6 @@ def test_bdmc_riesz_map(problem, degree):
     print("errors: ", errors)
     print("convergence order: ", conv)
 
-    assert numpy.allclose(conv, degree, atol=0.1)
+    tol = 0.11
+
+    assert (conv > (degree + 1) - tol).all()
