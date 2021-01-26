@@ -1534,6 +1534,8 @@ if mode == "install":
             source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
         log.info("Pip installing VTK for Python 3.9 to venv")
         run_pip_install([source])
+        # Also lazy-object-proxy
+        run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
