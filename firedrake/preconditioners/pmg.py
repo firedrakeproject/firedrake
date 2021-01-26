@@ -82,20 +82,16 @@ class PMGBase(PCSNESBase):
         """
         Reconstruct a given element, modifying its polynomial degree.
 
-        Must provide the same degree for tensor product elements.
+        May only set the same degree on VectorElements and TensorProductElements.
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
         :arg N: an integer degree.
         """
         if isinstance(ele, (VectorElement, TensorElement)):
-            cVe = [PMGBase.reconstruct_degree(K, N)
-                   for K in ele.sub_elements()]
-            return VectorElement(cVe[0], dim=len(cVe))
+            sub = ele.sub_elements()
+            return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):
-            (Ve, Qe) = ele.sub_elements()
-            cVe = PMGBase.reconstruct_degree(Ve, N)
-            cQe = PMGBase.reconstruct_degree(Qe, N)
-            return TensorProductElement(cVe, cQe)
+            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()))
         else:
             return ele.reconstruct(degree=N)
 
@@ -144,12 +140,8 @@ class PMGBase(PCSNESBase):
 
         parent = get_parent(odm)
         assert parent is not None
-        add_hook(parent, setup=partial(push_parent, pdm, parent),
-                 teardown=partial(pop_parent, pdm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, pdm, ctx),
-                 teardown=partial(pop_appctx, pdm, ctx),
-                 call_setup=True)
+        add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent), call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx), call_setup=True)
 
         self.ppc = self.configure_pmg(pc, pdm)
         self.ppc.setFromOptions()
@@ -177,10 +169,7 @@ class PMGBase(PCSNESBase):
 
         parent = get_parent(fdm)
         assert parent is not None
-        add_hook(parent,
-                 setup=partial(push_parent, cdm, parent),
-                 teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
+        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
 
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),

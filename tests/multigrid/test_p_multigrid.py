@@ -213,3 +213,65 @@ def test_p_multigrid_mixed():
     assert solver.snes.ksp.its <= 5
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
+
+
+def test_p_fas_scalar():
+    mesh = UnitSquareMesh(4, 4, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 7)
+    x = SpatialCoordinate(mesh)
+    u = Function(V)
+    v = TestFunction(V)
+    f = x[0]*(1-x[0]) + x[1]*(1-x[1])
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+
+    coarse = {
+        "ksp_type": "richardson",
+        "ksp_max_it": 1,
+        "ksp_norm_type": "unpreconditioned",
+        "ksp_monitor": None,
+        "pc_type": "lu"}
+
+    relax = {
+        "ksp_type": "chebyshev",
+        "ksp_monitor_true_residual": None,
+        "ksp_norm_type": "unpreconditioned",
+        "ksp_max_it": 3,
+        "pc_type": "jacobi"}
+
+    pmg = {
+        "snes_monitor": None,
+        "snes_type": "ksponly",
+        "ksp_atol": 1.0E-9,
+        "ksp_rtol": 1.0E-9,
+        "ksp_type": "fgmres",
+        "ksp_monitor_true_residual": None,
+        "ksp_converged_reason": None,
+        "ksp_norm_type": "unpreconditioned",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.PMGPC",
+        "pmg_pc_mg_type": "multiplicative",
+        "pmg_mg_levels": relax,
+        "pmg_mg_levels_transfer_mat_type": "matfree",
+        "pmg_mg_coarse": coarse}
+
+    pfas = {
+        "mat_type": "aij",
+        "snes_monitor": None,
+        "snes_rtol": 1.0e-8,
+        "snes_atol": 1.0e-8,
+        "snes_max_it": 1,
+        "snes_type": "python",
+        "snes_python_type": "firedrake.PMGSNES",
+        "pfas_snes_fas_type": "kaskade",
+        "pfas_fas_levels": pmg,
+        "pfas_fas_coarse": coarse}
+
+    problem = NonlinearVariationalProblem(F, u, bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
+    solver.solve()
+
+    assert solver.snes.ksp.its <= 0
+    ppc = solver.snes.getPythonContext().ppc
+    assert ppc.getFASLevels() == 3
