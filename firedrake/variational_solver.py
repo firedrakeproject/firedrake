@@ -147,7 +147,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
 
-        .. code-block:: python
+        .. code-block:: python3
 
             {'snes_type': 'ksponly'}
 
@@ -155,7 +155,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         be specified with ``None``.
         For example:
 
-        .. code-block:: python
+        .. code-block:: python3
 
             {'snes_monitor': None}
 
@@ -163,7 +163,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         functionality, the user-defined function must accept the current
         solution as a petsc4py Vec. Example usage is given below:
 
-        .. code-block:: python
+        .. code-block:: python3
 
             def update_diffusivity(current_solution):
                 with cursol.dat.vec_wo as v:
@@ -180,11 +180,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
                                                        snes_defaults=self.DEFAULT_SNES_PARAMETERS)
-        mat_type = solver_parameters.get("mat_type")
-        pmat_type = solver_parameters.get("pmat_type")
-
         super().__init__(solver_parameters, options_prefix)
-
+        # Now the correct parameters live in self.parameters (via the
+        # OptionsManager mixin)
+        mat_type = self.parameters.get("mat_type")
+        pmat_type = self.parameters.get("pmat_type")
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,

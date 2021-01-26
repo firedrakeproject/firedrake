@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.matrix import ImplicitMatrix
 from firedrake.petsc import PETSc, OptionsManager
 import pytest
 
@@ -8,10 +9,16 @@ def prefix(request):
     return request.param
 
 
+@pytest.fixture(params=["aij", "matfree"])
+def mat_type(request, prefix):
+    return request.param
+
+
 @pytest.fixture
-def global_parameters():
+def global_parameters(mat_type):
     return {"ksp_type": "fgmres",
-            "pc_type": "none"}
+            "pc_type": "none",
+            "mat_type": mat_type}
 
 
 @pytest.fixture
@@ -131,6 +138,11 @@ def test_lvs_options_prefix(lvs, parameters, global_parameters):
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
 
+    J = solver._ctx._jac
+    if prefix is not None and global_parameters["mat_type"] == "matfree":
+        assert isinstance(J, ImplicitMatrix)
+        assert J.petscmat.getType() == "python"
+
 
 def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
     solver, prefix = nlvs
@@ -149,6 +161,10 @@ def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
 
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
+    J = solver._ctx._jac
+    if prefix is not None and global_parameters["mat_type"] == "matfree":
+        assert isinstance(J, ImplicitMatrix)
+        assert J.petscmat.getType() == "python"
 
 
 def test_options_database_cleared():

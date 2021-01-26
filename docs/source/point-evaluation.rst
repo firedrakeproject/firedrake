@@ -17,7 +17,7 @@ Firedrake API
 Firedrake offers a convenient API for evaluating functions at
 arbitrary points via :meth:`~.Function.at`:
 
-.. code-block:: python
+.. code-block:: python3
 
    # evaluate f at a 1-dimensional point
    f.at(0.3)
@@ -39,7 +39,7 @@ While in these examples we have only shown lists, other *iterables*
 such as tuples and ``numpy`` arrays are also accepted. The following
 are equivalent:
 
-.. code-block:: python
+.. code-block:: python3
 
    f.at(0.2, 0.4)
    f.at((0.2, 0.4))
@@ -65,7 +65,7 @@ When any point is outside the domain of the function,
 ``dont_raise=True`` is passed to :meth:`~.Function.at`, the result is
 ``None`` for those points which fall outside the domain.
 
-.. code-block:: python
+.. code-block:: python3
 
    mesh = UnitIntervalMesh(8)
    f = mesh.coordinates
@@ -109,7 +109,7 @@ UFL API
 
 UFL reserves the function call operator for evaluation:
 
-.. code-block:: python
+.. code-block:: python3
 
    f([0.2, 0.4])
 
@@ -118,7 +118,7 @@ multiple points at once, and cannot configure what to do with a point
 which is not in the domain. The advantage of this syntax is that it
 works on any :py:class:`~.ufl.core.expr.Expr`, for example:
 
-.. code-block:: python
+.. code-block:: python3
 
    (f*sin(f)([0.2, 0.4])
 

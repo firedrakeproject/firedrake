@@ -94,9 +94,6 @@ class LocalKernelBuilder(object):
         """
         assert isinstance(expression, slate.TensorBase)
 
-        if expression.ufl_domain().variable_layers:
-            raise NotImplementedError("Variable layers not yet handled in Slate.")
-
         # Collect terminals, expressions, and reference counts
         temps = OrderedDict()
         coeff_vecs = OrderedDict()
@@ -428,9 +425,6 @@ class LocalLoopyKernelBuilder(object):
         """
 
         assert isinstance(expression, slate.TensorBase)
-
-        if expression.ufl_domain().variable_layers:
-            raise NotImplementedError("Variable layers not yet handled in Slate.")
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters

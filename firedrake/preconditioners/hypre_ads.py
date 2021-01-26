@@ -4,20 +4,13 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
-from firedrake.utils import complex_mode
-from firedrake_citations import Citations
-from firedrake import SpatialCoordinate
-from ufl import grad
+from ufl import grad, curl, SpatialCoordinate
 
-__all__ = ("HypreAMS",)
+__all__ = ("HypreADS",)
 
 
-class HypreAMS(PCBase):
+class HypreADS(PCBase):
     def initialize(self, obj):
-        if complex_mode:
-            raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
-
-        Citations().register("Kolev2009")
         A, P = obj.getOperators()
         prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
@@ -25,28 +18,30 @@ class HypreAMS(PCBase):
 
         family = str(V.ufl_element().family())
         degree = V.ufl_element().degree()
-        if family != 'Nedelec 1st kind H(curl)' or degree != 1:
-            raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
+        if family != 'Raviart-Thomas' or degree != 1:
+            raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        G = Interpolator(grad(TestFunction(P1)), V).callable().handle
+        NC1 = FunctionSpace(mesh, "N1curl", 1)
+        # DiscreteGradient
+        G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
+        # DiscreteCurl
+        C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
-        pc.setOptionsPrefix(prefix + "hypre_ams_")
+        pc.setOptionsPrefix(prefix + "hypre_ads_")
         pc.setOperators(A, P)
 
         pc.setType('hypre')
-        pc.setHYPREType('ams')
+        pc.setHYPREType('ads')
         pc.setHYPREDiscreteGradient(G)
-        zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
-        if zero_beta:
-            pc.setHYPRESetBetaPoissonMatrix(None)
+        pc.setHYPREDiscreteCurl(C)
+        V = VectorFunctionSpace(mesh, "Lagrange", 1)
+        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
+        pc.setCoordinates(linear_coordinates)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
         pc.setUp()
-
         self.pc = pc
 
     def apply(self, pc, x, y):
@@ -56,7 +51,7 @@ class HypreAMS(PCBase):
         self.pc.applyTranspose(x, y)
 
     def view(self, pc, viewer=None):
-        super(HypreAMS, self).view(pc, viewer)
+        super(HypreADS, self).view(pc, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)

@@ -437,7 +437,7 @@ def test_changing_default_reorder_works(reorder):
 
 
 @pytest.mark.parametrize("kind, num_cells",
-                         [("default", 6), ("crossed", 5)])
+                         [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
     m.init()
