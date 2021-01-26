@@ -15,6 +15,7 @@ import mimetypes
 import datetime
 
 
+# TODO: Remove "petsc4py" once all users have switched to "petsc/src/binding/petsc4py".
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
     ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
@@ -45,7 +46,7 @@ projects = dict(
 
 components = list(descriptions.keys())
 
-optional_components = ("slepc", "slepc4py")
+optional_components = ("slepc", "slepc4py", "petsc4py")
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -115,7 +116,6 @@ parser.add_argument("--ignore-existing-records", action="store_true",
                     help="When creating Zenodo meta-record, ignore any existing records which match the tag")
 parser.add_argument("--skip-missing", action="store_true",
                     help="When creating Zenodo meta-record, skip missing components?")
-
 
 for component in components:
     parser.add_argument("--%s" % component, action="store", nargs=1,

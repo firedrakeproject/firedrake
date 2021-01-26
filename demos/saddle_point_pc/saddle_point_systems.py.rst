@@ -56,7 +56,7 @@ As ever, we begin by importing the Firedrake module::
 
     from firedrake import *
 
-Bulding the problem
+Building the problem
 -------------------
 
 Rather than defining a mesh and function spaces straight away, since
@@ -128,29 +128,23 @@ parameter to :func:`~.assemble`.  ::
   
     #
         if block_matrix:
-	    mat_type = 'nest'
-	else:
-	    mat_type = 'aij'
-        A = assemble(a, mat_type=mat_type)
+            mat_type = 'nest'
+        else:
+            mat_type = 'aij'
+
         if aP is not None:
             P = assemble(aP, mat_type=mat_type)
         else:
             P = None
 
-        solver = LinearSolver(A, P=P, solver_parameters=parameters)
-
-The :meth:`~.LinearSolver.solve` method of :class:`~.LinearSolver`
-objects needs both the assembled right hand side and a
-:class:`~.Function` in which to place the result. ::
-
-    #
         w = Function(W)
-        b = assemble(L)
+        vpb = LinearVariationalProblem(a, L, w, aP=aP)
+        solver =  LinearVariationalSolver(vpb, solver_parameters=parameters)
 
-Finally, we return all three objects as a tuple. ::
+Finally, we return solver and solution function as a tuple. ::
 
     #
-        return solver, w, b
+        return solver, w
 
 With these preliminaries out of the way, we can now move on to
 solution strategies, in particular, preconditioner options.
@@ -191,14 +185,14 @@ solving it ::
 
     print("Naive preconditioning")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, block_matrix=False)
-        solver.solve(w, b)
+        solver, w = build_problem(n, parameters, block_matrix=False)
+        solver.solve()
 
 Finally, at each mesh size, we print out the number of cells in the
 mesh and the number of iterations the solver took to converge ::
 
     #
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
 
 The resulting convergence is unimpressive:
 
@@ -298,10 +292,10 @@ applying the action of blocks, so we can use a block matrix format. ::
 
     print("Exact full Schur complement")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, block_matrix=True)
-        solver.solve(w, b)
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
-       
+        solver, w = build_problem(n, parameters, block_matrix=True)
+        solver.solve()
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
+
 The resulting convergence is algorithmically good, however, the larger
 problems still take a long time.
 
@@ -383,9 +377,9 @@ Let's see what happens. ::
 
     print("Schur complement with S_p")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, block_matrix=True)
-        solver.solve(w, b)
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
+        solver, w = build_problem(n, parameters, block_matrix=True)
+        solver.solve()
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
 
 This is much better, the problem takes much less time to solve and
 when observing the iteration counts for inverting :math:`S` we can see
@@ -438,9 +432,9 @@ and so we no longer need a flexible Krylov method. ::
 
     print("Schur complement with S_p and inexact inner inverses")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, block_matrix=True)
-        solver.solve(w, b)
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
+        solver, w = build_problem(n, parameters, block_matrix=True)
+        solver.solve()
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
 
 This results in the following GMRES iteration counts
 
@@ -466,57 +460,46 @@ Instead of asking PETSc to build an approximation to :math:`S` which
 we then use to solve the problem, we can provide one ourselves.
 Recall that :math:`S` is spectrally a Laplacian only in a
 discontinuous space.  A natural choice is therefore to use an interior
-penalty DG formulation for the Laplacian term and provide it as
-:math:`Sp`.  Since this preconditioning matrix is block-diagonal, we
-then need to tell PETSc that it should use the original operator,
-rather than the preconditioning matrix, to compute the action of the
-off-diagonal blocks.  This is done using
-``pc_fieldsplit_off_diag_use_amat``. ::
+penalty DG formulation for the Laplacian term on the block of the scalar
+variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. ::
 
+    class DGLaplacian(AuxiliaryOperatorPC):
+        def form(self, pc, u, v):
+            W = u.function_space()
+            n = FacetNormal(W.mesh())
+            alpha = Constant(4.0)
+            gamma = Constant(8.0)
+            h = CellSize(W.mesh())
+            h_avg = (h('+') + h('-'))/2
+            a_dg = -(inner(grad(u), grad(v))*dx \
+                - inner(jump(u, n), avg(grad(v)))*dS \
+                - inner(avg(grad(u)), jump(v, n), )*dS \
+                + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS \
+                - inner(u*n, grad(v))*ds \
+                - inner(grad(u), v*n)*ds \
+                + (gamma/h)*inner(u, v)*ds)
+            bcs = None
+            return (a_dg, bcs)
+  
     parameters = {
         "ksp_type": "gmres",
         "ksp_rtol": 1e-8,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "schur",
         "pc_fieldsplit_schur_fact_type": "full",
-        "pc_fieldsplit_off_diag_use_amat": True,
         "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "ilu",
         "fieldsplit_1_ksp_type": "preonly",
-        "fieldsplit_1_pc_type": "hypre"
+        "fieldsplit_1_pc_type": "python",
+        "fieldsplit_1_pc_python_type": __name__+ ".DGLaplacian",
+        "fieldsplit_1_aux_pc_type": "hypre"
     }
-
-Additionally, we need to provide our ``build_problem`` function with
-the ability to construct this operator.  To do so, we define a
-function to pass as the ``aP`` argument. ::
-
-    def dg_laplacian(W):
-        sigma, u = TrialFunctions(W)
-        tau, v = TestFunctions(W)
-        n = FacetNormal(W.mesh())
-        alpha = Constant(4.0)
-        gamma = Constant(8.0)
-        h = CellSize(W.mesh())
-        h_avg = (h('+') + h('-'))/2
-        a_dg = dot(sigma, tau)*dx \
-               + dot(grad(v), grad(u))*dx \
-               - dot(avg(grad(v)), jump(u, n))*dS \
-               - dot(jump(v, n), avg(grad(u)))*dS \
-               + alpha/h_avg * dot(jump(v, n), jump(u, n))*dS \
-               - dot(grad(v), u*n)*ds \
-               - dot(v*n, grad(u))*ds \
-               + (gamma/h)*dot(v, u)*ds
-
-        return a_dg
-
-Now we just need to pass this extra argument to the ``build_problem``
-function ::
-
+    
     print("DG approximation for S_p")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, aP=dg_laplacian, block_matrix=True)
-        solver.solve(w, b)
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
+        solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
+        solver.solve()
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
 
 This actually results in slightly worse convergence than the diagonal
 approximation we used above.
@@ -524,14 +507,14 @@ approximation we used above.
 ============== ==================
  Mesh elements  GMRES iterations
 ============== ==================
-      2              2
-      8              10
-      32             17
-      128            20
-      512            19
-      2048           19
-      8192           18
-      32768          18
+    2                 2
+    8                 9
+    32                12
+    128               13
+    512               14
+    2048              13
+    8192              13
+    32768             13
 ============== ==================
 
 Block diagonal preconditioners
@@ -599,9 +582,9 @@ Let's see what the iteration count looks like now. ::
 
     print("Riesz-map preconditioner")
     for n in range(8):
-        solver, w, b = build_problem(n, parameters, aP=riesz, block_matrix=True)
-        solver.solve(w, b)
-        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
+        solver, w = build_problem(n, parameters, aP=riesz, block_matrix=True)
+        solver.solve()
+        print(w.function_space().mesh().num_cells(), solver.snes.ksp.getIterationNumber())
 
 ============== ==================
  Mesh elements  GMRES iterations

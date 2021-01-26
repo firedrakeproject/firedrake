@@ -20,8 +20,8 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
     f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 
     # Define the variational forms
-    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
-    L = f * v * dx
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx
+    L = inner(f, v) * dx
 
     # Compare hybridized solution with non-hybridized
     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
@@ -72,8 +72,8 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
     f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 
     # Define the variational forms
-    a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
-    L = f * v * dx
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx
+    L = inner(f, v) * dx
 
     # Compare hybridized solution with non-hybridized
     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC

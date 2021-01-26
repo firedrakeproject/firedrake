@@ -1,5 +1,9 @@
-"""Provides the interface to TSFC for compiling a form, and transforms the TSFC-
-generated code in order to make it suitable for passing to the backends."""
+"""
+Provides the interface to TSFC for compiling a form, and
+transforms the TSFC-generated code to make it suitable for
+passing to the backends.
+
+"""
 import pickle
 
 from hashlib import md5
@@ -11,7 +15,7 @@ import tempfile
 import collections
 
 import ufl
-from ufl import Form
+from ufl import Form, conj
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
@@ -19,13 +23,12 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 
 from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
 from firedrake import utils
-
 
 # Set TSFC default scalar type at load time
 tsfc_default_parameters["scalar_type"] = utils.ScalarType
@@ -55,7 +58,14 @@ class TSFCKernel(Cached):
     @classmethod
     def _cache_lookup(cls, key):
         key, comm = key
-        return cls._cache.get(key) or cls._read_from_disk(key, comm)
+        # comm has to be part of the in memory key so that when
+        # compiling the same code on different subcommunicators we
+        # don't get deadlocks. But MPI_Comm objects are not hashable,
+        # so use comm.py2f() since this is an internal communicator and
+        # hence the C handle is stable.
+        commkey = comm.py2f()
+        assert commkey != MPI.COMM_NULL.py2f()
+        return cls._cache.get((key, commkey)) or cls._read_from_disk(key, comm)
 
     @classmethod
     def _read_from_disk(cls, key, comm):
@@ -77,12 +87,12 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        return cls._cache.setdefault(key, pickle.loads(val))
+        return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
 
     @classmethod
     def _cache_store(cls, key, val):
         key, comm = key
-        cls._cache[key] = val
+        cls._cache[(key, comm.py2f())] = val
         _ensure_cachedir(comm=comm)
         if comm.rank == 0:
             val._key = key
@@ -129,7 +139,8 @@ class TSFCKernel(Cached):
             ast = kernel.ast
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
+            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
+                                                    requires_zeroed_output_arguments=True),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -218,6 +229,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
                             number_map, interface, coffee, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
+
     kernels = tuple(kernels)
     return cache.setdefault(key, kernels)
 
@@ -235,7 +247,7 @@ def _real_mangle(form):
             replacements[arg] = 1
     # If only the test space is Real, we need to turn the trial function into a test function.
     if reals == [True, False]:
-        replacements[a[1]] = TestFunction(a[1].function_space())
+        replacements[a[1]] = conj(TestFunction(a[1].function_space()))
     return ufl.replace(form, replacements)
 
 

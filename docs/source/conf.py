@@ -24,8 +24,10 @@
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc',
-              'sphinx.ext.mathjax', 'sphinx.ext.intersphinx',
+              'sphinx.ext.mathjax',
+              'sphinx.ext.intersphinx',
               'sphinx.ext.viewcode',
+              'sphinx.ext.graphviz',
               'sphinxcontrib.youtube',
               'sphinxcontrib.bibtex']
 
@@ -260,3 +262,6 @@ intersphinx_mapping = {
     'matplotlib': ('https://matplotlib.org/', None),
     'python':('https://docs.python.org/3/', None),
 }
+
+#  -- Options for sphinxcontrib.bibtex ------------------------------------
+bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib']

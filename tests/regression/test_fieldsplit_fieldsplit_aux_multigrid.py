@@ -8,6 +8,7 @@ The segfault seems to occur when attempting multigrid on an
 AuxiliaryOperatorPC approximating a Schur complement within
 a fieldsplit within another fieldsplit.
 """
+import pytest
 from firedrake import *
 
 
@@ -37,6 +38,7 @@ class SchurApprox(AuxiliaryOperatorPC):
         return (K, bcs)
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
 def test_fieldsplit_fieldsplit_aux_multigrid():
     # Setup
     mesh = UnitSquareMesh(10, 10)

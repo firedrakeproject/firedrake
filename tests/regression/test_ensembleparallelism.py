@@ -45,9 +45,9 @@ def test_ensemble_solvers():
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = (u*v + inner(grad(u), grad(v)))*dx
-    Lcombined = v*f_combined*dx
-    Lseparate = v*f_separate*dx
+    a = (inner(u, v) + inner(grad(u), grad(v)))*dx
+    Lcombined = inner(f_combined, v)*dx
+    Lseparate = inner(f_separate, v)*dx
 
     u_combined = Function(V)
     u_separate = Function(V)

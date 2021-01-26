@@ -14,9 +14,9 @@ def test_coarsen_callback():
 
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*dx + u*v*dx
+    a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
 
-    L = Constant(1)*v*dx
+    L = inner(Constant(1), v)*dx
 
     @singledispatch
     def coarsen(expr, self, coefficient_mapping=None):
@@ -59,10 +59,10 @@ def test_sphere_mg():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = (u*v + inner(u, v))*dx
+    a = (inner(u, v) + inner(u, v))*dx
 
     f1 = exp((x+y+z)/R)*x*y*z/R**3
-    F = v*f1*dx
+    F = inner(f1, v)*dx
 
     mg_params = {"mat_type": "matfree",
                  "snes_type": "ksponly",
@@ -89,8 +89,7 @@ def test_sphere_mg():
 
     w = Function(V)
 
-    Prob = LinearVariationalProblem(a, F, w)
-    Solver = LinearVariationalSolver(Prob,
-                                     solver_parameters=mg_params)
-    Solver.solve()
-    assert(Solver.snes.ksp.getIterationNumber() < 5)
+    prob = LinearVariationalProblem(a, F, w)
+    solver = LinearVariationalSolver(prob, solver_parameters=mg_params)
+    solver.solve()
+    assert solver.snes.ksp.getIterationNumber() < 5

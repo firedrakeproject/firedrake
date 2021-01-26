@@ -21,8 +21,8 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     u, sigma = TrialFunctions(W)
     v, tau = TestFunctions(W)
 
-    a = (dot(sigma, tau) - div(tau)*u + v*div(sigma))*dx
-    L = f*v*dx
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
+    L = inner(f, v)*dx
     w = Function(W)
 
     params = {'mat_type': 'matfree',

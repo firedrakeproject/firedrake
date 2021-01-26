@@ -232,36 +232,32 @@ class MixedVectorSpaceBasis(object):
         The monolithic basis is formed by the cartesian product of the
         bases forming each sub part.
         """
-        from itertools import product
-        bvecs = [[None] for _ in self]
-        # Get the complete list of basis vectors for each component in
-        # the mixed basis.
+        self._vecs = []
         for idx, basis in enumerate(self):
             if isinstance(basis, VectorSpaceBasis):
                 vecs = basis._vecs
                 if basis._constant:
                     vecs = vecs + (function.Function(self._function_space[idx]).assign(1), )
-                bvecs[idx] = vecs
+                for vec in vecs:
+                    mvec = function.Function(self._function_space)
+                    mvec.sub(idx).assign(vec)
+                    self._vecs.append(mvec)
 
-        # Basis for mixed space is cartesian product of all the basis
-        # vectors we just made.
-        allbvecs = [x for x in product(*bvecs)]
-
-        vecs = [function.Function(self._function_space) for _ in allbvecs]
-
-        # Build the functions representing the monolithic basis.
-        for vidx, bvec in enumerate(allbvecs):
-            for idx, b in enumerate(bvec):
-                if b:
-                    vecs[vidx].sub(idx).assign(b)
-        for v in vecs:
-            v /= v.dat.norm
-
-        self._vecs = vecs
         self._petsc_vecs = []
         for v in self._vecs:
             with v.dat.vec_ro as v_:
                 self._petsc_vecs.append(v_)
+
+        # orthonormalize:
+        basis = self._petsc_vecs
+        for i, vec in enumerate(basis):
+            alphas = []
+            for vec_ in basis[:i]:
+                alphas.append(vec.dot(vec_))
+            for alpha, vec_ in zip(alphas, basis[:i]):
+                vec.axpy(-alpha, vec_)
+            vec.normalize()
+
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
                                                    comm=self.comm)

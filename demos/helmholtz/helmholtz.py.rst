@@ -73,8 +73,8 @@ value of our right hand side function::
 We can now define the bilinear and linear forms for the left and right
 hand sides of our equation respectively::
 
-  a = (dot(grad(v), grad(u)) + v * u) * dx
-  L = f * v * dx
+  a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
+  L = inner(f, v) * dx
 
 Finally we solve the equation. We redefine `u` to be a function
 holding the solution::

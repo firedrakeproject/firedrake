@@ -26,7 +26,7 @@ for example if the provided filename is ``coastline.msh`` the mesh is
 assumed to be in Gmsh format, in which case you can construct a mesh
 object like so:
 
-.. code-block:: python
+.. code-block:: python3
 
    coastline = Mesh("coastline.msh")
 
@@ -48,7 +48,7 @@ reordering by passing ``reorder=False`` to the appropriate
 behaviour in reordering meshes with the ``"reorder_meshes"``
 parameter.  For example, to turn off mesh reordering globally:
 
-.. code-block:: python
+.. code-block:: python3
 
    from firedrake import *
    parameters["reorder_meshes"] = False
@@ -95,7 +95,7 @@ argument to the mesh constructor which specifies the geometric
 dimension.  For example, for the surface of a sphere embedded in 3D we
 use:
 
-.. code-block:: python
+.. code-block:: python3
    
    sphere_mesh = Mesh('sphere_mesh.node', dim=3)
 
@@ -112,7 +112,7 @@ build a sphere mesh that approximates the surface of the Earth (with a
 radius of 6371 km) that has subdivided the original icosahedron 7
 times we would write:
 
-.. code-block:: python
+.. code-block:: python3
 
    earth = IcosahedralSphereMesh(radius=6371, refinement_level=7)
 
@@ -135,7 +135,7 @@ the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
 
-.. code-block:: python
+.. code-block:: python3
 
    earth.init_cell_orientations(SpatialCoordinate(earth))
 
@@ -167,7 +167,7 @@ To construct a function space, you must specify its family and
 polynomial degree. To build a scalar-valued function space of
 continuous piecewise-cubic polynomials, we write:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, "Lagrange", 3)
 
@@ -186,20 +186,20 @@ constructor).
 To build a vector-valued function space using the lowest-order
 ``Raviart-Thomas`` elements, we write
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, "Raviart-Thomas", 1)
 
 To build a vector-valued function space for which each component
 is a discontinuous piecewise-quadratic polynomial, we can write either
 
-.. code-block:: python
+.. code-block:: python3
 
    V = VectorFunctionSpace(mesh, "Discontinuous Lagrange", 2)
 
 or
 
-.. code-block:: python
+.. code-block:: python3
 
    Vele = VectorElement("Discontinuous Lagrange", cell=mesh.ufl_cell(), degree=2)
    V = FunctionSpace(mesh, Vele)
@@ -217,7 +217,7 @@ dimension of the mesh. We can do this by passing a value for the
 For example, if we wanted a vector-valued function space on the surface
 of a unit sphere mesh with only 2 components, we might write:
 
-.. code-block:: python
+.. code-block:: python3
 
    mesh = UnitIcosahedralSphereMesh(refinement_level=3)
    V = VectorFunctionSpace(mesh, "Lagrange", 1, dim=2)
@@ -235,7 +235,7 @@ build such a space by invoking the :py:func:`constructor directly
 spaces and multiplying them together using the ``*`` operator.  For
 example:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -243,7 +243,7 @@ example:
 
 is equivalent to:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -286,7 +286,7 @@ Gauss-Lobatto-Legendre points. These are selected by passing
 `variant="equispaced"` or `variant="spectral"` to the
 :py:class:`~ufl.classes.FiniteElement` constructor. For example:
 
-.. code-block:: python
+.. code-block:: python3
 
     fe = FiniteElement("RTCE", quadrilateral, 2, variant="equispaced")
 
@@ -317,7 +317,7 @@ perhaps a trial function.  Test functions are obtained via a call to
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
    u = TrialFunction(V)
    v = TestFunction(V)
@@ -338,7 +338,7 @@ mixed space.  We can do this by asking for
 tuple of test and trial functions for the underlying spaces.  For
 example, if we write:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -375,7 +375,7 @@ where :math:`\Omega` is the unit square, using piecewise linear
 polynomials for our solution.  We start with a mesh and build a
 function space on it:
 
-.. code-block:: python
+.. code-block:: python3
 
    mesh = UnitSquareMesh(10, 10)
    V = FunctionSpace(mesh, "CG", 1)
@@ -383,7 +383,7 @@ function space on it:
 now we need a test function, and since ``u`` is unknown, a trial
 function:
 
-.. code-block:: python
+.. code-block:: python3
 
    u = TrialFunction(V)
    v = TestFunction(V)
@@ -391,7 +391,7 @@ function:
 finally we need a function to hold the right hand side :math:`f` which
 we will populate with the x component of the coordinate field.
 
-.. code-block:: python
+.. code-block:: python3
 
    f = Function(V)
    x = SpatialCoordinate(mesh)
@@ -408,7 +408,7 @@ variational problem is to find :math:`u \in V` such that
 
 we define the variational problem in UFL with:
 
-.. code-block:: python
+.. code-block:: python3
 
    a = u*v*dx
    L = f*v*dx
@@ -422,14 +422,14 @@ How to solve such variational problems is the subject of the
 :doc:`next section <solving-interface>`, but for completeness we show
 how to do it here.  First we define a function to hold the solution
 
-.. code-block:: python
+.. code-block:: python3
 
    s = Function(V)
 
 and call :py:func:`~.solve` to solve the variational
 problem:
 
-.. code-block:: python
+.. code-block:: python3
 
    solve(a == L, s)
 
@@ -450,7 +450,7 @@ method.  As an example, let us consider a form which contains a time
 varying constant which we wish to assemble in a time loop.  We can use
 a :py:class:`~.Constant` to do this:
 
-.. code-block:: python
+.. code-block:: python3
 
    ...
    t = 0
@@ -489,7 +489,7 @@ boundary condition requires a function space (to impose the boundary
 condition in), a value and a subdomain to apply the boundary condition
 over:
 
-.. code-block:: python
+.. code-block:: python3
 
    bc = DirichletBC(V, value, subdomain_id)
 
@@ -503,14 +503,14 @@ more generally an :py:class:`~.Expression`, :py:class:`~.Function` or
 :py:class:`~.Constant` of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
-.. code-block:: python
+.. code-block:: python3
 
    bc = DirichletBC(V, (1.0, 2.0), 1)
 
 Strong boundary conditions are applied in the solve by passing a list
 of boundary condition objects:
 
-.. code-block:: python
+.. code-block:: python3
 
    solve(a == L, bcs=[bc])
 
@@ -533,7 +533,7 @@ defining the :py:class:`~.DirichletBC` we must index the function space
 used.  For example, to specify that the third component of a
 :py:func:`~.VectorFunctionSpace` should take the boundary value 0, we write:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = VectorFunctionSpace(mesh, ...)
    bc = DirichletBC(V.sub(2), Constant(0), boundary_ids)
@@ -543,7 +543,7 @@ manner, one pulls out the indexed sub-space, rather than a component.
 For example, to specify the velocity values in a Taylor-Hood
 discretisation we write:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = VectorFunctionSpace(mesh, "CG", 2)
    P = FunctionSpace(mesh, "CG", 1)
@@ -555,7 +555,7 @@ If we only wanted to specify a single component, we would have to
 index twice.  For example, specifying that the x-component of the
 velocity is zero, using the same function space definitions:
 
-.. code-block:: python
+.. code-block:: python3
 
    bcv_x = DirichletBC(W.sub(0).sub(0), Constant(0), boundary_ids)
 
@@ -582,7 +582,7 @@ determining boundary condition nodes, use the :py:data:`method`
 argument to the :py:class:`DirichletBC` constructor.  For example, to
 select geometric boundary node determination we would write:
 
-.. code-block:: python
+.. code-block:: python3
 
    V = FunctionSpace(mesh, 'DG', 2)
    bc = DirichletBC(V, 1.0, subdomain_id, method="geometric")
@@ -603,7 +603,7 @@ or a UFL expression if it has both space and
 time-dependence.  For example, a purely time-varying boundary
 condition might be implemented as:
 
-.. code-block:: python
+.. code-block:: python3
 
    c = Constant(sin(t))
    bc = DirichletBC(V, c, 1)
@@ -615,7 +615,7 @@ condition might be implemented as:
 If the boundary condition instead has both space and time dependence
 we can write:
 
-.. code-block:: python
+.. code-block:: python3
 
    c = Constant(t)
    e = sin(x[0]*c)

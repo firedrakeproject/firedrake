@@ -56,12 +56,12 @@ def test_internal_integral(f):
 
 def test_facet_integral_with_argument(f):
     v = TestFunction(f.function_space())
-    assert np.allclose(assemble(f*v*ds).dat.data_ro.sum(), 2.0)
+    assert np.allclose(assemble(inner(f, v) * ds).dat.data_ro.sum(), 2.0)
 
 
 def test_bilinear_cell_integral(dg_trial_test):
     u, v = dg_trial_test
-    cell = assemble(u*v*dx).M.values
+    cell = assemble(inner(u, v) * dx).M.values
     # each diagonal entry should be volume of cell
     assert np.allclose(np.diag(cell), 0.5)
     # all off-diagonals should be zero
@@ -71,7 +71,7 @@ def test_bilinear_cell_integral(dg_trial_test):
 
 def test_bilinear_exterior_facet_integral(dg_trial_test):
     u, v = dg_trial_test
-    outer_facet = assemble(u*v*ds).M.values
+    outer_facet = assemble(inner(u, v) * ds).M.values
     # each diagonal entry should be length of exterior facet in this
     # cell (2)
     assert np.allclose(np.diag(outer_facet), 2.0)
@@ -111,7 +111,7 @@ def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
 
     form = 0
     for u_r, v_r in zip(trial_r, test_r):
-        form = form + u(u_r)*v(v_r)*dS
+        form = form + inner(u(u_r), v(v_r)) * dS
         exact[idx[v_r], idx[u_r]] += sqrt(2)
 
     interior_facet = assemble(form).M.values
@@ -124,9 +124,9 @@ def test_contravariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
     u = project(Constant((0.0, 1.0)), V)
-    assert abs(assemble(dot(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(dot(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(dot(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
 
 
 @pytest.mark.parametrize('space', ["N1curl", "N2curl"])
@@ -134,9 +134,9 @@ def test_covariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
     u = project(Constant((0.0, 1.0)), V)
-    assert abs(assemble(dot(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(dot(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(dot(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
 
 
 def test_internal_integral_unit_tri():

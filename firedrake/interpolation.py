@@ -7,11 +7,12 @@ from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_base_element
 from tsfc import compile_expression_dual_evaluation
 
 import firedrake
 from firedrake import utils
+from firedrake.adjoint import annotate_interpolate
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -24,8 +25,21 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
-    Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
-    it was a Function).
+
+    :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
+        it was a Function).
+
+    .. note::
+
+       If you use an access descriptor other than ``WRITE``, the
+       behaviour of interpolation is changes if interpolating into a
+       function space, or an existing function. If the former, then
+       the newly allocated function will be initialised with
+       appropriate values (e.g. for MIN access, it will be initialised
+       with MAX_FLOAT). On the other hand, if you provide a function,
+       then it is assumed that its values should take part in the
+       reduction (hence using MIN will compute the MIN between the
+       existing values and any new values).
 
     .. note::
 
@@ -55,12 +69,17 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
-        self.callable, arguments = make_interpolator(expr, V, subset, access)
+        try:
+            self.callable, arguments = make_interpolator(expr, V, subset, access)
+        except FIAT.hdiv_trace.TraceError:
+            raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
+        self.expr = expr
         self.V = V
 
+    @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
         :arg function: If the expression being interpolated contains an
@@ -131,6 +150,13 @@ def make_interpolator(expr, V, subset, access):
             V = f.function_space()
         else:
             f = firedrake.Function(V)
+            if access in {firedrake.MIN, firedrake.MAX}:
+                finfo = numpy.finfo(f.dat.dtype)
+                if access == firedrake.MIN:
+                    val = firedrake.Constant(finfo.max)
+                else:
+                    val = firedrake.Constant(finfo.min)
+                f.assign(val)
         tensor = f.dat
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
@@ -180,7 +206,7 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
-        to_element = create_element(V.ufl_element(), vector_is_mixed=False)
+        to_element = create_base_element(V.ufl_element())
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -199,20 +225,26 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
+    parameters = {}
+    parameters['scalar_type'] = utils.ScalarType
+
     if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
-        ast, oriented, needs_cell_sizes, coefficients, _ = compile_expression_dual_evaluation(expr, to_element, coords, coffee=False)
-        kernel = op2.Kernel(ast, ast.name)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element,
+                                                                                                                       domain=V.mesh(),
+                                                                                                                       parameters=parameters,
+                                                                                                                       coffee=False)
+        kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
-        for dual in to_element.dual_basis():
+        for dual in to_element.fiat_equivalent.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
             pts, = dual.pt_dict.keys()
             to_pts.append(pts)
-
         kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
+        first_coeff_fake_coords = False
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
 
@@ -221,6 +253,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         assert subset.superset == cell_set
         cell_set = subset
     parloop_args = [kernel, cell_set]
+
+    if first_coeff_fake_coords:
+        # Replace with real coords coefficient
+        coefficients[0] = coords
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -276,7 +312,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     function provided."""
 
     coords_space = coords.function_space()
-    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
+    coords_element = create_base_element(coords_space.ufl_element()).fiat_equivalent
 
     X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 

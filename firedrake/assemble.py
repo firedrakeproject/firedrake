@@ -106,22 +106,27 @@ def assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-def get_mat_type(mat_type, sub_mat_type):
+def get_mat_type(mat_type, sub_mat_type, arguments):
     """Provide defaults and validate matrix-type selection.
 
     :arg mat_type: PETSc matrix type for the assembled matrix.
     :arg sub_mat_type: PETSc matrix type for blocks if mat_type is
         nest.
+    :arg arguments: The test and trial functions.
     :raises ValueError: On bad arguments.
     :returns: 2-tuple of validated mat_type, sub_mat_type.
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-    if mat_type not in ["matfree", "aij", "baij", "nest", "dense"]:
+        if any(V.ufl_element().family() == "Real"
+               for arg in arguments
+               for V in arg.function_space()):
+            mat_type = "nest"
+    if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in ["aij", "baij"]:
+    if sub_mat_type not in {"aij", "baij"}:
         raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
     return mat_type, sub_mat_type
 
@@ -195,7 +200,8 @@ def get_matrix(expr, mat_type, sub_mat_type, *, bcs=None,
        tensor, callable is a function of zero arguments that returns
        the tensor.
     """
-    mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type)
+    mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type,
+                                          expr.arguments())
     matfree = mat_type == "matfree"
     arguments = expr.arguments()
     if bcs is None:
@@ -405,7 +411,7 @@ def get_scalar(arguments, *, tensor=None):
     if tensor is not None:
         raise ValueError("Can't assemble 0-form into existing tensor")
 
-    tensor = op2.Global(1, [0.0])
+    tensor = op2.Global(1, [0.0], dtype=utils.ScalarType)
     return tensor, (), lambda: tensor.data[0]
 
 
@@ -655,7 +661,8 @@ def _assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
     :arg options_prefix: An options prefix for the PETSc matrix
         (ignored if not assembling a bilinear form).
     """
-    mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type)
+    mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type,
+                                          expr.arguments())
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
     else:

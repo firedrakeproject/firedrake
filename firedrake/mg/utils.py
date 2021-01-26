@@ -1,7 +1,7 @@
 import numpy
 from fractions import Fraction
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import ufl
 import firedrake
@@ -140,6 +140,7 @@ def physical_node_locations(V):
         return cache[key]
     except KeyError:
         Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+        # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
         return cache.setdefault(key, locations)
 

@@ -1,23 +1,43 @@
-from tsfc.fiatinterface import create_element
+import os
+import importlib
+
+from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
-import importlib
+
 """
-This requires an explentation.
-Vtk has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
-However, we only need vtkCommonKitPython, which, according to ldd, only cares about
-things that we should expect: libc, libdl.so, libstdc++, libm, libgcc_s.
-Thus, we hackily import the module that lives in vtkCommonKitPython.so
+This requires some explanation:
+VTK has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
+However, we only need vtkCommonDataModel (previously vtkCommonKitPython),
+which, according to ldd, only cares about things that we should expect:
+libc, libdl.so, libstdc++, libm, libgcc_s,
+as well as "vtkCommon" libs and "vtkPython" libs.
+Thus, we hackily import the module that lives in vtkCommonDataModel.so
+However, since VTK9 this library name is now polluted with the Python version
+and othe system information hence we fish out the exact name by trawling
+through the VTK library directory.
 """
-vtkSoLoc = importlib.util.find_spec("vtk").submodule_search_locations[0]
-vtkSoLoc += "/vtkCommonKitPython.so"
-loader = importlib.machinery.ExtensionFileLoader("vtkCommonKitPython", vtkSoLoc)
-mod = loader.load_module("vtkCommonKitPython")
+vtkSoLoc = importlib.util.find_spec("vtkmodules").submodule_search_locations[0]
+findStr = "vtkCommonDataModel"
+# Find the module name as this is system dependent in VTK9
+contents = os.listdir(vtkSoLoc)
+for item in contents:
+    if (findStr in item) and ("lib" not in item):
+        vtkSoName = "/" + item
+        break
+
+moduleName = "vtkCommonDataModel"
+loader = importlib.machinery.ExtensionFileLoader(moduleName,
+                                                 vtkSoLoc+vtkSoName)
+mod = loader.load_module(moduleName)
+
 vtkLagrangeTetra = mod.vtkLagrangeTetra
 vtkLagrangeHexahedron = mod.vtkLagrangeHexahedron
 vtkLagrangeTriangle = mod.vtkLagrangeTriangle
 vtkLagrangeQuadrilateral = mod.vtkLagrangeQuadrilateral
 vtkLagrangeWedge = mod.vtkLagrangeWedge
+
+paraviewUsesVTK8 = True
 
 
 def firedrake_local_to_cart(element):
@@ -25,7 +45,8 @@ def firedrake_local_to_cart(element):
     :arg element: a ufl element.
     :returns: a list of arrays of floats where each array is a node.
     """
-    fiat_element = create_element(element, vector_is_mixed=False)
+    # TODO: Revise this when FInAT gets dual evaluation
+    fiat_element = create_base_element(element).fiat_equivalent
     # TODO: Surely there is an easier way that I've forgotten?
     return [np.array(list(phi.get_point_dict().keys())[0])
             for phi in fiat_element.dual_basis()]
@@ -171,6 +192,20 @@ def vtk_wedge_local_to_cart(ordersp):
     return loc_to_cart
 
 
+def vtk_hex8_to_hex9(orders):
+    r"""Produce a list where element i is the vtk9 node number
+    of node i in vtk8. For hexes only.
+    :arg orders: the orders of the hex (the same integer 3 times)
+    :return a list of integers
+    """
+    sizes = tuple([o + 1 for o in orders])
+    size = np.product(sizes)
+    nodeNums = range(size)
+    hexa = vtkLagrangeHexahedron()
+    return [hexa.NodeNumberingMappingFromVTK8To9(orders, x)
+            for x in nodeNums]
+
+
 """
 The following functions take a given ufl_element, (indicated by the function name), and
 produce a permutation of the element's basis that turns it into the basis that VTK/Paraview
@@ -220,4 +255,10 @@ def vtk_lagrange_hex_reorder(ufl_element):
     vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
     inv = invert(vtk_local, firedrake_local)
-    return inv
+    if not paraviewUsesVTK8:
+        return inv
+    vtk8_to_vtk9 = vtk_hex8_to_hex9([degree, degree, degree])
+    vtk9_to_vtk8 = [vtk8_to_vtk9.index(x)
+                    for x in range(len(vtk8_to_vtk9))]
+    composed = [inv[x] for x in vtk9_to_vtk8]
+    return composed

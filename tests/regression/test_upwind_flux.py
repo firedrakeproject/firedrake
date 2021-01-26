@@ -58,9 +58,9 @@ def run_test(quadrilateral):
     # D advection equation
     phi = TestFunction(V_dg)
     D = TrialFunction(V_dg)
-    a_mass = phi*D*dx
-    a_int = dot(grad(phi), -u*D)*dx
-    a_flux = (dot(jump(phi), un('+')*D('+') - un('-')*D('-')))*dS
+    a_mass = inner(D, phi) * dx
+    a_int = inner(-u*D, grad(phi)) * dx
+    a_flux = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
 
     arhs = (a_int + a_flux)
 
@@ -79,10 +79,10 @@ def run_test(quadrilateral):
     Ft = TrialFunction(V1)
     Fs = Function(V1)
 
-    aFs = (inner(w('+'), n('+'))*inner(Ft('+'), n('+'))
-           + inner(w('-'), n('-'))*inner(Ft('-'), n('-')))*dS
-    LFs = 2.0*(inner(w('+'), n('+'))*un('+')*D('+')
-               + inner(w('-'), n('-'))*un('-')*D('-'))*dS
+    aFs = (inner(n('+'), w('+')) * inner(Ft('+'), n('+'))
+           + inner(n('-'), w('-')) * inner(Ft('-'), n('-'))) * dS
+    LFs = 2.0*(inner(n('+'), w('+')) * un('+') * D('+')
+               + inner(n('-'), w('-')) * un('-') * D('-')) * dS
 
     Fsproblem = LinearVariationalProblem(aFs, LFs, Fs)
     Fssolver = LinearVariationalSolver(Fsproblem,
@@ -91,7 +91,7 @@ def run_test(quadrilateral):
 
     divFs = Function(V_dg)
 
-    solve(a_mass == phi*div(Fs)*dx, divFs)
+    solve(a_mass == inner(div(Fs), phi) * dx, divFs)
 
     assert errornorm(divFs, D1, degree_rise=0) < 1e-12
 

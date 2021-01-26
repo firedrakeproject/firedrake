@@ -2,7 +2,7 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import cached_property
+from firedrake.utils import cached_property, complex_mode, IntType
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
@@ -26,7 +26,6 @@ from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
-from pyop2.datatypes import IntType
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -633,6 +632,8 @@ class PlaneSmoother(object):
         return out
 
     def __call__(self, pc):
+        if complex_mode:
+            raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
         prefix = pc.getOptionsPrefix()
         sentinel = object()
@@ -687,7 +688,7 @@ class PatchBase(PCSNESBase):
             bcs = ctx._problem.bcs
 
         mesh = J.ufl_domain()
-        self.plex = mesh._topology_dm
+        self.plex = mesh.topology_dm
         # We need to attach the mesh to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
         # constructors) can use firedrake's opinion of what

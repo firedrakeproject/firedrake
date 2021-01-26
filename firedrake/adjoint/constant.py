@@ -143,4 +143,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.values() if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape))
+        return type(self)(numpy.reshape(values, self.ufl_shape), domain=self.ufl_domain())

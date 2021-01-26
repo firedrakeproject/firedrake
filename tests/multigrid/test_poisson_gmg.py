@@ -74,7 +74,7 @@ def run_poisson(typ):
     u = function.Function(V)
     f = function.Function(V)
     v = TestFunction(V)
-    F = dot(grad(u), grad(v))*dx - f*v*dx
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10

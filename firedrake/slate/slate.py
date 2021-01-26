@@ -65,27 +65,26 @@ class BlockIndexer(object):
         self.block_cache = {}
 
     def __getitem__(self, key):
-
-        key = list(as_tuple(key))
-
+        key = as_tuple(key)
         # Make indexing with too few indices legal.
-        key += [slice(None) for i in range(self.tensor.rank - len(key))]
-
+        key = key + tuple(slice(None) for i in range(self.tensor.rank - len(key)))
         if len(key) > self.tensor.rank:
             raise ValueError("Attempting to index a rank-%s tensor with %s indices."
                              % (self.tensor.rank, len(key)))
 
+        block_shape = tuple(len(V) for V in self.tensor.arg_function_spaces)
         # Convert slice indices to tuple of indices.
-        blocks = tuple(range(n)[k] if isinstance(k, slice) else k
-                       for k, n in zip(key, self.tensor.shape))
+        blocks = tuple(as_tuple(range(k.stop)[k] if isinstance(k, slice) else k)
+                       for k, n in zip(key, block_shape))
 
+        if blocks == tuple(tuple(range(n)) for n in block_shape):
+            return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]
         except KeyError:
             block = Block(tensor=self.tensor, indices=blocks)
             self.block_cache[blocks] = block
-
         return block
 
 
@@ -123,6 +122,10 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def _metakernel_cache(self):
         return {}
+
+    @property
+    def children(self):
+        return self.operands
 
     @cached_property
     def expression_hash(self):
@@ -164,7 +167,7 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         shapes = OrderedDict()
         for i, fs in enumerate(self.arg_function_spaces):
-            shapes[i] = tuple(V.finat_element.space_dimension() * V.value_size
+            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
                               for V in fs)
         return shapes
 
@@ -243,7 +246,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
         For example, consider the rank-2 tensor described by:
 
-        .. code-block:: python
+        .. code-block:: python3
 
            V = FunctionSpace(m, "CG", 1)
            W = V * V * V
@@ -254,14 +257,14 @@ class TensorBase(object, metaclass=ABCMeta):
         The tensor `A` has 3x3 block structure. The block defined
         by the form `u*w*dx` could be extracted with:
 
-        .. code-block:: python
+        .. code-block:: python3
 
            A.blocks[0, 0]
 
         While the block coupling `p`, `r`, `q`, and `s` could be
         extracted with:
 
-        .. code-block:: python
+        .. code-block:: python3
 
            A.block[1:, 1:]
 
@@ -447,7 +450,7 @@ class Block(TensorBase):
 
     For example, consider the mixed tensor defined by:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        n = FacetNormal(m)
        U = FunctionSpace(m, "DRT", 1)
