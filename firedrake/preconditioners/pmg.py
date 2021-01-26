@@ -230,9 +230,7 @@ class PMGBase(PCSNESBase):
                             options_prefix=fctx.options_prefix,
                             transfer_manager=fctx.transfer_manager)
 
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx),
-                 teardown=partial(pop_appctx, cdm, cctx),
-                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
         add_hook(parent, setup=inject_state, call_setup=True)
 
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
@@ -442,7 +440,7 @@ def tensor_product_space_query(V):
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
-            variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
+            variant, = set(e.variant() for e in ele.sub_elements())
         except ValueError:
             # Multiple variants
             variant = "unsupported"
