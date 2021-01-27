@@ -391,11 +391,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     import pymbolic.primitives as pym
     pyms = [pyms if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
-
+    c = 0 
     for insn in slate_loopy.instructions:
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
+                c += 1
 
                 # the name of the lhs can change due to inlining,
                 # the indirections do only partially contain the right information
@@ -405,10 +406,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # and retrieve information about the slate node from the indirection
                 # with the cut down name
                 lhs.name = lhs.name[5:] if lhs.name.startswith("matf") else lhs.name
-                slate_node = var2terminal[Variable(lhs.name, pym2gem[lhs].shape)]
+                gem_action_node = pym2gem[lhs]  # we only need this node to the shape
+                slate_node = var2terminal[Variable(lhs.name, gem_action_node.shape)]
                 # rest of the code works with the inlined Variable
                 lhs.name = inlined_name
-                gem_node = Variable(lhs.name, pym2gem[lhs].shape)
+                gem_inlined_node = Variable(lhs.name, gem_action_node.shape)
                 terminal = slate_node.action()
                 coeffs.update(builder.collect_coefficients([slate_node.ufl_coefficient]))
 
@@ -418,7 +420,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 builder.bag.call_name_generator("_"+str(c))
 
                 # TODO get the tempoary which links to the same coefficient as the rhs of this node and init it
-                inits, tensor2temp = builder.initialise_terminals({gem_node: terminal}, builder.bag.coefficients)            
+                inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
                 tensor2temps.update(tensor2temp)
 
                 # temporaries that are filled with calls, which get inlined later,
