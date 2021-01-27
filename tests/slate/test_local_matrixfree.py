@@ -43,6 +43,10 @@ def f(V, mymesh):
                         "A+A+A2",
                         "A+A2+A",
                         "A+A2-A",
+                        "A*A.inv",
+                        "A.inv*A",
+                        "A2*A.inv",
+                        "A2.inv*A",
                         "A-A*A.inv*A"])
 def expr(request, A, A2, f):
     if request.param == "A+A":
@@ -57,13 +61,21 @@ def expr(request, A, A2, f):
         return A+A2-A
     elif request.param == "A-A+A2":
         return A-A+A2
+    elif request.param == "A*A.inv":
+        return A*A.inv
+    elif request.param == "A.inv*A":
+        return A.inv*A
+    elif request.param == "A2*A.inv":
+        return A2*A.inv
+    elif request.param == "A2.inv*A":
+        return A2.inv*A
     elif request.param == "A-A*A.inv*A":
         return A-A*A.inv*A
 
 
 def test_new_slateoptpass(expr, f):
         print("Test is running for expresion " + str(expr))
-        tmp = assemble(expr*f, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False})
-        tmp_opt = assemble(expr*f, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True})
-        assert np.allclose(tmp.dat.data, tmp_opt.dat.data)
+        tmp = assemble(expr*f, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+        tmp_opt = assemble(expr*f, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+        assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
 
