@@ -1169,7 +1169,12 @@ class Solve(BinaryOp):
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
         self._matfree = matfree
-        # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
+
+        if matfree:
+            # keep track of the actions, which we need for the local matrixfree solve
+            self._Aonx = Action(A, AssembledVector(Coefficient(self._arg_fs[0])), 0)
+            self._Aonp = Action(A, AssembledVector(Coefficient(self._arg_fs[0])), 0)
+            # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):

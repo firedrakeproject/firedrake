@@ -223,11 +223,15 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Action)
 def _slate2gem_action(expr, self):
-    return Action(*map(self, expr.children))
+    name = f"A{len(self.var2terminal)}"
+    assert expr not in self.var2terminal.values()
+    var = Variable(name, expr.shape)
+    self.var2terminal[var] = expr
+    return Action(*map(self, expr.children), name)
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    return Solve(*map(self, expr.children), expr._matfree)
+    return Solve(*map(self, expr.children), expr._matfree, self(expr._Aonx), self(expr._Aonp))
 
 
 @_slate2gem.register(sl.Transpose)
@@ -412,6 +416,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 builder.bag = SlateWrapperBag(coeffs, "_"+str(c))
                 builder.bag.call_name_generator("_"+str(c))
 
+                # TODO get the tempoary which links to the same coefficient as the rhs of this node and init it
                 inits, tensor2temp = builder.initialise_terminals({gem_node: terminal}, builder.bag.coefficients)            
                 tensor2temps.update(tensor2temp)
 
