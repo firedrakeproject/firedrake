@@ -169,7 +169,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr)
 
     scalar_type = tsfc_parameters["scalar_type"]
-    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+    (slate_loopy, gem2pym), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
@@ -653,7 +653,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), args[0].copy()
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], return_ctx=True), args[0].copy()
 
 
 def slate_to_cpp(expr, temps, prec=None):
