@@ -568,7 +568,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, coeffs=None):
+    def collect_coefficients(self, coeffs=None, names=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
@@ -577,16 +577,20 @@ class LocalLoopyKernelBuilder(object):
             coeffs = self.expression.coefficients()
         coeff_dict = OrderedDict()
         for i, c in enumerate(coeffs):
+            try:
+                prefix = names[c]
+            except:
+                prefix = "w_{}".format(i)
             element = c.ufl_element()
             if type(element) == MixedElement:
                 mixed = OrderedDict()
                 for j, c_ in enumerate(c.split()):
-                    name = "w_{}_{}".format(i, j)
+                    name = prefix+"_{}".format(j)
                     info = (name, self.extent(c_))
                     mixed.update({c_: info})
                 coeff_dict[c] = mixed
             else:
-                name = "w_{}".format(i)
+                name = prefix
                 coeff_dict[c] = (name, self.extent(c))
         return coeff_dict
 
@@ -751,7 +755,22 @@ class LocalLoopyKernelBuilder(object):
                                              within_inames=frozenset(inames_dep),
                                              predicates=predicates, id=key)
 
-                yield insn, kinfo.kernel.code
+                code = kinfo.kernel.code
+                code = match_kernel_argnames(insn, code)
+                yield insn, code
+
+
+def match_kernel_argnames(insn, code):
+    for c, arg in enumerate(insn.expression.parameters):
+        name_call = arg.subscript.aggregate.name
+        name_code = code.args[c+1].name
+        if not name_call == name_code:
+            new_args = code.args[c+1]
+            new_args.name = name_call
+            replace =  {name_code : arg.subscript.aggregate}
+            code = loopy.transform.parameter.fix_parameters(code, **replace)
+
+    return code
 
 
 class SlateWrapperBag(object):
