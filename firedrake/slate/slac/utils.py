@@ -386,12 +386,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     insns = []
     tsfc_knl_list = []
     tensor2temps = OrderedDict()
-    coeffs = builder.collect_coefficients(builder.expression.coefficients())
+    coeffs = {}
     # invert dict
     import pymbolic.primitives as pym
     pyms = [pyms if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
-    for c, insn in enumerate(slate_loopy.instructions):
+
+    for insn in slate_loopy.instructions:
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
@@ -423,12 +424,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # temporaries that are filled with calls, which get inlined later,
                 # need to be initialised
                 insns.append(*inits)
-
-                # drop all terminals that are initialised now and terminals which are the coefficient in an action
-                keys = [k for k,v in var2terminal.items() if v == slate_node.children[1]]
-                var2terminal.pop(gem_node)
-                if keys:
-                    var2terminal.pop(keys[0])
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
@@ -452,8 +447,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
             insns.append(insn)
 
     # Initialise the very first temporary
-    var2terminal_vectors = {v:t for v,t in var2terminal.items() if len(v.shape)<2}
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, builder.bag.coefficients)            
+    coeffs = builder.collect_coefficients()
+    builder.bag.coefficients = coeffs
+    var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
+                                for (cv,ct) in coeffs.items()
+                                if isinstance(t, sl.AssembledVector)
+                                and t._function==cv}
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, coeffs)            
     tensor2temps.update(tensor2temp)
     if inits:
         insns.insert(0, *inits)
